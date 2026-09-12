@@ -490,6 +490,16 @@ const SYNONYMS: Concept[] = [
   { term: 'footfall', dimension: null, value: 'visits', meaning: 'visits', source: 'glossary' },
   { term: 'due', dimension: null, value: 'outstanding', meaning: 'unpaid balance', source: 'glossary' },
   { term: 'referral amount', dimension: null, value: 'commission', meaning: 'doctor payout from the ledger', source: 'glossary' },
+  /* "give me cost" after "how much has CT-BRAIN PLAIN been billed for" means the RATE, not
+     cost of goods — which this business does not record anywhere. Pulse spent 31 model calls
+     proving that negative instead of reading one column. */
+  /* A PER-UNIT figure. Naming the column was not enough on its own: told that cost meant the
+     rate, the generator summed priceInPaise across 47 orders and reported Rs 1,03,400 as what a
+     single scan is "sold at" — the total wearing the label of a rate, which is worse than the
+     "I could not establish it" it replaced. The instruction has to forbid the aggregate. */
+  { term: 'cost', dimension: null, value: 'price', meaning: 'the PER-UNIT rate one test is sold at: SELECT "basePriceInPaise" FROM "BillableProduct" WHERE code = <test code> (per-branch override in BillableProductBranchPrice). NEVER SUM it and never read it from TestOrder — a total billed is not a rate. This centre records NO cost of goods, purchase cost or overhead anywhere', source: 'glossary' },
+  { term: 'price', dimension: null, value: 'price', meaning: 'the PER-UNIT rate one test is sold at — "BillableProduct"."basePriceInPaise". Never SUM it', source: 'glossary' },
+  { term: 'rate', dimension: null, value: 'price', meaning: 'the PER-UNIT rate one test is sold at — "BillableProduct"."basePriceInPaise". Never SUM it', source: 'glossary' },
 ];
 
 async function buildConcepts(): Promise<Concept[]> {
@@ -511,18 +521,108 @@ async function buildConcepts(): Promise<Concept[]> {
   }
   for (const r of (await query('SELECT name FROM "Department" WHERE "isActive"', [], 100)).rows || [])
     add(r.name, null, String(r.name), `a department — filter tests by TestDefinition.departmentId`, 'department');
-  for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 2000)).rows || [])
+  for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 2000)).rows || []) {
     add(r.c, 'test', String(r.c), `test ${r.n}`, 'test');
+    // The NAME, not only the code. "CT-BRAIN PLAIN" was never a term in this index, so an exact
+    // match could not fire and the two-letter code CT won on substring — which is how a brain
+    // scan was answered with a clotting-time figure.
+    add(r.n, 'test', String(r.c), `test ${r.n} (code ${r.c})`, 'test');
+  }
+
+  /* EVERY enum the schema declares, not the three columns someone remembered to list.
+   *
+   * The owner said "we have types called reportable bill only external" — naming three of the
+   * four values of TestOrder.workflowMode verbatim, across 30,247 orders and Rs 43.3 lakh — and
+   * Pulse replied "No, the system has no report types called that". The values were already in
+   * this same Knowledge object, in k.enums, feeding the SQL generator. The semantic index simply
+   * could not see what the query context could. An index built from a hand-written column list
+   * will always be a subset of the schema; this asks the schema instead. */
+  for (const r of (await query(`SELECT c.table_name t, c.column_name col, e.enumlabel v
+      FROM information_schema.columns c
+      JOIN pg_type ty ON ty.typname = c.udt_name
+      JOIN pg_enum e ON e.enumtypid = ty.oid
+      WHERE c.table_schema = 'public'`, [], 4000)).rows || []) {
+    const where = `"${r.t}"."${r.col}" = '${r.v}'`;
+    const meaning = `a value of ${r.t}.${r.col} — filter with ${where}`;
+    add(r.v, null, String(r.v), meaning, 'schema-enum');
+    // BILL_ONLY is said out loud as "bill only"
+    const spoken = String(r.v).replace(/_/g, ' ');
+    if (spoken !== String(r.v)) add(spoken, null, String(r.v), meaning, 'schema-enum');
+  }
   return out;
 }
 
-/** What does this word mean here? Deterministic, no model call. */
-export function resolveTerm(term: string): Concept[] {
+/**
+ * RESOLUTION — which concept does this word mean, and how sure are we?
+ *
+ * What this replaces: `c.term.includes(t) || t.includes(c.term)`, unranked, first six wins.
+ * Asked what CT-BRAIN PLAIN had been billed, that matched the two-letter lab code CT — Clotting
+ * Time — and Pulse answered ₹1,918 for a test that had actually billed ₹1,01,200. A 53x error,
+ * stated without a hedge, and then forced into three later queries as `test = CT` because the
+ * validator treats a resolved constraint as a commitment. One substring match poisoned the turn.
+ *
+ * So matching is ranked and the rank is deterministic — no model call, because this is exactly
+ * the kind of decision a boring algorithm does better:
+ *
+ *   exact        the same string                              1.00
+ *   normalized   the same once punctuation is flattened       0.95
+ *   prefix       one starts with the other, x length ratio    0.75 x r
+ *   word         one contains the other as a whole word       0.70 x r
+ *   substring    one contains the other anywhere              0.40 x r
+ *
+ * The length ratio is what does the real work: "ct" inside "ct brain plain" is 2 characters of
+ * 14, so even as a clean prefix it scores 0.107 and never commits. A short code cannot outrank a
+ * long name it happens to begin with.
+ */
+export type ResolutionMethod = 'exact' | 'normalized' | 'prefix' | 'word' | 'substring';
+export interface Resolution extends Concept { score: number; how: ResolutionMethod }
+
+const flat = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+function scoreMatch(term: string, q: string): { score: number; how: ResolutionMethod } | null {
+  if (term === q) return { score: 1, how: 'exact' };
+  const a = flat(term), b = flat(q);
+  if (!a || !b) return null;
+  if (a === b) return { score: 0.95, how: 'normalized' };
+  const r = Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  if (b.startsWith(a) || a.startsWith(b)) return { score: 0.75 * r, how: 'prefix' };
+  if (` ${b} `.includes(` ${a} `) || ` ${a} `.includes(` ${b} `)) return { score: 0.7 * r, how: 'word' };
+  if (b.includes(a) || a.includes(b)) return { score: 0.4 * r, how: 'substring' };
+  return null;
+}
+
+/** Below this a match is a lead, not an answer: worth showing, never worth filtering on. */
+export const MIN_CONFIDENCE = 0.3;
+
+/** Every candidate, best first — including the weak ones, so a caller can say what it nearly
+ *  matched instead of pretending it found nothing. */
+export function resolveRanked(term: string): Resolution[] {
   const t = String(term || '').toLowerCase().trim();
   if (!t) return [];
-  const exact = CONCEPTS.filter((c) => c.term === t);
-  if (exact.length) return exact;
-  return CONCEPTS.filter((c) => c.term.includes(t) || t.includes(c.term)).slice(0, 6);
+  const out: Resolution[] = [];
+  for (const c of CONCEPTS) {
+    const m = scoreMatch(c.term, t);
+    if (m && m.score >= 0.04) out.push({ ...c, ...m });
+  }
+  return out.sort((x, y) => y.score - x.score || x.term.length - y.term.length).slice(0, 8);
+}
+
+/** What this word means here, only where we are confident enough to act on it.
+ *
+ *  A phrase that matches nothing whole may still contain the word that does. "external reports"
+ *  matched nothing and Pulse told the owner the concept did not exist, while "external" lands on
+ *  EXTERNAL_UPLOAD — 1,400 orders and Rs 12.4 lakh. The per-word pass is discounted, because a
+ *  word out of a phrase is weaker evidence than the phrase itself, and stopwords are skipped so
+ *  "reports" cannot drag a question towards the nearest thing called a report. */
+export function resolveTerm(term: string): Concept[] {
+  const whole = resolveRanked(term).filter((r) => r.score >= MIN_CONFIDENCE);
+  if (whole.length) return whole;
+  const all = String(term || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (all.length < 2) return [];                       // a single word already had its chance
+  const words = all.filter((w) => w.length > 2 && !VSTOP.has(w));
+  return words.flatMap((w) => resolveRanked(w).map((r) => ({ ...r, score: r.score * 0.8 })))
+    .filter((r) => r.score >= MIN_CONFIDENCE)
+    .sort((a, b) => b.score - a.score).slice(0, 4);
 }
 /** Scope terms the question uses, whatever they are — no hardcoded list. */
 export function scopeTermsIn(q: string): Concept[] {
@@ -586,3 +686,44 @@ export function assemble(k: Knowledge, q: string): string {
   return `DATABASE SCHEMA\n${k.graphSchema}\n\nENUMS\n${k.enums}\n${coverageFor(k, q)}\n${GLOSSARY()}\n${ONTOLOGY}\n${CONVENTIONS}\n${SOFT}\n${METRIC_BLOCK}\n\n${DIM_BLOCK}\n${FEWSHOT}${adv}${resolveValues(k, q)}\n\nQUESTION\n${q}`;
 }
 export { METRICS };
+
+/**
+ * Every phrase in the question that means something here — computed BEFORE the plan, not after.
+ *
+ * The ordering was the bug. Resolution only ever ran on terms the planner had already nominated
+ * as scope, so a term the planner did not think to nominate was never looked up at all: asked
+ * "how much am i making from external reports per month", the planner saw no scope worth naming,
+ * nothing resolved, and the answer was that the concept does not exist — while "external" sits
+ * one lookup away from EXTERNAL_UPLOAD. The catalogue cannot accelerate a question it is never
+ * shown.
+ *
+ * Longest n-gram first, so "ct-brain plain" is tried before "ct" and the short code never gets
+ * the chance to win.
+ */
+export function termsIn(q: string): Resolution[] {
+  const words = String(q || '').toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean).slice(0, 40);
+  const out = new Map<string, Resolution>();
+  const covered: boolean[] = words.map(() => false);
+  for (let n = Math.min(4, words.length); n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      if (covered.slice(i, i + n).some(Boolean)) continue;       // a longer phrase already claimed these
+      const phrase = words.slice(i, i + n).join(' ');
+      if (n === 1 && (VSTOP.has(phrase) || phrase.length < 3)) continue;
+      const hit = resolveRanked(phrase).find((r) => r.score >= MIN_CONFIDENCE);
+      if (!hit) continue;
+      for (let j = i; j < i + n; j++) covered[j] = true;
+      const key = `${hit.dimension}=${hit.value}`;
+      if (!out.has(key)) out.set(key, { ...hit, term: phrase });
+    }
+  }
+  return [...out.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+}
+
+/** The resolved terms, as a block the planner can read. Empty string when nothing resolved — an
+ *  empty block is better than a heading promising grounding that is not there. */
+export function termsBlock(q: string): string {
+  const hits = termsIn(q);
+  if (!hits.length) return '';
+  return `TERMS IN THIS QUESTION, ALREADY RESOLVED AGAINST LIVE DATA — use these literals, do not re-derive them\n`
+    + hits.map((h) => `  "${h.term}" = ${h.value}${h.dimension ? ` (dimension ${h.dimension})` : ''} — ${h.meaning}`).join('\n') + '\n\n';
+}

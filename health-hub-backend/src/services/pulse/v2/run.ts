@@ -5,10 +5,10 @@
  * typical question costs 3 model calls (plan, insight, respond) regardless of how many things it
  * looks at. Only "query" steps add a call each.
  */
-import { ensureKnowledge, mentionsKnown, scopeTermsIn } from '../knowledge';
+import { ensureKnowledge, mentionsKnown, termsBlock, scopeTermsIn } from '../knowledge';
 import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
-import { completeSpec, lineage, type AnalysisSpec } from './spec';
+import { completeSpec, lineage, recheckScope, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
 import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage,
   missingRequirements, type Investigation, type RoundProgress } from './investigation';
@@ -80,7 +80,10 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     : '');
 
   say('Working out what to measure', 'phase');
-  const plan = await askPlan(q, ctx); calls++;
+  // Resolve the question's own words BEFORE planning. Doing it afterwards meant only terms the
+  // planner nominated got looked up, so anything it failed to notice was reported as a concept
+  // the business does not have.
+  const plan = await askPlan(q, termsBlock(q) + ctx); calls++;
   if (plan.goal) say(String(plan.goal).slice(0, 140), 'objective');
   const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
   if (plan.phi) return { kind: 'refuse', reason: 'patient_level',
@@ -153,6 +156,11 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.reduce((n, e) => n + (e.calls ?? (e.tool === 'query' ? 1 : 0)), 0);   // generation AND every repair
     evidence.push(...got);
+    // If this round resolved a term better than the spec had, amend it and withdraw whatever was
+    // built on the old literal. A correction the owner has to read in a paragraph, while the wrong
+    // figure is still rendered above it, is not a correction.
+    for (const f of recheckScope(spec, got, evidence))
+      say(`Correcting "${f.term}": ${f.from} → ${f.to}, and dropping what was built on it`, 'phase');
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
     if (rounds === 1 && evidence.length === 1 && evidence[0].ok) break;

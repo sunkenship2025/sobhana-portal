@@ -12,7 +12,7 @@ import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } fr
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate } from '../validator';
-import { repairIdents, resolveTerm, type Knowledge } from '../knowledge';
+import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 
 export interface Evidence {
@@ -228,6 +228,8 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
   return { ok: true, metric: `${num}_per_${den}`, unit, period: p.cur,
     summary: { derived: `${num} ÷ ${den}`, value: unit === 'paise' ? fmt(v, 'paise') : unit === 'ratio' ? (v * 100).toFixed(1) + '%' : v.toFixed(2), basis: `${fmt(n, U(num))} ÷ ${fmt(d, U(den))}` }, data: { value: v, numerator: n, denominator: d } };
 }
+const summedOrdersIn = (sql: string) => /SUM\s*\(\s*\w*\.?"?priceInPaise"?/i.test(sql);
+
 /** anything the registry cannot express — one generated SELECT, validated like any other */
 async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
@@ -271,6 +273,44 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   // so the wrong one overstates the debtor count nearly fivefold. This was written into the
   // conventions and the generator still reached for the flag on the next run: a prompt rule is
   // guidance, not enforcement, and money needs enforcement.
+  /* Two money-grain rules that a prompt could not hold. Both were written into the conventions
+     three different ways and the generator went on ignoring them, which is the lesson of this
+     whole codebase: an invariant described is not an invariant enforced.
+
+     RATE vs TOTAL. "give me cost" for one test means the per-unit rate. The generator answered
+     SUM(o."priceInPaise") over 47 orders and the writer reported Rs 1,03,400 as what a single
+     scan "is sold at" — the total wearing a rate's label, which is worse than the "I could not
+     establish it" it replaced, because it looks like an answer.
+
+     TEST-SCOPED MONEY. "how much has CT-BRAIN PLAIN been billed for" is the sum of ITS order
+     lines, not of every bill that happened to contain one. The same question answered Rs 83,700
+     and Rs 1,03,400 on consecutive runs depending on which grain the generator picked. */
+  const rateQ = /\b(cost|price|rate|charge[sd]?|mrp|how much (is|does|do)|what (is|does) .* (cost|charge))\b/i.test(q)
+    && !/\btotal|\bsum|\brevenue|\bcollect|\bbilled for|\ball\b/i.test(q);
+  const summedOrders = () => /SUM\s*\(\s*\w*\.?"?priceInPaise"?/i.test(sql);
+  if (rateQ && summedOrders()) {
+    spent++;
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: RATE_NOT_TOTAL. The question asks what one unit COSTS, and this query sums a price across many orders — a total is not a rate. Read the per-unit rate instead: SELECT bp.name, bp.code, bp."basePriceInPaise" FROM "BillableProduct" bp WHERE bp.code = '<the test code>' (or bp.name ILIKE the test name). Do not aggregate. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2) && !summedOrdersIn(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'RATE_NOT_TOTAL'; } }
+    } catch { /* keep what we had */ }
+  }
+  // money for a NAMED test comes from that test's order lines, never from whole-bill totals
+  const testScoped = (spec?.scope || []).some((c: any) => c?.dimension === 'test');
+  if (testScoped && /"Bill"/.test(sql) && /b\."?(totalAmountInPaise|paidAmountInPaise)"?/i.test(sql) && !/o\."?priceInPaise"?/i.test(sql)) {
+    spent++;
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: TEST_GRAIN. The question is about ONE test, but this sums whole-bill amounts for every bill that contained it — those bills also contain other tests. Sum that test's own order lines: SUM(o."priceInPaise") over "TestOrder" o filtered to the test, joined to "Visit" for branch. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
+    } catch { /* keep what we had */ }
+  }
+
   const duesQ = /\b(due|dues|outstanding|owes?|owing|unpaid|receivab)/i.test(q);
   const badDue = () => duesQ && /"Bill"/.test(sql) && (/"paymentStatus"/.test(sql) || !/paidAmountInPaise/.test(sql));
   if (badDue()) {
@@ -517,14 +557,39 @@ async function t_anomalies(a: any): Promise<Partial<Evidence>> {
     summary: { by, window: `${days} days`, rows: writerRows(ex.rows, 15) }, data: { rows: ex.rows } };
 }
 
-/** What does this word mean in this business? Deterministic lookup, no model call. */
+/**
+ * What does this word mean in this business? Deterministic lookup, no model call.
+ *
+ * AN INDEX MISS IS NOT AN ABSENCE. This tool used to answer "not a known concept", and the
+ * analyst — reasonably — turned that into "the centre has no concept called X". Asked about
+ * report types the owner had just named himself, Pulse replied "No, the system has no report
+ * types called 'reportable', 'bill only', or 'external'" while those exact values sat in
+ * TestOrder.workflowMode across 30,247 orders. The tool said "I did not find it" and the answer
+ * said "you do not have it", and nothing in between marked that as a different claim.
+ *
+ * So a miss now says what it actually is — a lookup that failed — names what it nearly matched,
+ * and points at where the answer may still live. The catalogue is an accelerator, never the
+ * authority on what exists.
+ */
 async function t_resolve(a: any): Promise<Partial<Evidence>> {
   const terms = (Array.isArray(a.terms) ? a.terms : [a.term ?? a.terms]).filter(Boolean).map(String).slice(0, 6);
   if (!terms.length) return { ok: false, error: 'no terms given' };
-  const found = terms.map((t: string) => ({ term: t, matches: resolveTerm(t).map((c) => ({ filter: c.dimension ? { [c.dimension]: c.value } : null, means: c.meaning, from: c.source })) }));
-  return { ok: true, detail: terms.join(', '),
-    summary: { resolved: found.map((f: any) => f.matches.length ? { term: f.term, ...f.matches[0], alternatives: f.matches.slice(1, 3) } : { term: f.term, means: 'not a known concept — treat it as ordinary English or ask' }) },
-    data: found };
+  const one = (c: any) => ({ filter: c.dimension ? { [c.dimension]: c.value } : null, value: c.value,
+    means: c.meaning, from: c.source, how: c.how, confidence: Number(c.score?.toFixed?.(2) ?? c.score) });
+  const found = terms.map((t: string) => {
+    const committed = resolveTerm(t).map(one);
+    if (committed.length) return { term: t, ...committed[0], alternatives: committed.slice(1, 3) };
+    // nothing confident. Show the near misses — including per-word, because "external reports"
+    // misses as a phrase while "external" lands squarely on EXTERNAL_UPLOAD.
+    const near = [...resolveRanked(t), ...String(t).split(/[^A-Za-z0-9]+/).filter((w) => w.length > 2).flatMap((w) => resolveRanked(w))]
+      .sort((x, y) => y.score - x.score).slice(0, 4).map(one);
+    return { term: t, resolved: false,
+      means: 'NOT FOUND IN THE CONCEPT INDEX. This means the lookup failed, NOT that the business lacks it. '
+        + 'The index is built from data values and schema enums and is incomplete by construction. '
+        + 'Before saying the centre does not have this, look in the schema and the ENUMS block yourself.',
+      nearest: near };
+  });
+  return { ok: true, detail: terms.join(', '), summary: { resolved: found }, data: found };
 }
 
 export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evidence>>> = {

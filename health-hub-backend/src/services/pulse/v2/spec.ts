@@ -12,7 +12,7 @@
  * a warning — and the repair is told exactly which one went missing.
  */
 import { DIMS, METRICS } from '../catalog';
-import { resolveTerm, concepts } from '../knowledge';
+import { resolveRanked, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
 import { periods } from '../diagnostic';
 
 export interface ScopeConstraint {
@@ -22,6 +22,13 @@ export interface ScopeConstraint {
   dimension: string;
   /** the literal it must filter on, e.g. DIAGNOSTICS, CNT */
   value: string;
+  /** HOW we got from the owner's word to that literal, and how sure we are. A constraint is only
+   *  ENFORCED when the resolution is solid — "CT-BRAIN PLAIN" once resolved to the lab code CT on
+   *  a substring match and the validator then forced `test = CT` into three separate queries,
+   *  turning one bad lookup into a whole turn of wrong answers. A guess may guide a query; only a
+   *  confident resolution may gate one. */
+  how?: string;
+  confidence?: number;
   /** when the term covers several literals — "my business" is CNT and BLN, not a branch called
    *  "CNT,BLN". Defaults to [value]; every one of them must survive into the SQL. */
   values?: string[];
@@ -133,6 +140,8 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
   const timeMissing = timeHonoured(spec?.time, s) ? undefined : spec?.time;
   const missing = spec.scope.filter((c) => {
     if (!c?.dimension || !c?.value) return false;
+    // Only a resolution we stand behind may reject a query. An unconfident one is a hint.
+    if (c.confidence != null && c.confidence < MIN_CONFIDENCE) return false;
     const col = COLUMNS[c.dimension];
     const hasCol = col ? col.test(s) : new RegExp(`"?${c.dimension}"?`, 'i').test(s);
     if (DERIVED.has(c.dimension)) return !hasCol;
@@ -184,8 +193,8 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     // the owner got a confident 0 instead of 265. A validator that can only check a constraint
     // reached the SQL will happily enforce a wrong one; the constraint itself has to be grounded
     // first. Only fall back to what the planner wrote when the term resolves to nothing.
-    const hit = resolveTerm(c?.term || '')[0];
-    if (hit?.dimension && hit.value) { scope.push({ term: c.term, dimension: hit.dimension, value: hit.value }); continue; }
+    const hit = resolveRanked(c?.term || '').find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
+    if (hit) { scope.push({ term: c.term, dimension: hit.dimension!, value: hit.value!, how: hit.how, confidence: hit.score }); continue; }
     // The same bug wearing a new costume. "ultrasound" got through because the DIMENSION name was
     // valid; so did branch = "CNT,BLN", which is not a branch but two, and which then became a
     // hard gate every correct query failed. A valid dimension is not a grounded constraint — the
@@ -195,7 +204,9 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     const known = valuesFor(c.dimension);
     const values = String(c.value).split(',').map((v) => v.trim()).filter((v) => v && (!known.size || known.has(v)));
     if (!values.length) continue;
-    scope.push({ term: c.term, dimension: c.dimension, value: values[0], values });
+    // The planner's own guess. It may be right, and it may be "CT" for a question about
+    // CT-BRAIN PLAIN. It gets to shape the query; it does not get to gate it.
+    scope.push({ term: c.term, dimension: c.dimension, value: values[0], values, how: 'planner', confidence: 0.25 });
   }
   const metric = spec.measure?.metric && METRICS[spec.measure.metric] ? spec.measure.metric : null;
 
@@ -221,4 +232,44 @@ export function lineage(spec: AnalysisSpec | null, extra?: string): string {
   if (spec.scope?.length) bits.push(`for ${spec.scope.map((c) => `${c.term} (${c.dimension}=${c.value})`).join(' and ')}`);
   if (spec.time?.phrase || spec.time?.period) bits.push(`over ${spec.time.phrase || spec.time.period}`);
   return [bits.join(' '), extra].filter(Boolean).join(' · ');
+}
+
+/**
+ * RETROACTIVE CORRECTION — a resolution found to be wrong must take its figures with it.
+ *
+ * The failure: asked what CT-BRAIN PLAIN had billed, Pulse answered Rs 1,918 — the clotting-time
+ * figure. Asked again a minute later it worked out exactly what had gone wrong and SAID SO:
+ * "the name resolver mapped CT-BRAIN PLAIN to the lab test CT (Clotting Time), which is wrong for
+ * a brain scan". And then it left the Rs 1,918 standing. A correction that lives in prose while
+ * the number it disproves is still on screen is not a correction; it is a footnote on a lie.
+ *
+ * So when a later step resolves a term better than the spec did, the spec is amended and every
+ * piece of evidence that filtered on the disowned literal is WITHDRAWN — it stops being usable,
+ * stops being renderable, and its requirements go back to unmet, which is what makes the loop go
+ * and fetch the right number rather than narrate the wrong one.
+ */
+export function recheckScope(spec: AnalysisSpec | null | undefined, fresh: any[], all: any[]):
+  { term: string; from: string; to: string }[] {
+  const fixes: { term: string; from: string; to: string }[] = [];
+  const same = (a: string, b: string) => String(a || '').toLowerCase().trim() === String(b || '').toLowerCase().trim();
+  for (const e of fresh || []) {
+    if (e?.tool !== 'resolve' || !e.ok) continue;
+    for (const r of (Array.isArray(e.data) ? e.data : []) as any[]) {
+      const c = (spec?.scope || []).find((x) => same(x.term, r?.term));
+      if (!c || !r?.value || typeof r.confidence !== 'number') continue;
+      if (r.confidence < MIN_CONFIDENCE || String(r.value) === String(c.value)) continue;
+      if (r.confidence <= (c.confidence ?? 0)) continue;          // not actually better
+      fixes.push({ term: c.term, from: String(c.value), to: String(r.value) });
+      c.value = String(r.value); c.values = undefined; c.how = r.how; c.confidence = r.confidence;
+    }
+  }
+  for (const f of fixes) {
+    const lit = new RegExp(`'${f.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`, 'i');
+    for (const e of all || []) {
+      if (!e?.ok || !e.sql || !lit.test(e.sql)) continue;
+      e.ok = false;
+      e.error = `withdrawn — this was filtered on ${f.term} = ${f.from}, which has since resolved to ${f.to}`;
+    }
+  }
+  return fixes;
 }
