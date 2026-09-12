@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { API_BASE } from "@/lib/api";
+import { primaryPhoneOf } from "@/lib/patientDisplay";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -612,6 +613,9 @@ const DiagnosticsNewVisit = () => {
     const p = prefillState?.prefillPatient;
     if (!p) return;
     prefilledRef.current = true;
+    // The form is phone-first and submits `phone`; without this the visit would
+    // be filed with an empty number.
+    setPhone(primaryPhoneOf(p));
     handleSelectPatient({ patient: p } as PatientSearchResult);
     // Drop it from history so a refresh or Back does not re-prefill.
     navigate(location.pathname, { replace: true, state: null });

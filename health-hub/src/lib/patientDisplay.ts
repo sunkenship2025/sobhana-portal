@@ -72,3 +72,14 @@ export function formatRefDoctor(name?: string | null): string {
   // following space, e.g. "Dr.SHARATH") so we never produce "Dr. Dr.SHARATH".
   return /^dr[.\s]/i.test(n) ? n : `Dr. ${n}`;
 }
+
+/**
+ * The patient's number, from identifiers — Patient has no `phone` field. Both
+ * new-visit forms are phone-first and SUBMIT `phone`, so a prefilled patient
+ * with an empty phone box would file the visit with no number on it.
+ */
+export function primaryPhoneOf(patient?: { identifiers?: { type: string; value: string; isPrimary?: boolean }[] } | null): string {
+  const ids = patient?.identifiers ?? [];
+  const phones = ids.filter((i) => i.type === "PHONE");
+  return (phones.find((i) => i.isPrimary) ?? phones[0])?.value ?? "";
+}

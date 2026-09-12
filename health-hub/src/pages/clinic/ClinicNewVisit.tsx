@@ -44,7 +44,7 @@ import {
   type ValidationErrors,
   validatePatientForm,
 } from "@/lib/validation";
-import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
+import { TITLE_TO_GENDER, titleOptions, formatPatientName, primaryPhoneOf } from "@/lib/patientDisplay";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
@@ -395,6 +395,9 @@ const ClinicNewVisit = () => {
     // 1. A concrete patient (from the detail page) — select it directly.
     if (state.prefillPatient) {
       consumedPrefill.current = true;
+      // Phone-first form, and `phone` is submitted with the visit — carry the
+      // patient's number over or the visit is filed without one.
+      setPhone(primaryPhoneOf(state.prefillPatient));
       handleSelectPatient(state.prefillPatient);
       return;
     }
