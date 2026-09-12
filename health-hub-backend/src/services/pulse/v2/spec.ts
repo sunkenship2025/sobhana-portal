@@ -14,6 +14,7 @@
 import { DIMS, METRICS } from '../catalog';
 import { resolveRanked, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
 import { periods } from '../diagnostic';
+import { scopeOf, restrictsBy } from './sqlscope';
 
 export interface ScopeConstraint {
   /** what the owner said — "lab", "chintal", "only cash" */
@@ -137,6 +138,12 @@ function timeHonoured(t: TimeConstraint | undefined, sql: string): boolean {
 export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): SpecCheck {
   if (!sql || (!spec?.scope?.length && !spec?.time)) return { ok: true, missing: [] };
   const s = String(sql);
+  /* Does the constraint restrict the rows the ANSWER is computed from, or merely appear in the
+     text? A string search cannot tell those apart, and they come apart in the one case where
+     being wrong is invisible — a filter inside a CTE nothing references. On real generated SQL
+     this parses 100% of the time; when it does not, we fall back to the string check rather than
+     reject a query we only failed to understand. */
+  const scope = scopeOf(s);
   const timeMissing = timeHonoured(spec?.time, s) ? undefined : spec?.time;
   const missing = spec.scope.filter((c) => {
     if (!c?.dimension || !c?.value) return false;
@@ -149,10 +156,11 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
     // was checked as one string: the SQL said IN ('CNT','BLN') and the check looked for the
     // literal 'CNT,BLN', so five correct queries were rejected for dropping a constraint they
     // had honoured. A validator that rejects correct work is worse than no validator.
-    const hasVal = (c.values?.length ? c.values : [c.value]).every((one) => {
-      const v = String(one).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
-    });
+    const hasVal = (c.values?.length ? c.values : [c.value]).every((one) =>
+      scope.parsed ? restrictsBy(scope, String(one)) : (() => {
+        const v = String(one).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
+      })());
     return !(hasCol && hasVal);
   });
   const notes = [
