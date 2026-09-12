@@ -109,16 +109,23 @@ function walk(stmt: any, ctes: Map<string, any>, preds: Predicate[], tables: Set
   }
   if (stmt.where) predicatesIn(stmt.where, preds);
   for (const f of stmt.from || []) {
-    if (f?.join?.on) predicatesIn(f.join.on, preds);
+    if (f?.join?.on && !/left|right|full/i.test(String(f.join.type || ''))) predicatesIn(f.join.on, preds);
+    /* REACHABLE IS NOT RESTRICTING. A CTE brought in by LEFT JOIN adds columns and removes no
+       rows, so a filter inside it constrains nothing about the answer — and "how much has
+       CT-BRAIN PLAIN been billed for" returned ₹8,69,235, near the whole month's collection,
+       from SQL where the CT filter lived in exactly such a CTE. The predicate was present, the
+       CTE was referenced, and the total was over everything. An outer join's predicates are
+       therefore not collected. */
+    const outer = /left|right|full/i.test(String(f?.join?.type || ''));
     if (f?.type === 'table') {
       const name = f.name?.name;
       if (!name) continue;
       if (ctes.has(name)) {
-        if (seen.has(name)) continue;                       // a CTE contributes once
+        if (seen.has(name) || outer) continue;              // a CTE contributes once, and never through an outer join
         seen.add(name);
         walk(ctes.get(name), ctes, preds, tables, seen, depth + 1);
       } else tables.add(String(name));
-    } else if (f?.type === 'statement') walk(f.statement, ctes, preds, tables, seen, depth + 1);
+    } else if (f?.type === 'statement' && !outer) walk(f.statement, ctes, preds, tables, seen, depth + 1);
     else if (f?.type === 'call') { /* a set-returning function contributes no rows we can check */ }
   }
 }
