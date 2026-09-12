@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { API_BASE } from "@/lib/api";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,6 +81,7 @@ type DiscountMode = "NONE" | BillDiscountType;
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
@@ -600,6 +601,21 @@ const DiagnosticsNewVisit = () => {
     // Focus the referral doctor field once the referral card has committed (step 30).
     goToStep(30);
   };
+
+  // Arriving from Patient 360's "New visit": the patient is already chosen, so
+  // skip the search step instead of making them look up someone they were just
+  // looking at. Runs once — re-running would yank focus back on every render.
+  const prefillState = location.state as { prefillPatient?: Patient } | null;
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current) return;
+    const p = prefillState?.prefillPatient;
+    if (!p) return;
+    prefilledRef.current = true;
+    handleSelectPatient({ patient: p } as PatientSearchResult);
+    // Drop it from history so a refresh or Back does not re-prefill.
+    navigate(location.pathname, { replace: true, state: null });
+  }, [prefillState, navigate, location.pathname]);
 
   const totalAmount = selectedProducts.reduce((sum, prodId) => {
     const product = products.find((p) => p.id === prodId);

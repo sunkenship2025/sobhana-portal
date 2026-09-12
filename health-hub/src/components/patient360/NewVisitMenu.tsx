@@ -1,9 +1,15 @@
 /**
  * NewVisitMenu — dropdown deep-linking into the new-visit flow (§2, §4).
  *
- * Navigates to /clinic/new (the verified canonical route — there is NO
- * /clinic/new-visit) carrying { prefillPatientId, prefillPatient, prefillDomain }
- * in location.state. ClinicNewVisit reads this via its prefill reader.
+ * Each domain goes to ITS OWN page — /diagnostics/new or /clinic/new — carrying
+ * { prefillPatientId, prefillPatient } in location.state. It used to send both
+ * to /clinic/new and pass prefillDomain for the page to sort out, but nothing
+ * read prefillDomain, so picking "Diagnostic visit" opened the clinic form.
+ *
+ * Plain buttons, not a cmdk Command. A Command is a search palette: with no
+ * CommandInput its filter had nothing to match these two items against, so the
+ * popover opened empty and the button looked dead. Two fixed choices need a
+ * list, not a search engine.
  *
  * `enabledDomains` is OPTIONAL and defaults to ALL domains. Per MEMORY we do NOT
  * build a per-tenant toggle framework here — the prop is the seam for Axora to
@@ -16,12 +22,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { ChevronRight, Plus } from "lucide-react";
 import type { Patient, VisitDomain } from "@/types";
 
@@ -43,12 +43,8 @@ export function NewVisitMenu({ patientId, patient, enabledDomains }: NewVisitMen
   const domains = enabledDomains && enabledDomains.length > 0 ? enabledDomains : ALL_DOMAINS;
 
   const startVisit = (domain: VisitDomain) => {
-    navigate("/clinic/new", {
-      state: {
-        prefillPatientId: patientId,
-        prefillPatient: patient,
-        prefillDomain: domain,
-      },
+    navigate(domain === "DIAGNOSTICS" ? "/diagnostics/new" : "/clinic/new", {
+      state: { prefillPatientId: patientId, prefillPatient: patient },
     });
   };
 
@@ -60,23 +56,19 @@ export function NewVisitMenu({ patientId, patient, enabledDomains }: NewVisitMen
           New visit
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-0">
-        <Command>
-          <CommandList>
-            <CommandGroup heading="Start a new visit">
-              {domains.map((domain) => (
-                <CommandItem
-                  key={domain}
-                  onSelect={() => startVisit(domain)}
-                  className="flex items-center justify-between"
-                >
-                  <span>{DOMAIN_LABEL[domain]}</span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+      <PopoverContent align="end" className="w-56 p-1">
+        <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Start a new visit</p>
+        {domains.map((domain) => (
+          <button
+            key={domain}
+            type="button"
+            onClick={() => startVisit(domain)}
+            className="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            <span>{DOMAIN_LABEL[domain]}</span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          </button>
+        ))}
       </PopoverContent>
     </Popover>
   );
