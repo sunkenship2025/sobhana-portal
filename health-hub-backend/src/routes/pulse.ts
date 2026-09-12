@@ -13,6 +13,10 @@ import { ensureKnowledge, refreshKnowledge, touchNames } from '../services/pulse
 import { logAction } from '../services/auditService';
 
 const router = Router();
+
+/** Who may see a result that identifies a patient. An authorization decision, made where the
+ *  asker is known — not inferred from the shape of a query further down. */
+const maySeePeople = (req: AuthRequest) => req.user?.role === 'owner' || req.user?.role === 'admin';
 router.use(authMiddleware, branchContextMiddleware, requireRole('owner'));
 
 router.get('/today', async (_req, res) => {
@@ -64,7 +68,10 @@ router.post('/ask', async (req: AuthRequest, res) => {
   if (!q) { res.status(400).json({ error: 'q required' }); return; }
   const t0 = Date.now();
   try {
-    const answer = await ask(q, req.body?.state || {});
+    // Authorization is decided HERE, where the asker is known, and passed down as policy. The
+    // route is requireRole('owner'), so row-level detail about their own patients is theirs to
+    // see; a future staff or shared surface sets this false and the validator withholds names.
+    const answer = await ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req) });
     // Every question is auditable: who asked what, which path answered, and the SQL if any.
     // AuditActionType has no PULSE value yet (adding one is a migration); REPORT_ACCESS with
     // entityType 'Pulse' keeps it filterable until then.
@@ -74,6 +81,7 @@ router.post('/ask', async (req: AuthRequest, res) => {
         // 100x too large, a "complete" list missing a debtor, a feature reported as non-existent.
         // Without the answer and the refusal reason none of that was visible after the fact.
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
+        why: (answer as any).why,
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;   // the trace is for the log, not the wire
@@ -105,10 +113,12 @@ router.post('/ask/stream', async (req: AuthRequest, res) => {
   req.on('close', () => { alive = false; });
   const beat = setInterval(() => alive && res.write(': keep-alive\n\n'), 15_000);
   try {
-    const answer = await ask(q, req.body?.state || {}, { onProgress: (text, kind) => { if (alive) send('progress', { text, kind: kind || 'step' }); } });
+    const answer = await ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req),
+      onProgress: (text, kind) => { if (alive) send('progress', { text, kind: kind || 'step' }); } });
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
       newValues: { q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
+        why: (answer as any).why,
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls, streamed: true } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;

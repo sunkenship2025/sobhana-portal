@@ -105,3 +105,85 @@ export function scopeOf(sql: string): Scope {
 /** Is this literal used to restrict the rows the answer is computed from? */
 export const restrictsBy = (s: Scope, value: string): boolean =>
   s.effective.some((p) => p.values.some((v) => v.toLowerCase() === String(value).toLowerCase()));
+
+/* ── WHAT THE QUERY WOULD ACTUALLY EXPOSE ────────────────────────────────────────────────────
+ *
+ * The validator's patient-level rule blocks any query that MENTIONS Visit, Bill, TestOrder,
+ * PaymentTransaction and friends unless it contains an aggregate. That is a proxy, and a bad one
+ * in both directions. A TestOrder row is a test name, a price, a date and a branch — no person in
+ * it — so "what did this scan cost last time" is refused; meanwhile the rule would happily pass
+ * SELECT "name", "phone" FROM "Patient" ... GROUP BY 1,2 HAVING count(*) > 0, because it contains
+ * an aggregate.
+ *
+ * What leaks is the COLUMNS a query returns, not the tables it reads. So: resolve every column
+ * reference to its table, and find the identifying ones that are used outside an aggregate. A
+ * name inside count(DISTINCT ...) is a measurement. A name in the select list is a disclosure.
+ *
+ * Scanning is deliberately whole-statement rather than just the final projection: a CTE that
+ * selects a phone number and passes it upward is the same disclosure one level down, and
+ * over-approximating here costs a rejected query, while under-approximating costs a patient's
+ * phone number. */
+
+/** Columns that identify a person wherever they appear. */
+const IDENT_ANY = /^(phone|phone_?number|mobile|whatsapp|email|aadhaar|aadhar|uhid|mrn|dob|date_?of_?birth|patient_?name|patient_?phone|patient_?id|patientId)$/i;
+/** Columns that identify a person when they belong to a person-carrying table. */
+const IDENT_ON_PERSON = /^(name|first_?name|last_?name|full_?name|address|city|pincode|guardian|attendant|relation|age|gender)$/i;
+const PERSON_TABLES = /^(Patient|PatientIdentifier|PatientChangeLog|PatientAuthEvent)$/i;
+const AGGS = /^(count|sum|avg|min|max|percentile_cont|percentile_disc|stddev|variance|array_agg|string_agg|bool_or|bool_and)$/i;
+
+/** alias -> table, over every FROM/JOIN in the statement. Over-approximate on purpose. */
+function aliasMap(node: any, out: Map<string, string>, depth = 0): void {
+  if (!node || typeof node !== 'object' || depth > 20) return;
+  for (const f of node.from || []) {
+    if (f?.type === 'table' && f.name?.name) {
+      out.set(String(f.name.alias || f.name.name).toLowerCase(), String(f.name.name));
+      out.set(String(f.name.name).toLowerCase(), String(f.name.name));
+    }
+  }
+  for (const v of Object.values(node)) {
+    if (Array.isArray(v)) for (const x of v) aliasMap(x, out, depth + 1);
+    else if (v && typeof v === 'object') aliasMap(v, out, depth + 1);
+  }
+}
+
+/** Identifying columns referenced outside any aggregate. Empty means nothing personal escapes. */
+export function exposedIdentifiers(sql: string): { parsed: boolean; exposed: string[] } {
+  let stmts: any[];
+  try { stmts = parse(String(sql)); } catch { return { parsed: false, exposed: [] }; }
+  const root = stmts?.[0];
+  if (!root) return { parsed: false, exposed: [] };
+  const alias = new Map<string, string>();
+  aliasMap(root, alias);
+  const exposed = new Set<string>();
+
+  /* Only what the query RETURNS. A patientId in a JOIN ON is a key, not a disclosure — it never
+     reaches anyone. Every select list in the statement is scanned, CTEs included, because a
+     column projected one level down and passed upward is the same disclosure. */
+  const walkExpr = (n: any, inAgg: boolean, depth = 0): void => {
+    if (!n || typeof n !== 'object' || depth > 30) return;
+    const agg = inAgg || (n.type === 'call' && AGGS.test(String(n.function?.name || '')));
+    if (n.type === 'ref' && n.name && !agg) {
+      const col = String(n.name);
+      const tbl = n.table?.name ? alias.get(String(n.table.name).toLowerCase()) : undefined;
+      if (IDENT_ANY.test(col)) exposed.add(`${tbl || '?'}.${col}`);
+      else if (tbl && PERSON_TABLES.test(tbl) && IDENT_ON_PERSON.test(col)) exposed.add(`${tbl}.${col}`);
+      // an unqualified identifying column with a person table anywhere in the query
+      else if (!n.table && IDENT_ON_PERSON.test(col) && [...alias.values()].some((t) => PERSON_TABLES.test(t)))
+        exposed.add(`?.${col}`);
+    }
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) for (const x of v) walkExpr(x, agg, depth + 1);
+      else if (v && typeof v === 'object') walkExpr(v, agg, depth + 1);
+    }
+  };
+  const selectLists = (n: any, depth = 0): void => {
+    if (!n || typeof n !== 'object' || depth > 20) return;
+    if (Array.isArray(n.columns)) for (const c of n.columns) walkExpr(c?.expr ?? c, false);
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) for (const x of v) selectLists(x, depth + 1);
+      else if (v && typeof v === 'object') selectLists(v, depth + 1);
+    }
+  };
+  selectLists(root);
+  return { parsed: true, exposed: [...exposed] };
+}

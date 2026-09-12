@@ -66,6 +66,20 @@ export function factsOf(evidence: any[]): Fact[] {
     };
     walk(e.summary, 'summary', 0);
     walk((e.data as any)?.rows, 'row', 0);
+    /* The total of a breakdown, and each row's share of it. An analyst writes "REPORTABLE is
+       94.9% of orders" from a four-row table without the total ever being a row, and two-term
+       derivation cannot reach it — 28,705 / (28,705+1,400+116+26) needs the sum first. So the
+       sum of each numeric column becomes a fact in its own right. It is not a new number: it is
+       the one thing the rows unambiguously entail. */
+    const rows = Array.isArray((e.data as any)?.rows) ? (e.data as any).rows : [];
+    if (rows.length > 1 && rows.length <= 60 && typeof rows[0] === 'object') {
+      for (const k of Object.keys(rows[0])) {
+        const vals = rows.map((r: any) => Number(String(r?.[k]).replace(/[^0-9.-]/g, ''))).filter(Number.isFinite);
+        if (vals.length !== rows.length) continue;
+        const total = vals.reduce((a: number, b: number) => a + b, 0);
+        if (Number.isFinite(total) && total !== 0) out.push({ step: e.step, tool: e.tool, label: `total ${k}`, value: Math.abs(total), means: e.means });
+      }
+    }
   }
   return out;
 }

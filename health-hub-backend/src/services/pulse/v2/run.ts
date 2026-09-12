@@ -8,6 +8,7 @@
 import { ensureKnowledge, mentionsKnown, termsBlock, scopeTermsIn } from '../knowledge';
 import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
+import type { SqlPolicy } from '../validator';
 import { completeSpec, lineage, recheckScope, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
 import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage,
@@ -69,7 +70,7 @@ export type ProgressKind = 'phase' | 'objective' | 'step' | 'confirmed' | 'rejec
  *  the same string-matching that this codebase spent a day removing everywhere else. */
 export type Progress = (text: string, kind?: ProgressKind) => void;
 
-export async function analyse(q: string, state: any = {}, say: Progress = () => {}): Promise<any> {
+export async function analyse(q: string, state: any = {}, say: Progress = () => {}, policy: SqlPolicy = {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
   const k = await ensureKnowledge();
   const last: LastTurn | null = state?.lastTurn || null;
@@ -152,7 +153,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
     const missingBefore = missingRequirements(inv, evidence);
-    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
+    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec, policy)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.reduce((n, e) => n + (e.calls ?? (e.tool === 'query' ? 1 : 0)), 0);   // generation AND every repair
     evidence.push(...got);
@@ -168,7 +169,20 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // Reserve enough to write the answer; otherwise keep going while something is open.
     if (Date.now() - t0 > MAX_MS - ROUND_RESERVE) { inv = conclude(inv, 'resource_limit'); break; }
     say('Checking what that rules out', 'phase');
-    const ins = await askInvestigate(q, plan.goal || '', evidence, brief(inv)); calls++;
+    /* A malformed round must not cost the whole investigation. This call threw "model response
+       was not JSON" 118 seconds into a run that had already gathered fifteen usable steps, and
+       because it is the only unguarded await in the loop, every one of them was discarded and the
+       owner got a refusal. The evidence was fine; one parse was not.
+       Failing here means we stop investigating, not that we stop — we go and write the answer
+       from what we already have, and say the investigation did not close. */
+    let ins: any;
+    try { ins = await askInvestigate(q, plan.goal || '', evidence, brief(inv)); }
+    catch (e: any) {
+      say('Could not take that further', 'phase');
+      inv = conclude(inv, 'insufficient_evidence');
+      break;
+    }
+    calls++;
     findings = ins.findings || findings;
     const before = new Map((inv?.hypotheses || []).map((h) => [h.id, h.status]));
     inv = merge(inv, normalise(ins, plan.goal || ''));
@@ -219,9 +233,28 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   }
 
   const usable = evidence.filter((e) => e.ok);
-  if (!usable.length) return { kind: 'refuse', reason: 'no_data',
-    text: 'Nothing came back for that. If it is something the centre does not record, the answer is that we do not have it — not that it is zero.',
-    provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
+  if (!usable.length) {
+    /* WHY nothing came back. "Show the most recent CT-BRAIN PLAIN order" was refused with "if it
+       is something the centre does not record, we do not have it" — for a test with 46 orders,
+       the most recent of them billed that same day. Every attempt had been BLOCKED by the
+       patient-level policy, which is a rule about what Pulse may return, not a fact about the
+       business. Reporting a policy as an absence is the same error as reporting an index miss as
+       an absence, and it is worse here because it sends the owner looking for data they have. */
+    const blocked = evidence.filter((e) => /blocked:|patient-level|not granted|column not granted/i.test(String(e.error || '')));
+    if (blocked.length && blocked.length >= evidence.filter((e) => e.error).length / 2)
+      return { kind: 'refuse', reason: 'patient_level',
+        text: "That needs row-level detail — a single order with its identifiers — and Pulse can only return aggregates, so this is a limit on me, not a gap in your data. The records exist. Open Money → Bills and filter, or ask for it as a count or a total and I can answer it here.",
+        chips: [{ label: 'total billed for that test', q: 'how much has CT-BRAIN PLAIN been billed for' },
+          { label: 'open Money → Bills', q: '/money/bills' }],
+        provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
+    /* A refusal that cannot say why is the same failure as an index miss reported as an absence:
+       it looks like a fact about the business and is actually a fact about us. The reasons were
+       being discarded here, so diagnosing one cost five reproduction runs. They travel now. */
+    return { kind: 'refuse', reason: 'no_data',
+      text: 'Nothing came back for that. If it is something the centre does not record, the answer is that we do not have it — not that it is zero.',
+      why: evidence.filter((e) => e.error).map((e) => `${e.tool}: ${String(e.error).slice(0, 120)}`).slice(0, 4),
+      provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
+  }
 
   // What kind of understanding is owed. The ANALYST declares it; if the plan came back without
   // one it is inferred from the STRUCTURE of what came back, never from the wording — that ladder

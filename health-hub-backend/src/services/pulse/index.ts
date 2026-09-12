@@ -53,7 +53,7 @@ function isFragment(q: string, namesKnown: boolean): boolean {
   return true;
 }
 
-export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgress?: (t: string, kind?: string) => void } = {}): Promise<Answer> {
+export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgress?: (t: string, kind?: string) => void; rowLevel?: boolean } = {}): Promise<Answer> {
   let q = String(rawQ || '').trim().slice(0, 500);
   if (!q) return { kind: 'refuse', reason: 'empty', text: 'Ask me something about the business.', state };
   const chat = smallTalk(q, state); if (chat) return chat;
@@ -92,7 +92,7 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgre
   if (ent) return { ...ent, state: { ...next, kind: 'entity' } };
 
   // The analyst carries the previous QUESTION and PLAN, so it decides what a follow-up changes.
-  try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }, opts.onProgress); }
+  try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }, opts.onProgress, { rowLevel: opts.rowLevel !== false }); }
   catch (e) {
     console.warn('[pulse] analysis failed:', (e as any)?.message);
     return { kind: 'refuse', reason: refersToArtifact ? 'reference_failed' : 'failed',

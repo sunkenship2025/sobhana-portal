@@ -13,7 +13,9 @@
  *   DENIED          claimed the centre does not record something it does record
  *   FALSE_PREMISE   accepted a premise the data contradicts
  *   EMPTY_ARTIFACT  an artifact was attached that would draw nothing
- *   FELL_BACK       V2 threw and V1 answered a different question
+ *   THREW           the analyst failed outright (there is no second pipeline to catch it now)
+ *   PHANTOM_CONSTRAINT  a scope constraint that appears in the SQL without restricting the result
+ *   WRONG_GRAIN     a per-unit rate answered with a total, or a test's money read off whole bills
  *
  *   npx ts-node --transpile-only pulse-adversarial.ts
  */
@@ -21,9 +23,10 @@ import 'dotenv/config';
 import { ask } from './src/services/pulse/index';
 import { rowsOf } from './src/services/pulse/v2/capability';
 import { groundNumbers, unsupported } from './src/services/pulse/v2/grounding';
+import { scopeOf, restrictsBy } from './src/services/pulse/v2/sqlscope';
 
 type Check = 'FINISHED_OPEN' | 'UNSIZED_LEVER' | 'UNGROUNDED' | 'TEST_BRANCH' | 'DENIED'
-  | 'FALSE_PREMISE' | 'EMPTY_ARTIFACT' | 'FELL_BACK';
+  | 'FALSE_PREMISE' | 'EMPTY_ARTIFACT' | 'THREW' | 'PHANTOM_CONSTRAINT' | 'WRONG_GRAIN';
 
 interface Case { q: string; why: string; expect?: Check[]; state?: 'carry';
   /** the centre genuinely does not record this — saying so is the RIGHT answer, not a denial */
@@ -52,6 +55,19 @@ const CASES: Case[] = [
   { q: 'which staff member should i review', why: 'AnomalyEvent exists; denying it is the worst answer' },
   { q: 'are patients opening the reports we send', why: 'ReportAccessLog exists' },
 
+  // THE OWNER'S OWN VOCABULARY, in his own words. He named three workflowMode values verbatim
+  // and was told the system has no such thing, across 30,247 orders. A term the concept index
+  // misses is a lookup failure, never a fact about the business.
+  { q: 'we have types called reportable bill only external', why: 'these are TestOrder.workflowMode values' },
+  { q: 'how much am i making rom external reports per month', why: 'EXTERNAL_UPLOAD, 1,400 orders' },
+  { q: 'what billing or charge categories exist in the system', why: 'must name the real taxonomy' },
+
+  // IDENTITY. A two-letter lab code must not win a fourteen-character name it merely begins —
+  // CT-BRAIN PLAIN answered with CLOTTING TIME's ₹1,918 against a true ₹1,03,400.
+  { q: 'how much has CT-BRAIN PLAIN been billed for', why: 'must be the scan, never the clotting-time code' },
+  { q: 'give me cost', why: 'a per-unit rate, not the sum of every order', state: 'carry' },
+  { q: 'show the most recent CT-BRAIN PLAIN order and its billed amount', why: 'one row that exists' },
+
   // recommendation — must size before ranking
   { q: 'what should we fix to make more money', why: 'levers must be sized and ranked by rupees' },
   { q: 'where should i spend my time this week', why: 'must not rank by what sounds actionable' },
@@ -73,18 +89,30 @@ const CASES: Case[] = [
 ];
 
 const NUM = /₹\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]*(?:\.\d+)?\b/g;
-const DENY = /no field|not record|does not record|no way to|cannot see|we do not have|there is no data/i;
+/* The topic gate used to be /staff|mistake|anomal|report open|delivery|referr/ — narrow enough
+   that it watched the places a denial had already been found and nowhere else. It sailed past
+   "the system has no report types called reportable, bill only or external". A denial is a claim
+   about what the business records, whatever it is about. */
+const DENY = /no field|not record(ed|s)?|does not record|no way to|cannot see|we do not have|there is no data|not a (known|defined|recorded) concept|does not exist|no concept|no such|is not defined|not a concept|naming gap/i;
 
 function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
   const flags: Check[] = []; const notes: string[] = [];
   const text = String(a?.segments?.verdict ? [a.segments.verdict, ...(a.segments.points || []).map((p: any) => p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a?.text || '');
   const ev = (a?.evidence || []).filter((e: any) => e.ok);
 
-  if (!a?.trace && a?.kind === 'analysis') { flags.push('FELL_BACK'); notes.push('no trace — V2 threw'); }
+  // V1 is deleted, so a failure can no longer answer a different question — it refuses. That is
+  // the better outcome and still a failure of the analyst.
+  if (a?.kind === 'refuse' && /failed|error/.test(String(a?.reason || ''))) {
+    flags.push('THREW'); notes.push(`analyst failed outright: ${String(a?.text).slice(0, 70)}`);
+  }
 
   // a material claim still open when the loop stopped
   const open = (a?.trace?.investigation?.hypotheses || []).filter((h: any) => h.status === 'open' && h.material !== false);
-  if (open.length && !/unproven|untested|not established|still open|cannot say|do not know|unverified/i.test(text)) {
+  /* Incompleteness travels as DATA (a.incomplete), rendered above the answer — that was the
+     whole point of not depending on a regex matching whatever words the writer chose. This check
+     was still reading the prose, so it flagged two answers that DID disclose, structurally. */
+  const disclosed = !!a?.incomplete || /unproven|untested|not established|still open|cannot say|do not know|unverified|could not/i.test(text);
+  if (open.length && !disclosed) {
     flags.push('FINISHED_OPEN');
     notes.push(`${open.length} material open, unacknowledged: "${open[0].claim.slice(0, 60)}"`);
   }
@@ -109,8 +137,35 @@ function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
 
   // Denying something the centre DOES record. Where the data genuinely is absent — costs,
   // payroll, expenses — saying so is the right answer and flagging it was my test being wrong.
-  if (!c.absent && DENY.test(text) && /staff|mistake|anomal|report open|delivery|referr/i.test(text)) {
-    flags.push('DENIED'); notes.push('claims something is not recorded');
+  if (!c.absent && DENY.test(text)) {
+    flags.push('DENIED'); notes.push(`claims something is not recorded: "${(text.match(DENY) || [''])[0]}"`);
+  }
+
+  /* A constraint the spec committed to that reaches the SQL without restricting it. This is the
+     failure sqlscope.ts was built for, checked here end-to-end rather than only in a unit: parse
+     each executed query and confirm every confident scope constraint is effective on the rows the
+     result is computed from. */
+  const scope = (a?.trace?.plan?.spec?.scope || []).filter((x: any) => (x?.confidence ?? 1) >= 0.3 && x?.value);
+  for (const e of ev) {
+    if (!e.sql) continue;
+    const sc = scopeOf(e.sql);
+    if (!sc.parsed) continue;                       // unparsed is unknown, not a failure
+    const phantom = scope.filter((x: any) => (x.values?.length ? x.values : [x.value])
+      .some((v: string) => new RegExp(`'${String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`, 'i').test(e.sql) && !restrictsBy(sc, String(v))));
+    if (phantom.length) {
+      flags.push('PHANTOM_CONSTRAINT');
+      notes.push(`${phantom.map((x: any) => `${x.dimension}=${x.value}`).join(', ')} appears in step ${e.step} without restricting it`);
+      break;
+    }
+  }
+
+  /* Grain. A rate question answered with an aggregate is a total wearing a rate's label, and a
+     named test's money read off whole-bill totals counts every other test on those bills. */
+  if (/\b(cost|price|rate|how much (is|does))\b/i.test(c.q) && !/total|sum|revenue|collect|all\b/i.test(c.q)) {
+    const q0 = ev.find((e: any) => e.sql);
+    if (q0 && /SUM\s*\(\s*[\w."]*"priceInPaise"/i.test(q0.sql) && !/"BillableProduct"/.test(q0.sql)) {
+      flags.push('WRONG_GRAIN'); notes.push('summed order prices to answer what one unit costs');
+    }
   }
 
   // an artifact that would draw nothing

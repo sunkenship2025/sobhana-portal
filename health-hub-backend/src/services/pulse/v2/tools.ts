@@ -11,7 +11,7 @@ import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES, isTes
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
-import { validate } from '../validator';
+import { validate, type SqlPolicy } from '../validator';
 import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 
@@ -231,14 +231,14 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
 const summedOrdersIn = (sql: string) => /SUM\s*\(\s*\w*\.?"?priceInPaise"?/i.test(sql);
 
 /** anything the registry cannot express — one generated SELECT, validated like any other */
-async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promise<Partial<Evidence>> {
+async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
   if (!q) return { ok: false, error: 'no question given' };
   let recovered: string | undefined;
   let spent = 1;                       // the generation itself
   const gen = await generate(k, q);
   let sql = repairIdents(k, gen.sql);
-  let bad = validate(sql);
+  let bad = validate(sql, policy);
   let ex = bad ? { err: `blocked: ${bad}` } as any : await query(sql, [], 200);
   // The spec is a contract. A scope the analyst committed to that never reached the SQL is a
   // rejection, not a warning — this is the check that "only lab" needed.
@@ -248,7 +248,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
       spent++; const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; recovered = 'DROPPED_CONSTRAINT'; } }
+      if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; recovered = 'DROPPED_CONSTRAINT'; } }
     } catch { /* fall through to the rejection below */ }
     if (!check.ok) return { ok: false, sql, calls: spent, error: `dropped a constraint the owner asked for — ${check.note}` };
   }
@@ -263,7 +263,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
         `Repair PostgreSQL. FAILURE CLASS: ${kind}. ${kind === 'BLOCKED_BY_POLICY' ? 'The query violated a safety rule; rewrite it to satisfy the rule.' : kind === 'EMPTY_RESULT' ? 'It ran but matched nothing — the filter, the period or the join is probably wrong.' : ''} Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = kind; } }
+      if (s2 && !validate(s2, policy)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = kind; } }
     } catch { /* keep the first outcome */ }
   }
   if (ex.err) return { ok: false, error: ex.err, sql, calls: spent };
@@ -295,7 +295,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
         `Repair PostgreSQL. FAILURE CLASS: RATE_NOT_TOTAL. The question asks what one unit COSTS, and this query sums a price across many orders — a total is not a rate. Read the per-unit rate instead: SELECT bp.name, bp.code, bp."basePriceInPaise" FROM "BillableProduct" bp WHERE bp.code = '<the test code>' (or bp.name ILIKE the test name). Do not aggregate. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && !summedOrdersIn(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'RATE_NOT_TOTAL'; } }
+      if (s2 && !validate(s2, policy) && !summedOrdersIn(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'RATE_NOT_TOTAL'; } }
     } catch { /* keep what we had */ }
   }
   // money for a NAMED test comes from that test's order lines, never from whole-bill totals
@@ -307,7 +307,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
         `Repair PostgreSQL. FAILURE CLASS: TEST_GRAIN. The question is about ONE test, but this sums whole-bill amounts for every bill that contained it — those bills also contain other tests. Sum that test's own order lines: SUM(o."priceInPaise") over "TestOrder" o filtered to the test, joined to "Visit" for branch. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
+      if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
     } catch { /* keep what we had */ }
   }
 
@@ -319,7 +319,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
         `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the arithmetic, never the status flag. Filter on (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0 and remove any "paymentStatus" condition. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'DUE_DEFINITION'; } }
+      if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'DUE_DEFINITION'; } }
     } catch { /* keep what we had */ }
   }
 
@@ -335,7 +335,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
         `Repair PostgreSQL. FAILURE CLASS: MONEY_ALIAS. The query reads paise columns but no output column is named "*_paise", so the caller cannot tell paise from rupees. Re-alias every money output column to end in "_paise", through any CTE. Change nothing else. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nCOLUMNS\n${cols0.join(', ')}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'MONEY_ALIAS'; } }
+      if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'MONEY_ALIAS'; } }
     } catch { /* fall through */ }
     if (unlabelled()) return { ok: false, sql, error: 'money columns are not labelled in paise, so the figure cannot be shown safely' };
   }
@@ -636,7 +636,7 @@ function hideTestBranches(e: Evidence, args: any): Evidence {
     means: [e.means, `${uniq.join(' and ')} left out: test branches`].filter(Boolean).join(' · ') };
 }
 
-export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null): Promise<Evidence> {
+export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}): Promise<Evidence> {
   const t0 = Date.now();
   const tool = String(step?.tool || '');
   const label = String(step?.label || tool);
@@ -653,7 +653,7 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
   ].filter(Boolean).join(', ');
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = tool === 'query' ? await t_query(args, k, spec) : await fn(args, k);
+      const r = tool === 'query' ? await t_query(args, k, spec, policy) : await fn(args, k);
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
       return hideTestBranches({ step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r, ms: Date.now() - t0 } as Evidence, step.args);
