@@ -369,7 +369,15 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
         `Repair PostgreSQL. FAILURE CLASS: TEST_GRAIN. The question is about ONE test, but this sums whole-bill amounts for every bill that contained it — those bills also contain other tests. Sum that test's own order lines: SUM(o."priceInPaise") over "TestOrder" o filtered to the test, joined to "Visit" for branch. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
+      /* Accept the repair on its own merits. Requiring verifySpec to pass as well meant a repair
+         that correctly summed the test's order lines could still be thrown away — for a reason
+         that has nothing to do with the grain — and the step then refused a question with a clean
+         answer. The repair is checked for safety and for actually returning rows; whether it
+         honours the spec is the next check's job, not this one's. */
+      if (s2 && !validate(s2, policy)) {
+        const ex2 = await query(s2, [], 200);
+        if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; check = verifySpec(spec, sql); }
+      }
     } catch { /* fall through to the refusal below */ }
     // A total at the wrong grain is not a smaller answer to the same question; it is an answer to
     // a different one. Better to say the figure could not be produced than to ship it.
@@ -437,8 +445,13 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
      states no period and no branch the spec carries neither, while every step still picks its
      own window — and those differences are what turned two answers to different questions into
      a contradiction. */
-  const scopeLabel = filtersOf(sql) || (spec?.scope || []).map((c: any) => `${c.dimension}=${c.value}`).join(', ') || undefined;
-  const periodLabel = periodOf(sql) || (spec?.time?.from ? `${spec.time.from}…${spec.time.to}` : undefined);
+  /* READ FROM THE SQL, AND ONLY FROM THE SQL. Falling back to the spec stamped the planner's
+     default window onto evidence that restricts no time column — so a correct all-time figure of
+     ₹1,03,400 was labelled "for the period 1–13 September 2026", and the prose repeated the label
+     because the evidence asserted it. A period is a property of the query that ran, not of the
+     plan that preceded it; where the query has none, neither does the number. */
+  const scopeLabel = filtersOf(sql) || undefined;
+  const periodLabel = periodOf(sql) || undefined;
   return { ok: true, sql, recovered, calls: spent,
     dimension: dimensionOf(sql), period: periodLabel, scope: scopeLabel,
     summary: { question: q, rowCount: ex.rows.length, period: periodLabel, scope: scopeLabel,

@@ -214,6 +214,18 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
   const worst = sentencesOf(t).reduce((m, s) => Math.max(m, countNumbers(s)), 0);
   if (worst > 3) v.push(`one sentence carries ${worst} numbers; no sentence should carry more than 3`);
 
+  /* A PERIOD THE EVIDENCE DOES NOT HAVE. "CT-BRAIN PLAIN has been billed ₹1,03,400 for the period
+     1–13 September 2026" — the figure is all-time and the SQL restricts no time column at all.
+     The number was grounded; the sentence around it was not, and a correct total under a wrong
+     window is a wrong answer to the question the owner asked.
+     Only fires when NO step carries a period, which is now read off the SQL rather than assumed
+     from the spec — so a relative window still counts as a period and does not trip this. */
+  const anyPeriod = (evidence || []).some((e: any) => e?.ok !== false && (e?.period || e?.summary?.period));
+  if (!anyPeriod) {
+    const claimed = t.match(/\b(?:for |over |during |in )?(?:the )?(?:period |month of |week of )?(?:\d{1,2}\s*[–-]\s*\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{0,4}\b|\bthis (?:month|week|quarter|year)\b|\blast (?:month|week|quarter|year|\d+ days)\b|\bmonth[- ]to[- ]date\b|\byear[- ]to[- ]date\b/i);
+    if (claimed) v.push(`the answer says "${claimed[0].trim()}" but no step restricted a time column — state the figure without a period, or compute it for one`);
+  }
+
   // Not "does this number appear somewhere in the pile" — does it come from a step, or follow
   // from two of them by arithmetic an analyst would actually write.
   // An investigation that could not settle a material claim has to say so. This was a rule in
