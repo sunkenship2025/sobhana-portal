@@ -15,7 +15,7 @@ import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, mea
   missingRequirements, type Investigation, type RoundProgress } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
-import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, type LastTurn } from './artifacts';
+import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
 
@@ -88,15 +88,32 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
      with a staff member — the analyst could see the rows and was told to answer from them, and
      planned a fresh lookup anyway. The subject is stated as a binding, and enforced below. */
   const ref = last && hasArtifactReference(q, last) ? resolveReference(q, last) : null;
-  const subject = ref?.artifact?.meaning?.dimension || null;
+  const subject = ref?.artifact?.meaning?.dimension || null;   // used again after the plan
   const subjectBlock = ref ? `THE SUBJECT OF THIS QUESTION IS ALREADY ON SCREEN\n`
     + `  ${subject ? `a ${subject}` : 'a row'} from "${ref.artifact.title}"`
     + `${ref.row ? `: ${Object.entries(ref.row).slice(0, 4).map(([k, v]) => `${k}=${v}`).join(', ')}` : ''}\n`
+    + `  Filter on that exact value. If a detail is missing from the table, look it up FOR THAT ROW.\n`
     + `  Every step you plan must be about THAT ${subject || 'row'}. Looking up a different kind of\n`
     + `  thing is changing the subject, not answering the question.\n\n` : '';
   const plan = await askPlan(q, subjectBlock + termsBlock(q) + ctx); calls++;
   if (plan.goal) say(String(plan.goal).slice(0, 140), 'objective');
   const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
+  /* BIND THE ROW, NOT JUST ITS TYPE. Naming the dimension stopped "name him" answering about a
+     doctor; it did not stop it re-querying and landing on a DIFFERENT patient, then failing to
+     reconcile the two. The row the owner pointed at is already known — it is on screen — so it
+     becomes a scope constraint that verifySpec enforces, exactly like any other resolved term.
+     The analyst may still choose how to answer; it may not change who the answer is about. */
+  const refRow = ref?.row ?? (ref?.artifact?.rows?.length === 1 ? ref.artifact.rows[0] : null);
+  const refId = refRow ? identityOf(refRow) : null;
+  if (spec && refId && subject) {
+    /* Bind the COLUMN the row actually carries, not the semantic dimension. "patient" is a kind
+       of thing; it has no entry in DIMS and no column behind it, so a constraint written that way
+       is one the generator cannot translate and the repair loop then mangles. "patientNumber" is
+       a column that exists, verifySpec's fallback matches it, and the literal must survive into
+       the query — which is the whole point of binding the row rather than its type. */
+    spec.scope = [...(spec.scope || []).filter((c) => c.dimension !== refId.column),
+      { term: refId.value, dimension: refId.column, value: refId.value, how: 'reference', confidence: 1 }];
+  }
   /* A blanket refusal here was wrong. The route is requireRole('owner') — the only person who
      can reach this is the one who owns the records, and asking for their own patients by name is
      ordinary clinic work that every other page in the portal supports. Authorization is decided

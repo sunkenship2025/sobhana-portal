@@ -128,6 +128,11 @@ export function resolveReference(q: string, last?: LastTurn | null): ArtifactRef
   if (ord) rowIndex = ORDINAL[ord[1]];
   else if (/\b(top|highest|biggest)\b/.test(s)) rowIndex = 1;
   else if (/\b(last|bottom|lowest|smallest)\b/.test(s)) rowIndex = artifact.rows.length;
+  /* A singular pronoun with nothing to disambiguate points at the obvious row: the only one
+     there, or the leader of a ranking. "name him" after a one-row repeat-patient ranking meant
+     that patient, and returning no row at all is what let the analyst go and find somebody else. */
+  else if (/\b(him|her|he|she|it|his|hers|its)\b/.test(s))
+    rowIndex = artifact.rows.length === 1 ? 1 : /rank|top|ranking/i.test(artifact.type) ? 1 : undefined;
 
   return { artifact, rowIndex, row: rowIndex ? artifact.rows[rowIndex - 1] : undefined };
 }
@@ -157,4 +162,27 @@ it so high"), answer FROM it. Those words point at what is on screen, not at a n
 an ordinal like "the second one" means that ROW, never a database entity of the same name. Only
 run a new analysis if the question genuinely needs data that is not there.
 `;
+}
+
+/**
+ * The value that identifies a row. Not merely the first non-numeric column: that picked the
+ * internal cuid over the patient number, bound the analysis to it, and printed
+ * "P-000594 (patientId cmq7lka6g0002wkb96xx4jby3)" at the owner. An internal key identifies a
+ * row to the database; a patient number identifies it to a person, and only one of those belongs
+ * in an answer. Surrogate keys are used only when nothing human is there.
+ */
+const SURROGATE = /(^|_)id$|Id$|^uuid$|^cuid$/i;
+const looksLikeKey = (v: string) => /^[a-z0-9]{20,}$/.test(v);   // a cuid by shape, whatever it is called
+export function identityOf(row: any): { column: string; value: string } | null {
+  if (!row || typeof row !== 'object') return null;
+  const usable: { column: string; value: string; surrogate: boolean }[] = [];
+  for (const [k, v] of Object.entries(row)) {
+    if (v == null || v === '') continue;
+    const str = String(v);
+    const n = Number(str.replace(/[^\d.-]/g, ''));
+    if (typeof v === 'number' || (Number.isFinite(n) && /^[\s₹$]*[\d,.]+[\s%]*$/.test(str))) continue;
+    usable.push({ column: k, value: str, surrogate: SURROGATE.test(k) || looksLikeKey(str) });
+  }
+  const pick = usable.find((u) => !u.surrogate) ?? usable[0];
+  return pick ? { column: pick.column, value: pick.value } : null;
 }
