@@ -55,8 +55,8 @@ export function buildTurnArtifacts(specs: any[], evidence: Evidence[]): TurnArti
       title: String(s?.label || e?.label || 'result'),
       meaning: {
         metric: e?.metric ?? null, dimension: e?.dimension ?? null,
-        period: (e?.summary as any)?.period ?? null,
-        scope: (e?.summary as any)?.scope ?? null,
+        period: (e as any)?.period ?? (e?.summary as any)?.period ?? null,
+        scope: (e as any)?.scope ?? (e?.summary as any)?.scope ?? null,
         means: e?.means ?? e?.detail ?? null,
       },
       // formatted here too: these rows are what the table renders and what "the second one"

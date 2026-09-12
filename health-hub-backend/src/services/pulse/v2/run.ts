@@ -440,7 +440,9 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   const consideredNotSized = ranked?.considered?.length ? ranked.considered.map((o) => o.title) : null;
   return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, incomplete, opportunities, consideredNotSized, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
-    evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
+    // period and scope travel too: they are the identity that tells two figures apart, and
+    // stripping them here is why an instrument reading the wire saw none of them
+    evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, period: e.period, scope: e.scope, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },
     state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })),
       // the answer survives the turn as an object the next question can point at

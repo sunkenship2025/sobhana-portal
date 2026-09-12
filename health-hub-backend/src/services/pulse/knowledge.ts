@@ -707,9 +707,21 @@ export function termsIn(q: string): Resolution[] {
   for (let n = Math.min(4, words.length); n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
       if (covered.slice(i, i + n).some(Boolean)) continue;       // a longer phrase already claimed these
-      const phrase = words.slice(i, i + n).join(' ');
-      if (n === 1 && (VSTOP.has(phrase) || phrase.length < 3)) continue;
-      const hit = resolveRanked(phrase).find((r) => r.score >= MIN_CONFIDENCE);
+      /* TRIM THE EDGES FIRST. Longest-n-gram-first exists so "ct-brain plain" beats "ct" — but it
+         also let "at chintal in" (0.38) claim the tokens before "chintal" (1.00 exact) was ever
+         tried, and handed the planner "at ct referral" → DoctorPayoutLedger.doctorType, which is
+         the one table CT commission cannot come from. Half of every term block was segmentation
+         artifacts of this kind. A phrase that begins or ends on a stopword is not a phrase. */
+      let slice = words.slice(i, i + n);
+      while (slice.length > 1 && VSTOP.has(slice[0])) slice = slice.slice(1);
+      while (slice.length > 1 && VSTOP.has(slice[slice.length - 1])) slice = slice.slice(0, -1);
+      const phrase = slice.join(' ');
+      if (slice.length === 1 && (VSTOP.has(phrase) || phrase.length < 3)) continue;
+      /* And a HIGHER bar than a filter needs. 0.30 answers "may I restrict on this"; the planner
+         reads this block as fact, under a heading that says already resolved against live data,
+         and acts on it. Every term fed before this change scored 0.45 or below — not one
+         confident resolution among them. */
+      const hit = resolveRanked(phrase).find((r) => r.score >= 0.5);
       if (!hit) continue;
       for (let j = i; j < i + n; j++) covered[j] = true;
       const key = `${hit.dimension}=${hit.value}`;

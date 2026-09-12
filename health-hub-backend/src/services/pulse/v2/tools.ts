@@ -12,7 +12,7 @@ import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } fr
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate, type SqlPolicy } from '../validator';
-import { groupedBy } from './sqlscope';
+import { groupedBy, periodOf, filtersOf } from './sqlscope';
 import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 import { compileBindings, formatBindings } from './binding';
@@ -387,8 +387,12 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
      knows it; the period and scope come from the spec, which resolved them before any SQL
      existed. Without these the same figure is indistinguishable from one over a different window
      or population — which is how a 30-day total and a 90-day total became a "contradiction". */
-  const scopeLabel = (spec?.scope || []).map((c: any) => `${c.dimension}=${c.value}`).join(', ') || undefined;
-  const periodLabel = spec?.time?.from ? `${spec.time.from}…${spec.time.to}` : undefined;
+  /* Read from the SQL FIRST. The spec is the fallback, not the source: for a question that
+     states no period and no branch the spec carries neither, while every step still picks its
+     own window — and those differences are what turned two answers to different questions into
+     a contradiction. */
+  const scopeLabel = filtersOf(sql) || (spec?.scope || []).map((c: any) => `${c.dimension}=${c.value}`).join(', ') || undefined;
+  const periodLabel = periodOf(sql) || (spec?.time?.from ? `${spec.time.from}…${spec.time.to}` : undefined);
   return { ok: true, sql, recovered, calls: spent,
     dimension: dimensionOf(sql), period: periodLabel, scope: scopeLabel,
     summary: { question: q, rowCount: ex.rows.length, period: periodLabel, scope: scopeLabel,

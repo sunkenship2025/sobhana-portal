@@ -315,3 +315,41 @@ export function groupedBy(sql: string): GroupKey[] {
   }
   return out.slice(0, 3);
 }
+
+/**
+ * The window and the filters the query ACTUALLY applied — read from the SQL, not the spec.
+ *
+ * Taking these from the spec was wrong in exactly the way taking the dimension from the spec was
+ * wrong. Asked whether a ₹50 lakh scanner pays back, the owner states no period and no branch, so
+ * the spec carries neither — while each step quietly picks its own: ninety days here, thirty
+ * there, six months in the trend. Those are the differences that made a 30-day figure and a
+ * 90-day figure look like a contradiction, and they are only ever written down in the SQL.
+ */
+export function periodOf(sql: string): string | undefined {
+  const ranges = scopeOf(sql).effective.filter((p) => p.mode === 'range');
+  if (!ranges.length) {
+    /* A relative bound — CURRENT_DATE - 90, interval '30 days', date_trunc('month', …) — has no
+       literal on the right, so predicatesIn records nothing. That is correct for VERIFICATION:
+       there is no date to adhere to. It is wrong for IDENTITY, where the whole point is that a
+       90-day step and a 30-day step must not look alike. Matched textually, and only ever used
+       as a label — a wrong label misnames a window, a wrong verification ships a wrong number,
+       and these must not be confused. */
+    const rel = String(sql).match(/(?:CURRENT_DATE|now\(\))\s*-\s*(?:interval\s*')?(\d+)(?:\s*days?')?/i);
+    if (rel) return `last ${rel[1]} days (relative)`;
+    const tr = String(sql).match(/date_trunc\s*\(\s*'(\w+)'/i);
+    if (tr) return `${tr[1]} to date (relative)`;
+    return undefined;
+  }
+  const dates = ranges.flatMap((p) => p.values).map((v) => String(v).trim().slice(0, 10))
+    .filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v)).sort();
+  if (dates.length >= 2) return `${dates[0]}…${dates[dates.length - 1]}`;
+  if (dates.length === 1) return `from ${dates[0]}`;
+  return `bounded on ${[...new Set(ranges.map((p) => p.column))].join('/')}`;
+}
+
+/** The equality and set filters on the rows the answer is computed from. */
+export function filtersOf(sql: string): string | undefined {
+  const eq = scopeOf(sql).effective.filter((p) => p.mode !== 'range');
+  if (!eq.length) return undefined;
+  return eq.slice(0, 4).map((p) => `${p.column}=${p.values.slice(0, 3).join('|')}`).join(', ');
+}
