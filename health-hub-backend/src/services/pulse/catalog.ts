@@ -49,7 +49,10 @@ export const METRICS: Record<string, Metric> = {
     tables: ['OrderRefund'], t: 'orf."createdAt"', u: 'paise', d: 'Money returned to patients.' },
   commission: { k: 'commission payout doctor owed payable', sql: 'SUM(pl."derivedAmountInPaise")',
     tables: ['DoctorPayoutLedger'], t: 'pl."periodStartDate"', u: 'paise', filt: 'pl."deletedAt" IS NULL',
-    d: 'Derived doctor commission. SOFT DELETE guarded.' },
+    d: 'Derived doctor commission. SOFT DELETE guarded. A RATIO MUST SHARE A BASIS: commission is '
+       + 'a percentage of the BILLED price, so commission as a share of revenue divides by BILLED '
+       + '(SUM(o."priceInPaise")), never by collected. Dividing commission-on-billed by revenue-collected '
+       + 'puts numerator and denominator on different bases and understates the share.' },
 };
 
 export const METRIC_BLOCK = Object.entries(METRICS).map(([n, m]) =>

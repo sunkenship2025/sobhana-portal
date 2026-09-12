@@ -470,13 +470,20 @@ export interface Concept { term: string; dimension: string | null; value: string
 let CONCEPTS: Concept[] = [];
 export const concepts = () => CONCEPTS;
 
-/** The owner's words that are not literal data values — synonyms a lookup cannot discover. */
+/** The owner's words that are not literal data values — synonyms a lookup cannot discover.
+ *
+ *  A GLOSSARY LINE IS READ AS A DEFINITION, SO IT HAD BETTER BE ONE. "ultrasound, x-ray, CT/MRI
+ *  or echo" was written as a friendly gloss and taken as the spec: the analyst filtered on three
+ *  payout categories, a different three each run, and "what share of imaging revenue goes out as
+ *  commission" came back 16.4%, 18.4% and 21.4% on three runs of the same question. There are
+ *  SIX imaging categories and service_kind already enumerates them exactly. Where a term maps to
+ *  a closed set, the gloss names the whole set. */
 const SYNONYMS: Concept[] = [
   { term: 'lab', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'the lab side — tests and scans, excluding consultation fees', source: 'glossary' },
-  { term: 'scan', dimension: 'service_kind', value: 'IMAGING', meaning: 'an imaging order — ultrasound, x-ray, CT/MRI or echo. NOT lab work', source: 'glossary' },
-  { term: 'scans', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders — ultrasound, x-ray, CT/MRI, echo. Excludes Laboratory', source: 'glossary' },
-  { term: 'imaging', dimension: 'service_kind', value: 'IMAGING', meaning: 'ultrasound, x-ray, CT/MRI and echo orders', source: 'glossary' },
-  { term: 'radiology', dimension: 'service_kind', value: 'IMAGING', meaning: 'the imaging orders — same as scans', source: 'glossary' },
+  { term: 'scan', dimension: 'service_kind', value: 'IMAGING', meaning: 'an imaging order, NOT lab work — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
+  { term: 'scans', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders, excluding Laboratory — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
+  { term: 'imaging', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
+  { term: 'radiology', dimension: 'service_kind', value: 'IMAGING', meaning: 'the imaging orders, same as scans — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
   { term: 'ultrasound', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound orders, including Tiffa and 2D Echo (a cardiac ultrasound)', source: 'glossary' },
   { term: 'usg', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound — including Tiffa and 2D Echo', source: 'glossary' },
   { term: 'x-ray', dimension: 'modality', value: 'X-Ray', meaning: 'x-ray orders, including dental x-ray', source: 'glossary' },

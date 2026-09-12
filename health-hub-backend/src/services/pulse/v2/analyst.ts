@@ -266,7 +266,30 @@ Return JSON
  "next":[{"tool":"...","label":"<=6 words","args":{...},"resolves":"h1"}],
  "findings":[{"title":"<=7 words","detail":"one or two sentences, with the numbers"}]}
 Leave "next" empty when nothing material is open. Findings must use ONLY the formatted values
-given to you. Never compute or invent a number.`;
+given to you. Never compute or invent a number.
+
+WHEN THE ANSWER IS ARITHMETIC OVER FIGURES YOU NOW HAVE, THE NEXT STEP IS "compute".
+You may not do arithmetic yourself, and neither may the writer. That is what this tool is for,
+and it is the reason a question can sit with every operand measured and still be answered "the
+share itself was never computed" — commission ₹3,95,046 and revenue ₹21,51,516 both on the
+table, one division away from the answer the owner asked for. If a hypothesis needs a ratio, a
+difference, a per-unit figure or a payback period, emit it as a step:
+
+  {"tool":"compute","label":"CT payback in months","resolves":"h1","args":{
+     "formula":"capital / (revenue - commission)",
+     "let":{"capital":{"value":5000000,"unit":"rupees","means":"the price the owner gave"},
+            "revenue":{"step":4},"commission":{"step":5}},
+     "unit":"months",
+     "means":"months to repay the scanner at the current monthly CT contribution"}}
+
+Each operand is EITHER {"step":N}, the figure that step measured, OR {"value":N,"unit":"rupees"}
+for a number the OWNER supplied. Steps must be from an EARLIER round — a step in this same round
+has not run yet. Money you supply is in rupees; the conversion is done for you. A step measuring
+a SPLIT has no single figure, so measure the one number you need first. Result units: rupees,
+percent, months, years, days, number.
+
+An unmeasured operand is a reason to measure it. An UNCOMPUTED one is not a reason to withhold
+the answer — it is a step you forgot to emit.`;
 
 const ARTIFACTS = `ARTIFACT TYPES — attach one only when it genuinely helps:
   {"type":"kpi","label":"...","evidence":<step>}          one big number, with its change
