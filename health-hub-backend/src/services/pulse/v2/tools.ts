@@ -739,6 +739,9 @@ function hideTestBranches(e: Evidence, args: any): Evidence {
     means: [e.means, `${uniq.join(' and ')} left out: test branches`].filter(Boolean).join(' · ') };
 }
 
+/** the registry tools whose scope travels in args.filter, and which buildFilter validates */
+const FILTERABLE = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'baseline']);
+
 export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}): Promise<Evidence> {
   const t0 = Date.now();
   const tool = String(step?.tool || '');
@@ -757,6 +760,30 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = tool === 'query' ? await t_query(args, k, spec, policy) : await fn(args, k);
+      /* THE SPEC BINDS REGISTRY STEPS TOO. verifySpec guards generated SQL and nothing guarded
+         the registry, so a question scoped to one test could be answered by the net_billed metric
+         with that scope silently dropped: "how much has CT-BRAIN PLAIN been billed for" came back
+         ₹8,69,235 — the month's collection for everything — with no SQL to inspect and nothing to
+         reject. A registry tool that cannot express a constraint the owner asked for is answering
+         a wider question, which is the failure this whole layer exists to prevent. */
+      /* Only the tools that actually TAKE a filter. The operational tools — receivables,
+         worklist, quiet_doctors, leakage, delivery — carry bespoke parameters and express scope
+         their own way, so judging them by args.filter rejected every one of them the moment a
+         spec had any scope at all: "how many patients have dues" came back "No patients currently
+         have outstanding dues, ₹0" against a true 11 and ₹7,002. A guard that refuses correct
+         work is worse than the gap it closes. */
+      if (r.ok && FILTERABLE.has(tool)) {
+        const asked = (spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value);
+        const applied = (args?.filter && typeof args.filter === 'object') ? args.filter : {};
+        const dropped = asked.filter((c: any) => {
+          const got = (applied as any)[c.dimension];
+          if (got == null) return true;
+          const vals = (Array.isArray(got) ? got : String(got).split(',')).map((x: any) => String(x).trim().toLowerCase());
+          return ![c.value, ...(c.values || []), ...(c.aliases || [])].some((v: any) => vals.includes(String(v).toLowerCase()));
+        });
+        if (dropped.length) return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
+          error: `dropped a constraint the owner asked for — ${tool} cannot express ${dropped.map((c: any) => `${c.dimension} = ${c.value}`).join(' and ')}; use query` } as Evidence;
+      }
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
       return hideTestBranches({ step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r, ms: Date.now() - t0 } as Evidence, step.args);

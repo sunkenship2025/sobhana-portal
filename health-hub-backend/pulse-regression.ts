@@ -76,8 +76,11 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
   { id: 'TEST_RATE', note: 'a rate is not a total — reported the 47-order sum as what one scan costs',
     q: 'give me cost', state: 'carry',
     truth: async () => R((await q(`SELECT "basePriceInPaise" p FROM "BillableProduct" WHERE code='CTBP'`))[0].p),
-    sql: (x) => !readsUnitPrice(x) ? 'does not read the per-unit BillableProduct.basePriceInPaise'
-      : sumsOrderLines(x) ? 'aggregates TestOrder prices — that is a total, not a rate'
+    /* The invariant is "a rate is not a total", not "read this particular table". Demanding
+       BillableProduct failed a run that answered ₹2,200 correctly from a non-aggregated order
+       price — the instrument encoding one implementation of the right answer rather than the
+       property that makes it right. What must never happen is a SUM reported as a unit cost. */
+    sql: (x) => sumsOrderLines(x) && !readsUnitPrice(x) ? 'aggregates TestOrder prices — that is a total, not a rate'
       : !isTheScan(x) ? 'does not filter to the CT-BRAIN PLAIN identity' : null },
 
   { id: 'LAB_SCOPE', note: 'the qualifier that used to be dropped silently',
