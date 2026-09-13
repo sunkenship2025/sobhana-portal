@@ -43,6 +43,23 @@ pulse-sql.ts               every complete generated query in the traces, replaye
 `pulse-replay.ts` re-judges every recorded answer by today's contract — useful after
 changing a rule in `contract.ts`, to see what it would newly catch.
 
+`pulse:chain` and `pulse:artifacts` need the model and are the two that matter most, because
+they test that the GEARS STAY CONNECTED rather than that each one turns:
+
+```
+pulse-chain.ts       8  "name him" lands on the SAME row the first answer named · an
+                        unresolvable reference asks instead of guessing · the CT payback
+                        reaches a number AND never takes commission from the payout ledger,
+                        which carries no link to a test order
+pulse-artifact-fit  30  does a card earn its place — none / earned / asked — and does the
+                        one that ships carry context, means, a total, shares and a sized tail
+```
+
+A prompt can say the right thing while the pipeline does the wrong one. identityOf was correct
+for weeks while "name him" answered about a different patient; every CT operand was measurable
+while the answer said it could not be established. Prefer an end-to-end test over another static
+prompt assertion.
+
 **The suites that need the model** — `pulse:bench` (adversarial, the headline
 benchmark), `pulse:regress`, `pulse:calc` — spend real credit on
 `SMART_REPORT_LLM_API_KEY`. Each preflights and exits rather than scoring if the

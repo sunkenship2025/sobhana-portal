@@ -23,7 +23,9 @@
     "pulse:bench": "ts-node --transpile-only pulse-adversarial.ts",
     "pulse:regress": "ts-node --transpile-only pulse-regression.ts",
     "pulse:calc": "ts-node --transpile-only pulse-calc.ts",
-    "pulse:when-funded": "ts-node --transpile-only pulse-when-funded.ts"
+    "pulse:when-funded": "ts-node --transpile-only pulse-when-funded.ts",
+    "pulse:chain": "ts-node --transpile-only pulse-chain.ts",
+    "pulse:artifacts": "ts-node --transpile-only pulse-artifact-fit.ts"
   },
   "keywords": [
     "healthcare",

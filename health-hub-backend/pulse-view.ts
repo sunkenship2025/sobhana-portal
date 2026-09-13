@@ -114,6 +114,21 @@ ok('unsupported() returns only the invented ones', unsupported(groundNumbers('�
 const both = kinds('₹1,03,400 across 47 scans is ₹2,200 each', EV).join(' ');
 ok('a per-unit figure derived from two steps is not invented', !/2,200:ungrounded/.test(both), both);
 
+/* Contribution is not a pair: a figure netted down by several costs is the shape this layer
+   exists to produce, and the pairwise check called it invented. */
+{
+  const netted = [
+    { step: 0, ok: true, unit: 'paise', label: 'revenue', data: { value: 186147500 }, summary: { value: '₹18,61,475' } },
+    { step: 1, ok: true, unit: 'paise', label: 'commission', data: { value: 69747200 }, summary: { value: '₹6,97,472' } },
+    { step: 2, ok: true, unit: 'paise', label: 'discount', data: { value: 10514000 }, summary: { value: '₹1,05,140' } },
+    { step: 3, ok: true, unit: 'paise', label: 'refunds', data: { value: 1998900 }, summary: { value: '₹19,989' } },
+  ];
+  ok('revenue less three costs is derivable, not invented',
+     unsupported(groundNumbers('Contribution was ₹10,38,874 on ₹18,61,475 of revenue.', netted)).length === 0);
+  ok('  and a figure that is NOT derivable is still caught',
+     unsupported(groundNumbers('Contribution was ₹9,99,999 on ₹18,61,475 of revenue.', netted)).some((x: any) => /9,99,999/.test(String(x))));
+}
+
 /* A day of the month is a date, not a claim. */
 ok('a date range is not an invented figure', unsupported(groundNumbers("collected ₹1,03,400 last week (6–13 Sep).", EV)).length === 0,
    JSON.stringify(unsupported(groundNumbers("collected ₹1,03,400 last week (6–13 Sep).", EV))));
@@ -169,6 +184,50 @@ const y = exposedIdentifiers(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`);
 ok('an aggregate exposes nobody', y.parsed && y.exposed.length === 0, JSON.stringify(y));
 
 const { identityOf } = require('./src/services/pulse/v2/artifacts');
+/* SQL SHAPE -> SEMANTIC DIMENSION, not merely "there was a GROUP BY". The bug this guards is a
+   ranking of patients described as a ranking of doctors: knowing a query grouped by SOMETHING is
+   worthless, and knowing WHAT it grouped by is the whole point. A computed expression is not a
+   dimension and must not be mistaken for one. */
+const { dimensionOf } = require('./src/services/pulse/v2/tools');
+const FROM_V = `FROM "TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Patient" p ON p.id=v."patientId" JOIN "Branch" br ON br.id=v."branchId" LEFT JOIN "ReferralDoctor_Visit" rdv ON rdv."visitId"=v.id LEFT JOIN "ReferralDoctor" rd ON rd.id=rdv."referralDoctorId"`;
+console.log('\nwhat KIND of thing each row is\n');
+ok('grouping by patientNumber is a patient', dimensionOf(`SELECT p."patientNumber" k, COUNT(*) n ${FROM_V} GROUP BY 1`) === 'patient',
+   String(dimensionOf(`SELECT p."patientNumber" k, COUNT(*) n ${FROM_V} GROUP BY 1`)));
+ok('grouping by the referring doctor is a doctor', /doctor/.test(String(dimensionOf(`SELECT rd.name k, COUNT(*) n ${FROM_V} GROUP BY 1`))),
+   String(dimensionOf(`SELECT rd.name k, COUNT(*) n ${FROM_V} GROUP BY 1`)));
+ok('grouping by branch code is a branch', dimensionOf(`SELECT br.code k, COUNT(*) n ${FROM_V} GROUP BY 1`) === 'branch',
+   String(dimensionOf(`SELECT br.code k, COUNT(*) n ${FROM_V} GROUP BY 1`)));
+ok('grouping by the test is a test', /test/.test(String(dimensionOf(`SELECT o."testCodeSnapshot" k, COUNT(*) n ${FROM_V} GROUP BY 1`))),
+   String(dimensionOf(`SELECT o."testCodeSnapshot" k, COUNT(*) n ${FROM_V} GROUP BY 1`)));
+ok('a COMPUTED first column is NOT a dimension',
+   dimensionOf(`SELECT date_trunc('month', o."createdAt") k, COUNT(*) n ${FROM_V} GROUP BY 1`) == null
+   || !/patient|doctor|branch/.test(String(dimensionOf(`SELECT date_trunc('month', o."createdAt") k, COUNT(*) n ${FROM_V} GROUP BY 1`))),
+   String(dimensionOf(`SELECT date_trunc('month', o."createdAt") k, COUNT(*) n ${FROM_V} GROUP BY 1`)));
+ok('no GROUP BY means no dimension at all', dimensionOf(`SELECT COUNT(*) n ${FROM_V}`) == null,
+   String(dimensionOf(`SELECT COUNT(*) n ${FROM_V}`)));
+
+/* DOES THE TABLE KEEP WHAT THE JOB NEEDS TO INTERPRET IT? Production said the table was the most
+   common artifact and carried almost no useful context. "It does not lie" is not the bar; the bar
+   is whether the reader can act on it. A ranking of money needs a share — 2,097 referrals means
+   nothing until you know it is 15% of the total. A ranking of visits per patient does not: six
+   visits is six visits, and a share of all visits tells nobody anything. */
+console.log('\ndoes the table keep what the job needs\n');
+const moneyRank = { step: 0, ok: true, unit: 'paise', dimension: 'referring_doctor', period: '2026-08-14…2026-09-13',
+  means: 'net billed by referring doctor',
+  summary: { total: '₹18,62,362', top: [{ name: 'DR A', value: '₹9,00,000' }, { name: 'DR B', value: '₹5,00,000' }, { name: 'DR C', value: '₹4,62,362' }] } };
+const mv = deriveView(moneyRank, 8)!;
+ok('a money ranking states a share, not only a bar width', mv.rows.every((r: any) => r.share != null));
+ok('  and the total those shares are of', mv.total != null || mv.totalN != null);
+ok('  and what the figures ARE', !!mv.means);
+ok('  and the period they cover', mv.context.length > 0, JSON.stringify(mv.context));
+
+const visitRank = { step: 1, ok: true, unit: 'count', dimension: 'patient', period: '2026-06-15…2026-09-13',
+  means: 'visits per patient',
+  summary: { rows: [{ patient: 'P-000594', visits: 6 }, { patient: 'P-000731', visits: 5 }] } };
+const vv = deriveView(visitRank, 8)!;
+ok('a count ranking still carries its period and meaning', vv.context.length > 0 && !!vv.means);
+ok('  and a share is offered but never invented', vv.rows.every((r: any) => r.share == null || (r.share > 0 && r.share <= 1)));
+
 console.log('\nROW IDENTITY — what to call a row when the owner says "name him"\n');
 ok('a human-readable key beats a surrogate id',
    identityOf({ id: 'cmf6q2x9k0001abcd', patientNumber: 'P-000594', name: 'ABDUL SALEEM' })?.value !== 'cmf6q2x9k0001abcd',
