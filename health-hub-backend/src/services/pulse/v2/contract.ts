@@ -259,9 +259,16 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
   const invented = evidence ? unsupported(groundNumbers(t, evidence)) : [];
   if (invented.length) v.push(`these figures do not come from any step, and cannot be derived from two that do: ${invented.join(', ')} — state only what the analysis produced`);
 
-  // An artifact is owed only when the job wants one AND the evidence can actually support one.
-  const ok = allowed && allowed.length ? allowed : null;
-  if (c.needsArtifact && ok && !arts.some((a) => ok.includes(String(a?.type)))) {
+  /* An artifact is owed only when the job wants one AND the evidence can actually support one.
+     The allowed list arrives as bare type names from one caller and as ranked {type, score}
+     objects from another. Compared raw, an object never equals "kpi", so the membership test was
+     always false and this fired on answers that HAD attached a perfectly good artifact — four
+     times in the recorded traces — and the message it produced was
+     "must show a [object Object] or [object Object]", which tells the repair step nothing at all.
+     Normalised to type names once, for both the test and the sentence. */
+  const typeName = (x: any) => String(x && typeof x === 'object' ? (x.type ?? x.kind ?? '') : x || '').trim();
+  const ok = allowed && allowed.length ? allowed.map(typeName).filter(Boolean) : null;
+  if (c.needsArtifact && ok && ok.length && !arts.some((a) => ok.includes(typeName(a?.type) || typeName(a)))) {
     v.push(`this answer must show a ${ok.slice(0, 2).join(' or ')} — the detail belongs there, not in the sentences`);
   }
   return { ok: v.length === 0, violations: v, note: v.join('; ') };
