@@ -38,6 +38,7 @@ initSentry();
 // Routes
 import authRoutes from './routes/auth';
 import automationRoutes from './routes/automations';
+import offerRoutes from './routes/offers';
 import pulseRoutes from './routes/pulse';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
@@ -414,6 +415,7 @@ app.use('/api/signing-lab-incharges', signingLabInchargeRoutes);
 app.use('/api/lab-incharge-rules', labInchargeRuleRoutes);
 app.use('/api/owner', ownerDashboardRoutes);
 app.use('/api/automations', automationRoutes); // Admin > Automations
+app.use('/api/offers', offerRoutes); // Admin > Automations > Offers
 app.use('/api/pulse', pulseRoutes); // Pulse: owner AI analytics over the analytics_ro role
 // Pulse knowledge (schema shape, coverage, value index) takes ~30s to build; do it at boot,
 // not on the owner's first question. Fire-and-forget; a failure only means a slow first ask.

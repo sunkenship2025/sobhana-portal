@@ -253,12 +253,18 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         return;
       }
 
+      const priority = (await prisma.automation.findUnique({
+        where: { id: run.automationId },
+        select: { priority: true },
+      }))?.priority;
+
       const decision = await communicationPolicy(ctx, {
         patientId: run.patientId,
         phone,
         intent: step.intent,
         runId,
         visitId: run.subjectType === 'VISIT' ? run.subjectId : null,
+        priority,
       });
 
       if (decision.kind === 'DROP') {

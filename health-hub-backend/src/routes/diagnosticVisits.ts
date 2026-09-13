@@ -2215,6 +2215,11 @@ router.post("/", async (req: AuthRequest, res) => {
       paidAmount,
       payments,
       sendWhatsApp,
+      /// Optional: the clinic visit this registration came out of. Sent by the front
+      /// desk when the patient arrives from a consultation. Everything works without
+      /// it — it only turns "did that consultation lead to tests?" from a time window
+      /// into an answer.
+      sourceVisitId,
     } = req.body;
 
     const hasProducts =
@@ -2816,6 +2821,11 @@ router.post("/", async (req: AuthRequest, res) => {
             status: initialVisitStatus,
             billNumber,
             totalAmountInPaise,
+            // The consultation this registration came out of, when the front desk
+            // captured it. This is the ONLY honest source of "did that consultation
+            // lead to tests?" — without it the answer is a time window, which counts
+            // walk-ins nobody advised. Null means "we do not know", never "no".
+            sourceVisitId: sourceVisitId ?? null,
           },
         });
 

@@ -23,6 +23,8 @@ export interface PolicyInput {
   runId: string;
   /** Set when the message belongs to a visit whose online access was killed. */
   visitId?: string | null;
+  /** This automation's importance, 1-5. Only consulted for proactive messages. */
+  priority?: number;
 }
 
 /** IST is UTC+5:30 with no DST, so a fixed offset is exact — no tz library. */
@@ -107,7 +109,20 @@ export async function communicationPolicy(
     }
   }
 
-  // 9 — quiet hours.
+  // 9 — a more important journey is due for this patient in the same tick. Defer by a
+  // tick rather than dropping: this message is still wanted, just not first.
+  if (input.patientId && input.priority !== undefined) {
+    const rival = await ctx.higherPriorityRunDue(input.patientId, input.priority, input.runId);
+    if (rival) {
+      return {
+        kind: 'DEFER',
+        until: new Date(ctx.now.getTime() + 10 * 60_000),
+        reason: Outcome.WAITING_ANOTHER_AUTOMATION,
+      };
+    }
+  }
+
+  // 10 — quiet hours.
   const mins = istMinutes(ctx.now);
   if (mins < QUIET_START_MIN || mins >= QUIET_END_MIN) {
     return { kind: 'DEFER', until: nextQuietWindowOpen(ctx.now), reason: Outcome.QUIET_HOURS };

@@ -150,9 +150,11 @@ export async function automationResults(automationId: string) {
 
 /** The Activity list. */
 export async function activity(filters: {
-  automationId?: string; outcome?: string; patientId?: string; days?: number; take?: number;
+  automationId?: string; outcome?: string; patientId?: string; branchId?: string;
+  days?: number; take?: number; cursor?: string;
 }) {
   const since = new Date(Date.now() - (filters.days ?? 7) * DAY_MS);
+  const take = Math.min(filters.take ?? 50, 200);
   const rows = await prisma.automationStepLog.findMany({
     where: {
       at: { gte: since },
@@ -160,40 +162,48 @@ export async function activity(filters: {
       run: {
         ...(filters.automationId ? { automationId: filters.automationId } : {}),
         ...(filters.patientId ? { patientId: filters.patientId } : {}),
+        ...(filters.branchId ? { branchId: filters.branchId } : {}),
       },
     },
     orderBy: { at: 'desc' },
-    take: Math.min(filters.take ?? 100, 200),
+    // One extra row is the "is there more" answer, without a second count query.
+    take: take + 1,
+    ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
     select: {
       id: true, at: true, kind: true, outcome: true, stepIndex: true, detail: true,
       run: {
         select: {
-          id: true, patientId: true, version: true,
+          id: true, patientId: true, version: true, branchId: true,
           automation: { select: { name: true } },
         },
       },
     },
   });
 
-  const patientIds = [...new Set(rows.map((r) => r.run.patientId).filter(Boolean))] as string[];
+  const hasMore = rows.length > take;
+  const page = rows.slice(0, take);
+  const patientIds = [...new Set(page.map((r) => r.run.patientId).filter(Boolean))] as string[];
   const patients = await prisma.patient.findMany({
     where: { id: { in: patientIds } },
     select: { id: true, name: true, patientNumber: true },
   });
   const byId = new Map(patients.map((p) => [p.id, p]));
 
-  return rows.map((r) => ({
-    id: r.id,
-    at: r.at,
-    kind: r.kind,
-    outcome: r.outcome,
-    stepIndex: r.stepIndex,
-    detail: r.detail,
-    runId: r.run.id,
-    automation: r.run.automation.name,
-    version: r.run.version,
-    patient: r.run.patientId ? byId.get(r.run.patientId) ?? null : null,
-  }));
+  return {
+    rows: page.map((r) => ({
+      id: r.id,
+      at: r.at,
+      kind: r.kind,
+      outcome: r.outcome,
+      stepIndex: r.stepIndex,
+      detail: r.detail,
+      runId: r.run.id,
+      automation: r.run.automation.name,
+      version: r.run.version,
+      patient: r.run.patientId ? byId.get(r.run.patientId) ?? null : null,
+    })),
+    nextCursor: hasMore ? page[page.length - 1].id : null,
+  };
 }
 
 /** One run: why she entered, what happened, why it stopped — all from the step log. */

@@ -69,6 +69,14 @@ export interface AutomationContext {
   phoneOptedOut(phone: string): Promise<boolean>;
   threadHeldByHuman(phone: string): Promise<boolean>;
   lineHeldByAnotherRun(phone: string, runId: string): Promise<boolean>;
+  /**
+   * Is a MORE important journey also due for this patient right now?
+   *
+   * The weekly cap already stops two proactive messages landing in the same week; this
+   * is the narrower question of who goes first when two are due in the same tick and
+   * neither has sent yet. Without it "Importance" is a control with nothing behind it.
+   */
+  higherPriorityRunDue(patientId: string, priority: number, runId: string): Promise<string | null>;
   resultOf(testOrderId: string, testCode: string): Promise<ResultFacts | null>;
 }
 
@@ -198,6 +206,23 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       return slot.automationRunId !== runId;
     },
 
+    async higherPriorityRunDue(patientId, priority, runId) {
+      const rival = await prisma.automationRun.findFirst({
+        where: {
+          patientId,
+          id: { not: runId },
+          state: 'PENDING',
+          nextActionAt: { lte: now },
+          automation: { priority: { gt: priority }, enabled: true },
+        },
+        // Highest priority first, then the one that has been waiting longest — a total
+        // order, so the same two runs always resolve the same way.
+        orderBy: [{ automation: { priority: 'desc' } }, { nextActionAt: 'asc' }],
+        select: { automation: { select: { name: true } } },
+      });
+      return rival?.automation.name ?? null;
+    },
+
     async resultOf(testOrderId, testCode) {
       const order = await prisma.testOrder.findUnique({
         where: { id: testOrderId },
@@ -256,6 +281,8 @@ export interface FactSet {
   humanHeldPhones?: string[];
   linesHeldByRun?: Record<string, string>;
   results?: Record<string, ResultFacts>;
+  /** patientId -> the name of a more important journey also due right now. */
+  higherPriorityDueFor?: Record<string, string>;
 }
 
 /**
@@ -299,6 +326,9 @@ export function memoryContext(facts: FactSet): AutomationContext {
     async lineHeldByAnotherRun(phone, runId) {
       const holder = facts.linesHeldByRun?.[phone];
       return !!holder && holder !== runId;
+    },
+    async higherPriorityRunDue(patientId) {
+      return facts.higherPriorityDueFor?.[patientId] ?? null;
     },
     async resultOf(testOrderId, testCode) {
       return facts.results?.[`${testOrderId}:${testCode}`] ?? null;

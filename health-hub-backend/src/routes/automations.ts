@@ -39,14 +39,29 @@ router.get('/templates', async (_req: AuthRequest, res) => {
 
 router.get('/activity', async (req: AuthRequest, res) => {
   try {
-    return res.json({
-      rows: await activity({
+    return res.json(
+      await activity({
         automationId: req.query.automationId as string | undefined,
         outcome: req.query.outcome as string | undefined,
         patientId: req.query.patientId as string | undefined,
+        branchId: req.query.branchId as string | undefined,
         days: req.query.days ? Number(req.query.days) : undefined,
+        cursor: req.query.cursor as string | undefined,
+        take: req.query.limit ? Number(req.query.limit) : undefined,
       }),
+    );
+  } catch (e) { return fail(res, e); }
+});
+
+/** The distinct reason codes actually present, so the Why filter is never a guess. */
+router.get('/activity/reasons', async (_req: AuthRequest, res) => {
+  try {
+    const rows = await prisma.automationStepLog.groupBy({
+      by: ['outcome'],
+      _count: { _all: true },
+      orderBy: { _count: { outcome: 'desc' } },
     });
+    return res.json({ reasons: rows.map((r) => ({ outcome: r.outcome, count: r._count._all })) });
   } catch (e) { return fail(res, e); }
 });
 
@@ -276,7 +291,10 @@ router.put('/:id', async (req: AuthRequest, res) => {
       for (const s of def.steps) {
         if (s.kind !== 'SEND') continue;
         const t = templates.find((x) => x.name === s.template);
-        if (!t) return res.status(400).json({ error: `TEMPLATE_NOT_APPROVED: ${s.template}` });
+        if (!t) return res.status(400).json({ error: `TEMPLATE_NOT_FOUND: ${s.template}` });
+        if (t.status !== 'APPROVED') {
+          return res.status(400).json({ error: `TEMPLATE_NOT_APPROVED: ${s.template} is ${t.status}` });
+        }
         if (t.paramCount !== s.params.length) {
           return res.status(400).json({
             error: `TEMPLATE_ARITY: ${s.template} expects ${t.paramCount}, ${s.params.length} bound`,

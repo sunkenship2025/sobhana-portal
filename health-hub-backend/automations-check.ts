@@ -322,6 +322,29 @@ async function main() {
     assert.strictEqual(await predicates.resultIsCritical(mk('HIGH'), s, { testCode: 'HB' }), false);
   });
 
+  await check('a more important journey defers this one, it does not drop it', async () => {
+    const ctx = memoryContext({
+      now: T0, visits: [visit()], patients: [patient()],
+      higherPriorityDueFor: { P1: 'Bill outstanding' },
+    });
+    const d = await communicationPolicy(ctx, {
+      patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'r', priority: 3,
+    });
+    assert.strictEqual(d.kind, 'DEFER', 'a lower-priority message was lost instead of held');
+    assert.strictEqual((d as { reason: string }).reason, 'WAITING_ANOTHER_AUTOMATION');
+  });
+
+  await check('importance does not delay a reactive message', async () => {
+    const ctx = memoryContext({
+      now: T0, visits: [visit()], patients: [patient()],
+      higherPriorityDueFor: { P1: 'Bill outstanding' },
+    });
+    const d = await communicationPolicy(ctx, {
+      patientId: 'P1', phone: '919876543210', intent: 'REACTIVE', runId: 'r', priority: 1,
+    });
+    assert.strictEqual(d.kind, 'SEND', 'a report was held behind a marketing journey');
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

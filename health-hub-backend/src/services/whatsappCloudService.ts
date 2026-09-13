@@ -187,7 +187,7 @@ export interface MessageTemplateSummary {
   name: string;
   language: string;
   category: string; // UTILITY | MARKETING | AUTHENTICATION
-  status: string; // APPROVED (we only surface these)
+  status: string; // APPROVED | REJECTED | PAUSED | PENDING | DISABLED — all of them
   bodyText: string; // raw body, may contain {{1}} placeholders
   paramCount: number; // number of {{n}} placeholders in the body
   hasHeaderMedia: boolean; // header needs an image/video/document — not fillable from the picker
@@ -216,8 +216,11 @@ export async function listMessageTemplates(force = false): Promise<MessageTempla
   });
 
   const raw: any[] = response.data?.data ?? [];
+  // Every status, not only APPROVED. The Templates screen has to show a REJECTED
+  // template and the automations it just stopped — filtering them out here is what
+  // made that screen impossible to back honestly. Callers that only want sendable
+  // templates filter on `status === 'APPROVED'` themselves.
   const parsed: MessageTemplateSummary[] = raw
-    .filter((t) => t.status === 'APPROVED')
     .map((t) => {
       const components: any[] = t.components || [];
       const body = components.find((c) => c.type === 'BODY');
