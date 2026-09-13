@@ -229,6 +229,15 @@ if (require.main === module) (async () => {
     try { a = await ask(c.q, c.state === 'carry' ? state : {}); }
     catch (e: any) { bailIfInfra(e); a = { kind: 'error', text: String(e?.message) }; }
     if (a?.state) state = a.state;
+    /* AND MID-RUN, NOT ONLY AT THE START. The preflight proves the account works when the suite
+       begins and says nothing about the thirtieth call. One run's credit expired at case seven and
+       the remaining seventeen scored as quality failures — 7 of 24 clean, which reads as a
+       catastrophic regression and measures a balance. ask() labels an unreachable model
+       `unavailable`; seeing one, the run stops rather than reporting a number. */
+    if ((a as any)?.reason === 'unavailable') {
+      console.error(`\n  STOPPED PARTWAY — the model became unreachable during the run.\n  ${String((a as any).unavailable || '').slice(0, 140)}\n  No score is reported, because the rest was never measured.\n`);
+      process.exit(2);
+    }
     const { flags, notes } = audit(a, c);
     results.push({ c, flags, notes, ms: Date.now() - t, job: a?.job ?? a?.kind ?? '?', calls: a?.trace?.calls ?? 0 });
     const mark = flags.length ? '✗' : '✓';

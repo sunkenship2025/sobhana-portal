@@ -199,6 +199,10 @@ const near = (a: number, b: number, tol = 0.12) => Math.abs(a - b) / Math.max(Ma
     const t = await c.truth();
     let a: any; const t0 = Date.now();
     try { a = await ask(c.q, {}); } catch (e: any) { bailIfInfra(e); console.log(`✗ THREW ${c.id}`); continue; }
+    if ((a as any)?.reason === 'unavailable') {
+      console.error(`\n  STOPPED PARTWAY — the model became unreachable during the run: ${String((a as any).unavailable || '').slice(0, 120)}\n  No score is reported.\n`);
+      process.exit(2);
+    }
     const text = String(a.segments?.verdict ? [a.segments.verdict, ...(a.segments.points||[]).map((p:any)=>p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a.text || '');
     const tr = a.trace || {};
     const nums = digitsWithUnit(text, String(t.unit || 'number'));

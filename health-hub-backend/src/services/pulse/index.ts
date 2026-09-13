@@ -113,10 +113,20 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgre
   try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }, opts.onProgress, { rowLevel: opts.rowLevel !== false }); }
   catch (e) {
     console.warn('[pulse] analysis failed:', (e as any)?.message);
-    return { kind: 'refuse', reason: refersToArtifact ? 'reference_failed' : 'failed',
+    /* WHOSE FAULT IT WAS TRAVELS WITH THE REFUSAL. An unusable model account produces exactly the
+       same polite refusal as a question the analysis genuinely could not answer, so a benchmark
+       run whose credit expired halfway scored seventeen billing errors as quality failures —
+       7 of 24, which reads as catastrophe and means nothing. The caller cannot tell them apart
+       unless the refusal says which it was. */
+    const why = String((e as any)?.message || '');
+    const infra = /402|Insufficient Balance|401|invalid_api_key|API key not set|429|rate.?limit|ECONNREFUSED|ENOTFOUND|timed out|connection pool/i.test(why);
+    return { kind: 'refuse', reason: infra ? 'unavailable' : refersToArtifact ? 'reference_failed' : 'failed',
+      ...(infra ? { unavailable: why.slice(0, 160) } : {}),
       text: refersToArtifact
         ? "I lost track of what you were pointing at there. Ask it again naming the row — the doctor, the branch or the test — and I'll pick it up."
-        : "That analysis failed part way through, so I have nothing I can stand behind. Ask it again, or ask for a narrower piece of it.",
+        : infra
+          ? "I could not reach the model just now, so nothing was analysed. This is a problem with the service, not with your question or your data — try again shortly."
+          : "That analysis failed part way through, so I have nothing I can stand behind. Ask it again, or ask for a narrower piece of it.",
       state: { ...next, kind: 'refuse' } };
   }
 }

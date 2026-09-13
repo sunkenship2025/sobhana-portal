@@ -216,6 +216,10 @@ async function resolverChecks(): Promise<string[]> {
       const rows = JSON.stringify(a.state?.lastTurn?.artifacts ?? a.artifacts ?? []);
       txt = `${a.text ?? ''} ${rows}`;
     } catch (e: any) { bailIfInfra(e); txt = `THREW ${e?.message}`; }
+    if ((a as any)?.reason === 'unavailable') {
+      console.error(`\n  STOPPED PARTWAY — the model became unreachable during the run: ${String((a as any).unavailable || '').slice(0, 120)}\n  No score is reported.\n`);
+      process.exit(2);
+    }
     // accept the figure with or without thousands separators, since prose varies
     // A small count is often spelled out — "Nine patients currently have outstanding dues" is
     // the right answer and the digit never appears. The assertion is about the VALUE, not how
