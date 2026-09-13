@@ -60,6 +60,15 @@ for weeks while "name him" answered about a different patient; every CT operand 
 while the answer said it could not be established. Prefer an end-to-end test over another static
 prompt assertion.
 
+**RUN ONE SUITE AT A TIME.** Every suite builds the knowledge index on startup, which probes
+each registry metric against the database, and each run holds its own Prisma pool. Three at once
+exhausted the pool on the shared Neon instance: the knowledge build went from 80 seconds to 47
+minutes, eleven metrics reported `broken: Timed out fetching a new connection`, and the analytics
+database stopped answering until the runs were killed. It recovered in seconds once they were.
+
+Nothing was lost, but that is a production database — the same one the portal uses. Launch them
+sequentially, never with `&` in parallel.
+
 **The suites that need the model** — `pulse:bench` (adversarial, the headline
 benchmark), `pulse:regress`, `pulse:calc` — spend real credit on
 `SMART_REPORT_LLM_API_KEY`. Each preflights and exits rather than scoring if the
