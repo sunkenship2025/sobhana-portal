@@ -267,7 +267,11 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
   }
 
   const invented = evidence ? unsupported(groundNumbers(t, evidence)) : [];
-  if (invented.length) v.push(`these figures do not come from any step, and cannot be derived from two that do: ${invented.join(', ')} — state only what the analysis produced`);
+  /* SEPARATE THE LIST WITH SOMETHING THAT IS NOT A COMMA. Indian money is written ₹19,26,897, so
+     a comma-joined list of flagged figures reads "₹87,000, ₹39,900" — and the repair step, which
+     is a model reading this sentence, cannot tell where one number ends and the next begins. It
+     was being asked to remove figures it could not identify. */
+  if (invented.length) v.push(`these figures do not come from any step, and cannot be derived from two that do: ${invented.map((x) => `"${x}"`).join(' · ')} — state only what the analysis produced`);
 
   /* An artifact is owed only when the job wants one AND the evidence can actually support one.
      The allowed list arrives as bare type names from one caller and as ranked {type, score}
