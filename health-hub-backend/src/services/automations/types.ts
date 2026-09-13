@@ -99,7 +99,15 @@ export type Step =
   | {
       kind: 'CHECK';
       condition: Condition;
-      onTrue: 'STOP' | 'CONTINUE';
+      /**
+       * 'STOP' ends the run, 'CONTINUE' falls through, a NUMBER jumps to that step.
+       *
+       * The jump is what lets one journey say two different things — "here is your code"
+       * to someone who claimed it, "claim your code" to someone who did not — without
+       * being two journeys that then have to be kept in step with each other.
+       */
+      onTrue: 'STOP' | 'CONTINUE' | number;
+      onFalse?: 'STOP' | 'CONTINUE' | number;
       stopReason?: string;
     }
   | {
@@ -110,8 +118,25 @@ export type Step =
       language?: string;
       params: ParamBinding[];
       intent: Intent;
-      /** Issued in the SAME step, under the same idempotency key as the send. */
-      issueOffer?: { campaignId: string };
+      /**
+       * Issued with this message. ONE per run, not one per step: a patient who can claim
+       * from either the first message or the reminder must still end up with a single
+       * code, and both steps asking for one is the normal case rather than the edge.
+       */
+      issueOffer?: {
+        campaignId: string;
+        /**
+         * When it dies. Anchored to the TRIGGER by default, so claiming late means less
+         * time rather than a fresh window — an offer that resets every time someone taps
+         * it is not an expiring offer.
+         */
+        expiry?: {
+          anchor: 'TRIGGER' | 'ISSUE';
+          days: number;
+          /** End of that day in IST, so "expires Day 6" means all of Day 6. */
+          endOfDayIST?: boolean;
+        };
+      };
     }
   | {
       /**
@@ -173,6 +198,27 @@ export type Step =
 
 export interface AutomationDefinition {
   trigger: Trigger;
+  /**
+   * Consent and opt-out behaviour for this journey.
+   *
+   * Deliberately explicit rather than inferred: an automation that skips the marketing
+   * gate is a decision someone made about what this message IS, and it should be
+   * readable in the definition rather than implied by which template it happens to use.
+   */
+  policy?: {
+    /**
+     * Treat this as operational follow-up rather than marketing, so the marketing
+     * opt-in gate does not apply. The per-number STOP list still does — that one is not
+     * ours to waive.
+     */
+    skipMarketingConsent?: boolean;
+    /**
+     * What an inbound STOP means. 'GLOBAL' adds the number to the opt-out list and
+     * silences every journey — the safe default and what a patient means by it.
+     * 'THIS_JOURNEY' only ends this run.
+     */
+    stopScope?: 'GLOBAL' | 'THIS_JOURNEY';
+  };
   reentry: {
     /** May they enrol again? */
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS';

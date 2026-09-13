@@ -25,6 +25,15 @@ export interface PolicyInput {
   visitId?: string | null;
   /** This automation's importance, 1-5. Only consulted for proactive messages. */
   priority?: number;
+  /**
+   * Declared on the automation: this journey is operational follow-up rather than
+   * marketing, so the marketing opt-in gate does not apply to it.
+   *
+   * The per-number STOP list is NOT waivable by this. Consent is a question about what
+   * we may start; STOP is a person telling us to stop, and no configuration flag
+   * outranks that.
+   */
+  skipMarketingConsent?: boolean;
 }
 
 /** IST is UTC+5:30 with no DST, so a fixed offset is exact — no tz library. */
@@ -71,7 +80,7 @@ export async function communicationPolicy(
 
   // 4 — consent, per PATIENT, and only for what we initiated. Reports and bills are
   // answers to something the patient did and are not gated here.
-  if (input.intent === 'PROACTIVE' && input.patientId) {
+  if (input.intent === 'PROACTIVE' && input.patientId && !input.skipMarketingConsent) {
     const p = await ctx.patient(input.patientId);
     if (!p?.marketingOptIn) return drop(Outcome.NOT_OPTED_IN_MARKETING);
   }

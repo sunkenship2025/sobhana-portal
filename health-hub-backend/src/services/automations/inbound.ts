@@ -59,23 +59,47 @@ export async function resolveInbound(
 
   // STOP wins over everything, including an automation holding the line.
   if (STOP_WORDS.test(body)) {
-    await prisma.phoneOptOut.upsert({
-      where: { phone },
-      create: { phone, source: 'INBOUND_STOP' },
-      update: { optedOutAt: now, source: 'INBOUND_STOP' },
-    });
     const slot = await prisma.awaitingReply.findUnique({
-      where: { phone }, select: { automationRunId: true },
+      where: { phone },
+      select: { automationRunId: true },
     });
+
+    // Scope. GLOBAL is the default and what a person means by "stop" — it silences
+    // every journey on this number. A journey may declare THIS_JOURNEY where the
+    // messages are operational rather than marketing, and then a stop ends only that
+    // one. Whichever it is, the run that asked the question ends here.
+    let scope: 'GLOBAL' | 'THIS_JOURNEY' = 'GLOBAL';
+    if (slot) {
+      const run = await prisma.automationRun.findUnique({
+        where: { id: slot.automationRunId },
+        select: { definition: true },
+      });
+      const declared = (run?.definition as { policy?: { stopScope?: string } } | null)?.policy?.stopScope;
+      if (declared === 'THIS_JOURNEY') scope = 'THIS_JOURNEY';
+    }
+
+    if (scope === 'GLOBAL') {
+      await prisma.phoneOptOut.upsert({
+        where: { phone },
+        create: { phone, source: 'INBOUND_STOP' },
+        update: { optedOutAt: now, source: 'INBOUND_STOP' },
+      });
+    }
+
     if (slot) {
       await prisma.automationRun.updateMany({
         where: { id: slot.automationRunId, state: { in: ['PENDING', 'RUNNING'] } },
-        data: { state: 'STOPPED', stopReason: 'PHONE_OPTED_OUT', nextActionAt: null },
+        data: {
+          state: 'STOPPED',
+          stopReason: scope === 'GLOBAL' ? 'PHONE_OPTED_OUT' : 'STOPPED_BY_PATIENT',
+          nextActionAt: null,
+        },
       });
     }
     await prisma.awaitingReply.deleteMany({ where: { phone } });
-    result.optedOut = true;
-    logger.info(`[automations] ${phone} opted out of marketing`);
+    result.optedOut = scope === 'GLOBAL';
+    result.stopped = true;
+    logger.info(`[automations] ${phone} said stop — scope ${scope}`);
     return result;
   }
 

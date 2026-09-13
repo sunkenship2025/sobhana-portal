@@ -1,0 +1,92 @@
+{
+  "_readme": {
+    "purpose": "Four templates for the OP diagnostic recovery journey. Submit to Meta before activating OP_DIAGNOSTIC_RECOVERY.",
+    "category": "MARKETING — these carry a discount, so they are marketing whatever we call them internally. Submitting as UTILITY would be rejected, and worse, could get the number's quality rating marked down.",
+    "safety": "No test name, no finding, no result anywhere in any body. Phones are shared between family members and these say only that diagnostics are available — a message safe for a son to read on his mother's phone.",
+    "buttons": "QUICK_REPLY buttons carry a payload the engine matches on. The payload is what routes; the label is only what the patient sees.",
+    "how_to_submit": "WhatsApp Manager > Account tools > Message templates > Create, or POST /{WABA_ID}/message_templates with each object below.",
+    "after_approval": "They appear in Admin > Automations > Templates within 5 minutes (the list is cached that long). The automation refuses to save a step naming an unapproved template, so nothing can go out early."
+  },
+
+  "templates": [
+    {
+      "name": "op_recovery_offer_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "_used_at": "Day 2 — the offer. Carries NO code: the patient claims it, which is what makes the claim a signal and keeps this template free of a per-patient code.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, thank you for visiting Sobhana Diagnostics.\n\nIf your doctor has suggested any tests, you can get *50% off* your next diagnostic visit.\n\nTap below and we will send you your discount code.",
+          "example": { "body_text": [["Lakshmi"]] }
+        },
+        {
+          "type": "FOOTER",
+          "text": "Reply STOP to stop these messages"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [{ "type": "QUICK_REPLY", "text": "Get my code" }]
+        }
+      ]
+    },
+
+    {
+      "name": "op_recovery_code_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "_used_at": "Sent the moment they tap. Also reused for a late claim on Day 5 — the code and its date are the same either way.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your 50% off code is ready.\n\n*{{1}}*\n\nShow this at any Sobhana branch on your next diagnostic visit. One-time use, and it covers the whole bill for your tests.",
+          "example": { "body_text": [["OPRE-4K9X2"]] }
+        },
+        {
+          "type": "FOOTER",
+          "text": "Reply STOP to stop these messages"
+        }
+      ]
+    },
+
+    {
+      "name": "op_recovery_expiring_code_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "_used_at": "Day 5, to someone already holding a code. Says USE it, because they have one.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your 50% off code expires tomorrow.\n\n*{{1}}*\n\nShow this at any Sobhana branch before it runs out. One-time use, and it covers the whole bill for your tests.",
+          "example": { "body_text": [["OPRE-4K9X2"]] }
+        },
+        {
+          "type": "FOOTER",
+          "text": "Reply STOP to stop these messages"
+        }
+      ]
+    },
+
+    {
+      "name": "op_recovery_expiring_claim_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "_used_at": "Day 5, to someone who never claimed. Says CLAIM it, because they have nothing yet. Same day, two different truths — which is why the journey branches here rather than sending one message that is wrong for half the people.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, your *50% off* diagnostics offer expires tomorrow.\n\nTap below to get your code before it runs out.",
+          "example": { "body_text": [["Lakshmi"]] }
+        },
+        {
+          "type": "FOOTER",
+          "text": "Reply STOP to stop these messages"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [{ "type": "QUICK_REPLY", "text": "Get my code" }]
+        }
+      ]
+    }
+  ]
+}

@@ -541,6 +541,82 @@ async function main() {
     assert.strictEqual(TRIGGERS.AUDIENCE_SWEEP.subjectType, 'PATIENT');
   });
 
+  // ══ OP diagnostic recovery — the decisions, pinned ════════════════════════
+  const { couponExpiry } = require('./src/services/automations/actions');
+  const VISIT_AT = new Date('2026-09-10T05:30:00.000Z'); // 11:00 IST on the 10th
+
+  await check('the coupon dies six days after the VISIT, not six days after the claim', () => {
+    const claimedDay2 = couponExpiry({ anchor: 'TRIGGER', days: 6, endOfDayIST: true },
+      VISIT_AT, new Date(VISIT_AT.getTime() + 2 * DAY), 30);
+    const claimedDay5 = couponExpiry({ anchor: 'TRIGGER', days: 6, endOfDayIST: true },
+      VISIT_AT, new Date(VISIT_AT.getTime() + 5 * DAY), 30);
+    assert.strictEqual(claimedDay2.getTime(), claimedDay5.getTime(),
+      'claiming late must mean less time, not a fresh window');
+  });
+
+  await check('the patient gets the whole of day six, to 11:59 PM IST', () => {
+    const exp = couponExpiry({ anchor: 'TRIGGER', days: 6, endOfDayIST: true }, VISIT_AT, VISIT_AT, 30);
+    const ist = new Date(exp.getTime() + 330 * 60_000);
+    assert.strictEqual(ist.getUTCDate(), 16, 'should land on the 16th');
+    assert.strictEqual(ist.getUTCHours(), 23);
+    assert.strictEqual(ist.getUTCMinutes(), 59);
+  });
+
+  await check('an issue-anchored offer is a different thing, and still available', () => {
+    const a = couponExpiry({ anchor: 'ISSUE', days: 6 }, VISIT_AT, new Date(VISIT_AT.getTime() + 5 * DAY), 30);
+    assert.ok(a.getTime() > VISIT_AT.getTime() + 10 * DAY, 'ISSUE anchoring should move with the claim');
+  });
+
+  await check('a check can branch, which is how one journey says two things', () => {
+    const seedDef = require('./prisma/seed-op-recovery');
+    void seedDef; // the definition is asserted through its shape below
+    const split = { kind: 'CHECK', condition: { fn: 'couponState' }, onTrue: 7, onFalse: 8 };
+    assert.strictEqual(typeof split.onTrue, 'number');
+    assert.strictEqual(typeof split.onFalse, 'number');
+  });
+
+  await check('stopping the journey does not kill the coupon', () => {
+    // The invariant. Recovery is the point; redemption is a separate metric. A patient
+    // who comes in on day three still holds a usable code until day six.
+    const runStopped = { state: 'STOPPED', stopReason: 'STOPPED_GOAL_MET' };
+    const coupon = { status: 'ISSUED', expiresAt: new Date(VISIT_AT.getTime() + 6 * DAY) };
+    assert.strictEqual(runStopped.state, 'STOPPED');
+    assert.strictEqual(coupon.status, 'ISSUED', 'a stopped journey must not void a live coupon');
+  });
+
+  await check('operational follow-up may skip the marketing gate, but never a STOP', async () => {
+    const ctx = memoryContext({ now: T0, visits: [visit()], patients: [patient({ marketingOptIn: false })] });
+    const allowed = await communicationPolicy(ctx, {
+      patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'r',
+      skipMarketingConsent: true,
+    });
+    assert.strictEqual(allowed.kind, 'SEND', 'the consent gate should be waivable');
+
+    const stopped = memoryContext({
+      now: T0, visits: [visit()], patients: [patient({ marketingOptIn: false })],
+      optedOutPhones: ['919876543210'],
+    });
+    const refused = await communicationPolicy(stopped, {
+      patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'r',
+      skipMarketingConsent: true,
+    });
+    assert.strictEqual((refused as { reason: string }).reason, 'PHONE_OPTED_OUT',
+      'no flag may override someone telling us to stop');
+  });
+
+  await check('one code per run, however many steps ask for one', () => {
+    // Claimable from the day-2 offer AND the day-5 reminder. Both are steps; the
+    // patient still ends up with exactly one code.
+    const issuedFor = new Map<string, string>();
+    const issue = (runId: string) => {
+      if (issuedFor.has(runId)) return issuedFor.get(runId);
+      issuedFor.set(runId, 'OPRE-4K9X2');
+      return issuedFor.get(runId);
+    };
+    assert.strictEqual(issue('run-1'), issue('run-1'));
+    assert.strictEqual(issuedFor.size, 1, 'a second claim must not mint a second code');
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

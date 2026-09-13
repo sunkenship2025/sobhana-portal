@@ -20,7 +20,9 @@ import { createHash } from 'crypto';
 import { prismaContext, type AutomationContext } from './context';
 import { evaluate, UnitMismatch, type EvalTrace, type Subject } from './predicates';
 import { communicationPolicy } from './policy';
-import { sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon } from './actions';
+import {
+  sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon, couponExpiry,
+} from './actions';
 import { Outcome, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
 import { TRIGGERS } from './triggers';
@@ -170,7 +172,31 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
         const live = await prisma.automationRun.count({
           where: { automationId: a.id, patientId: c.patientId, state: { in: ['PENDING', 'RUNNING'] } },
         });
-        if (live > 0) continue;
+        if (live > 0) {
+          // Write the miss down rather than skipping silently. Two things follow from
+          // one row: analytics can say how many chances were passed over, and the
+          // unique key means this visit is never reconsidered once the other journey
+          // ends — a suppressed opportunity is skipped, not queued.
+          try {
+            const suppressed = await prisma.automationRun.create({
+              data: {
+                automationId: a.id, version: a.version,
+                subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
+                patientId: c.patientId, branchId: c.branchId,
+                definition: a.definition as object,
+                triggeredAt: c.triggeredAt,
+                state: 'STOPPED', stopReason: 'SUPPRESSED_ACTIVE_JOURNEY',
+                nextActionAt: null, holdout: false,
+              },
+              select: { id: true },
+            });
+            await log(suppressed.id, 0, 'SUPPRESSED', 'SUPPRESSED_ACTIVE_JOURNEY',
+              { reason: 'this patient already has a live journey on this automation' });
+          } catch {
+            // Already recorded by another tick.
+          }
+          continue;
+        }
       }
 
       const subject: Subject = {
@@ -288,7 +314,22 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         throw e;
       }
       await log(runId, run.stepIndex, 'CHECK', hit ? Outcome.CHECK_TRUE : Outcome.CHECK_FALSE, { trace });
-      if (hit && step.onTrue === 'STOP') {
+
+      const outcome = hit ? step.onTrue : (step.onFalse ?? 'CONTINUE');
+      // A number is a jump. It is how one journey says two different things to two
+      // patients without becoming two journeys that have to be kept in step.
+      if (typeof outcome === 'number') {
+        await prisma.automationRun.update({
+          where: { id: runId },
+          data: { stepIndex: outcome, state: 'PENDING', nextActionAt: ctx.now },
+        });
+        return;
+      }
+      if (outcome === 'STOP' && !hit) {
+        await finish(runId, 'DONE', step.stopReason ?? Outcome.STOPPED_BY_STEP, run.stepIndex);
+        return;
+      }
+      if (hit && outcome === 'STOP') {
         const conv = await goalValue(ctx, subject);
         await prisma.automationRun.update({
           where: { id: runId },
@@ -337,6 +378,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         runId,
         visitId: run.subjectType === 'VISIT' ? run.subjectId : null,
         priority,
+        skipMarketingConsent: def.policy?.skipMarketingConsent,
       });
 
       if (decision.kind === 'DROP') {
@@ -361,6 +403,9 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         const c = await issueCouponForStep(
           step.issueOffer.campaignId, runId, run.stepIndex, run.patientId, phone,
           run.subjectType === 'VISIT' ? run.subjectId : null,
+          step.issueOffer.expiry
+            ? couponExpiry(step.issueOffer.expiry, run.triggeredAt, ctx.now, 30)
+            : undefined,
         );
         if (c?.refused) {
           await log(runId, run.stepIndex, 'COUPON', c.refused);
@@ -525,6 +570,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       const decision = await communicationPolicy(ctx, {
         patientId: to.patientId, phone, intent: step.intent, runId,
         visitId: run.subjectType === 'VISIT' ? run.subjectId : null, priority: priorityA,
+        skipMarketingConsent: def.policy?.skipMarketingConsent,
       });
       if (decision.kind === 'DROP') {
         await log(runId, run.stepIndex, 'SUPPRESSED', decision.reason);

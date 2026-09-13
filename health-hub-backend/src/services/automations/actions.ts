@@ -191,6 +191,37 @@ function mintCode(prefix: string): string {
  * COMMITTED — counting only redemptions lets a campaign issue three times its budget
  * and discover it when redemption catches up.
  */
+/** IST is UTC+5:30 with no DST, so a fixed offset is exact. */
+const IST_OFFSET_MIN = 330;
+
+/**
+ * When a coupon dies.
+ *
+ * Anchored to the TRIGGER by default: claiming on day five gives you one day, not six.
+ * An offer whose clock restarts every time somebody taps it is not an expiring offer,
+ * and "expires tomorrow" in the reminder has to still be true tomorrow.
+ *
+ * `endOfDayIST` gives the patient the WHOLE of the last day — 11:59 PM, not whatever
+ * o'clock their consultation happened to finish.
+ */
+export function couponExpiry(
+  opts: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean } | undefined,
+  triggeredAt: Date,
+  now: Date,
+  fallbackDays: number,
+): Date {
+  const days = opts?.days ?? fallbackDays;
+  const from = opts?.anchor === 'ISSUE' ? now : triggeredAt;
+  const raw = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+  if (!opts?.endOfDayIST) return raw;
+
+  const ist = new Date(raw.getTime() + IST_OFFSET_MIN * 60_000);
+  const endOfDayIst = Date.UTC(
+    ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999,
+  );
+  return new Date(endOfDayIst - IST_OFFSET_MIN * 60_000);
+}
+
 export async function issueCouponForStep(
   campaignId: string,
   runId: string,
@@ -198,9 +229,14 @@ export async function issueCouponForStep(
   patientId: string | null,
   phone: string | null,
   issuedVisitId: string | null,
+  expiresAt?: Date,
 ): Promise<CouponOutcome | null> {
+  // ONE per RUN, not one per step. A patient who can claim from either the first
+  // message or the reminder must end up with a single code — two steps both wanting to
+  // issue is the normal shape of this journey, not an edge case.
   const existing = await prisma.coupon.findFirst({
-    where: { automationRunId: runId, automationStep: stepIndex },
+    where: { automationRunId: runId },
+    orderBy: { createdAt: 'asc' },
     select: { id: true, code: true },
   });
   if (existing) return { couponId: existing.id, code: existing.code, alreadyIssued: true };
@@ -247,7 +283,7 @@ export async function issueCouponForStep(
       patientId,
       phone,
       issuedVisitId,
-      expiresAt: new Date(Date.now() + campaign.validityDays * 24 * 60 * 60 * 1000),
+      expiresAt: expiresAt ?? new Date(Date.now() + campaign.validityDays * 24 * 60 * 60 * 1000),
       automationRunId: runId,
       automationStep: stepIndex,
     },
