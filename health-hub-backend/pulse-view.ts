@@ -170,5 +170,43 @@ ok('a name row identifies by name',
    JSON.stringify(identityOf({ name: 'ABDUL SALEEM', v: 12 })));
 ok('a row with nothing identifying returns null', identityOf({ v: 12, n: 3 }) === null, JSON.stringify(identityOf({ v: 12, n: 3 })));
 
+/* THE MODEL CAN ONLY USE WHAT THE PROMPT TELLS IT EXISTS. Generation needs the model; its INPUT
+   does not — and a metric absent from the prompt may as well not exist, however correctly it is
+   implemented. `compute` shipped in the planner catalogue while the INVESTIGATOR, which plans
+   every round after the first and is where the operands actually land, never saw a tool list at
+   all: it went on answering "the share itself was never computed" with both operands on the
+   table. That was invisible for a day, and it is one assertion here. */
+const { PLAN_SYS, INVESTIGATE_SYS, RESPOND_SYS } = require('./src/services/pulse/v2/analyst');
+const { METRIC_BLOCK, METRIC_DIMS, METRICS } = require('./src/services/pulse/catalog');
+const { contractFor } = require('./src/services/pulse/v2/contract');
+const PLAN = PLAN_SYS(), INV = INVESTIGATE_SYS();
+const RESP = RESPOND_SYS({ ...contractFor('magnitude'), canShow: ['kpi'] });
+
+console.log('\nwhat the model is told exists\n');
+for (const m of ['billed_on_orders', 'commission_on_orders']) {
+  ok(`${m} reaches the planner`, PLAN.includes(m));
+  ok(`${m} is filterable and has a FROM`, !!METRIC_DIMS[m] && !!METRICS[m]);
+}
+ok('compute is offered to the planner', /\bcompute\b/.test(PLAN));
+ok('compute is offered to the INVESTIGATOR, where operands land', /"tool":"compute"/.test(INV));
+ok('derive advertises its filter', /derive\s+\{numerator, denominator, period, filter\}/.test(PLAN));
+
+console.log('\nthe rules that cost real money are still in the text\n');
+ok('payback divides capital by CONTRIBUTION, not gross', /divides capital by contribution/i.test(INV));
+ok('operands must share a basis', /same basis/i.test(INV));
+ok('complete:false QUALIFIES an answer, never replaces one', /does not replace one/i.test(RESP));
+ok('the writer is still forbidden to compute', /never compute or invent a number/i.test(RESP));
+ok('and is told where arithmetic belongs instead', /"compute" step is for/i.test(RESP));
+ok('test branches stay out of findings', /JGG|IDPL/.test(RESP));
+
+console.log('\nno prompt is malformed\n');
+for (const [n, p] of [['plan', PLAN], ['investigate', INV], ['respond', RESP]] as [string, string][]) {
+  ok(`${n} is substantial`, p.length > 1200, `${p.length} chars`);
+  ok(`${n} has no unresolved template holes`, !/\$\{|\bundefined\b|\[object Object\]/.test(p),
+     (p.match(/\$\{[^}]*\}|undefined|\[object Object\]/) || [''])[0]);
+}
+ok('the metric block lists every metric', Object.keys(METRICS).every((m) => METRIC_BLOCK.includes(m)),
+   Object.keys(METRICS).filter((m) => !METRIC_BLOCK.includes(m)).join(','));
+
 console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);
