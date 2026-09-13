@@ -351,8 +351,27 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   const contract = { ...contractFor(job, structures[pIdx >= 0 ? pIdx : 0]), canShow: allowed };
 
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
+  /* DID THE OWNER ASK TO SEE SOMETHING? Then it is not a judgement call, it is an instruction,
+     and the card ships whatever else is true of it. */
+  const askedToSee = /\b(show|shows?\s+me|chart|graph|plot|table|list|break\s?-?\s?down|visuali[sz]e|draw|display|give me a)\b/i.test(q);
+  /* WHAT THE EVIDENCE ACTUALLY IS, by step, so a card can be judged against the thing it renders. */
+  const shapeOf = new Map(usable.map((e, i) => [e.step, structures[i]]));
   const keepArtifacts = (list: any[]) => (list || []).filter((a: any) => {
     if (!a || !ARTIFACT_TYPES.has(a.type)) return false;
+    /* A CARD THAT ONLY REPEATS THE SENTENCE IS NOISE, AND NOISE EVERYWHERE IS THE SAME AS
+       NOTHING ANYWHERE. "How much did we collect yesterday" is one number: the sentence says it,
+       and a KPI tile under it adds a border. Attaching one to every answer is how the owner stops
+       reading them — which is the state they were in when they said an artifact should appear
+       because it HELPS, not by reflex.
+       This was a rule in the writer's prompt ("never attach an artifact that only repeats a
+       single figure the sentence already gave") and the writer attached one anyway, on three of
+       six single-figure questions. An invariant described in a prompt is not an invariant.
+       Only the single-figure shapes are dropped, and only when nothing was asked to be seen: a
+       split, a ranking or a series carries detail no sentence can, and still ships. */
+    if (!askedToSee && (a.type === 'kpi' || a.type === 'compare')) {
+      const first = Array.isArray(a.evidence) ? a.evidence[0] : a.evidence;
+      if (shapeOf.get(Number(first))?.cardinality === 'one') return false;
+    }
     // A type the evidence cannot support is dropped, not merely discouraged. Asking for a
     // waterfall over rows with no deltas renders an empty card and calls itself an answer.
     if (allowed.length && !allowed.includes(String(a.type))) return false;

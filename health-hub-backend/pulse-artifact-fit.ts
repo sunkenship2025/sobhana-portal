@@ -17,9 +17,51 @@
  *             not judgement at all, it is instruction, and not showing one is a miss.
  *
  * Type matters as much as presence: a kpi where a breakdown was asked for is still wrong.
+ *
+ * AND PRESENCE IS NOT ENOUGH EITHER. A card that ships with two rows, no total, no shares and no
+ * line saying what the figures ARE is a border round a number — necessary by this suite's first
+ * test and useless by the owner's. So every shipped artifact is also scored on what it carries,
+ * through deriveView, which is exactly what the renderer reads:
+ *
+ *   context   the period and scope the figures cover — without it a number is unplaceable
+ *   means     the one sentence saying what the figure IS. It travels on every step and was
+ *             rendered nowhere for months
+ *   total     what the parts add up to, where there are parts
+ *   shares    stated as numbers, not encoded only in a bar's width
+ *   tail      how many rows are not shown and what they carry, rather than slice(0,8) in silence
  */
 import 'dotenv/config';
+import { execFileSync } from 'child_process';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { ask } from './src/services/pulse/index';
+
+const dvDir = mkdtempSync(join(tmpdir(), 'pulse-dv-'));
+execFileSync('npx', ['tsc', '../health-hub/src/components/pulse/deriveView.ts',
+  '--outDir', dvDir, '--module', 'commonjs', '--target', 'es2020', '--skipLibCheck'], { stdio: 'pipe' });
+const { deriveView } = require(join(dvDir, 'deriveView'));
+
+/** What a shipped card actually carries, judged the way the renderer sees it. */
+function richness(art: any, evidence: any[]): { score: number; of: number; missing: string[] } {
+  const idx = Array.isArray(art?.evidence) ? art.evidence[0] : art?.evidence;
+  const ev = evidence.find((e: any) => e.step === Number(idx));
+  const missing: string[] = [];
+  if (!ev) return { score: 0, of: 1, missing: ['no evidence behind it'] };
+  const v = deriveView(ev, 8);
+  const multi = !!v && v.rows.length > 1;
+  const want: [string, boolean][] = [
+    ['context', !!(ev.period || ev.scope || (v?.context || []).length)],
+    ['means', !!ev.means],
+  ];
+  if (multi) {
+    want.push(['total', v!.total != null || v!.totalN != null]);
+    want.push(['shares', v!.rows.some((r: any) => r.share != null)]);
+    if (v!.hidden) want.push(['tail sized', !!v!.hidden.value]);
+  }
+  for (const [k, ok] of want) if (!ok) missing.push(k);
+  return { score: want.filter(([, ok]) => ok).length, of: want.length, missing };
+}
 
 type Want = 'none' | 'earned' | 'asked';
 interface Case { q: string; want: Want; why: string; type?: RegExp }
@@ -47,7 +89,7 @@ const CASES: Case[] = [
 ];
 
 (async () => {
-  let pass = 0, fail = 0, soft = 0;
+  let pass = 0, fail = 0, soft = 0, thinCount = 0;
   const rows: string[] = [];
   for (const c of CASES) {
     let a: any;
@@ -64,14 +106,18 @@ const CASES: Case[] = [
 
     if (verdict === 'ok') pass++; else if (verdict === 'soft') soft++; else fail++;
     const mark = verdict === 'ok' ? '✓' : verdict === 'soft' ? '~' : '✗';
-    rows.push(`${mark} ${c.want.padEnd(7)} ${String(arts.length).padStart(2)} [${types.slice(0, 28).padEnd(28)}] ${c.q.slice(0, 46)}`);
+    const rich = arts.map((x) => richness(x, a.evidence || []));
+    const thin = rich.filter((r) => r.missing.length);
+    rows.push(`${mark} ${c.want.padEnd(7)} ${String(arts.length).padStart(2)} [${types.slice(0, 24).padEnd(24)}] ${rich.map((r) => `${r.score}/${r.of}`).join(' ').padEnd(8)} ${c.q.slice(0, 40)}`);
     if (verdict !== 'ok') rows.push(`      ${verdict}: ${c.why}`);
+    for (const r of thin) { rows.push(`      thin: missing ${r.missing.join(', ')}`); thinCount++; }
   }
   console.log('\n' + rows.join('\n'));
   console.log(`\n${'═'.repeat(72)}`);
-  console.log(`  ${pass} right · ${fail} wrong · ${soft} answered in words where a card was allowed\n`);
+  console.log(`  ${pass} right · ${fail} wrong · ${soft} answered in words where a card was allowed`);
+  console.log(`  ${thinCount} shipped card${thinCount === 1 ? '' : 's'} missing something the renderer would have shown\n`);
   console.log('  noise      = a card on an answer that is one figure or no figure');
   console.log('  miss       = the owner asked to see it and did not get it');
   console.log('  wrong-type = a card, but not one that can carry what was asked\n');
-  process.exit(fail ? 1 : 0);
+  process.exit(fail || thinCount ? 1 : 0);
 })();

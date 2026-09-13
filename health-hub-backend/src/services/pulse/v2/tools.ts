@@ -213,7 +213,13 @@ async function t_trend(a: any): Promise<Partial<Evidence>> {
   const half = Math.floor(whole.length / 2) || 1;
   const first = whole.slice(0, half).reduce((s, r) => s + r.v, 0) / half, last = whole.slice(-half).reduce((s, r) => s + r.v, 0) / half;
   const lastWhole = whole[whole.length - 1];
-  return { ok: true, metric: m, unit: U(m), summary: { metric: m, bucket, points: rows.length,
+  /* A CHART WITH NO WINDOW ON IT IS UNPLACEABLE. trend knew its span — the first and last bucket
+     are right there in the summary — and set no `period`, so the card rendered a six-month series
+     with nothing saying which six months. breakdown and rank both carry one; this did not, and
+     the renderer can only show what the evidence hands it. */
+  return { ok: true, metric: m, unit: U(m),
+    period: rows.length ? { from: rows[0]?.k, to: rows[rows.length - 1]?.k } : undefined,
+    summary: { metric: m, bucket, points: rows.length,
     from: rows[0]?.k, to: rows[rows.length - 1]?.k,
     latestComplete: lastWhole ? `${lastWhole.k}: ${fmt(lastWhole.v, U(m))}` : null,
     currentIncomplete: partial >= 0 ? `${rows[partial].k} is still in progress (${fmt(rows[partial].v, U(m))} so far) — do not compare it with whole ${bucket}s` : null,
@@ -595,7 +601,9 @@ async function t_quiet_doctors(a: any): Promise<Partial<Evidence>> {
         + `. Nobody can be shown to have stopped referring, and saying nobody did would be a claim about the doctors rather than about the data.` };
   }
   const rows = (r.rows || []).map((x: any) => ({ k: String(x.k), v: Number(x.n), last: x.last }));
-  return { ok: true, unit: 'count',
+  /* The window they have been SILENT in is the period this list describes — same omission as the
+     chart with no window and the list with no scope. The card can only show what it is handed. */
+  return { ok: true, unit: 'count', period: p.cur, scope: `active in the ${look} days before ${p.cur.from}`,
     summary: { stoppedReferring: rows.length, since: p.cur.from, lookedBackDays: look, comparedAgainst: `${priorRows} referrals in the prior window`,
       doctors: rows.map((x) => ({ name: x.k, referralsBefore: x.v, lastReferral: x.last })) },
     data: { rows } };
@@ -654,7 +662,12 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
     if (ex.err) return { ok: false, error: ex.err };
     const rows = ex.rows || [];
     const total = rows.reduce((s, r: any) => s + Number(r.due_paise || 0), 0);
+    /* A LIST OF CURRENT STATE HAS NO PERIOD, BUT IT DOES HAVE A SCOPE, and without it the card
+       says "patients with dues" over rows that might be one branch or all of them. It is the
+       same omission as a chart with no window: the renderer can only show what it is handed. */
     return { ok: true, unit: 'paise', phi: true,
+      scope: [br ? `branch=${br}` : 'live branches', olderDays ? `billed over ${olderDays} days ago` : '',
+        minP ? `due over ${fmt(minP, 'paise')}` : ''].filter(Boolean).join(', '),
       detail: `unpaid bills${br ? ` at ${br}` : ''}${olderDays ? `, billed over ${olderDays} days ago` : ''}${minP ? `, due over ${fmt(minP, 'paise')}` : ''}, ${a.sort ? String(a.sort) : 'largest first'}, up to ${limit}`,
       summary: { list: 'patients with dues', sortedBy: a.sort || 'largest amount first', shown: rows.length, limit, totalShown: fmt(total, 'paise'),
         note: rows.length === limit ? `capped at ${limit} — ask for a branch or a minimum amount to narrow it` : 'complete list' },
