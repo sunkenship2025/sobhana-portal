@@ -50,3 +50,11 @@ is indistinguishable from a catastrophic regression.
 Rule of thumb: the model's JUDGEMENT needs `pulse:bench`. Everything on both sides of
 it — what the model is told, what its steps mean, what its SQL does, what reaches the
 screen — is covered by `pulse:check`.
+
+**What the paid suites cost.** Measured from the recorded traces: a question takes a
+median of 7 model calls and a mean of 11, at roughly 8k tokens in and 1k out. On
+DeepSeek list pricing that is about **$1.10 for adversarial, $0.50 for regression,
+$0.20 for calc — under $2 for all three, and $7 buys several runs with repairs.**
+
+Worth stating because the instinct is to treat the benchmark as expensive and put it
+off. It is not. An unverified build is far more expensive than two dollars.
