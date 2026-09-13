@@ -12,7 +12,7 @@
  * a warning — and the repair is told exactly which one went missing.
  */
 import { DIMS, METRICS } from '../catalog';
-import { resolveRanked, rankedIn, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
+import { resolveRanked, termsIn, rankedIn, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
 import { periods } from '../diagnostic';
 import { scopeOf, restrictsBy, verifyConstraint } from './sqlscope';
 
@@ -241,7 +241,21 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
     // the owner got a confident 0 instead of 265. A validator that can only check a constraint
     // reached the SQL will happily enforce a wrong one; the constraint itself has to be grounded
     // first. Only fall back to what the planner wrote when the term resolves to nothing.
-    const hit = rankedIn(c?.term || '', q).find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
+    /* THE SUBJECT IS THE OWNER'S, NOT THE PLANNER'S WORDING OF IT. Asked the same CT payback
+       question twice, the planner echoed the scope term as "CT scans" once and "CT" the next
+       time. "CT scans" resolves to the CT / MRI imaging modality at 0.66 and is enforced; bare
+       "CT" resolves to CT-BRAIN PLAIN, a lab code, at 0.38 — under the bar, so nothing downstream
+       enforced anything and the whole investigation dissolved. One question, two subjects,
+       decided by which word the planner happened to repeat.
+       termsIn already reads the OWNER's sentence and picks the best phrase in it. So the planner's
+       term is resolved against that too: if the question contains a longer phrase around the same
+       word that resolves better, the longer phrase is what the owner said and what binds. */
+    const fromQuestion = termsIn(String(q || ''))
+      .filter((t: any) => t.dimension && t.value && String(t.phrase || t.term || '').toLowerCase()
+        .includes(String(c?.term || '').toLowerCase().split(/\s+/)[0] || '\u0000'))
+      .sort((a: any, b: any) => b.score - a.score)[0];
+    const direct = rankedIn(c?.term || '', q).find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
+    const hit = fromQuestion && (!direct || fromQuestion.score > direct.score) ? fromQuestion as any : direct;
     if (hit) {
       scope.push({ term: c.term, dimension: hit.dimension!, value: hit.value!, how: hit.how,
         confidence: hit.score, aliases: aliasesFor(hit.dimension!, hit.value!) });

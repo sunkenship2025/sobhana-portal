@@ -207,7 +207,23 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
     const missingBefore = missingRequirements(inv, evidence);
-    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec, policy, evidence, q)));
+    /* MEASURE FIRST, THEN CALCULATE — IN THE SAME ROUND. compute reads figures out of prior
+       evidence, and steps in a round run in parallel, so I had required its operands to come from
+       an EARLIER round. That made a calculation impossible to PLAN: the planner cannot write
+       {"tool":"compute","let":{"billed":{"step":3}}} before step 3 exists. So every calculation
+       question measured its operands, took the one-step exit, and the writer did the division in
+       prose — "roughly 50 months", with the contract check reporting that neither ₹50,00,000 nor
+       50 came from any step.
+       Ordering the round instead of forbidding the reference costs nothing: the measurements still
+       run in parallel with each other, and the arithmetic runs after them, seeing every figure
+       they produced. A calculation is now one plan, not two rounds of hoping. */
+    const measuring = steps.filter((s: any) => s?.tool !== 'compute');
+    const calculating = steps.filter((s: any) => s?.tool === 'compute');
+    const got = await pool(3, measuring.map((s, i) => () => runStep(s, base + i, k, spec, policy, evidence, q)));
+    for (const s of calculating) {
+      const idx = base + measuring.length + got.filter((g) => g.tool === 'compute').length;
+      got.push(await runStep(s, idx, k, spec, policy, [...evidence, ...got], q));
+    }
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.reduce((n, e) => n + (e.calls ?? (e.tool === 'query' ? 1 : 0)), 0);   // generation AND every repair
     evidence.push(...got);
@@ -237,6 +253,12 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
        A step that measures nothing cannot end the turn. */
     const measured = (e: any) => e?.ok && e.tool !== 'resolve'
       && (e.data != null || e.summary?.value != null || e.summary?.rows != null || Array.isArray(e.summary?.parts));
+    /* ONE MEASURED FIGURE ENDS THE LOOKUP. I tried keeping a calculation question open here so a
+       compute step could run, and it made things worse: given another round the investigation went
+       exploring and bound "calc" — the owner's shorthand for CALCULATE, in "calc after removing
+       referral amt" — to CAL, a three-letter lab test code, then filtered every query to it and
+       returned nulls. More rope is not the fix for arithmetic that did not happen; the repair
+       below is. */
     if (rounds === 1 && evidence.length === 1 && measured(evidence[0])) break;
     if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || calls >= MAX_CALLS) { inv = conclude(inv, 'resource_limit'); break; }
     // Reserve enough to write the answer; otherwise keep going while something is open.

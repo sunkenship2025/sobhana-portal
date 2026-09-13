@@ -69,7 +69,9 @@ const TOOLBOX = `TOOLS
            "means":"months to repay the scanner at the current monthly CT contribution"}}
       · "let" names every operand. Each is EITHER {"step":N} — read the figure that step measured
         — OR {"value":N,"unit":"rupees"} for a number the OWNER supplied in the question.
-      · Steps must be from an EARLIER round. A step in this same round has not run yet.
+      · Operands may reference steps in THIS plan — the measurements run first and the
+        calculation after them, so {"billed":{"step":0}} works when step 0 is the query beside it.
+        Plan the measurement and the arithmetic together; do not wait a round for it.
       · Money you supply is in RUPEES. Never convert to paise; that is done for you.
       · formula takes only + - * / ( ) and your operand names.
       · unit is what the RESULT is: rupees, percent, months, years, days, or number.
@@ -290,8 +292,8 @@ difference, a per-unit figure or a payback period, emit it as a step:
      "means":"months to repay the scanner at the current monthly CT contribution"}}
 
 Each operand is EITHER {"step":N}, the figure that step measured, OR {"value":N,"unit":"rupees"}
-for a number the OWNER supplied. Steps must be from an EARLIER round — a step in this same round
-has not run yet. Money you supply is in rupees; the conversion is done for you. A step measuring
+for a number the OWNER supplied. A step in the SAME plan is fine: measurements run first and the
+compute after them. A question whose answer is a division should plan both at once. Money you supply is in rupees; the conversion is done for you. A step measuring
 a SPLIT has no single figure, so measure the one number you need first. Result units: rupees,
 percent, months, years, days, number.
 
