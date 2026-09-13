@@ -169,6 +169,27 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('scope: a scoped step passes', fired(checkAnswer(CONTRACT, 'the current CT run-rate is ₹2,38,000 a quarter.', [], undefined, scoped, undefined, ctSpec).violations, SCO), false);
   ok('scope: never naming the scope passes', fired(checkAnswer(CONTRACT, 'total collection was ₹18,93,725 last month.', [], undefined, unscoped, undefined, ctSpec).violations, SCO), false);
 
+  /* verifySpec IS THE THING THAT DECIDES WHETHER A WRONG-SCOPED QUERY SHIPS. It was only ever
+     exercised through generated SQL, so it could only be tested by paying for generation. Given
+     SQL text it is a pure function, and these are the shapes that matter — including the two that
+     look right and restrict nothing: a value inside a CTE no one references, and a predicate
+     hanging off a LEFT JOIN. Reachable is not restricting. */
+  console.log('\nverifySpec — does the query actually restrict the rows, or only mention the value');
+  const { verifySpec } = require('./src/services/pulse/v2/spec');
+  const vs: any = { goal: '', scope: [{ term: 'CT', dimension: 'test', value: 'CTBP', confidence: 1, aliases: ['CT-BRAIN PLAIN'] }] };
+  const FROM_ORDERS = `FROM "TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=v."branchId"`;
+  ok('restricts by the column we inferred', verifySpec(vs, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS} WHERE o."testCodeSnapshot" = 'CTBP'`).ok, true);
+  ok('restricts by a DIFFERENT column, same value', verifySpec(vs, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS} WHERE o."testNameSnapshot" = 'CT-BRAIN PLAIN'`).ok, true);
+  ok('does not restrict the value at all', verifySpec(vs, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, false);
+  ok('the value is only a SELECT label', verifySpec(vs, `SELECT SUM(o."priceInPaise") AS "CTBP" ${FROM_ORDERS}`).ok, false);
+  ok('the value sits in an unreferenced CTE', verifySpec(vs, `WITH x AS (SELECT 1 ${FROM_ORDERS} WHERE o."testCodeSnapshot"='CTBP') SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, false);
+  ok('the predicate hangs off a LEFT JOIN', verifySpec(vs, `SELECT SUM(o."priceInPaise") FROM "Visit" v LEFT JOIN "TestOrder" o ON o."visitId"=v.id AND o."testCodeSnapshot"='CTBP'`).ok, false);
+  const named: any = { goal: '', scope: [], time: { period: 'last-90-days', from: '2026-06-15', to: '2026-09-13', days: 90, phrase: 'last 90 days' } };
+  const planned: any = { goal: '', scope: [], time: { period: 'last-90-days', from: '2026-06-15', to: '2026-09-13', days: 90 } };
+  ok('owner named the window, SQL ignores it', verifySpec(named, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, false);
+  ok('planner DEFAULT ignored — not enforced', verifySpec(planned, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, true);
+  ok('a relative window of the right length counts', verifySpec(named, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS} WHERE o."createdAt" >= CURRENT_DATE - 90`).ok, true);
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);
