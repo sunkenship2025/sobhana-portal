@@ -60,3 +60,9 @@ $0.20 for calc — under $2 for all three, and $7 buys several runs with repairs
 
 Worth stating because the instinct is to treat the benchmark as expensive and put it
 off. It is not. An unverified build is far more expensive than two dollars.
+
+**If the account is dry**, `npm run pulse:when-funded` waits for it to come back (a
+four-token probe every five minutes, which spends nothing while it fails), then runs
+calc, regression and adversarial in cost order and writes the result to
+`pulse-bench-result.txt`. `-- --now` skips the wait and exits 2 if there is still no
+credit, rather than reporting a score it did not measure.
