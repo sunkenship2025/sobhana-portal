@@ -224,12 +224,11 @@ function Nights({ data }: { data: ScheduledResults }) {
       </div>
 
       {totals.handedOver > 0 && (
-        <p className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          <b className="text-foreground">{totals.handedOver}</b> branch-night
-          {totals.handedOver === 1 ? '' : 's'} went out on the older sender instead. That is expected
-          while both are switched on — whichever claims the night first owns it, and exactly one
-          message goes out either way. Once every night here reads “Sent”, the old schedule can be
-          switched off in Config Center.
+        <p className="rounded-lg border border-amber-200 bg-amber-50/40 px-4 py-3 text-sm">
+          <b>{totals.handedOver}</b> branch-night{totals.handedOver === 1 ? '' : 's'} went out on the
+          older sender. That should not happen now that this automation owns them — the old schedule
+          stands aside for any branch covered here. If it keeps appearing, this automation was not
+          enabled at the time, or its branch list does not cover that branch.
         </p>
       )}
 

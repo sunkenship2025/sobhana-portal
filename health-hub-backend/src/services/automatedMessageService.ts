@@ -187,15 +187,44 @@ export async function sendDaySheet(
  * One pass. Safe to call as often as you like — the run row decides, not the
  * clock, so an extra call is a no-op rather than a duplicate message.
  */
+/**
+ * Branch+domain pairs an enabled Automation already owns.
+ *
+ * One sender per night, decided before anything is attempted. The unique key on
+ * ScheduledMessageRun still exists and still prevents a double send, but it is a
+ * backstop against a crash or a second instance — not a way for two tickers in the same
+ * process to settle who goes, which is a race nobody should have to reason about and
+ * which made "which sender took last night" a question the owner could see.
+ */
+async function coveredByAutomation(): Promise<Set<string>> {
+  const automations = await prisma.automation.findMany({
+    where: { enabled: true, activatedAt: { not: null } },
+    select: { branchIds: true, definition: true },
+  });
+
+  const covered = new Set<string>();
+  for (const a of automations) {
+    const def = a.definition as { steps?: { kind?: string; domain?: string }[] } | null;
+    for (const step of def?.steps ?? []) {
+      if (step.kind !== 'DAY_SHEET' || !step.domain) continue;
+      for (const branchId of a.branchIds) covered.add(`${branchId}:${step.domain}`);
+    }
+  }
+  return covered;
+}
+
 export async function runDueAutomatedMessages(now: Date = new Date()): Promise<void> {
   const schedules = await prisma.scheduledMessage.findMany({
     where: { kind: DAY_SHEET, enabled: true },
   });
   if (schedules.length === 0) return;
 
+  const covered = await coveredByAutomation();
   const { date, minutes } = istParts(now);
 
   for (const s of schedules) {
+    // An automation owns this one now. Stand aside rather than race it.
+    if (covered.has(`${s.branchId}:${s.domain}`)) continue;
     // Which night do we owe? Today's once the clock passes the send time. If the
     // box was down over that moment, the next boot still owes YESTERDAY's sheet
     // — send it late rather than lose a night — but only inside the grace
