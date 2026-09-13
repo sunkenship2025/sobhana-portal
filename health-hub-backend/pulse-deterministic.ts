@@ -90,6 +90,28 @@ const near = (name: string, got: number, want: number, tol: number) => {
   const plain: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } });
   ok('unscoped revenue still works', plain.ok, true, 'the guard must not block the common case');
 
+  /* THE GUARDS MUST NOT OVER-FIRE. Every guard added this week refuses something, and the one
+     that refuses correct work is worse than the gap it closes — that has happened twice already
+     (the registry spec guard answered "no patients have dues" against a true 11, and the cash
+     guard turned a collection question into a billed one). The adversarial suite would catch it,
+     and cannot run. These are the cases it would have caught. */
+  console.log('\nGUARDS MUST NOT OVER-FIRE — a guard that refuses correct work is worse than the gap it closes');
+  const branchSpec: any = { goal: '', scope: [{ term: 'chintal', dimension: 'branch', value: 'CNT', confidence: 1 }], time: { period: 'last-7-days' } };
+  const byBranch: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last-7-days', filter: { branch: 'CNT' } } }, 0, k, branchSpec, {}, [], 'what was last week collection chintal');
+  ok('revenue scoped to a BRANCH still answers', byBranch.ok, true, 'branch is not work — the guard must ignore it');
+  const domainSpec: any = { goal: '', scope: [{ term: 'lab', dimension: 'domain', value: 'DIAGNOSTICS', confidence: 1 }], time: { period: 'last-7-days' } };
+  const byDomain: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last-7-days', filter: { domain: 'DIAGNOSTICS' } } }, 0, k, domainSpec, {}, [], 'what was last week collection lab only');
+  ok('revenue scoped to a DOMAIN still answers', byDomain.ok, true, 'domain is not a test, category or modality');
+
+  console.log('\nTHE PERIOD BINDING MUST CORRECT, NOT CLOBBER');
+  const specP: any = { goal: '', scope: [], time: { period: 'last-90-days' } };
+  const bound: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_30_days' } }, 0, k, specP, {}, [], 'revenue last 90 days');
+  ok('a step disagreeing with the spec is corrected', bound.summary?.period?.includes(new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)), true, bound.summary?.period);
+  const agree: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last-90-days' } }, 0, k, specP, {}, [], 'revenue last 90 days');
+  ok('a step that already agrees is untouched', agree.summary?.period, bound.summary?.period);
+  const noSpec: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_30_days' } }, 0, k, { goal: '', scope: [] } as any, {}, [], 'revenue last 30 days');
+  ok('no spec period leaves the step alone', noSpec.ok && !noSpec.summary.period.includes(new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)), true, noSpec.summary?.period);
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);
