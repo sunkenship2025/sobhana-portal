@@ -1,0 +1,364 @@
+[
+  {
+    "step": 0,
+    "tool": "compare",
+    "label": "compare",
+    "ok": true,
+    "unit": "paise",
+    "dimension": null,
+    "period": {
+      "cur": {
+        "from": "2026-09-01",
+        "to": "2026-09-13"
+      },
+      "prev": {
+        "from": "2026-08-01",
+        "to": "2026-08-13"
+      },
+      "partial": true,
+      "days": 12,
+      "note": "month-to-date: first 12 days of each month, like for like"
+    },
+    "scope": null,
+    "means": null,
+    "summary": {
+      "metric": "revenue",
+      "now": "₹8,74,585",
+      "before": "₹6,84,910",
+      "changePct": 27.7,
+      "comparison": "month-to-date: first 12 days of each month, like for like"
+    },
+    "data": {
+      "now": 87458500,
+      "before": 68491000,
+      "changePct": 27.7,
+      "cur": {
+        "from": "2026-09-01",
+        "to": "2026-09-13"
+      },
+      "prev": {
+        "from": "2026-08-01",
+        "to": "2026-08-13"
+      },
+      "note": "month-to-date: first 12 days of each month, like for like"
+    }
+  },
+  {
+    "step": 1,
+    "tool": "breakdown",
+    "label": "breakdown",
+    "ok": true,
+    "unit": "paise",
+    "dimension": "branch",
+    "period": {
+      "from": "2026-09-01",
+      "to": "2026-09-13"
+    },
+    "scope": null,
+    "means": null,
+    "summary": {
+      "metric": "revenue",
+      "by": "branch",
+      "total": "₹8,74,585",
+      "parts": [
+        {
+          "name": "A. KUMAR",
+          "value": "₹5,10,935",
+          "change": "₹1,45,445",
+          "shareOfChangePct": 76.7
+        },
+        {
+          "name": "S. REDDY",
+          "value": "₹3,63,650",
+          "change": "₹44,230",
+          "shareOfChangePct": 23.3
+        }
+      ]
+    },
+    "data": {
+      "rows": [
+        {
+          "k": "CNT",
+          "v": 51093500,
+          "prev": 36549000,
+          "delta": 14544500
+        },
+        {
+          "k": "BLN",
+          "v": 36365000,
+          "prev": 31942000,
+          "delta": 4423000
+        }
+      ],
+      "total": 87458500,
+      "totalDelta": 18967500
+    }
+  },
+  {
+    "step": 2,
+    "tool": "rank",
+    "label": "rank",
+    "ok": true,
+    "unit": "count",
+    "dimension": "referring_doctor",
+    "period": {
+      "from": "2026-08-14",
+      "to": "2026-09-13"
+    },
+    "scope": null,
+    "means": null,
+    "summary": {
+      "metric": "test_orders",
+      "by": "referring_doctor",
+      "top": [
+        {
+          "name": "M. IYER",
+          "value": "2,097"
+        },
+        {
+          "name": "R. KHAN",
+          "value": "1,790"
+        },
+        {
+          "name": "P. NAIR",
+          "value": "734"
+        },
+        {
+          "name": "V. RAO",
+          "value": "540"
+        },
+        {
+          "name": "T. SHETTY",
+          "value": "498"
+        },
+        {
+          "name": "N. BOSE",
+          "value": "404"
+        },
+        {
+          "name": "A. KUMAR",
+          "value": "401"
+        },
+        {
+          "name": "S. REDDY",
+          "value": "389"
+        },
+        {
+          "name": "M. IYER",
+          "value": "325"
+        },
+        {
+          "name": "R. KHAN",
+          "value": "288"
+        },
+        {
+          "name": "P. NAIR",
+          "value": "275"
+        },
+        {
+          "name": "V. RAO",
+          "value": "265"
+        }
+      ]
+    },
+    "data": {
+      "rows": [
+        {
+          "k": "Dr.K.RAMASWAMY MD",
+          "v": 2097,
+          "prev": 2131,
+          "delta": -34
+        },
+        {
+          "k": "C/O.LALITHA HOSPITAL",
+          "v": 1790,
+          "prev": 1538,
+          "delta": 252
+        },
+        {
+          "k": "Dr.M.RAJENDRA KUMAR",
+          "v": 734,
+          "prev": 608,
+          "delta": 126
+        },
+        {
+          "k": "Dr.SUCHITRA.P",
+          "v": 540,
+          "prev": 459,
+          "delta": 81
+        },
+        {
+          "k": "Dr.G.DASARATHI   MBBS MD DNB",
+          "v": 498,
+          "prev": 888,
+          "delta": -390
+        },
+        {
+          "k": "Dr.SAI CHANDRA MALLADI  MBBS DNB ORTHO",
+          "v": 404,
+          "prev": 447,
+          "delta": -43
+        },
+        {
+          "k": "Dr.SHARATH BABU.V",
+          "v": 401,
+          "prev": 311,
+          "delta": 90
+        },
+        {
+          "k": "Dr.U.SRINIVAS GOUD  MBBS DCH",
+          "v": 389,
+          "prev": 88,
+          "delta": 301
+        },
+        {
+          "k": "Dr.A.S.REDDY",
+          "v": 325,
+          "prev": 198,
+          "delta": 127
+        },
+        {
+          "k": "Dr. MIRZA FAROOQ",
+          "v": 288,
+          "prev": 190,
+          "delta": 98
+        },
+        {
+          "k": "Dr.M.VENKATA RAJAM",
+          "v": 275,
+          "prev": 57,
+          "delta": 218
+        },
+        {
+          "k": "Dr.P.ARAVIND  MDS",
+          "v": 265,
+          "prev": 96,
+          "delta": 169
+        }
+      ],
+      "total": 13538,
+      "totalDelta": 1823
+    }
+  },
+  {
+    "step": 3,
+    "tool": "trend",
+    "label": "trend",
+    "ok": true,
+    "unit": "paise",
+    "dimension": null,
+    "period": null,
+    "scope": null,
+    "means": null,
+    "summary": {
+      "metric": "revenue",
+      "bucket": "month",
+      "points": 3,
+      "from": "2026-07",
+      "to": "2026-09",
+      "latestComplete": "2026-08: ₹18,93,725",
+      "currentIncomplete": "2026-09 is still in progress (₹8,87,185 so far) — do not compare it with whole months",
+      "directionPctAcrossCompleteBuckets": 11.5,
+      "series": [
+        "2026-07: ₹16,98,283",
+        "2026-08: ₹18,93,725"
+      ]
+    },
+    "data": {
+      "rows": [
+        {
+          "k": "2026-07",
+          "v": 169828300
+        },
+        {
+          "k": "2026-08",
+          "v": 189372453
+        },
+        {
+          "k": "2026-09",
+          "v": 88718500,
+          "partial": true
+        }
+      ],
+      "bucket": "month"
+    }
+  },
+  {
+    "step": 4,
+    "tool": "worklist",
+    "label": "worklist",
+    "ok": true,
+    "unit": "paise",
+    "dimension": null,
+    "period": null,
+    "scope": null,
+    "means": null,
+    "summary": {
+      "list": "patients with dues",
+      "sortedBy": "largest",
+      "shown": 6,
+      "limit": 6,
+      "totalShown": "₹6,350",
+      "note": "capped at 6 — ask for a branch or a minimum amount to narrow it"
+    },
+    "data": {
+      "rows": [
+        {
+          "patient": "T. SHETTY",
+          "patient_no": "P-100015",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "CNT",
+          "billed_on": "2026-07-07",
+          "due_paise": 155000
+        },
+        {
+          "patient": "N. BOSE",
+          "patient_no": "P-100016",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "BLN",
+          "billed_on": "2026-09-12",
+          "due_paise": 150000
+        },
+        {
+          "patient": "A. KUMAR",
+          "patient_no": "P-100017",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "CNT",
+          "billed_on": "2026-07-21",
+          "due_paise": 120000
+        },
+        {
+          "patient": "S. REDDY",
+          "patient_no": "P-100018",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "BLN",
+          "billed_on": "2026-07-27",
+          "due_paise": 100000
+        },
+        {
+          "patient": "M. IYER",
+          "patient_no": "P-100019",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "BLN",
+          "billed_on": "2026-07-21",
+          "due_paise": 80000
+        },
+        {
+          "patient": "R. KHAN",
+          "patient_no": "P-100020",
+          "phone": "90000 00000",
+          "bill": "D-XXX-000000",
+          "branch": "CNT",
+          "billed_on": "2026-07-14",
+          "due_paise": 30000
+        }
+      ],
+      "total": 635000
+    }
+  }
+]

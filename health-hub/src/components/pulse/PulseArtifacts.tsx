@@ -39,11 +39,19 @@ const Delta = ({ v }: { v: number | null | undefined }) => v == null ? null :
 /* A single number with no period, no scope and no statement of what it measures is the artifact
    that prompted "what exactly am I looking at". It scored worst of every type on both axes —
    40% of material fields, 29% of useful — while carrying all of them on the wire. */
+/** A PERIOD OBJECT IS NOT ALWAYS {from, to}. `compare` carries {cur, prev}, so interpolating
+ *  .from and .to printed the literal "undefined to undefined" under every KPI and every compare
+ *  card — a label that says nothing, on the line whose whole job is saying what the figure covers.
+ *  Absent, not null: where a window cannot be read, the line simply does not appear. */
+export const periodLabel = (p: any): string | null => {
+  if (!p) return null;
+  if (typeof p !== 'object') return String(p);
+  const w = p.cur && typeof p.cur === 'object' ? p.cur : p;
+  return w.from && w.to ? `${w.from} to ${w.to}` : w.from ? `from ${w.from}` : null;
+};
 const evContext = (ev: Ev): string => {
   const s = ev.summary || {};
-  const period = ev.period ?? s.period;
-  return [period && (typeof period === 'object' ? `${period.from} to ${period.to}` : String(period)),
-    ev.scope ?? s.scope, ev.means].filter(Boolean).join(' · ');
+  return [periodLabel(ev.period ?? s.period), ev.scope ?? s.scope, ev.means].filter(Boolean).join(' · ');
 };
 function Kpi({ a, ev }: { a: any; ev: Ev }) {
   const s = ev.summary || {};
@@ -197,6 +205,15 @@ const dispSum = (n: number, anyFormatted: boolean, unit?: any) =>
  * signed contributions, and an end; prose flattens that into a list of numbers. Contributions
  * run out from a centre line so a fall reads as a fall.
  */
+/** Where the change ends up. The summary's total is already formatted; data.total is raw and
+ *  must go through fmtValue, which knows about paise. Never dispSum: that trusts a flag about
+ *  the PARTS. */
+const endsAt = (ev: Ev): string | null => {
+  const t = (ev.summary as any)?.total;
+  if (isFormatted(t)) return t;
+  const raw = (ev.data as any)?.total;
+  return raw == null ? null : fmtValue(Math.abs(Number(raw)), ev.unit);
+};
 function Waterfall({ a, ev }: { a: any; ev: Ev }) {
   const parts = seriesOf(ev);
   const items = parts.map((p: any) => ({ name: p.name, d: num(p.change ?? p.delta), raw: p.change ?? p.delta }))
@@ -222,8 +239,12 @@ function Waterfall({ a, ev }: { a: any; ev: Ev }) {
         </div>); })}
     </div>
     <div className="mt-2.5 flex justify-between border-t pt-2 text-[11.5px]">
-      <span className="text-muted-foreground">Net change{(ev.data as any)?.total != null
-        ? ` · ends at ${dispSum(Math.abs(Number((ev.data as any).total)), fmtd, ev.unit)}` : ''}</span>
+      {/* THE PARTS BEING FORMATTED SAYS NOTHING ABOUT data.total, WHICH IS RAW. `fmtd` is true
+          because each contribution arrived as "₹1,45,445"; data.total is paise. Passed through
+          dispSum as though it were already rupees, ₹8,74,585 was rendered "₹8,74,58,500" — a
+          hundred times too large, on the one line that states where the change ends up.
+          The formatted total the summary already carries is preferred; a raw one is converted. */}
+      <span className="text-muted-foreground">Net change{endsAt(ev) ? ` · ends at ${endsAt(ev)}` : ''}</span>
       <span className={`font-semibold tabular-nums ${net < 0 ? 'pulse-down' : 'pulse-up'}`}>{net > 0 ? '+' : ''}{dispSum(net, fmtd, ev.unit)}</span>
     </div></Card>;
 }

@@ -83,7 +83,13 @@ function contextOf(ev: any): string[] {
   const s = ev?.summary || {};
   const period = ev?.period ?? s.period;
   const scope = ev?.scope ?? s.scope;
-  if (period) out.push(typeof period === 'object' ? `${period.from} to ${period.to}` : String(period));
+  /* The same trap as the renderer's: a `compare` step carries {cur, prev}, not {from, to}, and
+     interpolating the missing keys yields the string "undefined to undefined". */
+  if (period) {
+    const w = typeof period === 'object' ? ((period as any).cur ?? period) : null;
+    const label = !w ? String(period) : w.from && w.to ? `${w.from} to ${w.to}` : w.from ? `from ${w.from}` : null;
+    if (label) out.push(label);
+  }
   if (scope) out.push(String(scope));
   return out;
 }

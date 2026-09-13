@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -43,6 +44,7 @@ import TermsOfService from "./pages/legal/TermsOfService";
 import DataDeletion from "./pages/legal/DataDeletion";
 import NotFound from "./pages/NotFound";
 import { WORKLIST_EVENT } from "./hooks/useRevalidateOnFocus";
+const ArtifactGallery = lazy(() => import('./dev/ArtifactGallery'));
 
 /**
  * Mounted globally so the post-login branch picker survives the navigation
@@ -89,6 +91,9 @@ function AppRoutes() {
 
   return (
     <Routes>
+      {/* DEV ONLY — every artifact type against mock evidence, so the gallery can be looked at
+          without a backend, a model, or a login. Stripped from production builds by import.meta.env.DEV. */}
+      {import.meta.env.DEV && <Route path="/dev/artifacts" element={<Suspense fallback={null}><ArtifactGallery /></Suspense>} />}
       <Route 
         path="/login" 
         element={
