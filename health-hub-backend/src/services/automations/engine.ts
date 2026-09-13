@@ -424,6 +424,24 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         outcome = { status: 'FAILED', detail: (e as Error).message?.slice(0, 500) ?? 'unknown' };
       }
 
+      if (outcome.status === 'FAILED') {
+        // RELEASE THE NIGHT. Claiming and then failing would leave the key taken and
+        // the sheet unsent — the old ticker would skip, and the owner would simply not
+        // get the day's takings. Handing the claim back means the proven path picks it
+        // up on its next five-minute tick, well inside its eight-hour grace.
+        //
+        // This is what makes the two senders an overlap rather than a handover: the new
+        // one can only ever take a night it actually delivers.
+        await prisma.scheduledMessageRun.deleteMany({
+          where: { kind: DAY_SHEET, branchId, domain, runDate, status: 'SENDING' },
+        });
+        await log(runId, run.stepIndex, 'FAILED', Outcome.SEND_FAILED, {
+          runDate, domain, detail: outcome.detail, releasedToOldTicker: true,
+        });
+        await finish(runId, 'FAILED', Outcome.SEND_FAILED, run.stepIndex);
+        return;
+      }
+
       await prisma.scheduledMessageRun.updateMany({
         where: { kind: DAY_SHEET, branchId, domain, runDate },
         data: { status: outcome.status, detail: outcome.detail, sentAt: new Date() },
