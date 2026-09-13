@@ -1,0 +1,341 @@
+<title>Artifact Audit</title>
+<style>
+  :root{
+    --bg:#faf9f7;--card:#fff;--ink:#1a1917;--dim:#6b6862;--faint:#9a958d;--line:#e3e0da;
+    --a:#c2571f;--up:#2f6f4e;--down:#a32b1c;--grid:#efedea;--bad:#a32b1c;--badbg:#fbecea;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#171614;--card:#1f1e1b;--ink:#eceae5;--dim:#9d9890;--faint:#6d6862;--line:#33312d;
+    --a:#e8834a;--up:#7fc39a;--down:#e88a7c;--grid:#2a2825;--bad:#e88a7c;--badbg:#2e1c19;
+  }}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);margin:0;padding:36px 20px 90px;
+       font:15px/1.62 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-size:25px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 30px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+     margin:46px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:30px 0 4px;letter-spacing:-.01em}
+  p{margin:9px 0} code{font-family:var(--mono);font-size:.87em;background:var(--grid);padding:1px 5px;border-radius:3px}
+  .key{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--a);
+       border-radius:8px;padding:12px 15px;margin:14px 0;font-size:14px}
+  .key b{color:var(--a)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600;white-space:nowrap}
+  td.m{font-family:var(--mono);font-size:11.5px}
+  .lose{color:var(--bad)} .keepc{color:var(--up)}
+  ul{margin:7px 0;padding-left:19px;font-size:13.5px} li{margin:3px 0}
+
+  /* side by side */
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 4px}
+  @media(max-width:760px){.vs{grid-template-columns:1fr}}
+  .col>.lab{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;font-weight:600}
+  .col.now>.lab{color:var(--bad)} .col.next>.lab{color:var(--up)}
+  .art{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 14px;font-size:13px}
+  .kk{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+  .st{font-size:11px;color:var(--dim);margin-top:2px}
+  .row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:3px 0}
+  .row .n{font-variant-numeric:tabular-nums}
+  .bar{height:4px;border-radius:3px;background:var(--grid);margin:2px 0 5px;overflow:hidden}
+  .bar i{display:block;height:4px;border-radius:3px;background:var(--a);opacity:.75}
+  .idx{width:14px;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .ft{border-top:1px solid var(--line);margin-top:8px;padding-top:6px;font-size:11.5px;color:var(--dim);
+      display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .muted{color:var(--faint)} .sm{font-size:11px}
+  .tag{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:3px;
+       background:var(--grid);color:var(--dim)}
+  .gain{font-size:12.5px;color:var(--dim);margin:2px 0 0;padding-left:11px;border-left:2px solid var(--up)}
+  .harm{font-size:12.5px;color:var(--dim);margin:6px 0 0;padding-left:11px;border-left:2px solid var(--bad)}
+  svg{display:block;width:100%;height:auto}
+</style>
+
+<div class="wrap">
+<h1>Pulse artifact audit</h1>
+<p class="sub">Read against the implementations: <code>artifacts.ts</code>, <code>capability.ts</code>,
+<code>contract.ts</code>, <code>tools.ts</code>, <code>run.ts</code>, <code>PulseArtifacts.tsx</code>.
+Every claim below traces to code, not to filenames.</p>
+
+<h2>Executive diagnosis</h2>
+
+<div class="key"><b>The richness is mostly already in Evidence and reaches the browser. The renderers throw it away.</b>
+<code>run.ts:409</code> puts the full <code>evidence[]</code> on the wire alongside the artifact specs —
+<code>summary</code>, <code>data.rows</code>, <code>metric</code>, <code>unit</code>, <code>dimension</code>,
+<code>means</code>, <code>period</code>. <code>Artifact({a, evidence})</code> resolves the step and hands the
+renderer the whole object. Nothing is lost in transit.</div>
+
+<p>So the blame does <em>not</em> mostly sit with the data model. It splits three ways, and they need different fixes:</p>
+
+<table>
+<tr><th>Cause</th><th>Where</th><th>Share of the damage</th></tr>
+<tr><td><b>Renderers display a fraction of what they receive</b></td><td class="m">PulseArtifacts.tsx</td><td>largest</td></tr>
+<tr><td><b><code>seriesOf()</code> collapses every row to <code>{name, value}</code></b></td><td class="m">PulseArtifacts.tsx:47</td><td>large, and invisible</td></tr>
+<tr><td><b>Generated-<code>query</code> evidence is genuinely thin</b></td><td class="m">tools.ts t_query</td><td>this is the screenshot</td></tr>
+<tr><td><b>Scoring is too flat to prevent category errors</b></td><td class="m">capability.ts rankRenderers</td><td>occasional, severe</td></tr>
+</table>
+
+<h3>The two specific bugs in your screenshot</h3>
+
+<div class="key"><b>1. "CT ORDERS BY TEST TYPE (90 DAYS)" is not a breakdown. It is a histogram.</b>
+That render is the <code>Distribution</code> component: it finds one numeric column, cuts it into 10 equal buckets,
+and draws the <em>frequency of counts</em>. The footer — <span class="m">median 2 · 90th 22 · worst 22</span> — is the
+spread of the order-count column, not the test types. <b>The title and the rendering describe different things</b>,
+there are no category labels because a histogram has no categories, and nothing in the pipeline noticed.</div>
+
+<p>How it was selected: <code>describeEvidence</code> set <code>numericSpread: true</code> (≥6 rows, &gt;15% range).
+<code>distribution</code> requires exactly that, so it became admissible. The job was <code>opportunity</code>,
+which <em>no</em> renderer declares in <code>expresses</code>, so every candidate got the same <code>+0.08</code>
+consolation and distribution won on <code>prefers:['numericSpread'] +0.15</code>. A truthfulness gate passed;
+an analytical-usefulness gate does not exist.</p>
+
+<div class="key"><b>2. The two artifacts came from a generated <code>query</code> step, which is the poorest evidence Pulse produces.</b>
+A registry <code>breakdown</code> returns <code>{total, parts:[{name, value, change, shareOfChangePct}], period, metric, unit, dimension}</code>.
+A <code>query</code> step returns <code>{question, rowCount, rows}</code>. No total, no unit, no period, no dimension, no share.
+The renderer cannot show a denominator that was never computed.</div>
+
+<h2>Artifact inventory</h2>
+<table>
+<tr><th>Type</th><th>Requires</th><th>Expresses</th><th>Renderer shows</th><th>Receives but ignores</th></tr>
+<tr><td class="m">kpi</td><td class="m">cardinality: one</td><td>magnitude</td><td>label, value, delta, comparison</td><td class="lose">period, scope, means</td></tr>
+<tr><td class="m">kpis</td><td class="m">—</td><td>magnitude</td><td>grid of label+value+delta</td><td class="lose">period, scope, means</td></tr>
+<tr><td class="m">compare</td><td class="m">hasDeltas, one</td><td>comparison</td><td>before → now, delta</td><td class="lose">period labels, scope, basis</td></tr>
+<tr><td class="m">breakdown</td><td class="m">dimensions ≥1</td><td>composition, concentration</td><td>8 rows: name, value, change, bar, total</td><td class="lose">share %, shareOfChangePct, prev, rows 9+, period, scope, unit</td></tr>
+<tr><td class="m">ranking</td><td class="m">dimensions ≥1</td><td>ranking, concentration</td><td>8 rows: rank, name, value</td><td class="lose">total, share, gap, delta, period, scope, tail size</td></tr>
+<tr><td class="m">chart</td><td class="m">isTimeSeries</td><td>progression</td><td>bars, headline, first/last, partial flag</td><td class="lose">y-axis, intermediate labels, comparison series</td></tr>
+<tr><td class="m">waterfall</td><td class="m">hasDeltas, dims 1</td><td>attribution, explanation</td><td>signed bars, net change</td><td class="lose">start/end totals, share of change, residual</td></tr>
+<tr><td class="m">distribution</td><td class="m">numericSpread</td><td>variability</td><td>10 buckets, median, 90th, worst</td><td class="lose">n, axis, unit, what is being bucketed</td></tr>
+<tr><td class="m">funnel</td><td class="m">hasStages</td><td>conversion</td><td>stages</td><td class="lose">denominator, step rates, where loss occurs</td></tr>
+<tr><td class="m">pareto</td><td class="m">partsOfWhole, dims 1</td><td>concentration</td><td>bars + cumulative</td><td class="lose">the 80% line, count to reach it</td></tr>
+<tr><td class="m">table</td><td class="m">dimensions ≥1</td><td>enumeration</td><td>15 rows, all columns</td><td class="lose">row count vs shown, sort, units in headers, totals</td></tr>
+</table>
+
+<h2>Artifact-by-artifact: current beside improved</h2>
+<p class="sub" style="margin:0">Real CT / MRI data, 90 days, live branches: 77 orders, ₹2,38,000 billed.</p>
+
+<!-- ── RANKING ─────────────────────────────────────────────────────── -->
+<h3>Ranking — "which doctors referred the most CT patients"</h3>
+<div class="vs">
+  <div class="col now"><div class="lab">current</div>
+    <div class="art">
+      <div class="kk">CT orders by referring doctor (90 days)</div>
+      <div style="margin-top:6px">
+        <div class="row"><span><span class="idx">1</span> Dr.D.SAMBASIVA RAO MBBS</span><span class="n">9</span></div>
+        <div class="row"><span><span class="idx">2</span> (none)</span><span class="n">5</span></div>
+        <div class="row"><span><span class="idx">3</span> Dr.J.RATNAKAR MBBS</span><span class="n">5</span></div>
+        <div class="row"><span><span class="idx">4</span> Dr.MAHENDRA.P.INGLE</span><span class="n">4</span></div>
+        <div class="row"><span><span class="idx">5</span> Dr.G.DASARATHI</span><span class="n">4</span></div>
+        <div class="row muted"><span><span class="idx">6</span> Dr.L.RAJU</span><span class="n">3</span></div>
+      </div>
+    </div>
+    <div class="harm"><b>Cannot answer:</b> is 9 a lot? of what total? is #1 materially ahead? how concentrated?
+    is <code>(none)</code> walk-ins or missing data? how many doctors are below the fold? orders or patients?
+    which branches? versus when?</div>
+  </div>
+  <div class="col next"><div class="lab">improved</div>
+    <div class="art">
+      <div class="kk">CT orders by referring doctor</div>
+      <div class="st">77 orders · 14 Jun – 12 Sep 2026 · Chintal + Balanagar · vs previous 90 days</div>
+      <div style="margin-top:9px">
+        <div class="row"><span><span class="idx">1</span> Dr.D.SAMBASIVA RAO</span>
+          <span class="n">9 <span class="muted sm">12%</span> <span class="sm" style="color:var(--up)">+3</span></span></div>
+        <div class="bar"><i style="width:100%"></i></div>
+        <div class="row"><span><span class="idx">2</span> (none) <span class="tag">walk-in</span></span>
+          <span class="n">5 <span class="muted sm">6%</span> <span class="sm muted">±0</span></span></div>
+        <div class="bar"><i style="width:56%"></i></div>
+        <div class="row"><span><span class="idx">3</span> Dr.J.RATNAKAR</span>
+          <span class="n">5 <span class="muted sm">6%</span> <span class="sm" style="color:var(--down)">−2</span></span></div>
+        <div class="bar"><i style="width:56%"></i></div>
+        <div class="row"><span><span class="idx">4</span> Dr.MAHENDRA.P.INGLE</span>
+          <span class="n">4 <span class="muted sm">5%</span> <span class="sm" style="color:var(--up)">+4</span> <span class="tag">new</span></span></div>
+        <div class="bar"><i style="width:44%"></i></div>
+        <div class="row muted"><span><span class="idx">…</span> 23 more doctors</span><span class="n">54 <span class="sm">70%</span></span></div>
+      </div>
+      <div class="ft"><span>Top 5 = <b>30%</b> of CT volume</span><span>27 referrers · long tail, not concentrated</span></div>
+    </div>
+    <div class="gain"><b>Now answerable:</b> 9 of 77 is 12%, not dominance. The top five are 30% — CT referral is
+    <em>diffuse</em>, so "court the top referrer" is the wrong move and the artifact says so. <code>(none)</code> is
+    labelled. The tail is counted, not hidden. Deltas show Dr.MAHENDRA is new.</div>
+  </div>
+</div>
+
+<!-- ── BREAKDOWN ───────────────────────────────────────────────────── -->
+<h3>Breakdown — "what tests make up CT revenue"</h3>
+<div class="vs">
+  <div class="col now"><div class="lab">current</div>
+    <div class="art">
+      <div class="kk">CT revenue by test</div>
+      <div style="margin-top:7px">
+        <div class="row"><span>CT-BRAIN PLAIN</span><span class="n">₹1,03,400</span></div>
+        <div class="bar"><i style="width:100%"></i></div>
+        <div class="row"><span>CT-ABDOMEN</span><span class="n">₹52,800</span></div>
+        <div class="bar"><i style="width:51%"></i></div>
+        <div class="row"><span>CT-CHEST</span><span class="n">₹31,900</span></div>
+        <div class="bar"><i style="width:31%"></i></div>
+      </div>
+      <div class="ft"><span>Total ₹2,38,000</span></div>
+    </div>
+    <div class="harm"><b>Lost from evidence it already has:</b> <code>shareOfChangePct</code>,
+    <code>prev</code> and <code>delta</code> are computed by <code>t_breakdown</code> and never shown.
+    Bars encode share but no number states it. Rows 9+ vanish with no remainder.</div>
+  </div>
+  <div class="col next"><div class="lab">improved</div>
+    <div class="art">
+      <div class="kk">CT revenue by test</div>
+      <div class="st">₹2,38,000 · 90 days to 12 Sep · both branches · vs prior 90 days ₹1,94,000 <span style="color:var(--up)">+23%</span></div>
+      <div style="margin-top:9px">
+        <div class="row"><span>CT-BRAIN PLAIN <span class="tag">47 orders</span></span>
+          <span class="n">₹1,03,400 <span class="muted sm">43%</span> <span class="sm" style="color:var(--up)">+₹31k</span></span></div>
+        <div class="bar"><i style="width:100%"></i></div>
+        <div class="row"><span>CT-ABDOMEN <span class="tag">18 orders</span></span>
+          <span class="n">₹52,800 <span class="muted sm">22%</span> <span class="sm" style="color:var(--up)">+₹9k</span></span></div>
+        <div class="bar"><i style="width:51%"></i></div>
+        <div class="row"><span>CT-CHEST <span class="tag">12 orders</span></span>
+          <span class="n">₹31,900 <span class="muted sm">13%</span> <span class="sm" style="color:var(--down)">−₹4k</span></span></div>
+        <div class="bar"><i style="width:31%"></i></div>
+        <div class="row muted"><span>6 others</span><span class="n">₹49,900 <span class="sm">21%</span></span></div>
+      </div>
+      <div class="ft"><span>Total <b>₹2,38,000</b> · 9 test types</span><span>Brain plain drove <b>71%</b> of the rise</span></div>
+    </div>
+    <div class="gain"><b>The footer is the finding.</b> "Brain plain drove 71% of the rise" comes straight from
+    <code>shareOfChangePct</code>, which the tool already computes and the renderer currently discards.</div>
+  </div>
+</div>
+
+<!-- ── DISTRIBUTION ────────────────────────────────────────────────── -->
+<h3>Distribution — the one that is actively misleading</h3>
+<div class="vs">
+  <div class="col now"><div class="lab">current — an unlabelled histogram titled as a breakdown</div>
+    <div class="art">
+      <div class="kk">CT orders by test type (90 days)</div>
+      <svg viewBox="0 0 320 60" style="margin-top:8px">
+        <rect x="2" y="4" width="28" height="52" fill="var(--ink)" opacity=".85"/>
+        <rect x="34" y="42" width="28" height="14" fill="var(--ink)" opacity=".85"/>
+        <rect x="66" y="42" width="28" height="14" fill="var(--ink)" opacity=".85"/>
+        <rect x="98" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="130" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="162" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="194" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="226" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="258" y="52" width="28" height="4" fill="var(--ink)" opacity=".85"/>
+        <rect x="290" y="46" width="28" height="10" fill="var(--ink)" opacity=".85"/>
+      </svg>
+      <div class="ft"><span>median 2</span><span>90th 22</span><span>worst 22</span></div>
+    </div>
+    <div class="harm"><b>Category error, not sparseness.</b> Ten equal-width buckets of a <em>count</em> column.
+    No category labels because a histogram has none. "worst 22" is meaningless for test types — worst implies bad.
+    The title promises a breakdown; the picture is a frequency chart of something else.</div>
+  </div>
+  <div class="col next"><div class="lab">improved — the job was composition, so render composition</div>
+    <div class="art">
+      <div class="kk">CT orders by test type</div>
+      <div class="st">77 orders · 90 days to 12 Sep · both branches</div>
+      <div style="margin-top:9px">
+        <div class="row"><span>CT-BRAIN PLAIN</span><span class="n">47 <span class="muted sm">61%</span></span></div>
+        <div class="bar"><i style="width:100%"></i></div>
+        <div class="row"><span>CT-ABDOMEN</span><span class="n">18 <span class="muted sm">23%</span></span></div>
+        <div class="bar"><i style="width:38%"></i></div>
+        <div class="row"><span>CT-CHEST</span><span class="n">12 <span class="muted sm">16%</span></span></div>
+        <div class="bar"><i style="width:26%"></i></div>
+      </div>
+      <div class="ft"><span>3 of 9 types = <b>84%</b> of CT volume</span><span>6 types with &lt;3 orders each</span></div>
+    </div>
+    <div class="gain">Distribution is the right renderer for <b>bill values</b> or <b>turnaround hours</b> — a continuous
+    variable where the tail is the story. It is never right for named categories. That needs a
+    <code>continuous</code> gate, not just <code>numericSpread</code>.</div>
+  </div>
+</div>
+
+<h2>Evidence → artifact → UI: where richness disappears</h2>
+<table>
+<tr><th>Artifact</th><th>Evidence carries</th><th>Wire retains</th><th>UI displays</th><th>Lost, and where</th></tr>
+<tr><td class="m">breakdown<br><span class="muted sm">registry</span></td>
+    <td class="m">total, parts[name,value,change,shareOfChangePct], rows[k,v,prev,delta], period, metric, unit, dimension, means</td>
+    <td class="keepc m">all of it</td>
+    <td class="m">name, value, change, bar, total</td>
+    <td class="lose">shareOfChangePct, prev, share-of-total, period, scope, unit, rows 9+ — <b>all in the renderer</b></td></tr>
+<tr><td class="m">ranking<br><span class="muted sm">registry</span></td>
+    <td class="m">same as breakdown, filtered and capped</td>
+    <td class="keepc m">all of it</td>
+    <td class="m">rank, name, value</td>
+    <td class="lose">total, share, delta, gap, period, scope, tail — <b>all in the renderer</b></td></tr>
+<tr><td class="m">any<br><span class="muted sm">generated query</span></td>
+    <td class="m">question, rowCount, rows[…]</td>
+    <td class="keepc m">all of it</td>
+    <td class="m">name + value only</td>
+    <td class="lose">total, unit, period, dimension, share never existed — <b>in the tool</b>; other columns dropped by <code>seriesOf</code> — <b>in the renderer</b></td></tr>
+<tr><td class="m">chart</td><td class="m">rows[k,v,partial], latestComplete, currentIncomplete, unit</td>
+    <td class="keepc m">all of it</td><td class="m">bars, headline, first/last label, partial note</td>
+    <td class="lose">y-axis, intermediate x labels, comparison series — <b>renderer</b></td></tr>
+<tr><td class="m">waterfall</td><td class="m">parts with change, data.total, data.totalDelta</td>
+    <td class="keepc m">all of it</td><td class="m">signed bars, net change</td>
+    <td class="lose">start and end totals, % of change per driver, unexplained residual — <b>renderer</b></td></tr>
+</table>
+
+<div class="key">Every row but one says <b>renderer</b>. The exception is the generated-<code>query</code> path, whose
+summary is <code>{question, rowCount, rows}</code> — and that is the path both screenshot artifacts came from.</div>
+
+<h2>Architecture diagnosis</h2>
+<table>
+<tr><th>Layer</th><th>Verdict</th></tr>
+<tr><td>Database / SQL</td><td class="keepc">Fine. Registry tools return rich, correct aggregates.</td></tr>
+<tr><td>Evidence structure</td><td>Fine for registry tools. <b>Thin for generated queries</b> — no total, unit, period or dimension is ever attached.</td></tr>
+<tr><td>Artifact schema on the wire</td><td class="keepc">Not the problem. <code>{type,label,evidence}</code> is thin, but the full Evidence travels beside it and the renderer gets both.</td></tr>
+<tr><td>Capability selection</td><td>Truthfulness gate works. <b>No analytical-usefulness gate</b> — and the score spread (0.23–0.38) is too flat to separate a good representation from a merely legal one.</td></tr>
+<tr><td>LLM artifact generation</td><td>Fine. It picks a type and a step; it should not be inventing metadata.</td></tr>
+<tr><td>Frontend renderers</td><td class="lose"><b>The main problem.</b> Each renders 20–40% of what it is handed, and <code>seriesOf()</code> discards every column beyond the first label and first value.</td></tr>
+</table>
+
+<h2>Proposed model</h2>
+<p>Not a new schema — a <b>derivation step</b> between evidence and render, because the facts are present and
+nobody computes the second-order ones.</p>
+<table>
+<tr><th></th><th>Always, when known</th><th>Only when it earns its place</th></tr>
+<tr><td><b>Header</b></td><td>metric · unit · period (explicit dates) · scope · row count vs shown</td><td>comparison period, incompleteness</td></tr>
+<tr><td><b>Rows</b></td><td>label · value</td><td>share of total, delta, rank gap, tag (<span class="tag">new</span>, <span class="tag">walk-in</span>)</td></tr>
+<tr><td><b>Footer</b></td><td>total</td><td>concentration (top-N share), remainder, share of change, n, definition</td></tr>
+</table>
+<p>Same <code>earns(evidence)</code> predicate discipline as <code>requires</code>/<code>buildable</code>: a share
+column appears when a total exists; a delta appears when <code>prev</code> exists; a concentration line appears when
+rows &gt; 5. <b>A field that cannot justify itself is absent, not faint.</b></p>
+
+<h2>Migration — three levels</h2>
+<table>
+<tr><th>Level</th><th>Change</th><th>Buys</th><th>Cost</th></tr>
+<tr><td><b>1 — renderer only</b></td>
+    <td>Stop discarding. Header line from <code>metric/unit/period/dimension</code>. Share-of-total from <code>total</code>.
+    Delta from <code>prev</code>. Remainder row. Fix <code>seriesOf</code> to keep all columns.</td>
+    <td class="keepc"><b>~70% of the damage.</b> No backend change, no model change.</td><td>~1 day</td></tr>
+<tr><td><b>2 — evidence enrichment</b></td>
+    <td><code>t_query</code> attaches what it can infer deterministically: column totals, row count, the resolved period
+    and scope from the spec (which it now receives as a binding).</td>
+    <td>Fixes the screenshot path specifically</td><td>~half a day</td></tr>
+<tr><td><b>3 — capability</b></td>
+    <td>Add a <code>continuous</code> structure flag so <code>distribution</code> cannot claim categorical evidence.
+    Add an analytical-usefulness term so a renderer that expresses <em>no</em> job loses to one that does.</td>
+    <td>Kills the category error</td><td>~half a day</td></tr>
+</table>
+<p><b>Level 1 first, alone, and measure.</b> It is the cheapest and the largest, and it needs nothing from the
+model or the database. Level 3's usefulness gate should be designed only after seeing which renderers are still
+mis-selected once they actually display their evidence.</p>
+
+<h2>What not to do</h2>
+<ul>
+<li><b>Do not add fields to the artifact schema.</b> The information is already on the wire. Adding
+<code>total</code>, <code>share</code>, <code>period</code> to the spec would make the LLM responsible for
+metadata it should never author.</li>
+<li><b>Do not make the model write metadata.</b> Every number it authors is a number that can be wrong and must
+then be grounded. Totals and shares are arithmetic — derive them.</li>
+<li><b>Do not give every artifact the same header.</b> A KPI with a period, scope, comparison and definition line
+is four lines of chrome around one number.</li>
+<li><b>Do not make the frontend infer analytical meaning from raw rows.</b> <code>seriesOf()</code> already guesses
+which column is the label and which is the value; that guessing is why columns get dropped. Derivation belongs
+in a shared, testable layer.</li>
+<li><b>Do not rewrite the artifact system.</b> The capability contract — hard <code>requires</code>, real
+<code>buildable</code>, no question text — is sound and was expensive to get right.</li>
+<li><b>Do not tune scoring constants first.</b> The flat 0.23–0.38 spread is a symptom of a missing dimension in
+the model, not of badly chosen numbers.</li>
+</ul>
+
+</div>

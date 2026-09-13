@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "purpose": "3-way category probe: B = 'standing concession' entitlement framing, C = pure follow-up (no offer). Both submitted UTILITY to see which holds.",
+    "submit": "WHATSAPP_ACCESS_TOKEN=... node scripts/submit-wa-templates.mjs whatsapp-bc-test.json"
+  },
+  "templates": [
+    {
+      "_label": "B. UTILITY — 'standing concession' entitlement, no number/deadline (borderline; best utility odds)",
+      "name": "abnormal_recheck_standing_concession",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, a follow-up from Sobhana Diagnostics.\n\nYour {{2}} results were outside the normal range and a repeat test is advised.\n\nAs a returning patient, your standing concession applies to this test. Reply *'BOOK'* for the details about your concession and to arrange a convenient time.\n\nIf you have already completed these tests elsewhere, you may ignore this reminder.",
+          "example": { "body_text": [["Ramesh", "Complete Blood Picture"]] }
+        }
+      ]
+    },
+    {
+      "_label": "C. UTILITY — pure follow-up, no offer word at all (discount lives only in the reply window)",
+      "name": "abnormal_recheck_followup",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, a follow-up from Sobhana Diagnostics. Your {{2}} results were outside the normal range and a repeat test is recommended to track your health. Reply BOOK and we will arrange a convenient time for you.\n\nIf you have already completed these tests elsewhere, you may ignore this reminder.",
+          "example": { "body_text": [["Ramesh", "Liver Function Test"]] }
+        }
+      ]
+    }
+  ]
+}

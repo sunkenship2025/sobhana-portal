@@ -3,9 +3,174 @@ PROJECT_DIR="/Users/pranavreddy/Desktop/sobhana portal"
 PROXY_SCRIPT="$PROJECT_DIR/scripts/glaude-go-proxy.js"
 PROXY_LOG="/tmp/go-proxy.log"
 PROXY_PORT=8787
-SETTINGS="$HOME/.claude/settings.json"
-SENTINEL="/tmp/gocl-settings-original.json"
 ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/glaude/env"
+OPENCODE_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.jsonc"
+OPENCODE_AUTH="$HOME/.local/share/opencode/auth.json"
+DEFAULT_GO_BASE_URL="https://opencode.ai/zen/go/v1"
+DEFAULT_MODEL="kimi-k3"
+DEFAULT_FABLE_MODEL="kimi-k3"
+DEFAULT_OPUS_MODEL="deepseek-v4-pro"
+DEFAULT_SONNET_MODEL="deepseek-v4-flash"
+DEFAULT_HAIKU_MODEL="deepseek-v4-flash"
+
+write_configs() {
+  mkdir -p "$(dirname "$ENV_FILE")" "$(dirname "$OPENCODE_CONFIG")" "$(dirname "$OPENCODE_AUTH")"
+  chmod 700 "$(dirname "$ENV_FILE")" "$(dirname "$OPENCODE_CONFIG")" "$(dirname "$OPENCODE_AUTH")" 2>/dev/null || true
+
+  umask 077
+  cat > "$ENV_FILE" <<EOF
+OPENCODE_GO_API_KEY='$GO_API_KEY'
+GO_BASE_URL='$GO_BASE_URL'
+GLAUDE_MODEL='$GLAUDE_MODEL'
+GLAUDE_MODEL_FABLE='$GLAUDE_MODEL_FABLE'
+GLAUDE_MODEL_OPUS='$GLAUDE_MODEL_OPUS'
+GLAUDE_MODEL_SONNET='$GLAUDE_MODEL_SONNET'
+GLAUDE_MODEL_HAIKU='$GLAUDE_MODEL_HAIKU'
+GLAUDE_AUTH_KEY='$GLAUDE_AUTH_KEY'
+EOF
+
+  node - "$OPENCODE_CONFIG" "$OPENCODE_AUTH" <<'NODE'
+const fs = require("node:fs");
+const [configPath, authPath] = process.argv.slice(2);
+
+function readJson(path, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(path, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+const config = readJson(configPath, { "$schema": "https://opencode.ai/config.json" });
+config.$schema = config.$schema || "https://opencode.ai/config.json";
+config.provider = config.provider || {};
+config.provider["opencode-go"] = {
+  ...(config.provider["opencode-go"] || {}),
+  options: {
+    ...((config.provider["opencode-go"] || {}).options || {}),
+    apiKey: process.env.GO_API_KEY,
+    baseURL: process.env.GO_BASE_URL,
+  },
+};
+config.agent = config.agent || {};
+config.agent.fable = {
+  description: "Fable 5 tier mapped to Kimi K3 through OpenCode GO.",
+  model: `opencode-go/${process.env.GLAUDE_MODEL_FABLE}`,
+  mode: "all",
+};
+config.agent.opus = {
+  description: "Opus 4.8 tier mapped to DeepSeek V4 Pro through OpenCode GO.",
+  model: `opencode-go/${process.env.GLAUDE_MODEL_OPUS}`,
+  mode: "all",
+};
+config.agent.sonnet = {
+  description: "Sonnet 5 tier mapped to DeepSeek V4 Flash through OpenCode GO.",
+  model: `opencode-go/${process.env.GLAUDE_MODEL_SONNET}`,
+  mode: "all",
+};
+config.agent.haiku = {
+  description: "Haiku tier mapped to DeepSeek V4 Flash through OpenCode GO.",
+  model: `opencode-go/${process.env.GLAUDE_MODEL_HAIKU}`,
+  mode: "all",
+};
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+
+const auth = readJson(authPath, {});
+auth["opencode-go"] = {
+  type: "api",
+  key: process.env.GO_API_KEY,
+};
+fs.writeFileSync(authPath, JSON.stringify(auth, null, 2) + "\n", { mode: 0o600 });
+NODE
+}
+
+kill_proxy() {
+  existing_pid="$(lsof -i:$PROXY_PORT -sTCP:LISTEN -t 2>/dev/null | head -1)"
+  if [ -n "$existing_pid" ] && ps -p "$existing_pid" -o command= | grep -q "$PROXY_SCRIPT"; then
+    kill "$existing_pid" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
+validate_go_key() {
+  node <<'NODE'
+const url = `${process.env.GO_BASE_URL.replace(/\/+$/, "")}/models`;
+
+fetch(url, {
+  method: "GET",
+  headers: {
+    authorization: `Bearer ${process.env.GO_API_KEY}`,
+  },
+}).then(async (response) => {
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    console.error(text || `GO API validation failed: ${response.status}`);
+    process.exit(1);
+  }
+  const body = await response.json();
+  const models = new Set((body.data || []).map((model) => model.id));
+  for (const required of [
+    process.env.GLAUDE_MODEL_FABLE,
+    process.env.GLAUDE_MODEL_OPUS,
+    process.env.GLAUDE_MODEL_SONNET,
+    process.env.GLAUDE_MODEL_HAIKU,
+  ]) {
+    if (!models.has(required)) {
+      console.error(`GO API key works, but model is unavailable: ${required}`);
+      process.exit(1);
+    }
+  }
+  process.exit(0);
+}).catch((error) => {
+  console.error(error.message || String(error));
+  process.exit(1);
+});
+NODE
+}
+
+reset_glaude() {
+  echo "Paste your OpenCode GO API key."
+  printf "GO key: "
+  stty -echo 2>/dev/null || true
+  IFS= read -r new_key
+  stty echo 2>/dev/null || true
+  printf "\n"
+
+  if [ -z "$new_key" ]; then
+    echo "No key entered. Reset cancelled."
+    exit 1
+  fi
+  if ! printf "%s" "$new_key" | grep -Eq '^sk-[A-Za-z0-9]{20,}$'; then
+    echo "That does not look like a GO API key. Reset cancelled."
+    exit 1
+  fi
+
+  export GO_API_KEY="$new_key"
+  export OPENCODE_GO_API_KEY="$new_key"
+  export GO_BASE_URL="${GO_BASE_URL:-$DEFAULT_GO_BASE_URL}"
+  export GLAUDE_MODEL="${GLAUDE_MODEL:-$DEFAULT_MODEL}"
+  export GLAUDE_MODEL_FABLE="${GLAUDE_MODEL_FABLE:-$DEFAULT_FABLE_MODEL}"
+  export GLAUDE_MODEL_OPUS="${GLAUDE_MODEL_OPUS:-$DEFAULT_OPUS_MODEL}"
+  export GLAUDE_MODEL_SONNET="${GLAUDE_MODEL_SONNET:-$DEFAULT_SONNET_MODEL}"
+  export GLAUDE_MODEL_HAIKU="${GLAUDE_MODEL_HAIKU:-$DEFAULT_HAIKU_MODEL}"
+
+  write_configs
+  kill_proxy
+
+  echo "Validating GO token..."
+  if ! validate_go_key; then
+    echo "Token saved, but validation failed. Check the key or OpenCode GO balance."
+    exit 1
+  fi
+
+  start_proxy
+  echo "Glaude reset complete."
+  echo "Model map: fable=$GLAUDE_MODEL_FABLE opus=$GLAUDE_MODEL_OPUS sonnet=$GLAUDE_MODEL_SONNET haiku=$GLAUDE_MODEL_HAIKU"
+  echo "Try: glaude -p --model fable 'Reply OK'"
+  exit 0
+}
+
+export GLAUDE_AUTH_KEY="${GLAUDE_AUTH_KEY:-sk-ant-api03-glaude-proxy-key-not-a-real-anthropic-key}"
 
 if [ -f "$ENV_FILE" ]; then
   set -a
@@ -16,72 +181,85 @@ fi
 export GLAUDE_PROXY_PORT="$PROXY_PORT"
 export GO_BASE_URL="${GO_BASE_URL:-https://opencode.ai/zen/go/v1}"
 export GLAUDE_MODEL="${GLAUDE_MODEL:-kimi-k3}"
+export GLAUDE_MODEL_FABLE="${GLAUDE_MODEL_FABLE:-kimi-k3}"
+export GLAUDE_MODEL_OPUS="${GLAUDE_MODEL_OPUS:-deepseek-v4-pro}"
+export GLAUDE_MODEL_SONNET="${GLAUDE_MODEL_SONNET:-deepseek-v4-flash}"
+export GLAUDE_MODEL_HAIKU="${GLAUDE_MODEL_HAIKU:-deepseek-v4-flash}"
 export GO_API_KEY="${GO_API_KEY:-${OPENCODE_GO_API_KEY:-}}"
 
-if [ -z "$GO_API_KEY" ]; then
-  echo "Missing GO_API_KEY or OPENCODE_GO_API_KEY. Add it to $ENV_FILE"
-  exit 1
-fi
+proxy_health_matches() {
+  curl -fsS "http://127.0.0.1:$PROXY_PORT/health" 2>/dev/null | node -e "
+let raw = '';
+process.stdin.on('data', chunk => raw += chunk);
+process.stdin.on('end', () => {
+  try {
+    const health = JSON.parse(raw);
+    const ok = health.ok === true &&
+      health.proxy === 'glaude-go-proxy' &&
+      health.proxyVersion === 2 &&
+      health.model === process.env.GLAUDE_MODEL &&
+      health.aliases &&
+      health.aliases.fable === process.env.GLAUDE_MODEL_FABLE &&
+      health.aliases.opus === process.env.GLAUDE_MODEL_OPUS &&
+      health.aliases.sonnet === process.env.GLAUDE_MODEL_SONNET &&
+      health.aliases.haiku === process.env.GLAUDE_MODEL_HAIKU &&
+      health.upstream === process.env.GO_BASE_URL.replace(/\\/+$/, '');
+    process.exit(ok ? 0 : 1);
+  } catch {
+    process.exit(1);
+  }
+});
+" >/dev/null
+}
 
-# Start proxy if not running
-if ! lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
-  nohup node --no-warnings "$PROXY_SCRIPT" > "$PROXY_LOG" 2>&1 &
+start_proxy() {
+  : > "$PROXY_LOG"
+  nohup env -u NODE_OPTIONS node --no-warnings "$PROXY_SCRIPT" </dev/null > "$PROXY_LOG" 2>&1 &
+  proxy_pid="$!"
+  disown "$proxy_pid" 2>/dev/null || true
   sleep 2
   if ! lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
     echo "Proxy failed to start. Check $PROXY_LOG"
     exit 1
   fi
-fi
-
-# If sentinel exists from a crashed session, restore first
-if [ -f "$SENTINEL" ] && [ -f "$SETTINGS" ]; then
-  python3 -c "
-import json
-with open('$SETTINGS') as f:
-    cur = json.load(f)
-with open('$SENTINEL') as f:
-    orig = json.load(f)
-# Restore env section from original
-cur['env'] = orig.get('env', {})
-with open('$SETTINGS', 'w') as f:
-    json.dump(cur, f, indent=2)
-" 2>/dev/null
-  rm -f "$SENTINEL"
-fi
-
-# Save original env section, then override
-if [ -f "$SETTINGS" ]; then
-  python3 -c "
-import json
-with open('$SETTINGS') as f:
-    cfg = json.load(f)
-with open('$SENTINEL', 'w') as f:
-    json.dump({'env': cfg.get('env', {})}, f)
-cfg['env'] = {
-    'ANTHROPIC_BASE_URL': 'http://localhost:$PROXY_PORT',
-    'ANTHROPIC_API_KEY': 'any'
-}
-with open('$SETTINGS', 'w') as f:
-    json.dump(cfg, f, indent=2)
-"
-fi
-
-restore() {
-  if [ -f "$SENTINEL" ] && [ -f "$SETTINGS" ]; then
-    python3 -c "
-import json
-with open('$SETTINGS') as f:
-    cur = json.load(f)
-with open('$SENTINEL') as f:
-    orig = json.load(f)
-cur['env'] = orig.get('env', {})
-with open('$SETTINGS', 'w') as f:
-    json.dump(cur, f, indent=2)
-" 2>/dev/null
-    rm -f "$SENTINEL"
+  if ! proxy_health_matches; then
+    echo "Proxy started but failed health check. Check $PROXY_LOG"
+    exit 1
   fi
 }
-trap restore EXIT INT TERM HUP
 
-env ANTHROPIC_BASE_URL="http://localhost:$PROXY_PORT" ANTHROPIC_API_KEY=any \
+if [ "${1:-}" = "--reset" ]; then
+  reset_glaude
+fi
+
+if [ "${1:-}" = "--off" ]; then
+  kill_proxy
+  rm -f /tmp/gocl-settings-original.json
+  echo "Glaude off. Proxy stopped."
+  exit 0
+fi
+
+if [ -z "$GO_API_KEY" ]; then
+  echo "Missing GO_API_KEY or OPENCODE_GO_API_KEY. Run: glaude --reset"
+  exit 1
+fi
+
+# Start or refresh proxy. A stale proxy can keep old key/model wiring in memory.
+if lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+  if ! proxy_health_matches; then
+    existing_pid="$(lsof -i:$PROXY_PORT -sTCP:LISTEN -t 2>/dev/null | head -1)"
+    if [ -n "$existing_pid" ] && ps -p "$existing_pid" -o command= | grep -q "$PROXY_SCRIPT"; then
+      kill "$existing_pid" 2>/dev/null || true
+      sleep 1
+      start_proxy
+    else
+      echo "Port $PROXY_PORT is in use by a non-glaude process. Stop it or set a different PROXY_PORT."
+      exit 1
+    fi
+  fi
+else
+  start_proxy
+fi
+
+env ANTHROPIC_BASE_URL="http://localhost:$PROXY_PORT" ANTHROPIC_API_KEY="$GLAUDE_AUTH_KEY" \
   claude "$@"

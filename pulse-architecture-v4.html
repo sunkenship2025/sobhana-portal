@@ -1,0 +1,240 @@
+<title>Pulse Architecture</title>
+<style>
+  :root{
+    --bg:#faf9f7; --card:#fff; --ink:#1a1917; --dim:#6b6862; --line:#e3e0da;
+    --det:#2f6f4e; --det-bg:#eaf4ee; --mod:#9a5b12; --mod-bg:#fbf1e2;
+    --bad:#a32b1c; --bad-bg:#fbecea; --accent:#c2571f;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#171614; --card:#1f1e1b; --ink:#eceae5; --dim:#9d9890; --line:#33312d;
+    --det:#7fc39a; --det-bg:#1d2b23; --mod:#e0a95e; --mod-bg:#2d2417;
+    --bad:#e88a7c; --bad-bg:#2e1c19; --accent:#e8834a;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#171614; --card:#1f1e1b; --ink:#eceae5; --dim:#9d9890; --line:#33312d;
+    --det:#7fc39a; --det-bg:#1d2b23; --mod:#e0a95e; --mod-bg:#2d2417;
+    --bad:#e88a7c; --bad-bg:#2e1c19; --accent:#e8834a;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+       margin:0;padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--dim);margin:0 0 32px;font-size:14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);
+     margin:44px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  code,.m{font-family:var(--mono);font-size:.88em}
+  code{background:var(--det-bg);padding:1px 5px;border-radius:3px;color:var(--det)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;color:var(--dim)}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .dot.d{background:var(--det)} .dot.m{background:var(--mod)}
+
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:10px;
+         padding:14px 16px;margin:0 0 10px;position:relative;border-left:3px solid var(--det)}
+  .stage.model{border-left-color:var(--mod)}
+  .stage h3{margin:0 0 3px;font-size:15px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .n{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:22px}
+  .tag{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+       padding:2px 7px;border-radius:3px;background:var(--det-bg);color:var(--det);font-weight:600}
+  .stage.model .tag{background:var(--mod-bg);color:var(--mod)}
+  .where{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin:0 0 8px}
+  .stage p{margin:6px 0 0;font-size:14px}
+  .inv{margin-top:9px;padding:8px 11px;background:var(--bg);border-radius:6px;font-size:13px;border:1px solid var(--line)}
+  .inv b{color:var(--accent);font-weight:600}
+  .kill{margin-top:7px;font-size:12.5px;color:var(--dim);padding-left:11px;border-left:2px solid var(--bad)}
+  .arrow{text-align:center;color:var(--line);font-size:15px;line-height:1;margin:-4px 0 6px}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:7px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:600}
+  td.m{font-family:var(--mono);font-size:12px;white-space:nowrap}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px 15px}
+  .box h4{margin:0 0 6px;font-size:13.5px;font-family:var(--mono)}
+  .box p{margin:0;font-size:13px;color:var(--dim)}
+  .loop{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  pre{font-family:var(--mono);font-size:12.5px;line-height:1.55;margin:0;overflow-x:auto;color:var(--ink)}
+  .ok{color:var(--det);font-weight:600} .no{color:var(--bad);font-weight:600} .q{color:var(--mod);font-weight:600}
+  .note{font-size:13px;color:var(--dim);margin-top:10px}
+  ul{margin:6px 0 0;padding-left:19px;font-size:13.5px} li{margin:3px 0}
+</style>
+
+<div class="wrap">
+
+<h1>Pulse — architecture</h1>
+<p class="sub">An analytics agent over a diagnostic centre's live Postgres. 5,446 lines across 27 files.
+Read-only role <code>analytics_ro</code>. One entry point, one pipeline — the V1 fallback was deleted on 12 Sep 2026.</p>
+
+<div class="legend">
+  <span class="chip"><span class="dot d"></span> deterministic — code decides, testable, repeatable</span>
+  <span class="chip"><span class="dot m"></span> model — an LLM decides</span>
+</div>
+<p class="sub" style="margin-top:8px">The single organising principle: <b>every invariant that matters is enforced in code, not described in a prompt.</b>
+Each one that stayed in a prompt held until it didn't — the dues definition, the paise convention, "a rate is not a total", three separate rewordings.</p>
+
+<h2>The pipeline</h2>
+
+<div class="stage">
+  <h3><span class="n">01</span> Entry &amp; guards <span class="tag">deterministic</span></h3>
+  <p class="where">index.ts:51 · entity.ts · routes/pulse.ts</p>
+  <p>Small talk, follow-up detection (<code>isFragment</code>), ambiguous-entity picker, entity card.
+  Authorization is decided <em>here</em>, where the asker is known: <code>maySeePeople(req)</code> → <code>rowLevel</code> policy.</p>
+  <div class="inv"><b>Invariant:</b> authorization is settled at the door and passed down. Nothing further in the chain re-derives who is asking.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">02</span> Knowledge <span class="tag">deterministic</span></h3>
+  <p class="where">knowledge.ts:433,505 — built once at startup (~80s), 819 concepts</p>
+  <p>Live introspection: schema graph, every Postgres enum, branch codes and names, departments, test codes <em>and test names</em>,
+  payout categories, value index. Plus ~28 hand-written synonyms for words no lookup can discover (<code>lab</code>, <code>scan</code>, <code>cost</code>).</p>
+  <div class="inv"><b>Invariant:</b> the catalogue is an accelerator, never the authority. A term it misses is a lookup failure, never a fact about the business.</div>
+  <div class="kill">Killed: "the system has no report types called reportable, bill only or external" — three real <code>workflowMode</code> values across 30,247 orders. The enums were already in <code>k.enums</code> feeding the SQL writer; the semantic index just couldn't see them.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">03</span> Resolution <span class="tag">deterministic</span></h3>
+  <p class="where">knowledge.ts:582 <code>scoreMatch</code> · 599 <code>resolveRanked</code> · 617 <code>resolveTerm</code> · 703 <code>termsIn</code></p>
+  <p>Ranked, no model call: <span class="m">exact 1.00 · normalized 0.95 · prefix 0.75r · word 0.70r · substring 0.40r</span>,
+  where <span class="m">r = min(len)/max(len)</span>. Below <span class="m">MIN_CONFIDENCE 0.30</span> a match is a lead, never a filter.</p>
+  <div class="inv"><b>Invariant:</b> a short code can never outrank a long name it merely begins. <code>ct</code> inside <code>ct-brain plain</code> is 2 chars of 14 → scores 0.107 → never commits.</div>
+  <div class="kill">Killed: <code>CT-BRAIN PLAIN</code> → <code>CT</code> (Clotting Time) → <b>₹1,918 reported for a test that had billed ₹1,03,400.</b> A 53× error, no hedge, then forced into three later queries as a hard filter.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage model">
+  <h3><span class="n">04</span> Plan <span class="tag">model</span></h3>
+  <p class="where">analyst.ts:367 <code>askPlan</code> — called with <code>termsBlock(q) + ctx</code></p>
+  <p>Declares the goal, the analytical job, the spec (measure / scope / time) and the first steps.
+  Resolution runs <em>before</em> this, so the planner is handed terms already grounded against live data.</p>
+  <div class="inv"><b>Only inferred thing in the whole resolution path:</b> which substring of the question becomes a scope term.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">05</span> Spec grounding <span class="tag">deterministic</span></h3>
+  <p class="where">spec.ts:217 <code>completeSpec</code> · 208 <code>aliasesFor</code> · 122 <code>verifySpec</code></p>
+  <p>Every scope term re-resolved against live concepts; the planner's guess is overwritten when resolution succeeds and
+  <em>dropped</em> when the value doesn't exist. Periods resolve to real IST dates. Each constraint carries <code>how</code>, <code>confidence</code>, <code>aliases</code>.</p>
+  <div class="inv"><b>Invariant:</b> a guess may shape a query; only a confident resolution may gate one. Below 0.30 <code>verifySpec</code> will not reject on it.</div>
+  <div class="kill">Killed: <code>{test:'ultrasound'}</code> passed because the <em>dimension name</em> was valid, then got forced into SQL → a confident 0 instead of 265. Same shape as <code>branch='CNT,BLN'</code>, which rejected five correct queries.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">06</span> Tools — 17 of them <span class="tag">deterministic</span></h3>
+  <p class="where">tools.ts:595 <code>TOOLS</code></p>
+  <div class="grid" style="margin-top:9px">
+    <div class="box"><h4>registry · 8</h4><p>metric, compare, breakdown, rank, trend, baseline, anomaly, derive — fixed SQL from <code>catalog.ts</code>. 0% failure in production.</p></div>
+    <div class="box"><h4>operational · 7</h4><p>receivables, pending_reports, quiet_doctors, leakage, worklist, anomalies, delivery — states of the business, not metrics.</p></div>
+    <div class="box"><h4>semantic · 1</h4><p>resolve — an index miss reports itself as a miss, with near-matches, never as an absence.</p></div>
+    <div class="box"><h4>generated · 1</h4><p><code>query</code> — one model call writes one SELECT. <b>54% failure rate</b> historically; every guard below exists because of it.</p></div>
+  </div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">07</span> Safety &amp; verification <span class="tag">deterministic</span></h3>
+  <p class="where">validator.ts · sqlscope.ts (pgsql-ast-parser) · spec.ts:122</p>
+  <table>
+    <tr><th>Layer</th><th>Question it answers</th></tr>
+    <tr><td class="m">validate()</td><td>Is this SQL <em>safe</em>? No writes, no bearer tokens, no password hashes, no <code>SELECT *</code>, no comma-joins, no fan-out double counting, no system catalogs. Non-negotiable by role.</td></tr>
+    <tr><td class="m">exposedIdentifiers()</td><td>Would it <em>return</em> a person? Only consulted when <code>rowLevel === false</code>. Projected columns, not tables read — a name inside <code>count(DISTINCT …)</code> is a measurement, a name in the select list is a disclosure.</td></tr>
+    <tr><td class="m">scopeOf()</td><td>Which predicates restrict the rows <em>the answer is computed from</em>? Walks outward from the result statement through referenced CTEs and subqueries only.</td></tr>
+    <tr><td class="m">verifySpec()</td><td>Did the committed scope and period survive into the query?</td></tr>
+  </table>
+  <div class="inv"><b>Invariant:</b> a parse failure is never a rejection — it falls back to string matching. A guard that can refuse a good answer but cannot confirm a bad one is worse than no guard.</div>
+  <div class="kill">Killed: <code>WITH filtered AS (… WHERE test='CTBP') SELECT SUM(price) FROM orders</code> — the literal is present, the CTE is never referenced, the total is over everything, and a string search called it correct.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">08</span> The investigation loop <span class="tag">deterministic control, model proposals</span></h3>
+  <p class="where">run.ts:114–232 · investigation.ts</p>
+  <div class="loop"><pre>for each round:
+  dispatch steps (pool 3)  ──────────────→  evidence
+  recheckScope()           <span class="ok">→ a better resolution WITHDRAWS what the old one produced</span>
+  askInvestigate()         <span class="q">→ hypotheses + next steps  (guarded: a parse failure ends the
+                              investigation, never the run)</span>
+  enforce()                <span class="ok">→ a claim settled without the analysis it said it needed
+                              goes back to OPEN</span>
+  measure()                <span class="ok">→ newEvidence · duplicates · recoveries · requirementsSatisfied
+                              · resolvedMaterial · newDimensions → gain</span>
+
+  STOP WHEN   resolved()      nothing material open
+              stagnating()    3 rounds earning nothing, OR belief unchanged despite fresh
+                              rows, OR no requirement satisfied and no claim settled
+              !next.length     and no requirement left to derive a step from
+  CEILINGS    12 rounds · 30 calls · 180s  <span class="no">← emergency brake. Hitting one marks the
+                                             answer INCOMPLETE, never a finish.</span></pre></div>
+  <div class="inv"><b>Invariant:</b> the model may propose; it may not declare itself done. A question that genuinely needs thirty queries gets them.</div>
+  <div class="kill">Killed: stopped at <code>rounds === 8</code> with both real levers unsized — at 82s of a 180s budget, while 14 of 15 queries were failing invisibly.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">09</span> Job → contract → capability <span class="tag">deterministic</span></h3>
+  <p class="where">contract.ts <code>contractFor</code> · capability.ts <code>renderOptions</code></p>
+  <p>Thirteen analytical jobs (magnitude, comparison, composition, concentration, attribution, progression, variability,
+  conversion, relationship, ranking, enumeration, explanation, opportunity) — declared by the analyst, never matched from question words.
+  The contract allocates <em>information</em>: prose carries conclusion and implication, artifacts carry rows. The budget is numbers-per-answer.</p>
+  <p>Capability matching is a declarative evidence-to-render contract: <code>requires</code> (structural gates) + <code>buildable</code> (can the renderer construct its input?) + <code>expresses</code>. <b>No question text reaches this layer.</b></p>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage model">
+  <h3><span class="n">10</span> Write-up <span class="tag">model</span></h3>
+  <p class="where">analyst.ts:395 <code>askResponse</code> · run.ts:310 (retry-guarded)</p>
+  <p>Segments — verdict, points, caveat, action — plus artifact choices and sized opportunities. One retry on a truncated response, then a deterministic simplify.</p>
+  <div class="kill">Killed: a write-up truncating mid-JSON discarded a completed 118-second investigation. <code>parseLoose</code> now salvages the parseable prefix — but never by closing an unterminated string, because a half-written <code>WHERE</code> would close into SQL that runs and returns a confidently wrong number.</div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="stage">
+  <h3><span class="n">11</span> Post-checks <span class="tag">deterministic</span></h3>
+  <p class="where">grounding.ts · contract.ts <code>checkAnswer</code> · opportunity.ts</p>
+  <table>
+    <tr><th>Check</th><th>What it enforces</th></tr>
+    <tr><td class="m">groundNumbers()</td><td>Every figure is <em>exact</em>, <em>derived</em> (a share, difference, sum or % change over two facts — column totals count), <em>ordinary</em> (a small count, a year, a period), or it is sent back.</td></tr>
+    <tr><td class="m">checkAnswer()</td><td>Number density, artifact required, rows out of prose. Repair once, then deterministic simplify.</td></tr>
+    <tr><td class="m">rank()</td><td>Opportunities ranked <span class="m">rupees × confidence × causality</span>. Unsized candidates are <em>considered</em>, never <em>recommended</em>.</td></tr>
+    <tr><td class="m">incomplete</td><td>Travels as <b>data</b>, rendered above the answer — never a regex hoping the writer disclosed it.</td></tr>
+  </table>
+  <div class="kill">Killed: report open-rate ranked above discounting because it sounded actionable — ₹7,400 over 45 days vs ₹1,05,035, and modelled rather than observed.</div>
+</div>
+
+<h2>Data structures</h2>
+<div class="grid">
+  <div class="box"><h4>AnalysisSpec</h4><p>measure · scope[] · time. Each constraint carries <code>term</code>, <code>dimension</code>, <code>value</code>, <code>aliases</code>, <code>how</code>, <code>confidence</code>.</p></div>
+  <div class="box"><h4>Evidence</h4><p>tool · ok · summary (formatted, never raw paise) · data.rows · sql · <code>means</code> · <code>recovered</code> · <code>calls</code>.</p></div>
+  <div class="box"><h4>Investigation</h4><p>hypotheses with <code>status</code>, <code>material</code>, <code>requires[]</code> · unresolved · contradictions · <code>stoppingReason</code>.</p></div>
+  <div class="box"><h4>Contract</h4><p>job · maxNumbers · needsArtifact · rowsInProse · canShow[].</p></div>
+  <div class="box"><h4>Opportunity</h4><p>currentValue · estimatedImpact · impactMethod · <code>causality</code> (observed/modeled/causal) · confidence.</p></div>
+  <div class="box"><h4>PulseTrace</h4><p>Every decision, per turn, as an audit row: plan, spec, executed steps, render options chosen vs admissible, contract violations, grounding provenance, round-by-round progress.</p></div>
+</div>
+
+<h2>Test surface</h2>
+<table>
+  <tr><th>Harness</th><th>Asks</th><th>Status</th></tr>
+  <tr><td class="m">pulse-regression.ts</td><td>Is the number right? Truth computed from the DB at run time, never hardcoded. Two cases assert the <em>query shape</em>, not only the figure.</td><td class="ok">14/14</td></tr>
+  <tr><td class="m">pulse-adversarial.ts</td><td>Did the chain let an answer finish when it shouldn't have? 10 failure classes, 29 cases.</td><td class="ok">27/29</td></tr>
+  <tr><td class="m">pulse-convergence.ts</td><td>When it stopped, was that convergence or a counter running out?</td><td>instrument</td></tr>
+  <tr><td class="m">pulse-vocabulary.ts</td><td>Is there a vocabulary gap worth building a learning loop for? <b>Verdict: no</b> — 6 denials in 79 turns, 5 already fixed deterministically.</td><td>instrument</td></tr>
+  <tr><td class="m">pulse-traces.ts</td><td>Where the seconds go, which renderers are admissible vs chosen, how often repair fires.</td><td>instrument</td></tr>
+</table>
+
+<h2>Known open</h2>
+<ul>
+  <li><b>The spec never reaches the SQL writer.</b> <code>tools.ts:239</code> calls <code>generate(k, q)</code> — the resolved value, dimension and aliases are discarded, the generator re-derives meaning from English, and the verifier tries to recognise whatever it produced. This is the root of the alias / LIKE-mode / breadth patching.</li>
+  <li><b>Wall clock.</b> Checked between rounds, so deep investigations reach 160–220s against a 180s ceiling.</li>
+  <li><b>Renderers under-used.</b> <code>distribution</code> admissible 13×, chosen 2×; <code>compare</code> and <code>chart</code> never chosen. Capability scores cluster at 0.23–0.38 — the ranking doesn't discriminate.</li>
+  <li><b>Job misclassification.</b> Six of seven "how do I improve" questions classified <code>explanation</code>, not <code>opportunity</code> — so the entire sizing and ranking subsystem stays dormant on the questions it was built for.</li>
+  <li><b>No feedback signal.</b> No thumbs, no re-ask detection. Every quality judgment so far came from reading logs by hand.</li>
+</ul>
+
+<p class="note">Two things built and never observed firing in production: <code>recheckScope</code> (retroactive withdrawal) and, until 12 Sep, the stagnation detector — which then fired on its first real case and caught a genuine defect.</p>
+
+</div>

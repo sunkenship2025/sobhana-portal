@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Analytics Layer — Architecture V2</title>
+<style>
+:root{--bg:#0d0f13;--panel:#151821;--p2:#1c2029;--line:#272c38;--ink:#e8ebf1;--dim:#98a1b0;
+ --faint:#6a7280;--ac:#5eead4;--ac2:#a78bfa;--warn:#fbbf24;--bad:#f87171;--good:#4ade80;
+ --mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+.w{max-width:1150px;margin:0 auto;padding:0 26px 110px}
+header{padding:60px 0 34px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.eb{font:600 11px/1 var(--mono);letter-spacing:.17em;text-transform:uppercase;color:var(--ac);margin-bottom:16px}
+h1{font-size:clamp(29px,4.5vw,44px);line-height:1.06;margin:0 0 14px;letter-spacing:-.025em;font-weight:650}
+.sub{color:var(--dim);font-size:17px;max-width:66ch;margin:0}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.pill{font:600 11px/1 var(--mono);letter-spacing:.04em;padding:6px 11px;border-radius:99px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+.pill.m{border-color:#1f4d47;background:#122724;color:var(--ac)}
+.pill.h{border-color:#3d3320;background:#241d0f;color:var(--warn)}
+nav{position:sticky;top:0;z-index:20;background:rgba(13,15,19,.92);backdrop-filter:blur(12px);
+ border-bottom:1px solid var(--line);margin:0 -26px 42px;padding:10px 26px;display:flex;gap:4px;flex-wrap:wrap}
+nav a{font:500 12px/1 var(--sans);color:var(--faint);text-decoration:none;padding:6px 9px;border-radius:6px}
+nav a:hover{color:var(--ink);background:var(--p2)}
+section{margin:0 0 62px;scroll-margin-top:60px}
+h2{font:600 12.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--ac);margin:0 0 8px}
+h2+.ld{font-size:23px;line-height:1.34;margin:0 0 24px;letter-spacing:-.014em;max-width:62ch;font-weight:600}
+h3{font-size:15px;margin:32px 0 11px;font-weight:650;letter-spacing:-.005em}
+p{max-width:78ch;color:var(--dim)}p strong,li strong,td strong{color:var(--ink);font-weight:620}
+code{font:12.5px/1.5 var(--mono);background:var(--p2);border:1px solid var(--line);padding:1px 5px;border-radius:4px;color:var(--ac)}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:15px 17px;overflow-x:auto;
+ font:12.5px/1.6 var(--mono);color:#c7cfdc;margin:13px 0}pre code{background:none;border:0;padding:0;color:inherit}
+.g{display:grid;gap:13px}.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}
+.c{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:17px 19px}
+.c h4{margin:0 0 8px;font-size:14px;font-weight:650}.c p{margin:0;font-size:13.5px;line-height:1.6}
+.c.ok{border-color:#1f4d47;background:linear-gradient(180deg,#122624,var(--panel))}
+.c.no{border-color:#4a2626;background:linear-gradient(180deg,#231313,var(--panel))}
+.c.wn{border-color:#4a3d1c;background:linear-gradient(180deg,#221c0d,var(--panel))}
+.st{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 17px}
+.st .n{font:650 25px/1.1 var(--sans);letter-spacing:-.022em;font-variant-numeric:tabular-nums}
+.st .l{font:500 11px/1.4 var(--mono);color:var(--faint);margin-top:5px}
+.st.ok .n{color:var(--ac)}.st.bad .n{color:var(--bad)}.st.wn .n{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+td{color:var(--dim)}td:first-child{color:var(--ink);font-weight:550}
+tbody tr:last-child td{border-bottom:0}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:15px 0}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+ul,ol{color:var(--dim);max-width:78ch;padding-left:19px}li{margin:5px 0}
+.co{border-left:3px solid var(--ac);background:var(--panel);border-radius:0 10px 10px 0;padding:15px 19px;margin:19px 0}
+.co.w{border-left-color:var(--warn)}.co.b{border-left-color:var(--bad)}
+.co p{margin:0;color:var(--ink);font-size:14px}
+.co .k{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ac);display:block;margin-bottom:6px}
+.co.w .k{color:var(--warn)}.co.b .k{color:var(--bad)}
+svg{max-width:100%;height:auto;display:block}
+.fig{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin:18px 0;overflow-x:auto}
+.fig figcaption{font:12px/1.5 var(--mono);color:var(--faint);margin-top:12px}
+footer{border-top:1px solid var(--line);padding-top:24px;color:var(--faint);font-size:13px}
+.tag{display:inline-block;font:600 10px/1 var(--mono);padding:3px 7px;border-radius:4px;letter-spacing:.06em}
+.tag.ok{background:#122724;color:var(--ac);border:1px solid #1f4d47}
+.tag.no{background:#231313;color:var(--bad);border:1px solid #4a2626}
+</style></head><body><div class="w">
+
+<header>
+  <div class="eb">Sobhana / HealthFlow · Architecture V2 · Measured</div>
+  <h1>AI Analytics Layer</h1>
+  <p class="sub">Redesigned from first principles and <strong>tested against the live database and
+  the real DeepSeek V4 Flash endpoint</strong>. Every number on this page was measured. Two claims
+  from V1 did not survive the test and are retracted below.</p>
+  <div class="meta">
+    <span class="pill h">DESIGN — awaiting approval</span>
+    <span class="pill m">11 real LLM calls · ~27k tokens</span>
+    <span class="pill m">every SQL executed vs controls</span>
+    <span class="pill">Neon 311 MB · 73 tables</span>
+    <span class="pill">deepseek-v4-flash</span>
+  </div>
+</header>
+
+<nav>
+  <a href="#verdict">Verdict</a><a href="#wrong">What I got wrong</a><a href="#ab">The A/B</a>
+  <a href="#central">Central finding</a><a href="#retrieval">Retrieval</a><a href="#prompt">The prompt</a>
+  <a href="#pipeline">Pipeline</a><a href="#cost">Cost</a><a href="#metrics">Metrics</a>
+  <a href="#fail">Failure modes</a><a href="#v1">V1 scope</a><a href="#test">30 questions</a>
+</nav>
+
+<!-- VERDICT -->
+<section id="verdict">
+  <h2>The recommendation</h2>
+  <p class="ld">Deterministic retrieval → <strong>one</strong> DeepSeek call → deterministic
+  validation → Postgres. Accuracy comes from the metric layer, not from the retrieval.</p>
+
+<pre><code>question
+   ↓  deterministic retrieval          0 LLM calls · ~0 ms · 350–600 tokens
+   ↓  DeepSeek V4 Flash  ×1            ~470 in / ~150 out · ~1.6 s
+   ↓  deterministic validate + repair  0 LLM calls
+   ↓  Postgres as analytics_ro         READ ONLY · 8s timeout · LIMIT 500
+   ↓  deterministic facts + viz        0 LLM calls
+   ↓  response — template if 1 value, LLM prose only if multi-row</code></pre>
+
+  <div class="g g4">
+    <div class="st ok"><div class="n">1</div><div class="l">LLM call, normal path</div></div>
+    <div class="st ok"><div class="n">469</div><div class="l">avg input tokens</div></div>
+    <div class="st ok"><div class="n">30/30</div><div class="l">retrieval recall</div></div>
+    <div class="st ok"><div class="n">0</div><div class="l">embeddings needed</div></div>
+  </div>
+
+  <div class="co">
+    <span class="k">The design principle the measurements force</span>
+    <p>Retrieval's job is to keep the prompt small, keep token/PHI tables out of it, and scale past
+    73 tables. <strong>All three are real. None of them is the accuracy story.</strong> The accuracy
+    story is the metric layer — and the honest corollary is that answers from defined metrics are
+    <em>exact</em>, while answers from generated SQL carry irreducible definitional variance and must
+    be labelled differently in the UI.</p>
+  </div>
+</section>
+
+<!-- WHAT I GOT WRONG -->
+<section id="wrong">
+  <h2>Retractions</h2>
+  <p class="ld">Two V1 claims were asserted without evidence. The test killed both.</p>
+  <div class="g g2">
+    <div class="c no">
+      <h4><span class="tag no">RETRACTED</span> &nbsp;"A big schema causes wrong-table and wrong-timestamp errors"</h4>
+      <p>It doesn't. Handed all <strong>73 tables raw</strong>, DeepSeek got both traps right —
+      including <code>LabTest</code>(243, legacy) vs <code>TestDefinition</code>(443) vs
+      <code>TestOrder</code>(29,784), and choosing <code>finalizedAt</code> over
+      <code>createdAt</code>. I was underrating the model.</p>
+    </div>
+    <div class="c no">
+      <h4><span class="tag no">RETRACTED</span> &nbsp;"Retrieval buys latency"</h4>
+      <p><strong>1,594 ms retrieved vs 1,490 ms full-schema.</strong> The retrieved arm was
+      marginally <em>slower</em>. At 6k input tokens prefill is not the bottleneck. Do not use
+      latency to justify this architecture.</p>
+    </div>
+  </div>
+  <div class="c ok" style="margin-top:13px">
+    <h4><span class="tag ok">CONFIRMED, DECISIVELY</span> &nbsp;"The metric layer prevents contradictory numbers"</h4>
+    <p>Asked <em>"what was our revenue in August?"</em> with only the schema, the model invented
+    <code>SUM("paidAmountInPaise") WHERE "paymentStatus"='PAID'</code> — plausible, executable,
+    wrong. With the metric expression injected, it was exact. This single result is the reason the
+    architecture looks the way it does.</p>
+  </div>
+  <p style="margin-top:16px">Also retracted: the V1 headline <em>"don't build text-to-SQL, build
+  text-to-plan."</em> A closed DSL cannot express <em>"how many patients had more than two tests in
+  the last 90 days"</em> — exactly the long tail the feature exists for. <strong>Metrics constrain;
+  they do not cover.</strong></p>
+</section>
+
+<!-- AB -->
+<section id="ab">
+  <h2>The experiment that decided it</h2>
+  <p class="ld">4 questions × 2 arms. Every generated SQL was <em>executed</em> and compared to a
+  hand-written control number — not eyeballed.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Question</th><th>Trap tested</th><th>Retrieved ~470 tok</th><th>Full schema 5,887 tok</th></tr></thead>
+    <tbody>
+      <tr><td>How many tests did we do in August?</td><td>wrong table</td>
+        <td style="color:var(--good)">14,111 ✓</td><td style="color:var(--good)">14,111 ✓</td></tr>
+      <tr><td>How many reports were finalized in August?</td><td>wrong timestamp</td>
+        <td style="color:var(--good)">1,261 ✓</td><td style="color:var(--good)">1,261 ✓</td></tr>
+      <tr><td><strong>What was our revenue in August?</strong></td><td><strong>metric adherence</strong></td>
+        <td style="color:var(--good)"><strong>190,092,453 ✓</strong></td>
+        <td style="color:var(--bad)">✗ invented a definition</td></tr>
+      <tr><td>Patients with &gt;2 tests in 90 days</td><td>complex HAVING</td>
+        <td style="color:var(--bad)">✗ 99 — metric over-anchoring</td>
+        <td style="color:var(--good)">1,456 ✓</td></tr>
+      <tr><td colspan="2"><strong>Totals</strong></td>
+        <td><strong>3/4 · 469 tok · 1,594 ms</strong></td>
+        <td><strong>3/4 · 5,887 tok · 1,490 ms</strong></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>What the revenue miss actually costs</h3>
+  <div class="g g3">
+    <div class="st ok"><div class="n">₹19,00,925</div><div class="l">correct · net</div></div>
+    <div class="st bad"><div class="n">₹20,35,849</div><div class="l">naive gross · 7% high</div></div>
+    <div class="st wn"><div class="n">a third<br>number</div><div class="l">what the model actually wrote</div></div>
+  </div>
+
+  <h3>The surprise: metric injection can <em>hurt</em></h3>
+  <p>Question 4 failed in the retrieved arm at <strong>99 instead of 1,456</strong>. Retrieval was
+  <em>not</em> at fault — <code>TestOrder</code> was retrieved. The cause was the instruction header
+  <code>DEFINED METRICS — use these expressions VERBATIM</code>: the model forced a per-patient
+  <code>HAVING</code> question into the shape of the <code>unique_patients</code> metric.</p>
+  <p>One targeted call confirmed the diagnosis. Softening the header produced the correct
+  <code>TestOrder ⋈ Visit … GROUP BY "patientId" HAVING COUNT(*) &gt; 2</code>:</p>
+<pre><code>REFERENCE METRIC DEFINITIONS — use ONLY if the question asks for exactly this
+quantity. If it needs a different grain (per-patient, per-order, HAVING),
+IGNORE these and write SQL from the TABLES below.</code></pre>
+  <div class="co w"><span class="k">Rule</span>
+    <p>A metric is <strong>a definition on offer, not a template to force the question into</strong>.
+    Metric headers must be soft, with an explicit escape clause.</p></div>
+</section>
+
+<!-- CENTRAL -->
+<section id="central">
+  <h2>The central finding</h2>
+  <p class="ld">Valid SQL. Sensible semantics. Passes every validator. Executes without error.
+  Wrong by 3%.</p>
+
+  <p>After the soft header fixed the semantics, the query still failed on unquoted camelCase
+  (<code>t.cancelledat</code>). A <strong>deterministic repair</strong> — quote any known camelCase
+  identifier, built from <code>information_schema</code>, zero LLM calls — fixed the syntax. The
+  query then ran clean and returned:</p>
+
+  <div class="g g2">
+    <div class="st ok"><div class="n">1,456</div><div class="l">hand-written control</div></div>
+    <div class="st bad"><div class="n">1,410</div><div class="l">model, repaired, no error signal</div></div>
+  </div>
+
+<pre><code>SELECT COUNT(*) FROM (
+  SELECT v."patientId" FROM "Visit" v JOIN "TestOrder" t ON t."visitId" = v.id
+  WHERE v."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'
+        >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+           - INTERVAL '90 days'
+    AND t."cancelledAt" IS NULL
+    AND t."noReportAt" IS NULL          ← extra filter the control did not have
+  GROUP BY v."patientId" HAVING COUNT(t.id) > 2) AS sub;
+                ↑ filtered on VISIT date, control used ORDER date</code></pre>
+
+  <div class="co b"><span class="k">Why this shapes everything</span>
+    <p>Both readings are defensible. <strong>No schema context, no SQL parser, no
+    <code>EXPLAIN</code>, no read-only role and no retry loop can detect this.</strong> Only a
+    defined metric eliminates it — and only for the questions a metric covers.</p></div>
+
+  <p>The consequence is a product decision, not a technical one:</p>
+  <div class="g g2">
+    <div class="c ok"><h4>Metric-backed answer</h4>
+      <p>States the number. Certified. Reconciled against the Money page at zero tolerance in CI.
+      <em>"Revenue in August was ₹18,93,725."</em></p></div>
+    <div class="c wn"><h4>Generated answer</h4>
+      <p>States the number <strong>and the assumptions it rests on</strong>, visibly, and is
+      labelled as generated rather than certified. <em>"1,410 patients — counting by visit date,
+      excluding films-only orders."</em></p></div>
+  </div>
+</section>
+
+<!-- RETRIEVAL -->
+<section id="retrieval">
+  <h2>Retrieval — and why not embeddings</h2>
+  <p class="ld">30/30 recall, 174 KB, ~0 ms, zero LLM calls. A vector store cannot beat 100%.</p>
+
+  <div class="g g4">
+    <div class="st ok"><div class="n">30/30</div><div class="l">recall, 30 real questions</div></div>
+    <div class="st ok"><div class="n">347</div><div class="l">median context tokens</div></div>
+    <div class="st ok"><div class="n">174 KB</div><div class="l">value index in memory</div></div>
+    <div class="st ok"><div class="n">1,026</div><div class="l">indexed entity terms</div></div>
+  </div>
+
+  <h3>Four deterministic stages</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Stage</th><th>Mechanism</th><th>What it fixes</th></tr></thead>
+    <tbody>
+      <tr><td>1 · Weighted keywords</td><td>table name = 3 · curated alias = 2 · non-FK column = 1</td>
+        <td>maps "workload", "footfall", "turnaround" onto real tables</td></tr>
+      <tr><td>2 · Value index</td><td>1,026 terms → (table, column, canonical values), rebuilt nightly from live data</td>
+        <td>data literals the schema never contains</td></tr>
+      <tr><td>3 · FK-graph BFS</td><td>shortest path between every seed pair, intermediates added</td>
+        <td>invented joins — the path is handed over, never guessed</td></tr>
+      <tr><td>4 · Pack assembly</td><td>metrics (soft) → entities → tables → joins → rules</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="co w"><span class="k">Measured regression worth keeping</span>
+    <p>My first version indexed <em>all</em> columns including <code>*Id</code>. Because
+    <code>branchId</code> appears in ten tables, the word "branch" stopped discriminating, the
+    <code>Branch</code> table fell out of the top-N, <strong>recall dropped and tokens doubled</strong>.
+    FK columns are join plumbing, not semantics — exclude them from the keyword index.</p></div>
+
+  <h3>What the value index catches that hand-written keywords miss</h3>
+<pre><code>"hba1c"  → TestOrder.testCodeSnapshot IN ('GHB','HBA1C','HBA1C_OUTSIDE')
+                                            ↑ three codes. A hand-written list
+                                              returns one and silently halves the answer.
+
+branch   → really spelled "Jagathgiri Gutta", not the "Jagadgirigutta"
+           I had hand-typed into the catalog.</code></pre>
+
+  <p><strong>Verdict on embeddings: no.</strong> An embedding index needs a model, a store, a
+  refresh pipeline and ~30–80 ms per query, to beat 100% recall. It cannot. Revisit only if the
+  catalog exceeds ~200 tables, or if the <code>retrieval_low_confidence</code> counter shows users
+  reaching for vocabulary the catalog and value index don't contain.</p>
+</section>
+
+<!-- PROMPT -->
+<section id="prompt">
+  <h2>The Goldilocks prompt</h2>
+  <p class="ld">237 tokens, plus a ~350-token static system prompt that DeepSeek caches.</p>
+  <p>Verbatim retriever output for <em>"Show monthly diagnostic workload in Chintal for the last
+  6 months"</em>:</p>
+<pre><code>QUESTION
+Show monthly diagnostic workload in Chintal for the last 6 months
+
+REFERENCE METRIC DEFINITIONS — use ONLY if the question asks for exactly this
+quantity. If it needs a different grain, IGNORE these and use the TABLES below.
+test_orders [count] Billed test lines, excluding cancelled.
+  expr: COUNT(*)
+  filter: o."cancelledAt" IS NULL
+  time: o."createdAt"
+
+RESOLVED ENTITIES — use these exact values
+"chintal" → Branch.code IN ('CNT')
+
+TABLES
+TestOrder — One billed test line on a visit. Code SNAPSHOTTED at order time.
+  id,visitId,branchId,testCodeSnapshot,testNameSnapshot,priceInPaise,
+  workflowMode(REPORTABLE|BILL_ONLY|EXTERNAL_UPLOAD|EVENT),cancelledAt,
+  noReportAt,payoutCategorySnapshot,productId,panelId,createdAt
+  time: createdAt
+Branch — Centre location. 4 rows: CNT, BLN, JGG, IDPL.
+  id,name,code,isActive
+
+JOINS
+TestOrder → Branch
+
+RULES
+- money is Int paise
+- time: col AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'
+- scope: branch=CNT
+- soft delete: ReferralDoctor_Visit, DoctorPayoutLedger need deletedAt IS NULL</code></pre>
+
+  <p>Four kinds of knowledge, each in the only layer that can hold it:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Knowledge</th><th>Source</th><th>Why not elsewhere</th></tr></thead>
+    <tbody>
+      <tr><td>tables, columns, types, FKs</td><td>auto from <code>information_schema</code></td><td>free, never stale</td></tr>
+      <tr><td>descriptions, aliases, synonyms</td><td><strong>hand-authored catalog</strong></td><td>not derivable — this is the business meaning</td></tr>
+      <tr><td>enum value semantics</td><td>auto-extracted + annotated</td><td><code>pg_enum</code> gives labels, not meaning</td></tr>
+      <tr><td>metric definitions</td><td><strong>metric registry</strong></td><td>the model invents these wrong — measured</td></tr>
+      <tr><td>business rules (paise, IST, soft delete)</td><td>static ~90-token block</td><td>apply to every query</td></tr>
+      <tr><td>entity values</td><td><strong>value index</strong>, nightly from live data</td><td>174 KB, always current</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <h2>End-to-end pipeline</h2>
+  <p class="ld">Green = deterministic. Purple = the one model call. Amber = database.</p>
+  <figure class="fig">
+  <svg viewBox="0 0 940 600" role="img" aria-label="Analytics pipeline">
+    <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,1 L7,4.5 L0,8 z" fill="#4a5262"/></marker>
+      <style>
+       .b{stroke-width:1;rx:9}.d{fill:#122624;stroke:#2c5c54}.m{fill:#1a1730;stroke:#4c4a7a}
+       .db{fill:#241a11;stroke:#5c4326}
+       .t{fill:#e8ebf1;font:600 13px var(--sans)}.s{fill:#98a1b0;font:11.5px ui-monospace,Menlo,monospace}
+       .n{fill:#5eead4;font:700 11px ui-monospace,Menlo,monospace}
+       .ln{stroke:#4a5262;stroke-width:1.4;fill:none;marker-end:url(#a)}
+       .sd{fill:#6a7280;font:10.5px ui-monospace,Menlo,monospace}</style></defs>
+
+    <rect class="b d" x="230" y="12" width="470" height="44"/>
+    <text class="n" x="246" y="32">0</text><text class="t" x="272" y="32">CACHE</text>
+    <text class="s" x="272" y="48">hash(question + scope) → Redis</text>
+    <text class="sd" x="712" y="38">hit → return, 0 calls</text>
+    <path class="ln" d="M465,56 L465,80"/>
+
+    <rect class="b d" x="230" y="82" width="470" height="62"/>
+    <text class="n" x="246" y="102">1</text><text class="t" x="272" y="102">DETERMINISTIC RETRIEVAL</text>
+    <text class="s" x="272" y="119">keyword weights · value index · FK-graph BFS</text>
+    <text class="s" x="272" y="136">→ context pack, 350–600 tokens</text>
+    <text class="sd" x="712" y="110">0 LLM · ~0 ms</text>
+    <text class="sd" x="712" y="126">30/30 recall</text>
+    <path class="ln" d="M465,144 L465,168"/>
+
+    <rect class="b m" x="230" y="170" width="470" height="58"/>
+    <text class="n" x="246" y="190">2</text><text class="t" x="272" y="190">DEEPSEEK V4 FLASH  ×1</text>
+    <text class="s" x="272" y="207">→ { sql, assumptions, confidence }</text>
+    <text class="s" x="272" y="222">temperature 0 · thinking disabled</text>
+    <text class="sd" x="712" y="198">~470 in / ~150 out</text>
+    <text class="sd" x="712" y="214">~1.6 s</text>
+    <path class="ln" d="M465,228 L465,252"/>
+
+    <rect class="b d" x="230" y="254" width="470" height="94"/>
+    <text class="n" x="246" y="274">3</text><text class="t" x="272" y="274">DETERMINISTIC VALIDATE + REPAIR</text>
+    <text class="s" x="272" y="291">parse: single SELECT · no DDL/DML · table allowlist</text>
+    <text class="s" x="272" y="308">repair: quote camelCase from information_schema</text>
+    <text class="s" x="272" y="325">inject: branch scope from req.branchId — NOT the model</text>
+    <text class="s" x="272" y="341">force:  LIMIT 500</text>
+    <path class="ln" d="M700,300 L760,300 L760,199 L704,199"/>
+    <text class="sd" x="712" y="290">invalid → ONE</text>
+    <text class="sd" x="712" y="306">retry, then stop</text>
+    <path class="ln" d="M465,348 L465,372"/>
+
+    <rect class="b db" x="230" y="374" width="470" height="46"/>
+    <text class="n" x="246" y="394">4</text><text class="t" x="272" y="394">POSTGRES as analytics_ro</text>
+    <text class="s" x="272" y="411">READ ONLY · statement_timeout 8s · LIMIT 500</text>
+    <path class="ln" d="M465,420 L465,444"/>
+
+    <rect class="b d" x="230" y="446" width="470" height="60"/>
+    <text class="n" x="246" y="466">5</text><text class="t" x="272" y="466">DETERMINISTIC FACTS + VIZ</text>
+    <text class="s" x="272" y="483">headline · deltas · shares · ranks · chart type</text>
+    <text class="s" x="272" y="500">caveats incl. the model's own assumptions line</text>
+    <path class="ln" d="M465,506 L465,530"/>
+
+    <rect class="b d" x="230" y="532" width="228" height="56"/>
+    <text class="n" x="246" y="552">6a</text><text class="t" x="278" y="552">TEMPLATE</text>
+    <text class="s" x="246" y="569">1 row 1 column → no LLM</text>
+    <text class="s" x="246" y="584">"Revenue was ₹18,93,725."</text>
+
+    <rect class="b m" x="472" y="532" width="228" height="56"/>
+    <text class="n" x="488" y="552">6b</text><text class="t" x="520" y="552">DEEPSEEK ×1</text>
+    <text class="s" x="488" y="569">multi-row / "why" only</text>
+    <text class="s" x="488" y="584">≤40 fact rows · ~250 tok</text>
+  </svg>
+  <figcaption>Normal path = 1 call. Steady state ≈ 1.25 calls/question.</figcaption>
+  </figure>
+
+  <h3>Ambiguity — default and disclose, never block</h3>
+  <ol>
+    <li>Matches a defined metric → use it, state the definition in provenance.</li>
+    <li>Two metrics tie (<em>"patients"</em> = visits or people) → answer the common reading,
+      <strong>say which</strong>, offer the other as a chip.</li>
+    <li>No time range → current month, stated.</li>
+    <li>Long tail, no metric → generate SQL and <strong>show the assumptions next to the number</strong>.</li>
+    <li>Ask a clarifying question <strong>only</strong> when an entity fails to resolve
+      ("HbA1c or Hb?") — never for a definitional choice we can default.</li>
+  </ol>
+</section>
+
+<!-- COST -->
+<section id="cost">
+  <h2>Cost &amp; latency</h2>
+  <p class="ld">Measured, and honest about where the argument is weak.</p>
+  <div class="tw"><table>
+    <thead><tr><th>#</th><th>Architecture</th><th class="num">Calls</th><th class="num">Input/question</th><th class="num">Rel. cost</th><th>Accuracy</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Full schema → SQL</td><td class="num">1</td><td class="num">5,887</td><td class="num">11×</td><td>3/4 — <strong>wrong on money</strong></td></tr>
+      <tr><td>2</td><td>LLM picks schema, LLM writes SQL</td><td class="num">2</td><td class="num">~1,400</td><td class="num">3.5×</td><td>no measured gain over 3</td></tr>
+      <tr style="background:#12201e"><td>3</td><td><strong>Deterministic retrieval → 1 call</strong></td><td class="num"><strong>1</strong></td><td class="num"><strong>469</strong></td><td class="num"><strong>1.0×</strong></td><td><strong>best</strong></td></tr>
+      <tr><td>4</td><td>3 + always interpret</td><td class="num">2</td><td class="num">469 + 350</td><td class="num">1.9×</td><td>same SQL, nicer prose</td></tr>
+      <tr><td>5</td><td>4 + always self-correct</td><td class="num">2–3</td><td class="num">+469/retry</td><td class="num">2.4×</td><td>wasted when nothing failed</td></tr>
+    </tbody>
+  </table></div>
+  <div class="co w"><span class="k">Two honest caveats</span>
+    <p>DeepSeek reports <code>prompt_cache_hit_tokens</code> — a static full schema would cache
+    well, narrowing Architecture 1's gap. And at current volumes <em>every</em> option is
+    affordable. <strong>Choose on accuracy and on not leaking token/PHI tables into the prompt.
+    Cost merely confirms the choice.</strong></p></div>
+
+  <h3>Why this beats the full schema — only 3 of 5 reasons survived</h3>
+  <div class="g g3">
+    <div class="c ok"><h4>✓ Metric adherence</h4><p>Decisive. Worth 7%+ on the number that matters most.</p></div>
+    <div class="c ok"><h4>✓ Sensitive tables never in the prompt</h4>
+      <p>The full-schema arm sent <code>ReportAccessToken</code>, <code>BillAccessToken</code>,
+      <code>PatientIdentifier</code> and <code>User.passwordHash</code> to an external API on
+      <em>every</em> question. A privacy property of the prompt itself.</p></div>
+    <div class="c ok"><h4>✓ Decommissioned twins excluded</h4>
+      <p>13 tables are empty; <code>LabTest</code>(243) shadows <code>TestDefinition</code>(443).
+      Insurance, not a demonstrated win — but it scales the wrong way.</p></div>
+    <div class="c no"><h4>✗ Latency</h4><p>Measured no gain. Dropped.</p></div>
+    <div class="c no"><h4>✗ "Can't find the table"</h4><p>It could. Dropped.</p></div>
+  </div>
+</section>
+
+<!-- METRICS -->
+<section id="metrics">
+  <h2>Semantic layer</h2>
+  <p class="ld">Define centrally when a wrong answer looks right. Generate when a wrong answer looks wrong.</p>
+
+  <div class="co"><span class="k">Your decision — revenue defaults to net collected</span>
+    <p>Locked in. Measured for August 2026, the gap is small because this centre collects at point
+    of service, so the change is low-risk:</p></div>
+  <div class="g g4">
+    <div class="st"><div class="n">₹19,00,925</div><div class="l">net billed (old default)</div></div>
+    <div class="st ok"><div class="n">₹18,93,725</div><div class="l">net collected ← NEW DEFAULT</div></div>
+    <div class="st"><div class="n">₹200</div><div class="l">outstanding on Aug bills</div></div>
+    <div class="st"><div class="n">₹22,489</div><div class="l">refunds paid out</div></div>
+  </div>
+  <p><strong>Gap: ₹7,200 — 0.4% of billed.</strong> Two consequences to note:</p>
+  <ul>
+    <li><strong>"Collected" itself has two readings</strong>, ₹7,000 apart: transactions
+      <em>dated</em> in the period (cash-flow, <strong>recommended default</strong>) vs cash against
+      bills <em>billed</em> in the period (collections performance). The AI will use the cash-flow
+      reading and say so.</li>
+    <li><strong>Net billed doesn't disappear</strong> — it stops owning the word "revenue" and
+      becomes <code>net_billed</code>. It's still needed: <code>outstanding</code> is computed from
+      it, and the sanity check <code>collected(cohort) + outstanding = net_billed</code> reconciles
+      to the rupee.</li>
+    <li>⚠️ The Money page headline KPI is still <em>net billed</em>. Either the page's label or the
+      AI's default should move so the two agree — worth deciding before V1 ships.</li>
+  </ul>
+
+  <div class="g g2" style="margin-top:20px">
+    <div class="c no"><h4>MUST be defined (~15 for V1)</h4>
+      <p>Every money metric — <code>collected</code> (now "revenue"), <code>net_billed</code>,
+      <code>outstanding</code>, <code>discount_total</code>, <code>refund_total</code>,
+      <code>commission</code>. Every ratio — <code>abnormal_rate</code> (the 38%-NULL denominator),
+      <code>cancellation_rate</code>, <code>delivery_rate</code>, collection rate.
+      Plus <code>tat_p50</code>, <code>reports_finalized</code> (latest-version rule),
+      <code>visits</code> vs <code>unique_patients</code>, <code>test_orders</code>.</p></div>
+    <div class="c ok"><h4>Safe to generate</h4>
+      <p>Anything whose error is visible: counts and group-bys over one fact table, top-N rankings,
+      distributions, existence questions — and <strong>all multi-condition / HAVING / cohort
+      questions</strong>, which cannot be pre-defined and which the model writes correctly given
+      the right context.</p></div>
+  </div>
+  <p><strong>Cap V1 at ~20 metrics.</strong> "Patient volume", "workload", "how are we doing" are
+  <em>aliases</em> resolved by the keyword index — not new definitions.</p>
+</section>
+
+<!-- FAILURE -->
+<section id="fail">
+  <h2>Failure modes</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Failure</th><th>Evidence</th><th>Mitigation</th><th>Residual</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Silent definitional drift</strong></td><td style="color:var(--bad)"><strong>measured 1,410 vs 1,456</strong></td>
+        <td>metric layer where defined; elsewhere surface assumptions + label as generated</td>
+        <td style="color:var(--bad)"><strong>irreducible</strong></td></tr>
+      <tr><td>Wrong business definition</td><td style="color:var(--bad)">measured — Q3</td>
+        <td>metric registry + <code>reconcileWith</code> CI test</td><td>near zero</td></tr>
+      <tr><td>Metric over-anchoring</td><td style="color:var(--bad)">measured — 99 vs 1,456</td>
+        <td>soft metric header + escape clause</td><td>low</td></tr>
+      <tr><td>Unquoted camelCase</td><td>measured, then repaired</td>
+        <td><strong>deterministic repair, 0 LLM calls</strong></td><td>near zero</td></tr>
+      <tr><td>Wrong timestamp</td><td>not observed</td><td>one <code>time:</code> column per table; <code>updatedAt</code> never exposed</td><td>low</td></tr>
+      <tr><td>Double counting via 1:N join</td><td>not observed</td><td><code>COUNT(DISTINCT)</code> metrics + eval cases</td><td>medium — watch</td></tr>
+      <tr><td>Wrong join path</td><td>not observed</td><td>FK subgraph supplied explicitly</td><td>low</td></tr>
+      <tr><td>Soft delete forgotten</td><td>not observed</td><td>rules block + metric base filters</td><td>low</td></tr>
+      <tr><td>Tenant leakage</td><td>—</td><td><strong>scope injected by the app, not the model</strong> + <code>analytics_ro</code></td><td>near zero</td></tr>
+      <tr><td>Ambiguous question</td><td>Q1 "patients"</td><td>default + disclose, never block</td><td>by design</td></tr>
+      <tr><td>Retrieval miss</td><td>0/30 measured</td><td><code>retrieval_low_confidence</code> logged; aliases grow from it</td><td>low</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- V1 -->
+<section id="v1">
+  <h2>V1 scope</h2>
+  <p class="ld">The smallest thing that is genuinely useful.</p>
+  <ol>
+    <li><code>analytics_ro</code> read-only Postgres role + grants — <em>the gap: only
+      <code>neondb_owner</code> exists today</em>.</li>
+    <li><strong>AI Metadata Catalog</strong> — 26 tables, hand-authored descriptions + aliases.
+      ~2 days, and the highest-value work in the project.</li>
+    <li>Metric registry — 15 metrics, each with <code>reconcileWith</code> anchored to the existing
+      <code>owner*Service</code> numbers.</li>
+    <li>Deterministic retriever — the code measured on this page. ~200 lines.</li>
+    <li>Validator + deterministic camelCase repair.</li>
+    <li>One DeepSeek call via the existing <code>smartReport/llm.ts</code> — add an optional
+      <code>system</code> param; do not write a second client.</li>
+    <li>Template responses for single values; LLM prose only for multi-row.</li>
+    <li><code>AnalyticsQueryLog</code> + 40-case eval harness, money reconciled at zero tolerance.</li>
+    <li>Owner-only UI reusing <code>ownerUi.tsx</code> + recharts.</li>
+  </ol>
+  <p><strong>Not in V1:</strong> embeddings · multi-agent anything · conversation · charts beyond
+  line/bar/KPI · anomaly narration · raw-SQL escape hatch · materialized views.</p>
+  <p><strong>V2:</strong> conversation via structured state (~150 tokens, never the transcript) ·
+  "why did X change" decomposition · <code>AnomalyEvent</code>-backed "anything unusual" ·
+  scheduled digests · catalog auto-drafting · embeddings <em>only</em> if the low-confidence
+  counter proves a gap.</p>
+</section>
+
+<!-- TEST -->
+<section id="test">
+  <h2>30-question stress test</h2>
+  <p class="ld">Deterministic retrieval, measured. 30/30 recall · median 347 tokens · zero LLM calls.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:28px">#</th><th>Question</th><th style="width:52px">Recall</th><th class="num" style="width:60px">Tokens</th><th>Metric matched</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>How many patients did we see last month?</td><td>✓</td><td class="num">240</td><td>visits, unique_patients <strong>⚠ ambiguous</strong></td></tr>
+      <tr><td>2</td><td>What was our revenue last month?</td><td>✓</td><td class="num">245</td><td>collected</td></tr>
+      <tr><td>3</td><td>How much cash did we collect in August?</td><td>✓</td><td class="num">239</td><td>collected</td></tr>
+      <tr><td>4</td><td>How many tests did we do this week?</td><td>✓</td><td class="num">239</td><td>test_orders</td></tr>
+      <tr><td>5</td><td>How many reports were finalized yesterday?</td><td>✓</td><td class="num">367</td><td>reports_finalized, tat_p50</td></tr>
+      <tr><td>6</td><td>Break down revenue by branch</td><td>✓</td><td class="num">279</td><td>collected</td></tr>
+      <tr><td>7</td><td>Show workload by department</td><td>✓</td><td class="num">262</td><td>test_orders</td></tr>
+      <tr><td>8</td><td>Revenue by payout category</td><td>✓</td><td class="num">578</td><td>collected</td></tr>
+      <tr><td>9</td><td>Consultations per clinic doctor this month</td><td>✓</td><td class="num">471</td><td>—</td></tr>
+      <tr><td>10</td><td>Cash vs online collection split by branch</td><td>✓</td><td class="num">271</td><td>collected</td></tr>
+      <tr><td>11</td><td>Monthly revenue, last 6 months</td><td>✓</td><td class="num">248</td><td>collected</td></tr>
+      <tr><td>12</td><td>Daily visit volume, last 30 days</td><td>✓</td><td class="num">326</td><td>visits</td></tr>
+      <tr><td>13</td><td>Trend in HbA1c testing, last 6 months</td><td>✓</td><td class="num">347</td><td>test_orders <em>(value index → GHB)</em></td></tr>
+      <tr><td>14</td><td>Compare this month with last month on revenue</td><td>✓</td><td class="num">375</td><td>collected</td></tr>
+      <tr><td>15</td><td>Compare Chintal and Balanagar on test volume</td><td>✓</td><td class="num">417</td><td>test_orders</td></tr>
+      <tr><td>16</td><td>Top 10 tests by volume</td><td>✓</td><td class="num">352</td><td>test_orders</td></tr>
+      <tr><td>17</td><td>Which referring doctors sent the most patients?</td><td>✓</td><td class="num">381</td><td>unique_patients</td></tr>
+      <tr><td>18</td><td>Top 5 products by revenue</td><td>✓</td><td class="num">375</td><td>collected</td></tr>
+      <tr><td>19</td><td>Which branch has the highest workload?</td><td>✓</td><td class="num">225</td><td>test_orders</td></tr>
+      <tr><td>20</td><td>What percentage of results are abnormal?</td><td>✓</td><td class="num">304</td><td>abnormal_rate</td></tr>
+      <tr><td>21</td><td>What is our WhatsApp delivery rate?</td><td>✓</td><td class="num">424</td><td>delivery_rate</td></tr>
+      <tr><td>22</td><td>What share of tests get cancelled?</td><td>✓</td><td class="num">331</td><td>cancellation_rate</td></tr>
+      <tr><td>23</td><td>What is our collection rate this month?</td><td>✓</td><td class="num">533</td><td>collected</td></tr>
+      <tr><td>24</td><td>What is our average turnaround time?</td><td>✓</td><td class="num">466</td><td>tat_p50</td></tr>
+      <tr><td>25</td><td>How many reports are still pending?</td><td>✓</td><td class="num">416</td><td>reports_finalized</td></tr>
+      <tr><td>26</td><td>How much money is outstanding?</td><td>✓</td><td class="num">298</td><td>outstanding</td></tr>
+      <tr><td>27</td><td>How many unique patients visited this year?</td><td>✓</td><td class="num">291</td><td>unique_patients</td></tr>
+      <tr><td>28</td><td>Patients with more than two tests in 90 days</td><td>✓</td><td class="num">381</td><td><strong>⚠ over-anchor risk</strong></td></tr>
+      <tr><td>29</td><td>Doctors who referred patients that never paid</td><td>✓</td><td class="num">534</td><td>collected</td></tr>
+      <tr><td>30</td><td>Anything unusual in the data this week</td><td>✓</td><td class="num">105</td><td>→ <code>AnomalyEvent</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Four were executed end-to-end against DeepSeek and the live database. Questions 1 and 28 carry
+  the two named risks, both handled by design: ambiguity is defaulted-and-disclosed, over-anchoring
+  is prevented by the soft header.</p>
+</section>
+
+<footer>
+  Companion: <code>AI_ANALYTICS_ARCHITECTURE_V2.md</code> · supersedes
+  <code>AI_ANALYTICS_LAYER_PLAN.md</code> · all figures measured against production and the live
+  DeepSeek endpoint on 2026-09-10 · <strong>no implementation code written, awaiting approval.</strong>
+</footer>
+</div></body></html>

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin Config nav — options</title>
+<style>
+  :root{
+    --background:0 0% 100%;
+    --foreground:222 47% 11%;
+    --muted:210 40% 96.1%;
+    --muted-foreground:215 16% 47%;
+    --border:214 32% 91%;
+    --primary:222 47% 11%;
+    --accent:210 40% 96.1%;
+    --radius:0.5rem;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:40px 32px 80px;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:hsl(var(--foreground));background:#f8fafc;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1.page{font-size:20px;margin:0 0 4px}
+  p.sub{color:hsl(var(--muted-foreground));font-size:13px;margin:0 0 32px}
+  .opt{max-width:1040px;margin:0 auto 34px;background:#fff;border:1px solid hsl(var(--border));border-radius:12px;padding:20px 22px 24px}
+  .opt-head{display:flex;align-items:baseline;gap:10px;margin-bottom:16px}
+  .opt-head .tag{font-size:11px;font-weight:700;letter-spacing:.04em;background:hsl(var(--foreground));color:#fff;border-radius:6px;padding:2px 7px}
+  .opt-head h2{font-size:15px;margin:0}
+  .opt-head .why{color:hsl(var(--muted-foreground));font-size:12.5px;margin-left:auto;text-align:right;max-width:46%}
+  .stage{background:#fbfcfe;border:1px dashed hsl(var(--border));border-radius:10px;padding:16px}
+
+  /* shadcn TabsList look */
+  .tabslist{display:inline-flex;align-items:center;background:hsl(var(--muted));border-radius:var(--radius);padding:4px;gap:2px}
+  .trigger{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border:none;background:transparent;
+    font:inherit;font-size:13px;font-weight:500;color:hsl(var(--muted-foreground));
+    padding:6px 12px;border-radius:calc(var(--radius) - 2px);cursor:pointer;line-height:1}
+  .trigger svg{width:14px;height:14px}
+  .trigger:hover{color:hsl(var(--foreground))}
+  .trigger.active{background:#fff;color:hsl(var(--foreground));box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.02)}
+
+  /* A: current (broken) reference */
+  .wrap{flex-wrap:wrap;height:auto;justify-content:center}
+
+  /* A2: single-row scroll */
+  .scroll-shell{position:relative}
+  .scroll-shell .tabslist{display:flex;overflow-x:auto;max-width:100%;scrollbar-width:thin}
+  .scroll-shell .tabslist::-webkit-scrollbar{height:6px}
+  .scroll-shell .tabslist::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:3px}
+  .scroll-shell::after{content:"";position:absolute;top:4px;bottom:4px;right:0;width:36px;pointer-events:none;
+    background:linear-gradient(90deg,rgba(251,252,254,0),#eef2f7);border-radius:0 var(--radius) var(--radius) 0}
+
+  /* B: compact */
+  .compact .trigger{font-size:12.5px;padding:5px 9px;gap:5px}
+  .compact .trigger svg{width:13px;height:13px}
+
+  /* C: overflow more menu */
+  .more-btn{position:relative}
+  .menu{position:absolute;top:calc(100% + 6px);right:0;background:#fff;border:1px solid hsl(var(--border));
+    border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.10);padding:5px;min-width:210px;z-index:5;display:none}
+  .menu.open{display:block}
+  .menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:transparent;
+    font:inherit;font-size:13px;color:hsl(var(--foreground));padding:7px 9px;border-radius:6px;cursor:pointer}
+  .menu button:hover{background:hsl(var(--muted))}
+  .menu button.active{background:hsl(var(--muted));font-weight:600}
+  .menu button svg{width:14px;height:14px;color:hsl(var(--muted-foreground))}
+
+  /* D: sidebar */
+  .side-layout{display:grid;grid-template-columns:212px 1fr;gap:18px;align-items:start}
+  .side-nav{display:flex;flex-direction:column;gap:1px}
+  .side-group{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:hsl(var(--muted-foreground));
+    padding:10px 10px 5px}
+  .side-item{display:flex;align-items:center;gap:10px;border:none;background:transparent;font:inherit;font-size:13px;
+    color:hsl(var(--muted-foreground));padding:8px 10px;border-radius:7px;cursor:pointer;text-align:left;width:100%}
+  .side-item svg{width:15px;height:15px}
+  .side-item:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+  .side-item.active{background:hsl(var(--muted));color:hsl(var(--foreground));font-weight:600}
+  .side-panel{border:1px solid hsl(var(--border));border-radius:9px;padding:22px;color:hsl(var(--muted-foreground));
+    font-size:13px;min-height:150px;background:#fff}
+  .side-panel b{color:hsl(var(--foreground))}
+
+  /* E: dropdown switcher */
+  .switcher{display:inline-flex;align-items:center;gap:9px;border:1px solid hsl(var(--border));background:#fff;
+    border-radius:8px;padding:8px 12px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;min-width:280px;
+    color:hsl(var(--foreground));position:relative}
+  .switcher svg.lead{width:15px;height:15px;color:hsl(var(--muted-foreground))}
+  .switcher .chev{margin-left:auto;width:15px;height:15px;color:hsl(var(--muted-foreground))}
+  .switcher .crumb{font-size:11px;font-weight:600;color:hsl(var(--muted-foreground));letter-spacing:.02em}
+  .sw-menu{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid hsl(var(--border));
+    border-radius:9px;box-shadow:0 10px 28px rgba(0,0,0,.12);padding:6px;min-width:280px;z-index:5;display:none}
+  .sw-menu.open{display:block}
+  .sw-menu .g{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:hsl(var(--muted-foreground));padding:9px 9px 4px}
+  .sw-menu button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:transparent;
+    font:inherit;font-size:13px;color:hsl(var(--foreground));padding:7px 9px;border-radius:6px;cursor:pointer}
+  .sw-menu button svg{width:14px;height:14px;color:hsl(var(--muted-foreground))}
+  .sw-menu button:hover{background:hsl(var(--muted))}
+  .sw-menu button.active{background:hsl(var(--muted));font-weight:600}
+
+  /* F: intentional two rows, grouped */
+  .grouped{display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:center}
+  .groupblock{display:flex;align-items:center;gap:8px}
+  .grouplabel{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+  .grouped .tabslist{gap:2px}
+  .divider{width:1px;align-self:stretch;background:hsl(var(--border));margin:2px 0}
+
+  .note{font-size:12px;color:hsl(var(--muted-foreground));margin-top:12px}
+  .note b{color:hsl(var(--foreground))}
+  .badcap{font-size:11px;color:#b91c1c;font-weight:600}
+</style>
+</head>
+<body>
+  <h1 class="page">Admin Config Center — nav options</h1>
+  <p class="sub">Same 9 tabs (Report Builder → Roles). Click within any option to feel it. Tell me the letter you want and I'll wire it into <code>AdminConfigCenter.tsx</code>.</p>
+
+  <!-- CURRENT -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag" style="background:#b91c1c">NOW</span><h2>Current — <span class="badcap">wraps to 2 lines</span></h2>
+      <span class="why">The <code>flex-wrap</code> on TabsList makes 9 items spill and center-orphan the last two.</span></div>
+    <div class="stage" style="text-align:center"><div class="tabslist wrap" data-nav="now"></div></div>
+  </section>
+
+  <!-- A -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">A</span><h2>Single row, horizontal scroll</h2>
+      <span class="why">Smallest possible change. One line always; overflow scrolls with an edge fade.</span></div>
+    <div class="stage"><div class="scroll-shell"><div class="tabslist" data-nav="scroll"></div></div></div>
+    <p class="note"><b>Ship cost:</b> ~2 lines — drop <code>flex-wrap h-auto</code>, add <code>overflow-x-auto</code> on TabsList.</p>
+  </section>
+
+  <!-- B -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">B</span><h2>Compact single row</h2>
+      <span class="why">Tighter padding + smaller icons so all 9 fit one line at normal widths. No behaviour change.</span></div>
+    <div class="stage" style="text-align:center"><div class="tabslist compact" data-nav="compact"></div></div>
+    <p class="note"><b>Ship cost:</b> ~1 line — shrink trigger padding/gap; still wraps on very narrow screens.</p>
+  </section>
+
+  <!-- C -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">C</span><h2>Primary tabs + “More” overflow</h2>
+      <span class="why">Show the 6 everyday tabs; tuck the rarely-touched ones (Display, Roles, Referrals) into a menu.</span></div>
+    <div class="stage" style="text-align:center"><div id="opt-c"></div></div>
+    <p class="note"><b>Ship cost:</b> ~30 lines — a DropdownMenu (already in the UI kit) beside a trimmed TabsList.</p>
+  </section>
+
+  <!-- D -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">D</span><h2>Left sidebar rail (grouped)</h2>
+      <span class="why">Best fit for a settings hub — scales to 20 tabs, groups read as sections, content gets full width.</span></div>
+    <div class="stage">
+      <div class="side-layout">
+        <div class="side-nav" id="opt-d"></div>
+        <div class="side-panel" id="opt-d-panel"></div>
+      </div>
+    </div>
+    <p class="note"><b>Ship cost:</b> ~40 lines — swap Tabs for a vertical nav; content panels unchanged.</p>
+  </section>
+
+  <!-- E -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">E</span><h2>Single section switcher (dropdown)</h2>
+      <span class="why">Most compact of all. One control shows the current section; the menu is grouped.</span></div>
+    <div class="stage"><div id="opt-e"></div></div>
+    <p class="note"><b>Ship cost:</b> ~25 lines — a Select/DropdownMenu driving the same tab state.</p>
+  </section>
+
+  <!-- F -->
+  <section class="opt">
+    <div class="opt-head"><span class="tag">F</span><h2>Two rows, but intentional (grouped)</h2>
+      <span class="why">Keep two rows, make them deliberate: labelled clusters instead of an orphaned wrap.</span></div>
+    <div class="stage"><div class="grouped" id="opt-f"></div></div>
+    <p class="note"><b>Ship cost:</b> ~20 lines — group the tab array and render a labelled TabsList per group.</p>
+  </section>
+
+<script>
+const I = {
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  flask:'<path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/>',
+  grid:'<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+  package:'<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/>',
+  building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+  userCheck:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  tv:'<rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>',
+  shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  chevron:'<path d="m6 9 6 6 6-6"/>',
+  more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+};
+const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+
+const TABS = [
+  {v:'report-builder',l:'Report Builder',i:'fileText',g:'Catalog'},
+  {v:'clinical-defs', l:'Clinical Definitions',i:'flask',g:'Catalog'},
+  {v:'panels',        l:'Panel Definitions',i:'grid',g:'Catalog'},
+  {v:'products',      l:'Billable Products',i:'package',g:'Catalog'},
+  {v:'departments',   l:'Departments',i:'building',g:'Catalog'},
+  {v:'signing',       l:'Signers & Rules',i:'userCheck',g:'People & Access'},
+  {v:'referrals',     l:'Referrals',i:'users',g:'People & Access'},
+  {v:'roles',         l:'Roles',i:'shield',g:'People & Access'},
+  {v:'signage',       l:'Waiting Room Display',i:'tv',g:'Display'},
+];
+
+// generic pill nav renderer (NOW, A, B)
+function renderPills(el, active){
+  el.innerHTML = TABS.map(t =>
+    `<button class="trigger${t.v===active?' active':''}" data-v="${t.v}">${svg(t.i)}${t.l}</button>`).join('');
+  el.onclick = e => { const b=e.target.closest('.trigger'); if(!b)return;
+    el.querySelectorAll('.trigger').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
+}
+document.querySelectorAll('[data-nav]').forEach(el => renderPills(el, 'report-builder'));
+
+// C: primary + more
+(function(){
+  const PRIMARY = ['report-builder','clinical-defs','panels','products','departments','signing'];
+  const el = document.getElementById('opt-c');
+  const prim = TABS.filter(t=>PRIMARY.includes(t.v));
+  const rest = TABS.filter(t=>!PRIMARY.includes(t.v));
+  el.innerHTML =
+    `<div class="tabslist" style="display:inline-flex">${
+      prim.map(t=>`<button class="trigger${t.v==='report-builder'?' active':''}" data-v="${t.v}">${svg(t.i)}${t.l}</button>`).join('')
+    }<div class="more-btn"><button class="trigger" id="moreBtn">${svg('more')}More ${svg('chevron')}</button>
+      <div class="menu" id="moreMenu">${rest.map(t=>`<button data-v="${t.v}">${svg(t.i)}${t.l}</button>`).join('')}</div>
+    </div></div>`;
+  const menu=el.querySelector('#moreMenu'), btn=el.querySelector('#moreBtn');
+  btn.onclick=e=>{e.stopPropagation();menu.classList.toggle('open');};
+  document.addEventListener('click',()=>menu.classList.remove('open'));
+  el.onclick=e=>{const b=e.target.closest('button[data-v]');if(!b)return;
+    el.querySelectorAll('.trigger').forEach(x=>x.classList.remove('active'));
+    el.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active'));
+    if(b.classList.contains('trigger')){b.classList.add('active');btn.classList.remove('active');}
+    else{b.classList.add('active');btn.classList.add('active');btn.childNodes;}
+    menu.classList.remove('open');};
+})();
+
+// D: sidebar
+(function(){
+  const nav=document.getElementById('opt-d'), panel=document.getElementById('opt-d-panel');
+  const groups=[...new Set(TABS.map(t=>t.g))];
+  nav.innerHTML=groups.map(g=>
+    `<div class="side-group">${g}</div>`+
+    TABS.filter(t=>t.g===g).map(t=>
+      `<button class="side-item${t.v==='report-builder'?' active':''}" data-v="${t.v}" data-l="${t.l}">${svg(t.i)}${t.l}</button>`).join('')
+  ).join('');
+  const setPanel=l=>panel.innerHTML=`<b>${l}</b><br><br>Content for this section renders here, using the full page width.`;
+  setPanel('Report Builder');
+  nav.onclick=e=>{const b=e.target.closest('.side-item');if(!b)return;
+    nav.querySelectorAll('.side-item').forEach(x=>x.classList.remove('active'));b.classList.add('active');setPanel(b.dataset.l);};
+})();
+
+// E: switcher
+(function(){
+  const el=document.getElementById('opt-e');
+  const groups=[...new Set(TABS.map(t=>t.g))];
+  let cur=TABS[0];
+  const render=()=>{el.innerHTML=
+    `<div class="switcher" id="swBtn"><span class="crumb">Section /</span>${svg(cur.i)}<span>${cur.l}</span>${svg('chevron').replace('<svg','<svg class="chev"')}
+      <div class="sw-menu" id="swMenu">${groups.map(g=>`<div class="g">${g}</div>`+
+        TABS.filter(t=>t.g===g).map(t=>`<button data-v="${t.v}" class="${t.v===cur.v?'active':''}">${svg(t.i)}${t.l}</button>`).join('')).join('')}
+      </div></div>`;
+    const btn=el.querySelector('#swBtn'), menu=el.querySelector('#swMenu');
+    btn.onclick=e=>{e.stopPropagation();menu.classList.toggle('open');};
+    menu.onclick=e=>{const b=e.target.closest('button[data-v]');if(!b)return;e.stopPropagation();cur=TABS.find(t=>t.v===b.dataset.v);render();};
+  };
+  render();
+  document.addEventListener('click',()=>{const m=el.querySelector('#swMenu');if(m)m.classList.remove('open');});
+})();
+
+// F: grouped two-row
+(function(){
+  const el=document.getElementById('opt-f');
+  const groups=[...new Set(TABS.map(t=>t.g))];
+  el.innerHTML=groups.map((g,idx)=>
+    `<div class="groupblock"><span class="grouplabel">${g}</span>
+      <div class="tabslist">${TABS.filter(t=>t.g===g).map(t=>
+        `<button class="trigger${t.v==='report-builder'?' active':''}" data-v="${t.v}">${svg(t.i)}${t.l}</button>`).join('')}
+      </div></div>${idx<groups.length-1?'<span class="divider"></span>':''}`).join('');
+  el.onclick=e=>{const b=e.target.closest('.trigger');if(!b)return;
+    el.querySelectorAll('.trigger').forEach(x=>x.classList.remove('active'));b.classList.add('active');};
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Referral Rate Cards — branch + per-doctor (prototype)</title>
+<style>
+  :root{
+    --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --border2:#eef2f6;
+    --text:#0f172a; --muted:#64748b; --muted2:#94a3b8;
+    --accent:#2563eb; --accent-bg:#eff6ff;
+    --branch:#0369a1; --branch-bg:#e0f2fe;
+    --doctor:#a16207; --doctor-bg:#fef9c3;
+    --global:#64748b; --global-bg:#f1f5f9;
+    --prod:#7c3aed; --prod-bg:#f5f3ff;
+    --green:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;padding:24px 20px 80px;}
+  header.top{display:flex;align-items:baseline;gap:12px;margin-bottom:4px;}
+  header.top h1{font-size:20px;margin:0;font-weight:650;letter-spacing:-.01em;}
+  header.top .sub{color:var(--muted);font-size:13px;}
+  .tabs{display:flex;gap:2px;margin:18px 0 0;border-bottom:1px solid var(--border);}
+  .tab{padding:9px 14px;font-size:13.5px;color:var(--muted);cursor:pointer;
+    border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent);}
+  .panel{display:none;padding-top:20px;}
+  .panel.active{display:block;}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.03);}
+  .card + .card{margin-top:16px;}
+  .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 16px;border-bottom:1px solid var(--border2);}
+  .card-head h2{font-size:14.5px;margin:0;font-weight:600;}
+  .card-head p{margin:2px 0 0;color:var(--muted);font-size:12.5px;font-weight:400;}
+
+  /* segmented branch switch */
+  .seg{display:inline-flex;background:#f1f5f9;border:1px solid var(--border);border-radius:8px;padding:3px;gap:2px;}
+  .seg button{border:0;background:transparent;padding:6px 12px;border-radius:6px;font-size:13px;
+    color:var(--muted);cursor:pointer;font-weight:500;}
+  .seg button.on{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(15,23,42,.08);}
+
+  table{width:100%;border-collapse:collapse;}
+  th,td{text-align:left;padding:10px 16px;font-size:13.5px;border-top:1px solid var(--border2);}
+  thead th{border-top:0;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;}
+  tbody tr:hover{background:#fbfcfe;}
+  td.rate{font-variant-numeric:tabular-nums;font-weight:600;}
+  td.num{text-align:right;}
+  th.num{text-align:right;}
+
+  .ratecell{display:inline-flex;align-items:center;gap:8px;}
+  .rateval{cursor:text;border-bottom:1px dashed transparent;padding:1px 2px;border-radius:4px;}
+  .rateval:hover{border-bottom-color:var(--muted2);background:#f8fafc;}
+  input.edit{width:78px;font:inherit;font-weight:600;padding:3px 6px;border:1px solid var(--accent);
+    border-radius:6px;outline:none;text-align:right;}
+  select.tsel{font:inherit;font-size:12.5px;color:var(--muted);border:1px solid var(--border);
+    border-radius:6px;padding:3px 6px;background:#fff;cursor:pointer;}
+
+  .badge{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;letter-spacing:.02em;
+    text-transform:uppercase;line-height:1.4;}
+  .b-global{color:var(--global);background:var(--global-bg);}
+  .b-branch{color:var(--branch);background:var(--branch-bg);}
+  .b-doctor{color:var(--doctor);background:var(--doctor-bg);}
+  .b-prod{color:var(--prod);background:var(--prod-bg);}
+  .reset{font-size:11.5px;color:var(--accent);cursor:pointer;margin-left:2px;visibility:hidden;}
+  tr:hover .reset.show{visibility:visible;}
+
+  .addrow td{padding:0;}
+  .addbtn{display:block;width:100%;text-align:left;padding:11px 16px;border:0;background:transparent;
+    color:var(--accent);font:inherit;font-weight:500;cursor:pointer;font-size:13px;}
+  .addbtn:hover{background:#f8fafc;}
+
+  .chips{display:flex;gap:6px;align-items:center;}
+  .chip{font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--branch-bg);color:var(--branch);font-weight:600;}
+  .doc-select{font:inherit;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;font-weight:600;}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:14px 2px 0;color:var(--muted);font-size:12px;}
+  .legend .badge{margin-right:5px;}
+  .note{margin:6px 2px 0;color:var(--muted2);font-size:12px;}
+  .callout{background:#fffbeb;border:1px solid #fde68a;color:#854d0e;border-radius:8px;
+    padding:10px 14px;font-size:12.5px;margin-top:16px;}
+  .resolved{color:var(--muted2);font-size:11px;font-style:italic;}
+
+  /* product override sub-table */
+  .subhead{padding:12px 16px 6px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Referral rate cards</h1>
+    <span class="sub">Owner · Payouts &amp; Referrals — prototype</span>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="branch">Branch rate card</div>
+    <div class="tab" data-tab="doctor">Per-doctor overrides</div>
+    <div class="tab" data-tab="tagging">Panel / product tagging</div>
+  </div>
+
+  <!-- ─────────────── BRANCH RATE CARD ─────────────── -->
+  <section class="panel active" id="panel-branch">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Investigations &amp; referral rates</h2>
+          <p id="branch-sub">All branches — the global default every branch inherits until it sets its own.</p>
+        </div>
+        <div class="seg" id="branch-seg">
+          <button class="on" data-branch="global">All branches</button>
+          <button data-branch="balanagar">Balanagar</button>
+          <button data-branch="chintak">Chintak</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th style="width:44%">Investigation</th><th>Type</th><th class="num">Rate</th><th style="width:22%">Source</th></tr>
+        </thead>
+        <tbody id="branch-body"></tbody>
+        <tfoot>
+          <tr class="addrow"><td colspan="4"><button class="addbtn">+ Add investigation</button></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="legend">
+      <span><span class="badge b-global">Global</span>inherited from All branches</span>
+      <span><span class="badge b-branch">Branch</span>overridden for this branch</span>
+    </div>
+    <div class="note">The investigation list here is the single source of truth — it also feeds every doctor's card and the category dropdown on panels/products. Add a row once, it's everywhere.</div>
+  </section>
+
+  <!-- ─────────────── PER-DOCTOR ─────────────── -->
+  <section class="panel" id="panel-doctor">
+    <div class="card">
+      <div class="card-head">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <select class="doc-select" id="doc-select">
+            <option value="ramesh">Dr. Ramesh Kumar · RD-00007</option>
+            <option value="anita">Dr. Anita Rao · RD-00012</option>
+          </select>
+          <div class="chips" id="doc-branches"></div>
+        </div>
+        <div class="seg" id="doc-seg"></div>
+      </div>
+      <table>
+        <thead>
+          <tr><th style="width:42%">Investigation</th><th>Type</th><th class="num">Rate</th><th style="width:26%">Source</th></tr>
+        </thead>
+        <tbody id="doctor-body"></tbody>
+      </table>
+
+      <div class="subhead">Product-specific overrides — this doctor, this branch</div>
+      <table>
+        <tbody id="prod-body"></tbody>
+        <tfoot>
+          <tr class="addrow"><td colspan="4"><button class="addbtn">+ Add product override</button></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="legend">
+      <span><span class="badge b-doctor">Doctor</span>this doctor's rate</span>
+      <span><span class="badge b-branch">Branch</span>inherited from branch card</span>
+      <span><span class="badge b-global">Global</span>inherited from All branches</span>
+      <span><span class="badge b-prod">Product</span>specific test, beats the category</span>
+    </div>
+    <div class="callout">
+      Resolution at billing (frozen onto the order): <b>doctor·product → doctor·category → branch·category → global·category → 0</b>, branch-specific wins over global at every layer. Editing a rate never touches already-billed orders.
+    </div>
+  </section>
+
+  <!-- ─────────────── TAGGING ─────────────── -->
+  <section class="panel" id="panel-tagging">
+    <div class="card">
+      <div class="card-head"><div><h2>Panel / product → investigation</h2>
+        <p>Each test is explicitly tagged to an investigation. The dropdown lists exactly the investigations from the rate card — no guessing.</p></div></div>
+      <table>
+        <thead><tr><th style="width:52%">Panel / product</th><th>Referral investigation</th></tr></thead>
+        <tbody id="tag-body"></tbody>
+      </table>
+    </div>
+    <div class="note">A regex only seeds legacy untagged orders into the coarse buckets on day one; the explicit tag here always wins. Renaming an investigation is disabled in v1 — add a new one and deactivate the old.</div>
+  </section>
+</div>
+
+<script>
+// ── canonical investigation list = the global rate card (from your Balanagar sheet) ──
+const investigations = [
+  {key:'xray',       name:'All Individual X-Ray',   type:'FIXED', global:100},
+  {key:'usg',        name:'Ultrasound Scan',        type:'FIXED', global:400},
+  {key:'ecg',        name:'ECG',                    type:'FIXED', global:50},
+  {key:'tiffa',      name:'Ultrasound Tiffa Scan',  type:'FIXED', global:500},
+  {key:'lab',        name:'All Lab',                type:'PCT',   global:50},
+  {key:'ct',         name:'CT Scan',                type:'FIXED', global:1000},
+  {key:'echo',       name:'2D Echo',                type:'FIXED', global:400},
+  {key:'eeg',        name:'EEG',                    type:'FIXED', global:500},
+  {key:'tmt',        name:'TMT',                    type:'FIXED', global:500},
+  {key:'dental',     name:'X-Ray Dental OPG only',  type:'FIXED', global:100},
+];
+
+// branch overrides: Balanagar = pure global; Chintak tweaks a couple (illustrative)
+const branchOverride = {
+  balanagar:{},
+  chintak:{ usg:350, ct:900 },
+};
+
+// doctors: which branches they referred to (from ReferralDoctor_Visit) + per-branch overrides
+const doctors = {
+  ramesh:{ branches:['balanagar','chintak'],
+    over:{ balanagar:{ usg:250, ecg:30, xray:50 }, chintak:{} },
+    products:{ balanagar:[{name:'MRI Brain w/ Contrast', type:'FIXED', val:1200}], chintak:[] } },
+  anita:{ branches:['balanagar'],
+    over:{ balanagar:{ lab:60, tiffa:600 } },
+    products:{ balanagar:[] } },
+};
+
+const BR = {global:'All branches', balanagar:'Balanagar', chintak:'Chintak'};
+const fmt = (type,v)=> v==null ? '—' : (type==='PCT' ? v+'%' : '₹'+v.toLocaleString('en-IN'));
+
+// ── state ──
+let curBranch='global';
+let curDoc='ramesh', curDocBranch='balanagar';
+
+// ── BRANCH TABLE ──
+function branchEffective(inv, branch){
+  if(branch==='global') return {val:inv.global, src:'global'};
+  const o = branchOverride[branch]?.[inv.key];
+  return o!=null ? {val:o, src:'branch'} : {val:inv.global, src:'global'};
+}
+function renderBranch(){
+  document.getElementById('branch-sub').textContent = curBranch==='global'
+    ? 'All branches — the global default every branch inherits until it sets its own.'
+    : BR[curBranch]+' — showing this branch’s effective rate. Editing a row sets a branch override; inherited rows fall back to global.';
+  const body=document.getElementById('branch-body'); body.innerHTML='';
+  investigations.forEach(inv=>{
+    const {val,src}=branchEffective(inv,curBranch);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${inv.name}</td>
+      <td><select class="tsel" disabled><option>${inv.type==='PCT'?'Percentage':'Fixed ₹'}</option></select></td>
+      <td class="num rate"><span class="ratecell">
+        <span class="rateval" data-k="${inv.key}">${fmt(inv.type,val)}</span>
+        ${curBranch!=='global' && src==='branch' ? `<span class="reset show" data-reset="${inv.key}">reset</span>`:''}
+      </span></td>
+      <td><span class="badge b-${src}">${src==='global'?'Global':'Branch'}</span></td>`;
+    body.appendChild(tr);
+  });
+  // inline edit
+  body.querySelectorAll('.rateval').forEach(el=>el.onclick=()=>editBranch(el));
+  body.querySelectorAll('[data-reset]').forEach(el=>el.onclick=()=>{ delete branchOverride[curBranch][el.dataset.reset]; renderBranch(); });
+}
+function editBranch(el){
+  if(curBranch==='global'){ // editing global default
+    const inv=investigations.find(i=>i.key===el.dataset.k);
+    swap(el, inv.global, v=>{ inv.global=v; renderBranch(); });
+  } else {
+    const inv=investigations.find(i=>i.key===el.dataset.k);
+    const {val}=branchEffective(inv,curBranch);
+    swap(el, val, v=>{ branchOverride[curBranch][inv.key]=v; renderBranch(); });
+  }
+}
+
+// ── DOCTOR TABLE ──
+function docEffective(inv){
+  const d=doctors[curDoc];
+  const dv=d.over[curDocBranch]?.[inv.key];
+  if(dv!=null) return {val:dv, src:'doctor'};
+  const b=branchEffective(inv, curDocBranch);
+  return {val:b.val, src:b.src};
+}
+function renderDoc(){
+  // branch chips
+  const d=doctors[curDoc];
+  document.getElementById('doc-branches').innerHTML =
+    d.branches.map(b=>`<span class="chip">${BR[b]}</span>`).join('') +
+    (d.branches.length>1?`<span class="resolved">referred to both → editable in each</span>`:'');
+  // branch sub-tabs (only branches the doctor referred to)
+  if(!d.branches.includes(curDocBranch)) curDocBranch=d.branches[0];
+  const seg=document.getElementById('doc-seg');
+  seg.innerHTML=d.branches.map(b=>`<button class="${b===curDocBranch?'on':''}" data-b="${b}">${BR[b]}</button>`).join('');
+  seg.querySelectorAll('button').forEach(btn=>btn.onclick=()=>{curDocBranch=btn.dataset.b;renderDoc();});
+
+  const body=document.getElementById('doctor-body'); body.innerHTML='';
+  investigations.forEach(inv=>{
+    const {val,src}=docEffective(inv);
+    const label={doctor:'Doctor',branch:'Branch',global:'Global'}[src];
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${inv.name}</td>
+      <td><select class="tsel" disabled><option>${inv.type==='PCT'?'Percentage':'Fixed ₹'}</option></select></td>
+      <td class="num rate"><span class="ratecell">
+        <span class="rateval" data-k="${inv.key}">${fmt(inv.type,val)}</span>
+        ${src==='doctor'?`<span class="reset show" data-reset="${inv.key}">reset</span>`:''}
+      </span></td>
+      <td><span class="badge b-${src}">${label}</span> ${src!=='doctor'?'<span class="resolved">inherited</span>':''}</td>`;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('.rateval').forEach(el=>el.onclick=()=>{
+    const inv=investigations.find(i=>i.key===el.dataset.k);
+    swap(el, docEffective(inv).val, v=>{ doctors[curDoc].over[curDocBranch] ||= {}; doctors[curDoc].over[curDocBranch][inv.key]=v; renderDoc(); });
+  });
+  body.querySelectorAll('[data-reset]').forEach(el=>el.onclick=()=>{ delete doctors[curDoc].over[curDocBranch][el.dataset.reset]; renderDoc(); });
+
+  // product overrides
+  const pb=document.getElementById('prod-body'); pb.innerHTML='';
+  const prods=d.products[curDocBranch]||[];
+  if(!prods.length){ pb.innerHTML=`<tr><td colspan="4" class="resolved" style="padding:12px 16px">No product-specific overrides for ${BR[curDocBranch]} — everything resolves by category above.</td></tr>`; }
+  prods.forEach(p=>{
+    pb.innerHTML+=`<tr><td style="width:42%">${p.name}</td><td>Fixed ₹</td>
+      <td class="num rate">${fmt(p.type,p.val)}</td>
+      <td><span class="badge b-prod">Product</span> <span class="resolved">beats CT Scan category</span></td></tr>`;
+  });
+}
+
+// ── TAGGING ──
+const tags=[
+  ['USG Abdomen','usg'],['USG Tiffa / Anomaly','tiffa'],['Chest X-Ray PA','xray'],
+  ['OPG (Dental)','dental'],['CBC','lab'],['CT Brain Plain','ct'],
+  ['2D Echo Colour Doppler','echo'],['EEG 30-min','eeg'],['TMT (Stress Test)','tmt'],['ECG 12-lead','ecg'],
+];
+function renderTag(){
+  const b=document.getElementById('tag-body'); b.innerHTML='';
+  tags.forEach(([name,key])=>{
+    const opts=investigations.map(i=>`<option ${i.key===key?'selected':''}>${i.name}</option>`).join('');
+    b.innerHTML+=`<tr><td>${name}</td><td><select class="tsel" style="min-width:200px">${opts}</select></td></tr>`;
+  });
+}
+
+// ── inline edit helper ──
+function swap(el, cur, done){
+  const inv=investigations.find(i=>i.name===el.closest('tr').firstElementChild.textContent);
+  const isPct=inv?.type==='PCT';
+  const inp=document.createElement('input'); inp.className='edit'; inp.type='number';
+  inp.value=cur; el.replaceWith(inp); inp.focus(); inp.select();
+  const commit=()=>{ const v=Math.max(0,Number(inp.value)); done(isPct?Math.min(100,v):v); };
+  inp.onkeydown=e=>{ if(e.key==='Enter')commit(); if(e.key==='Escape')renderAll(); };
+  inp.onblur=commit;
+}
+function renderAll(){ renderBranch(); renderDoc(); renderTag(); }
+
+// ── wiring ──
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+});
+document.querySelectorAll('#branch-seg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#branch-seg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); curBranch=b.dataset.branch; renderBranch();
+});
+document.getElementById('doc-select').onchange=e=>{ curDoc=e.target.value; curDocBranch=doctors[curDoc].branches[0]; renderDoc(); };
+document.querySelectorAll('.addbtn').forEach(b=>b.onclick=()=>alert('Prototype: opens an "Add investigation" / "Add product override" row.'));
+
+renderAll();
+</script>
+</body>
+</html>

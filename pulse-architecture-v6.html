@@ -1,0 +1,115 @@
+<!doctype html><meta charset="utf-8"><title>Pulse — where this landed</title>
+<style>
+:root{--ink:#16181d;--mut:#6b7280;--line:#e5e7eb;--bg:#fbfbfc;--ok:#0b7a4b;--no:#b42318;--warn:#8a6100}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:48px 24px 90px}
+.w{max-width:860px;margin:0 auto}h1{font-size:27px;margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--mut);margin:0 0 34px;font-size:14px}
+h2{font-size:17px;margin:40px 0 12px;letter-spacing:-.01em}
+h3{font-size:14px;margin:24px 0 7px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+p{margin:0 0 13px}code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;padding:1px 5px;border-radius:4px}
+pre{background:#fff;border:1px solid var(--line);border-radius:9px;padding:13px 15px;overflow:auto;
+font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0 0 15px}
+.card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:17px 19px;margin:0 0 15px}
+.q{border-left:3px solid #d1d5db;padding:2px 0 2px 14px;margin:0 0 14px;color:#374151}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:0 0 15px;background:#fff;
+border:1px solid var(--line);border-radius:9px;overflow:hidden}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:600}
+tr:last-child td{border-bottom:0}td.n{text-align:right;font-variant-numeric:tabular-nums}
+.ok{color:var(--ok);font-weight:600}.no{color:var(--no);font-weight:600}.warn{color:var(--warn);font-weight:600}
+.lede{font-size:16px;color:#374151}
+ul{margin:0 0 14px;padding-left:19px}li{margin:0 0 7px}
+.foot{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+</style>
+<div class="w">
+
+<h1>Pulse — where this landed</h1>
+<p class="sub">41 commits · 18 fixes · 16 test additions · final build <code>f6411e7</code></p>
+
+<p class="lede">One collision explains most of what was wrong, and one number is still missing.</p>
+
+<h2>The collision</h2>
+<div class="card">
+<div class="q">do u think the 50 lakhs on ct scan machine will be worth it</div>
+<p><strong>CT is a live test code. It means CLOTTING TIME</strong> — a blood test — and the resolver
+matched it exactly, at confidence 1.00. A question about a fifty lakh scanner was being priced
+against a coagulation assay. Every CT figure came back 0, and "I could not establish it" was the
+system reporting its own name collision as a fact about your business.</p>
+<p>The family mechanism built for exactly this failed three times over: <code>scanner</code> scored
+0.43 against the concept <code>scan</code> because a length ratio treats an English suffix as
+evidence against a match; the family link is a <em>chain</em> (test → payout category → service
+kind) and only one level was held, so no test could ever match IMAGING; and the bare resolver
+appeared in <strong>three</strong> places while only one knew about families.</p>
+<pre>CT bare           CLOTTING TIME, CT-BRAIN PLAIN
+CT in scanner Q   CT-BRAIN PLAIN, CT TEMPORAL BONES, CT LUMBAR SPINE
+CT in lab Q       CLOTTING TIME          <- still right</pre>
+<p>The payback question answers now — <strong>76 months</strong> — and the same way every time.</p>
+</div>
+
+<h2>The same lesson, in different clothes</h2>
+<ul>
+<li><strong>A period is a property of the query that ran</strong>, not the plan before it. Falling back to the plan labelled a correct all-time ₹1,03,400 as "for the period 1–13 September 2026".</li>
+<li><strong>You name a value; the column is our inference</strong> — and ours was wrong. Enforcing it refused every correct route: 19 of 24 steps failed.</li>
+<li><strong>Arithmetic had nowhere to happen.</strong> The writer is rightly forbidden to compute, and <code>derive</code> only divides two named metrics.</li>
+<li><strong>Cash belongs to payments, not orders.</strong> Commission on orders billed in a window ÷ cash collected in it is two different populations.</li>
+<li><strong>A constraint too weak to filter on is too weak to label with.</strong> "CT run-rate of ₹18,93,725" was centre-wide revenue — a capital decision 29× too optimistic.</li>
+<li><strong>A rule enforced on one path is one the next caller walks around.</strong></li>
+<li><strong>"Nobody lapsed" and "I have no earlier period" are not the same claim.</strong> Your order history starts 1 July 2026, so a 180-day look-back lands entirely before any data exists — and a loss that cannot exist was asserted as real.</li>
+</ul>
+
+<h2>What the cards were doing</h2>
+<div class="card">
+<p>Four bugs were visible only by rendering the artifacts <em>at the width they ship</em> and looking:</p>
+<table>
+<tr><th>Bug</th><th>Effect</th></tr>
+<tr><td>Waterfall total on the wrong basis</td><td><span class="no">₹8,74,58,500</span> for a true ₹8,74,585 — 100× on the line stating where change ends up</td></tr>
+<tr><td>Period object assumed <code>{from,to}</code></td><td><span class="no">undefined to undefined</span> under every KPI and compare card</td></tr>
+<tr><td>Rows capped, columns not</td><td>7 columns in a 420px panel — 177px of horizontal scroll</td></tr>
+<tr><td>Reviewed wider than it ships</td><td>the panel is 420px by default; the gallery was 460</td></tr>
+</table>
+<p>Columns now fit the measured width — 3 on a phone, 4 at the default panel, 7 expanded — and
+state what they hold back, the same rule already applied to rows.</p>
+</div>
+
+<h2>What is verified, and what is not</h2>
+<table>
+<tr><th>Layer</th><th>How</th><th class="n">Result</th></tr>
+<tr><td>Pure layers, prompts, policy, formatting</td><td><code>pulse-view</code></td><td class="n ok">98 / 98</td></tr>
+<tr><td>Scoped metrics, ratios, compute, contracts, verifySpec</td><td><code>pulse-deterministic</code></td><td class="n ok">50 / 50</td></tr>
+<tr><td>All 29 adversarial questions resolved</td><td><code>pulse-frontend</code></td><td class="n ok">7 / 7</td></tr>
+<tr><td>Steps the model already chose, re-run</td><td><code>pulse-steps</code></td><td class="n ok">0 regressions</td></tr>
+<tr><td>Real generated SQL, replayed</td><td><code>pulse-sql</code></td><td class="n ok">0 failures</td></tr>
+<tr><td>Artifacts at 312 / 420 / 600px</td><td>real browser</td><td class="n ok">no overflow</td></tr>
+<tr><td><strong>The model's judgement</strong></td><td><code>pulse:bench</code></td><td class="n warn">not run</td></tr>
+</table>
+<p>Everything on <em>both sides</em> of the model is measured — what it is told, what its steps mean,
+what its SQL does against the database, what reaches the screen, and the grader that scores it.
+The adversarial suite last passed <strong>29/29</strong> at <code>2b1e54f</code>, 35 commits ago.</p>
+
+<h2>The ratio worth keeping</h2>
+<div class="card">
+<p><strong>Eleven product bugs</strong> found after the model account ran dry, against
+<strong>roughly twenty defects in my own instruments and fixtures</strong> — a grader matching scan
+counts against rupees, a harness scoring billing failures as an 8/29 quality score, a replay
+pairing steps by an index that did not align, a mock mixing paise with rupees, a redaction turning
+the branches CNT and BLN into people.</p>
+<p>Four of those I caught before filing a fix for something that worked. The honest summary of the
+week is that <strong>the architecture was in better shape than the things measuring it</strong>, and
+the measuring is what got rebuilt.</p>
+</div>
+
+<h2>Two things left, both yours</h2>
+<pre># ~$7 of DeepSeek credit — measured from the traces, not guessed:
+#   adversarial ~$1.10 · regression ~$0.50 · calc ~$0.20
+
+cd health-hub-backend && npm run pulse:bench     # judgement vs the 29/29 baseline
+npm run pulse:check                              # free, all green, costs nothing</pre>
+<p>Then ask Pulse a couple of questions: traces now carry evidence values, so
+<code>npm run pulse:replay</code> will give a real quality reading on your own questions instead of
+an empty one.</p>
+
+<p class="foot">Every number here is measured on the code as committed. The one gap is named rather
+than papered over: the benchmark has not run on this build, and until it does the claim that this
+beats 29/29 is not one I can make.</p>
+</div>

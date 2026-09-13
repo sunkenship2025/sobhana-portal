@@ -1,0 +1,1278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Analytics Layer — Architecture</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161920; --panel2:#1d212b; --line:#282d39;
+    --ink:#e6e9ef; --dim:#9aa3b2; --faint:#6b7382;
+    --accent:#5eead4; --accent2:#818cf8; --warn:#fbbf24; --bad:#f87171; --good:#4ade80;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--sans);
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px 120px}
+
+  header.hero{padding:64px 0 40px;border-bottom:1px solid var(--line);margin-bottom:44px}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+           color:var(--accent);margin-bottom:18px}
+  h1{font-size:clamp(30px,4.6vw,46px);line-height:1.08;margin:0 0 16px;letter-spacing:-.022em;font-weight:650}
+  .sub{color:var(--dim);font-size:17px;max-width:64ch;margin:0}
+  .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+  .pill{font:600 11px/1 var(--mono);letter-spacing:.05em;padding:6px 11px;border-radius:99px;
+        border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+  .pill.hot{border-color:#3d3320;background:#241d0f;color:var(--warn)}
+
+  nav.toc{position:sticky;top:0;z-index:20;background:rgba(15,17,21,.9);
+      backdrop-filter:blur(12px);border-bottom:1px solid var(--line);margin:0 -28px 44px;padding:11px 28px;
+      display:flex;gap:6px;flex-wrap:wrap}
+  nav.toc a{font:500 12px/1 var(--sans);color:var(--faint);text-decoration:none;padding:6px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel2)}
+
+  section{margin:0 0 68px;scroll-margin-top:64px}
+  h2{font-size:13px;font-family:var(--mono);font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+     color:var(--accent);margin:0 0 8px}
+  h2 + .lede{font-size:23px;line-height:1.35;margin:0 0 26px;letter-spacing:-.012em;max-width:60ch;font-weight:600}
+  h3{font-size:15px;margin:34px 0 12px;letter-spacing:-.006em;font-weight:650}
+  p{max-width:76ch;color:var(--dim)}
+  p strong,li strong{color:var(--ink);font-weight:620}
+  code{font:13px/1.5 var(--mono);background:var(--panel2);border:1px solid var(--line);
+       padding:1px 5px;border-radius:4px;color:var(--accent)}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+      overflow-x:auto;font:12.5px/1.62 var(--mono);color:#c9d1de;margin:14px 0}
+  pre code{background:none;border:0;padding:0;color:inherit}
+
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h4{margin:0 0 8px;font-size:14px;font-weight:650;letter-spacing:-.004em}
+  .card p{margin:0;font-size:13.5px;line-height:1.6}
+  .card.accent{border-color:#1f4d47;background:linear-gradient(180deg,#132825,var(--panel))}
+  .card.danger{border-color:#4a2626;background:linear-gradient(180deg,#241414,var(--panel))}
+
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .stat .n{font:650 26px/1.1 var(--sans);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .l{font:500 11.5px/1.4 var(--mono);color:var(--faint);margin-top:6px;letter-spacing:.03em}
+  .stat.hot .n{color:var(--warn)}
+  .stat.ok .n{color:var(--accent)}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  td{color:var(--dim)}
+  td:first-child{color:var(--ink);font-weight:560}
+  tbody tr:hover{background:var(--panel)}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .tbl-wrap table{margin:0}
+  .tbl-wrap td,.tbl-wrap th{padding:10px 14px}
+  .tbl-wrap tbody tr:last-child td{border-bottom:0}
+
+  ul,ol{color:var(--dim);max-width:76ch;padding-left:20px}
+  li{margin:5px 0}
+  .no{list-style:none;padding-left:0}
+  .no li{padding-left:24px;position:relative}
+  .no li:before{content:"✕";position:absolute;left:0;color:var(--bad);font-weight:700;font-size:12px;top:3px}
+  .yes li:before{content:"✓";color:var(--good)}
+
+  .callout{border-left:3px solid var(--accent);background:var(--panel);border-radius:0 10px 10px 0;
+           padding:16px 20px;margin:20px 0}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout.bad{border-left-color:var(--bad)}
+  .callout p{margin:0;color:var(--ink);font-size:14px}
+  .callout .k{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+              color:var(--accent);display:block;margin-bottom:7px}
+  .callout.warn .k{color:var(--warn)} .callout.bad .k{color:var(--bad)}
+
+  svg{max-width:100%;height:auto;display:block}
+  .fig{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;margin:20px 0;overflow-x:auto}
+  .fig figcaption{font-size:12.5px;color:var(--faint);margin-top:14px;font-family:var(--mono)}
+
+  .phase{display:grid;grid-template-columns:104px 1fr;gap:20px;padding:20px 0;border-bottom:1px solid var(--line)}
+  .phase:last-child{border-bottom:0}
+  .phase .tag{font:650 12px/1 var(--mono);color:var(--accent);letter-spacing:.06em;padding-top:3px}
+  .phase .tag small{display:block;color:var(--faint);font-weight:500;margin-top:7px;letter-spacing:0}
+  .phase h4{margin:0 0 7px;font-size:15.5px;font-weight:650}
+  .phase p{margin:0 0 8px;font-size:13.5px}
+  .gate{font:12px/1.5 var(--mono);color:var(--warn);background:#1e1a10;border:1px solid #3a3018;
+        border-radius:7px;padding:8px 11px;margin-top:10px;display:inline-block}
+
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:6px 16px;font-size:13.5px;margin:12px 0}
+  .kv dt{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .kv dd{margin:0;color:var(--dim)}
+
+  footer{border-top:1px solid var(--line);padding-top:26px;color:var(--faint);font-size:13px}
+  @media (max-width:640px){.phase{grid-template-columns:1fr;gap:8px}.kv{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Sobhana / HealthFlow · Technical Architecture</div>
+  <h1>AI Analytics Layer</h1>
+  <p class="sub">A general-purpose natural-language analytics surface over the entire application
+  database — built so that every number comes from Postgres, every definition comes from one
+  registry, and the model never writes a character of SQL.</p>
+  <div class="meta">
+    <span class="pill">2026-09-10</span>
+    <span class="pill hot">DESIGN — awaiting approval</span>
+    <span class="pill">Neon Postgres · 311 MB</span>
+    <span class="pill">DeepSeek V4 Flash</span>
+    <span class="pill">Express + Prisma + React</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#decision">The decision</a>
+  <a href="#have">What we have</a>
+  <a href="#data">Data map</a>
+  <a href="#clinical">Clinical values</a>
+  <a href="#traps">Traps</a>
+  <a href="#flow">Request flow</a>
+  <a href="#plan">The plan DSL</a>
+  <a href="#security">SQL safety</a>
+  <a href="#truth">Truth model</a>
+  <a href="#metrics">Metrics layer</a>
+  <a href="#viz">Visualization</a>
+  <a href="#budget">Row budget</a>
+  <a href="#convo">Conversation</a>
+  <a href="#eval">Evaluation</a>
+  <a href="#roadmap">Roadmap</a>
+  <a href="#not">Not building</a>
+</nav>
+
+<!-- ─────────────────────────── DECISION ─────────────────────────── -->
+<section id="decision">
+  <h2>The one decision</h2>
+  <p class="lede">Don't build text-to-SQL. Build text-to-<em>query-plan</em>.</p>
+
+  <p>The LLM translates a question into a small typed JSON object naming a metric, dimensions,
+  filters and a time range. The <strong>application</strong> compiles that object into SQL from
+  developer-authored fragments. The model contributes zero characters of SQL.</p>
+
+  <div class="grid g3" style="margin-top:24px">
+    <div class="card accent">
+      <h4>A semantic layer already exists</h4>
+      <p>~4,300 lines across five <code>owner*Service.ts</code> files already encode what
+      "net revenue", "collection rate" and "TAT" mean here. Free-form SQL invents a
+      <em>second, contradicting</em> definition. Two revenue numbers on two screens is worse
+      than no analytics.</p>
+    </div>
+    <div class="card accent">
+      <h4>The money math is not guessable</h4>
+      <p>Net revenue is <code>total − discount − coupon − reversedCharge</code>. "Paid" nets
+      <code>REFUND</code> rows out of <code>PAYMENT</code> rows. Referral commission is
+      pct-of-gross minus the <em>full</em> order discount. A model shown the schema gets these
+      wrong — and wrong <em>plausibly</em>.</p>
+    </div>
+    <div class="card accent">
+      <h4>Injection becomes absent, not blocked</h4>
+      <p>There is no parser to outsmart because there is no attacker-influenced SQL text.
+      Tenant scope is injected by the compiler from <code>req.branchId</code>; the plan can only
+      filter <em>within</em> granted scope, never widen it.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="k">Escape hatch</span>
+    <p>A guarded raw-SQL path is still worth building — as <strong>Phase 6</strong>, owner-only,
+    behind a read-only role and an AST allowlist, and only if the <code>unanswerable</code> log
+    proves the DSL is the bottleneck. Not on day one.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── WHAT WE HAVE ─────────────────────────── -->
+<section id="have">
+  <h2>What already exists</h2>
+  <p class="lede">Most of this feature is assembly, not invention.</p>
+
+  <div class="grid g4">
+    <div class="stat ok"><div class="n">51</div><div class="l">backend services</div></div>
+    <div class="stat ok"><div class="n">43</div><div class="l">route modules</div></div>
+    <div class="stat ok"><div class="n">4,314</div><div class="l">lines of metric logic</div></div>
+    <div class="stat ok"><div class="n">43,737</div><div class="l">scored anomaly events</div></div>
+  </div>
+
+  <div class="tbl-wrap" style="margin-top:18px">
+  <table>
+    <thead><tr><th>Asset</th><th>Where</th><th>How the analytics layer uses it</th></tr></thead>
+    <tbody>
+      <tr><td>LLM client</td><td><code>smartReport/llm.ts</code></td>
+        <td>Reuse as-is after adding one optional <code>system</code> param. DeepSeek/OpenCode, JSON mode, loose-parse repair, <code>LlmUnavailable</code> + graceful fallback all already solved.</td></tr>
+      <tr><td>Output validation</td><td><code>smartReport/validate.ts</code></td>
+        <td>Copy the <em>pattern</em>: validate model output, drop offending sentences, ship a correct answer with degraded prose rather than failing.</td></tr>
+      <tr><td>LLM audit shape</td><td><code>SmartReport</code> model</td>
+        <td>Template for <code>AnalyticsQueryLog</code> — deterministic input separate from model output, input hash for cache reuse, model/prompt version/tokens/ms.</td></tr>
+      <tr><td>Auth &amp; tenancy</td><td><code>middleware/{auth,branch,rbac}.ts</code></td>
+        <td>Unchanged. <code>req.branchId</code> becomes the compiler's tenant predicate; <code>requireRole</code> gates the route, per-metric roles gate the metric.</td></tr>
+      <tr><td>Metric definitions</td><td>5 × <code>owner*Service.ts</code></td>
+        <td><strong>Reconciliation anchors.</strong> Each registry metric names the production number it must equal, asserted at zero tolerance in CI.</td></tr>
+      <tr><td>UI primitives</td><td><code>owner/_shared/ownerUi.tsx</code></td>
+        <td><code>KpiCard</code>, <code>DeltaPercent</code>, <code>SectionCard</code>, IST formatters — so the new surface looks like it was always there.</td></tr>
+      <tr><td>Charting</td><td><code>recharts</code></td>
+        <td>Already a dependency, currently unused outside shadcn's wrapper. Finally earns its place.</td></tr>
+      <tr><td>Anomalies</td><td><code>AnomalyEvent</code></td>
+        <td>"Show me anything unusual" <em>reads</em> 43,737 pre-projected, severity-scored rows. No second anomaly engine.</td></tr>
+      <tr><td>Redis</td><td><code>lib/redis.ts</code></td>
+        <td>Answer cache keyed on plan hash; conversation session with 30-min TTL. No new store.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout warn">
+    <span class="k">Structural catch</span>
+    <p>Every existing owner metric computes in <strong>TypeScript</strong> — <code>findMany</code>
+    a row set, then <code>.reduce()</code>. They cannot be lifted as SQL fragments. Definitions must be
+    re-expressed <em>once</em> in the registry, and reconciled numerically against the live pages.
+    That reconciliation is a hard Phase-0 gate, not a nicety.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── DATA ─────────────────────────── -->
+<section id="data">
+  <h2>Database reality</h2>
+  <p class="lede">Measured, not assumed — and two of the numbers change the whole design.</p>
+
+  <div class="grid g4">
+    <div class="stat"><div class="n">5,065</div><div class="l">visits</div></div>
+    <div class="stat"><div class="n">29,784</div><div class="l">test orders</div></div>
+    <div class="stat"><div class="n">30,581</div><div class="l">test results</div></div>
+    <div class="stat"><div class="n">4,804</div><div class="l">patients</div></div>
+    <div class="stat"><div class="n">5,063</div><div class="l">bills</div></div>
+    <div class="stat"><div class="n">4,266</div><div class="l">report versions</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">branches</div></div>
+    <div class="stat hot"><div class="n">311 MB</div><div class="l">total database</div></div>
+  </div>
+
+  <div class="grid g2" style="margin-top:20px">
+    <div class="card danger">
+      <h4>Ten weeks of history</h4>
+      <p>Earliest visit is <strong>2026-07-01</strong>. Jul 2,040 · Aug 2,256 · Sep 769 visits.
+      "This quarter vs last quarter", "year-over-year" and "6-month HbA1c trend" have
+      <strong>no data behind them</strong>. The system must say so — explicitly, every time.
+      This is the single highest-value correctness behaviour in the feature and it is a
+      four-line check against <code>MIN(Visit.createdAt)</code>.</p>
+    </div>
+    <div class="card danger">
+      <h4>Everything is a fast full scan</h4>
+      <p>A full-table <code>GROUP BY</code> over <code>Bill ⋈ Branch</code> with IST bucketing
+      returns in <strong>1.5–3.2 s including Neon cold-start</strong>, sub-second warm.
+      So: <strong>build no performance infrastructure.</strong> No materialized views, no cube,
+      no warehouse. Revisit around 500k test orders — roughly 2028 at current volume.</p>
+    </div>
+  </div>
+
+  <h3>What the database can and cannot answer</h3>
+  <div class="grid g2">
+    <div class="card">
+      <h4 style="color:var(--good)">Answerable today</h4>
+      <p>Revenue (gross/net/collected/outstanding/aging/discounts/refunds/commission) ·
+      visit &amp; patient volume · test and panel volume by snapshot code ·
+      department and payout-category mix · turnaround time p50/p95 against the existing
+      1440-min SLA · queue depth · cancellation and completion rates · WhatsApp delivery rate ·
+      abnormal-result rate · referral-doctor and clinic-doctor attribution · outsourcing to
+      external labs · staff collection split · audit anomalies.</p>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--bad)">Not in the schema — must refuse</h4>
+      <p><strong>Diagnoses.</strong> There is no diagnosis or ICD table. "Most common diagnoses"
+      is unanswerable; the nearest true answer is <em>most frequent abnormal test results</em>.<br>
+      <strong>Appointments.</strong> No appointment entity — "cancelled appointments" can only
+      mean <code>Visit.status = CANCELLED</code>, a cancelled <em>visit</em>, which is worth
+      saying out loud.<br>
+      <strong>Also absent:</strong> room/equipment utilisation, staff rosters, cost of goods.</p>
+    </div>
+  </div>
+
+  <h3>Columns that must never reach the model</h3>
+  <p>Enforced twice — the registry cannot name them, and <code>analytics_ro</code> holds no
+  <code>SELECT</code> grant on them.</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Never</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>ReportAccessToken</code> · <code>BillAccessToken</code> · <code>StatementAccessToken</code></td>
+          <td>Bearer tokens to patient documents. Leaking one is a PHI breach, not a schema leak.</td></tr>
+      <tr><td><code>User.passwordHash</code></td><td>Credential.</td></tr>
+      <tr><td><code>PatientIdentifier.value</code></td><td>Phone / email / <strong>Aadhar</strong>.</td></tr>
+      <tr><td><code>Patient.name</code> · <code>.address</code> · <code>.dateOfBirth</code></td><td>Direct identifiers.</td></tr>
+      <tr><td><code>TestResult.notes</code> · narrative <code>.textValue</code> · any of these <em>at row level</em></td><td>PHI — but <code>value</code> and short categorical <code>textValue</code> are <strong>open</strong> as measures/dimensions. See <a href="#clinical" style="color:var(--accent)">Clinical values</a>.</td></tr>
+      <tr><td><code>ReportVersion.*Snapshot</code> (7 JSON blobs)</td><td>Whole frozen reports.</td></tr>
+      <tr><td><code>AuditLog.old/newValues</code> · <code>PatientChangeLog.old/newValue</code></td><td>Before/after PHI.</td></tr>
+      <tr><td><code>MessageLog.phone</code> · conversation bodies</td><td>Patient content.</td></tr>
+      <tr><td><code>SmartReport.findings</code> · <code>.content</code></td><td>Generated clinical prose.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout">
+    <span class="k">Deliberate consequence</span>
+    <p>The analytics layer is <strong>aggregate-only</strong>. No plan can return a patient-level row.
+    Questions that need one ("which patients haven't paid", "which patients have high HbA1c") route to
+    the existing Money page or worklist, which already have RBAC, audit and a UI built for it.
+    Aggregate-only is <em>not</em> the same as "no clinical result analytics" — see below.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── CLINICAL VALUES ─────────────────────────── -->
+<section id="clinical">
+  <h2>Clinical result values</h2>
+  <p class="lede">The first draft banned <code>TestResult.value</code> outright. That was too blunt —
+  and the DSL had no grammar for the good questions anyway.</p>
+
+  <p>The original filter grammar supported only <code>in</code>/<code>not_in</code> on categoricals, so
+  <em>"how many HbA1c results were above 6.5"</em> was <strong>inexpressible</strong>, never mind
+  forbidden. Probing the real data settles what opens and what stays shut.</p>
+
+  <div class="grid g2">
+    <div class="card accent">
+      <h4 style="color:var(--good)">✓ <code>value</code> — OPEN as a measure</h4>
+      <p>21,120 of 30,581 results carry a number, across <strong>85 test codes</strong>. Grouped by code
+      it's genuinely useful — HB mean 11.67, FBS1 130.1, NEUT 59.95.<br><br>
+      <strong>Ungrouped it is garbage:</strong> mean <strong>480.94</strong> over a range of
+      <strong>−2 to 81,000</strong>, because it averages haemoglobin with platelet counts with glucose.</p>
+    </div>
+    <div class="card danger">
+      <h4>✕ <code>textValue</code> — CLOSED as a free dimension</h4>
+      <p>27,721 rows, 2,233 distinct values — but <strong>337 rows exceed 200 characters and 232 exceed
+      1,000, peaking at 6,968 characters of HTML radiology narrative</strong>
+      (<code>&lt;p&gt;&lt;u&gt;FINDINGS:&lt;/u&gt;&lt;/p&gt;…</code>).<br><br>
+      Exposing it as a <code>GROUP BY</code> label ships an entire imaging report body to DeepSeek
+      inside a dimension label. A real exfiltration path, not a theoretical one.</p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="k">Validator rule V-1 — correctness, not privacy</span>
+    <p>A <code>result_*</code> metric is <strong>invalid without exactly one resolved analyte scope</strong>.
+    Reject with "which test did you mean?" rather than returning a number.</p>
+  </div>
+
+  <h3>The values are dirty, and the mean lies</h3>
+  <p>The sharpest new risk this probe surfaced:</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Code</th><th>Ref range</th><th>n</th><th>Mean</th><th>Median</th><th>What happened</th></tr></thead>
+    <tbody>
+      <tr><td><code>PLT</code></td><td>1.5–4.5</td><td>1,164</td>
+          <td style="color:var(--bad);font-weight:650">92.89</td>
+          <td style="color:var(--good);font-weight:650">2.88</td>
+          <td>raw counts entered instead of lakhs/µL</td></tr>
+      <tr><td><code>BASO</code></td><td>0–2</td><td>1,172</td><td>1.9</td><td>0</td>
+          <td>1,142 rows are ≤ 0, including a −2</td></tr>
+      <tr><td><code>CRP</code></td><td>0–6</td><td>324</td><td>15.35</td><td>9.3</td>
+          <td>8 rows above 10× reference max</td></tr>
+      <tr><td><code>DBIL</code></td><td>0–0.2</td><td>210</td><td>0.27</td><td>0.12</td>
+          <td>5 rows above 10× reference max</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>An AI answering <em>"average platelet count is 92.89"</em> is confidently, embarrassingly wrong —
+  precisely the credibility failure this whole design exists to prevent.</p>
+
+  <div class="callout warn">
+    <span class="k">Validator rule V-2</span>
+    <p><code>result_*</code> metrics <strong>default to median</strong>. Mean is available only when
+    explicitly asked, and every value answer carries <code>n</code>, the count outside 10× reference
+    range, and the count of non-positive values in its caveats.</p>
+  </div>
+
+  <h3>The categorical subset that IS safe</h3>
+  <p>Codes whose <code>textValue</code> is ≤25 distinct values and ≤40 characters — the whole
+  <code>CUE_*</code> urine panel (<code>CUE_COL</code>, <code>CUE_APP</code>, <code>CUE_RXN</code>,
+  <code>CUE_PUS</code>, <code>CUE_RBC</code>, <code>CUE_EPI</code>, <code>CUE_CST</code>,
+  <code>CUE_CRY</code>, <code>CUE_BP</code>, <code>CUE_BS</code>, <code>CUE_SG</code>) plus
+  <code>PLTM</code>, <code>RBCM</code>, <code>WBCM</code>. These answer real questions: "how many urine
+  samples were turbid", "platelet morphology distribution".</p>
+  <p>Shipped as dimension <code>result_category</code> — an explicit human-reviewed test-code allowlist,
+  with a runtime <code>length(textValue) &lt; 40</code> guard as a belt. <code>.notes</code>
+  (2,859 rows of free text) stays closed entirely.</p>
+
+  <h3>Trap 15 — duplicate analyte codes silently halve the answer</h3>
+  <p>Ten analytes have two live codes for the same name:
+  <code>CRT</code>|<code>CREAT</code> (serum creatinine), <code>TCH</code>|<code>TOCHO</code>
+  (total cholesterol), <code>STGL</code>|<code>TRIG</code>, <code>FBS1</code>|<code>GTTF</code>,
+  <code>ELE</code>|<code>ELYTE</code>, <code>BS1HR</code>|<code>GTT1</code>.
+  <strong>"Show me the creatinine trend" against one code returns half the data with no error.</strong>
+  <code>resolve.ts</code> must canonicalize <em>name → set of codes</em>, not name → one code.</p>
+  <p>Also confirmed: <strong>HbA1c is stored as <code>GHB</code></strong>
+  ("GLYCOSYLATED HAEMOGLOBIN(HBA1C)"). Your own example question is unanswerable without fuzzy name
+  resolution — which promotes <code>resolve.ts</code> from a Phase-2 nicety to core.</p>
+
+  <h3>What this opens, and what stays refused</h3>
+  <div class="grid g2">
+    <div class="card">
+      <h4 style="color:var(--good)">New metrics</h4>
+      <p><code>result_median</code> · <code>result_p90</code> · <code>result_mean</code> ·
+      <code>result_min_max</code> · <code>result_count_matching</code> (threshold count) ·
+      <code>result_histogram</code> (bucketed distribution) · <code>result_category</code> as a
+      distribution dimension. New filter ops <code>gt</code>/<code>gte</code>/<code>lt</code>/<code>lte</code>/<code>between</code>,
+      valid only on the value measure.</p>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--bad)">Still refused</h4>
+      <p>Any patient-level result row · <code>.notes</code> · narrative <code>textValue</code> ·
+      cohort listing ("which patients had abnormal HbA1c") — that last routes to the existing worklist,
+      which already has the RBAC and audit for it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── TRAPS ─────────────────────────── -->
+<section id="traps">
+  <h2>Fifteen traps</h2>
+  <p class="lede">Every one produces a plausible number rather than an error. This is the whole
+  argument for a registry.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:34px">#</th><th>Trap</th><th>Encoded rule</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Money is <code>Int</code> paise</td><td>Never divide in SQL. Format at the presentation edge.</td></tr>
+      <tr><td>2</td><td>Timestamps are tz-less UTC</td><td>Always <code>AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'</code> before bucketing. "Today" in UTC is wrong by 5.5 h for a 07:00 IST opening.</td></tr>
+      <tr><td>3</td><td>Soft deletes</td><td><code>ReferralDoctor_Visit</code>, <code>DoctorPayoutLedger</code>, <code>ExternalReportUpload</code> — every aggregate filters <code>deletedAt IS NULL</code>.</td></tr>
+      <tr><td>4</td><td><code>updatedAt</code> advances on reprint</td><td>Known live bug on the Finalized worklist. The registry <strong>physically cannot</strong> expose <code>updatedAt</code> as a grain source.</td></tr>
+      <tr><td>5</td><td>Cancelled orders</td><td><code>TestOrder.cancelledAt IS NOT NULL</code> drops out of volume and revenue. Already caused one shipped finalize bug.</td></tr>
+      <tr><td>6</td><td><strong>38% of results have <code>flag = NULL</code></strong></td><td>11,579 of 30,581. Abnormal rate as <code>abnormal / total</code> is wrong by 38%. Denominator must be <code>flag IS NOT NULL</code>, and the answer states the coverage.</td></tr>
+      <tr><td>7</td><td>A visit has many report versions</td><td>"Reports finalized" counts the <em>latest</em> finalized version per report, or a re-issue counts twice.</td></tr>
+      <tr><td>8</td><td>Dual FK migration</td><td><code>testId</code> (legacy) and <code>testDefinitionId</code> both exist, either can be null. Use <code>testCodeSnapshot</code> — immune to both the migration and catalog edits.</td></tr>
+      <tr><td>9</td><td>Product ≠ panel</td><td>Billed CBP collapses by <code>productId</code>, not panel. Pending and Finalized worklists had already diverged on exactly this.</td></tr>
+      <tr><td>10</td><td>Discount and coupon are separate columns</td><td>Net subtracts <code>discountAmountInPaise</code> <em>and</em> <code>couponDiscountInPaise</code>.</td></tr>
+      <tr><td>11</td><td><code>reversedCharge</code> ≠ <code>refundedAmount</code></td><td>Charge voided off the bill vs money handed back. Conflating them double-counts.</td></tr>
+      <tr><td>12</td><td><code>workflowMode = EVENT</code></td><td>₹0 non-reportable product. Must not enter revenue, TAT or report-completion metrics.</td></tr>
+      <tr><td>13</td><td>Patients have no home branch</td><td>Only visits carry <code>branchId</code>. "Patients by branch" = patients who <em>visited</em>; a two-branch patient is in both, and the answer says so.</td></tr>
+      <tr><td>14</td><td>Ten weeks of history</td><td>An empty <code>SUM</code> is <code>0</code>, not <code>NULL</code> — indistinguishable from a real zero unless the layer checks coverage.</td></tr>
+      <tr><td>15</td><td>Duplicate analyte codes</td><td><code>CRT</code>|<code>CREAT</code>, <code>TCH</code>|<code>TOCHO</code>, <code>STGL</code>|<code>TRIG</code> and 7 more. One code returns <strong>half the data with no error</strong>. Resolve name → <em>set</em> of codes.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout bad">
+    <span class="k">Rule of thumb</span>
+    <p>If getting it wrong produces a <em>plausible number</em> rather than an error, it must be a
+    defined metric. That covers 100% of the money and 100% of the ratios.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── FLOW ─────────────────────────── -->
+<section id="flow">
+  <h2>End-to-end request flow</h2>
+  <p class="lede">Seven stages. The model has authority in exactly two of them, and writes prose
+  in only one.</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 960 560" role="img" aria-label="Seven-stage analytics request pipeline">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,1 L7,4.5 L0,8 z" fill="#4a5262"/>
+      </marker>
+      <style>
+        .bx{fill:#1d212b;stroke:#2f3644;stroke-width:1;rx:9}
+        .bx-llm{fill:#1b1a2e;stroke:#4c4a7a}
+        .bx-det{fill:#132825;stroke:#2c5c54}
+        .bx-db{fill:#251a12;stroke:#5c4326}
+        .t{fill:#e6e9ef;font:600 13px var(--sans)}
+        .s{fill:#9aa3b2;font:11.5px ui-monospace,Menlo,monospace}
+        .n{fill:#5eead4;font:700 11px ui-monospace,Menlo,monospace}
+        .ln{stroke:#4a5262;stroke-width:1.4;fill:none;marker-end:url(#ar)}
+        .side{fill:#6b7382;font:11px ui-monospace,Menlo,monospace}
+      </style>
+    </defs>
+
+    <!-- 1 route -->
+    <rect class="bx bx-det" x="250" y="14" width="440" height="52"/>
+    <text class="n" x="266" y="34">1</text><text class="t" x="286" y="34">ROUTE</text>
+    <text class="s" x="286" y="52">cache hit? smalltalk? rate limit?  · no LLM</text>
+    <path class="ln" d="M470,66 L470,92"/>
+
+    <!-- 2 plan -->
+    <rect class="bx bx-llm" x="250" y="94" width="440" height="66"/>
+    <text class="n" x="266" y="114">2</text><text class="t" x="286" y="114">PLAN — DeepSeek V4 Flash</text>
+    <text class="s" x="286" y="132">NL + catalog → QueryPlan JSON</text>
+    <text class="s" x="286" y="149">or { unanswerable, reason, suggestion }</text>
+    <text class="side" x="706" y="120">← static catalog</text>
+    <text class="side" x="706" y="136">   ~1.5k tokens</text>
+    <text class="side" x="706" y="152">   (not the schema)</text>
+    <text class="side" x="60" y="128">last 3 PLANS →</text>
+    <text class="side" x="60" y="144">(not answers)</text>
+    <path class="ln" d="M470,160 L470,186"/>
+
+    <!-- 3 validate -->
+    <rect class="bx bx-det" x="250" y="188" width="440" height="66"/>
+    <text class="n" x="266" y="208">3</text><text class="t" x="286" y="208">VALIDATE — deterministic</text>
+    <text class="s" x="286" y="226">metric &amp; dims exist? RBAC? branch scope?</text>
+    <text class="s" x="286" y="243">limits? data coverage?</text>
+    <path class="ln" d="M690,221 L760,221 L760,127 L694,127" />
+    <text class="side" x="706" y="212">reject → repair msg</text>
+    <text class="side" x="706" y="228">→ retry ×1 (hard cap)</text>
+    <path class="ln" d="M470,254 L470,280"/>
+
+    <!-- 4 compile -->
+    <rect class="bx bx-det" x="250" y="282" width="440" height="66"/>
+    <text class="n" x="266" y="302">4</text><text class="t" x="286" y="302">COMPILE — the security boundary</text>
+    <text class="s" x="286" y="320">plan → ONE parameterised SQL statement</text>
+    <text class="s" x="286" y="337">from registry constants + bound params</text>
+    <text class="side" x="706" y="316">LLM contributes</text>
+    <text class="side" x="706" y="332">0 chars of SQL</text>
+    <path class="ln" d="M470,348 L470,374"/>
+
+    <!-- 5 execute -->
+    <rect class="bx bx-db" x="250" y="376" width="440" height="60"/>
+    <text class="n" x="266" y="396">5</text><text class="t" x="286" y="396">EXECUTE — analytics_ro</text>
+    <text class="s" x="286" y="414">read-only role · statement_timeout 8s · LIMIT 500</text>
+    <path class="ln" d="M470,436 L470,462"/>
+
+    <!-- 6 facts -->
+    <rect class="bx bx-det" x="250" y="464" width="440" height="46"/>
+    <text class="n" x="266" y="484">6</text><text class="t" x="286" y="484">FACTS + VIZ — deterministic TypeScript</text>
+    <text class="s" x="286" y="501">deltas · shares · ranks · chart type · caveats</text>
+    <path class="ln" d="M470,510 L470,530"/>
+
+    <!-- 7 narrate -->
+    <rect class="bx bx-llm" x="250" y="532" width="440" height="26"/>
+    <text class="n" x="266" y="549">7</text><text class="t" x="286" y="549">NARRATE — prose only, numbers substituted</text>
+  </svg>
+  <figcaption>green = deterministic · purple = model · amber = database. Stages 1, 3, 4, 6 have no model in them.</figcaption>
+  </figure>
+
+  <div class="grid g2">
+    <div class="card">
+      <h4>Why validate before execute</h4>
+      <p>It turns "the model was wrong" into a <strong>typed, machine-readable error</strong> before
+      a query runs — <code>unknown metric 'footfall'; valid: visits, test_orders, …</code>. Most
+      self-healing happens here, not against database errors.</p>
+    </div>
+    <div class="card">
+      <h4>Why facts and charts are deterministic</h4>
+      <p>Every derived number (delta %, share of total, rank) and the chart type are computed in
+      TypeScript, so they are unit-testable and cannot drift. No model ever picks a pie chart for a
+      twelve-month trend.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── PLAN DSL ─────────────────────────── -->
+<section id="plan">
+  <h2>The QueryPlan DSL</h2>
+  <p class="lede">A closed vocabulary the validator can check exhaustively.</p>
+
+<pre><code>type QueryPlan = {
+  v: 1;
+  metric: MetricId;                     // 'net_revenue' | 'visits' | 'abnormal_rate' | …
+  dimensions: DimensionId[];            // 0–2.  [] = a single number
+  grain: 'day' | 'week' | 'month' | null;
+  timeRange:
+    | { preset: TimePreset }            // 'today' | 'this_month' | 'last_month' | 'last_7d' | …
+    | { from: string; to: string };     // ISO IST dates, inclusive
+  filters: Array&lt;
+    | { dim: DimensionId; op: 'in'|'not_in'; values: string[] }       // categorical
+    | { measure: 'result_value';                                     // numeric — see
+        op: 'gt'|'gte'|'lt'|'lte'|'between';                         // Clinical values
+        value: number; value2?: number }
+  &gt;;
+  analyte?: AnalyteId;              // REQUIRED for every result_* metric (rule V-1)
+  compareTo: 'previous_period' | 'none';
+  sort: { by: 'value' | 'label'; dir: 'asc' | 'desc' };
+  limit: number;                        // 1–100, default 20
+};
+
+// The model returns { plan }  OR  { unanswerable: { reason, suggestion } }.
+// Nothing else is accepted.</code></pre>
+
+  <div class="callout">
+    <span class="k">Key property</span>
+    <p><strong>The model never does date arithmetic.</strong> It picks a preset from an enum; the
+    application resolves it in IST against <code>now()</code>. LLM date math — especially across a
+    +5:30 offset — is a top hallucination source, and this deletes the entire class.</p>
+  </div>
+
+  <h3>What context the model gets</h3>
+  <p>Not the schema. A hand-authored <strong>catalog</strong> of the metrics and dimensions it may
+  name — about 1,200–1,800 tokens, static, so it is prompt-cacheable and costs essentially nothing
+  per request.</p>
+
+<pre><code>METRICS
+  net_revenue      Billed amount after manual discount, campaign coupon and voided
+                   charges. NOT cash collected — for that use `collected`.
+                   unit: rupees · time: bill date · dims: branch, domain,
+                   payout_category, product, referral_doctor, payment_status
+  collected        Cash actually received, refunds netted out.
+  abnormal_rate    Share of results flagged HIGH/LOW/CRITICAL among results that
+                   WERE flagged. 38% of results carry no flag and are excluded.
+  tat_minutes_p50  Median minutes from registration to report finalize.
+  …
+DIMENSIONS
+  branch           Chintal (CNT), Balanagar (BLN), Jagadgirigutta (JGG), IDPL
+  department       HAEMATOLOGY, BIOCHEMISTRY, …  (7)
+  test             billed test code, e.g. HBA1C, CBP, TSH   [lookup: 443 codes]
+DATA COVERAGE
+  Earliest record 2026-07-01. Windows before this are empty.
+TODAY  2026-09-10 (IST)</code></pre>
+
+  <p>This is the answer to <em>"don't send the whole schema every time"</em> — and a better answer
+  than retrieval, because at ~20 metrics and ~16 dimensions the entire vocabulary fits in the prompt.
+  <strong>Vector retrieval is not needed and should not be built.</strong></p>
+
+  <p>The one thing genuinely retrieved: <strong>name → code</strong>. 443 test definitions, 337
+  products and 215 doctors don't belong in a prompt. The model emits
+  <code>{dim:'test', values:['HbA1c']}</code>; the app resolves it to <code>HBA1C</code> with an
+  <code>ILIKE</code> lookup, or returns "did you mean…" with the top 5. Deterministic, cheap, and it
+  makes the model's job easier rather than harder.</p>
+</section>
+
+<!-- ─────────────────────────── SECURITY ─────────────────────────── -->
+<section id="security">
+  <h2>SQL safety</h2>
+  <p class="lede">The primary control isn't a validator. It's that there is nothing to validate.</p>
+
+  <p>The compiler assembles SQL from three sources only:</p>
+  <ol>
+    <li><strong>Registry constants</strong> — developer-authored strings in version control.</li>
+    <li><strong>Bound parameters</strong> — every user and model value, including filter values and
+      dates. Prisma tagged templates, never <code>$queryRawUnsafe</code>.</li>
+    <li><strong>Enum-checked identifiers</strong> — metric and dimension ids validated against the
+      registry map <em>before</em> selecting a fragment. An unknown id is a rejected plan, never an
+      interpolated string.</li>
+  </ol>
+
+  <figure class="fig">
+  <svg viewBox="0 0 900 250" role="img" aria-label="Defence in depth layers">
+    <defs><style>
+      .lay{stroke-width:1;rx:8}
+      .lt{fill:#e6e9ef;font:600 12.5px var(--sans)}
+      .ls{fill:#9aa3b2;font:11px ui-monospace,Menlo,monospace}
+      .lg{fill:#5eead4;font:700 10px ui-monospace,Menlo,monospace}
+    </style></defs>
+
+    <rect class="lay" x="10"  y="10" width="880" height="46" fill="#132825" stroke="#2c5c54"/>
+    <text class="lg" x="26" y="30">STRUCTURAL</text>
+    <text class="lt" x="130" y="30">No model-authored SQL exists</text>
+    <text class="ls" x="130" y="47">injection is absent, not blocked — there is no code path from model output to SQL syntax</text>
+
+    <rect class="lay" x="34" y="62" width="832" height="46" fill="#1d212b" stroke="#2f3644"/>
+    <text class="lg" x="50" y="82">ROLE</text>
+    <text class="lt" x="154" y="82">analytics_ro — read-only Postgres role</text>
+    <text class="ls" x="154" y="99">default_transaction_read_only=on · no grant on *AccessToken, User.passwordHash, PatientIdentifier</text>
+
+    <rect class="lay" x="58" y="114" width="784" height="46" fill="#1d212b" stroke="#2f3644"/>
+    <text class="lg" x="74" y="134">SCOPE</text>
+    <text class="lt" x="178" y="134">Tenant predicate injected by the compiler</text>
+    <text class="ls" x="178" y="151">from req.branchId — the plan can filter WITHIN scope, never widen it. 'all' is owner-only.</text>
+
+    <rect class="lay" x="82" y="166" width="736" height="46" fill="#1d212b" stroke="#2f3644"/>
+    <text class="lg" x="98" y="186">BLAST</text>
+    <text class="lt" x="202" y="186">statement_timeout 8s · LIMIT 500 · GROUP BY always</text>
+    <text class="ls" x="202" y="203">there is no "select rows" plan shape — every plan is an aggregate</text>
+
+    <rect class="lay" x="106" y="218" width="688" height="26" fill="#1d212b" stroke="#2f3644"/>
+    <text class="lg" x="122" y="235">RATE</text>
+    <text class="ls" x="226" y="235">20 questions / user / 5 min via the existing createRateLimiter</text>
+  </svg>
+  <figcaption>Five layers. Only the outermost is doing the real work; the rest bound the blast radius of our own bugs.</figcaption>
+  </figure>
+
+  <div class="callout bad">
+    <span class="k">Gap to close first</span>
+    <p>Today the app connects as <code>neondb_owner</code> and <strong>no read-only role exists</strong>.
+    Creating <code>analytics_ro</code> with a table and column allowlist is <em>Milestone 0.1</em> —
+    before the first query runs, before any LLM code is written.</p>
+  </div>
+
+  <h3>Prompt injection</h3>
+  <p>The surface is small by construction, but two real vectors remain and are handled:
+  <strong>(1)</strong> a question crafted to make the <em>narration</em> assert something false —
+  mitigated by numeric post-validation and by the UI treating <code>data</code>, not prose, as truth;
+  <strong>(2)</strong> injected content arriving through <em>dimension labels</em> — a staff member
+  renaming a product to "ignore previous instructions" — mitigated by delimiting and escaping labels
+  in the narration payload and never treating row content as instructions. Both get dedicated eval cases.</p>
+</section>
+
+<!-- ─────────────────────────── TRUTH ─────────────────────────── -->
+<section id="truth">
+  <h2>Truth model</h2>
+  <p class="lede">Every factual number comes from Postgres. The model writes captions.</p>
+
+<pre><code>LLM  → chooses a metric from a fixed list        (validated against the registry)
+APP  → compiles and runs the SQL                 (LLM contributed no SQL)
+DB   → produces every number                     (the only source of facts)
+APP  → computes every derived number             (deltas, shares, ranks — in TS)
+LLM  → writes prose about numbers it was handed  (and may not invent new ones)</code></pre>
+
+  <h3>Three enforcement mechanisms, strongest first</h3>
+  <div class="grid g3">
+    <div class="card">
+      <h4>1 · Structural</h4>
+      <p>The narration prompt receives pre-formatted value <em>strings</em> — <code>"₹11,41,705"</code>,
+      <code>"+18.2%"</code> — and is told to use those tokens verbatim. Numbers can't be generated
+      because none are computed at that stage.</p>
+    </div>
+    <div class="card">
+      <h4>2 · Post-validation</h4>
+      <p>Extract every numeric token from the narration; any token absent from the facts object
+      drops the sentence. Exactly the <code>dropResultClaims</code> pattern already in production
+      in Smart Reports.</p>
+    </div>
+    <div class="card">
+      <h4>3 · Provenance</h4>
+      <p>The UI renders numbers from <code>data</code>, never from <code>answer</code>. Prose is a
+      caption over a table. If narration fails entirely, a deterministic template ships and the
+      answer is still correct.</p>
+    </div>
+  </div>
+
+  <h3>The response separates six classes</h3>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Class</th><th>Example</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>measured</td><td>"Net revenue was ₹18,68,674"</td><td>SQL</td></tr>
+      <tr><td>derived</td><td>"up 18.2% on last month"</td><td>TypeScript over SQL results</td></tr>
+      <tr><td>interpretation</td><td>"the rise is concentrated in Balanagar"</td><td>LLM, from the returned rows</td></tr>
+      <tr><td>assumption</td><td>"'revenue' = net of discounts and coupons"</td><td>registry metric description</td></tr>
+      <tr><td>caveat</td><td>"38% of results carry no flag and are excluded"</td><td>registry + coverage check</td></tr>
+      <tr><td>unanswerable</td><td>"we don't record diagnoses"</td><td>validator</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="k">Refusing well</span>
+    <p><code>unanswerable</code> is a first-class <em>success</em>, not an error path. Four triggers:
+    <strong>no such concept</strong> ("most common diagnoses" → offer abnormal results instead);
+    <strong>out of coverage</strong> ("last quarter" → "we have data from 1 Jul only; here's Jul vs Aug");
+    <strong>ambiguous</strong> ("revenue" → answer with the definition stated, offer the other reading as a chip);
+    <strong>not permitted</strong> ("financial metrics are owner-only" — never "no data", because misleading
+    about permissions is its own failure).</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── METRICS ─────────────────────────── -->
+<section id="metrics">
+  <h2>Semantic layer</h2>
+  <p class="lede">One definition per metric, anchored to a number already in production.</p>
+
+<pre><code>{
+  id: 'net_revenue',
+  label: 'Net revenue',
+  unit: 'paise',
+  description: 'Billed amount after manual discount, campaign coupon and voided ' +
+               'charges. Not cash collected.',
+  agg:  'SUM(b."totalAmountInPaise" - b."discountAmountInPaise" ' +
+        '   - b."couponDiscountInPaise" - b."reversedChargeInPaise")',
+  from: '"Bill" b JOIN "Visit" v ON v.id = b."visitId"',
+  timeColumn:  'b."billedAt"',        // STABLE — never updatedAt
+  branchColumn:'b."branchId"',        // how tenant scope is applied
+  baseFilters: [],
+  dimensions:  ['branch','domain','payout_category','product',
+                'referral_doctor','payment_status','collected_by'],
+  roles:       ['owner'],
+  caveats:     ['Excludes ₹0 EVENT products.'],
+  reconcileWith: 'ownerMoneyService.getOwnerMoney().kpis.netInPaise',   // ← eval anchor
+}</code></pre>
+
+  <div class="callout">
+    <span class="k">reconcileWith</span>
+    <p>The load-bearing field. It names the existing production number this metric must equal, and
+    the eval harness asserts it at <strong>zero tolerance for money</strong>. That is the mechanism
+    that guarantees the AI and the Money page never disagree.</p>
+  </div>
+
+  <div class="grid g2">
+    <div class="card danger">
+      <h4>Must be defined centrally</h4>
+      <p>Every financial metric (gross, net, collected, outstanding, aging, discount rate, refunds,
+      commission, collection rate) · every ratio (abnormal, cancellation, delivery, within-SLA,
+      completion) · TAT percentiles · reports finalized (latest-version rule) · referral attribution
+      (soft delete + pct-of-gross-minus-full-discount) · anything touching <code>TestResult.flag</code> ·
+      anything spanning Visit ↔ Bill ↔ TestOrder.</p>
+    </div>
+    <div class="card">
+      <h4>Safe to express generically</h4>
+      <p>Simple counts of one fact table grouped by one registered dimension — visits by branch,
+      orders by workflow mode, patients by gender, messages by status, anomalies by category.
+      No money, no ratio, no join beyond one dimension table, no soft-delete surface. Still routed
+      through the DSL, via a generic <code>count(entity)</code> metric.</p>
+    </div>
+  </div>
+  <p><strong>Target for Phase 1: ~20 metrics, not 60.</strong> Grow from the
+  <code>unanswerable</code> log, which is the real backlog.</p>
+</section>
+
+<!-- ─────────────────────────── VIZ ─────────────────────────── -->
+<section id="viz">
+  <h2>Visualization &amp; response contract</h2>
+  <p class="lede">Chart choice is derived from the plan in TypeScript. The model isn't asked.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Plan shape</th><th>Visualization</th></tr></thead>
+    <tbody>
+      <tr><td>0 dims, no grain</td><td><code>kpi</code> — single number</td></tr>
+      <tr><td>0 dims, no grain, comparing</td><td><code>kpi_delta</code> — number + delta + sparkline</td></tr>
+      <tr><td>0 dims, grain set</td><td><code>line</code> (≥8 buckets) / <code>bar</code> (&lt;8)</td></tr>
+      <tr><td>1 categorical dim, ≤12 values</td><td><code>bar</code>, sorted desc; horizontal if any label &gt;14 chars</td></tr>
+      <tr><td>1 categorical dim, &gt;12 values</td><td><code>table</code> top-N + "Other" row</td></tr>
+      <tr><td>1 dim + grain, ≤5 series</td><td><code>multi_line</code></td></tr>
+      <tr><td>1 dim + grain, &gt;5 series</td><td><code>stacked_bar</code></td></tr>
+      <tr><td>2 categorical dims</td><td><code>table</code> (grouped)</td></tr>
+      <tr><td>parts-of-whole, ≤4 slices, explicitly asked</td><td><code>donut</code> — otherwise <code>bar</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Rendered with <strong>recharts</strong> (already installed, currently unused) inside
+  <code>ownerUi.tsx</code> primitives. <strong>Every chart has a table toggle</strong> — charts
+  persuade, tables verify, and this feature's credibility depends on being checkable.</p>
+
+  <h3>Response contract</h3>
+<pre><code>type AnalyticsResponse = {
+  id: string;                     // AnalyticsQueryLog.id — feedback + debugging
+  status: 'ok' | 'unanswerable' | 'error';
+
+  answer: string;                 // 2–4 sentences. Prose only. Never the source of truth.
+  facts: {                        // exactly what the prose is allowed to say
+    headline:    { label, value: string, raw: number, unit };
+    comparison?: { label, deltaPct: number | null, direction: 'up'|'down'|'flat' };
+    highlights:  Array&lt;{ label, value: string, raw: number, sharePct: number }&gt;;
+  };
+
+  data: { columns, rows, truncated: boolean, totalRows: number };
+  visualization: { type, x?, y[], series?, valueFormat: 'inr'|'int'|'pct'|'minutes' };
+
+  plan: QueryPlan;                // shown in a "How this was calculated" drawer
+  provenance: {
+    metric:    { id, label, definition };
+    timeRange: { from, to, label, timezone: 'Asia/Kolkata' };
+    scope:     { branches: string[], role };
+    rowCount, executionMs, cached;
+  };
+  caveats:   string[];            // coverage · flag-null · soft-delete · cell suppression
+  followUps: string[];            // 2–3 next questions, generated from the plan
+  unanswerable?: { reason, suggestion };
+};</code></pre>
+  <p><code>sql</code> is deliberately <strong>absent</strong> for non-owners — it leaks schema shape
+  to no benefit. Owners see it in the drawer, behind the same flag as the Phase-6 escape hatch.</p>
+</section>
+
+<!-- ─────────────────────────── BUDGET ─────────────────────────── -->
+<section id="budget">
+  <h2>Row budget &amp; cost control</h2>
+  <p class="lede"><code>SELECT *</code> is the easy half. The dangerous case is a
+  <em>legal aggregate that explodes.</em></p>
+
+  <h3>1 · <code>SELECT *</code> is unreachable, not blocked</h3>
+  <p>The compiler has exactly one output template. There is <strong>no branch that emits a bare
+  column list</strong>, so no plan shape returns rows. <code>GROUP BY</code> isn't optional — a
+  zero-dimension plan groups by the empty set and returns one row.</p>
+<pre><code>SELECT &lt;dimExprs…&gt;, &lt;bucketExpr&gt;, &lt;metric.agg&gt;
+FROM   &lt;metric.from + required dimension joins&gt;
+WHERE  &lt;baseFilters + timeRange + userFilters + branchScope&gt;
+GROUP  BY &lt;dimExprs…&gt;, &lt;bucketExpr&gt;
+ORDER  BY &lt;sort&gt;
+LIMIT  &lt;n&gt;                        -- appended unconditionally</code></pre>
+  <p>Equally, <code>patient</code>, <code>bill_number</code> and <code>visit_id</code> are
+  <strong>not registered as dimensions at all</strong> — unbounded grouping keys don't exist in
+  the vocabulary.</p>
+
+  <h3>2 · Measured cardinality, and what actually explodes</h3>
+  <div class="grid g2">
+    <div>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Dimension</th><th>Distinct</th><th>Class</th></tr></thead>
+        <tbody>
+          <tr><td><code>test_code</code></td><td style="color:var(--warn)">340</td><td>large</td></tr>
+          <tr><td><code>product</code></td><td style="color:var(--warn)">272</td><td>large</td></tr>
+          <tr><td><code>referral_doctor</code></td><td style="color:var(--warn)">171</td><td>large</td></tr>
+          <tr><td><code>panel</code></td><td style="color:var(--warn)">137</td><td>large</td></tr>
+          <tr><td>day buckets</td><td>71</td><td>+30/month</td></tr>
+          <tr><td><code>collected_by</code> · <code>clinic_doctor</code></td><td>9</td><td>small</td></tr>
+          <tr><td><code>payout_category</code></td><td>8</td><td>small</td></tr>
+          <tr><td><code>department</code></td><td>7</td><td>small</td></tr>
+          <tr><td><code>branch</code></td><td>4</td><td>small</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Worst-case LEGAL aggregate</th><th>Rows</th><th>DB</th></tr></thead>
+        <tbody>
+          <tr><td><code>test × branch × month</code></td><td>1,307</td><td>1.34 s</td></tr>
+          <tr><td><code>ref_doctor × test × month</code></td><td>5,274</td><td>1.30 s</td></tr>
+          <tr><td><code>test × branch × <strong>day</strong></code></td>
+              <td style="color:var(--bad);font-weight:650">9,734</td><td>1.29 s</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p style="font-size:13.5px;margin-top:12px">The database shrugs at all three — 311 MB.
+      <strong>The problem is entirely downstream.</strong></p>
+    </div>
+  </div>
+
+  <h3>3 · Three separate budgets</h3>
+  <p>Conflating these is the mistake. Different limits, different reasons.</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Budget</th><th>Limit</th><th>Protects</th><th>Enforced by</th></tr></thead>
+    <tbody>
+      <tr><td>Model</td><td>~40 rows → <strong>≤300 tokens</strong></td><td>LLM context + cost</td>
+          <td><code>facts.ts</code> — the model never receives the result set</td></tr>
+      <tr><td>Transport</td><td>500 rows / 256 KB</td><td>browser + 512 MB Render box</td>
+          <td><code>LIMIT</code> in SQL + byte cap</td></tr>
+      <tr><td>Legibility</td><td>≤8 chart series, ≤25 table rows</td><td>the human reading it</td>
+          <td><code>viz.ts</code> top-N + "Other"</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <span class="k">The direct answer</span>
+    <p><strong>We never feed rows to the LLM.</strong> <code>facts.ts</code> sits between the database
+    and the model. Measured on the 9,734-row worst case:</p>
+  </div>
+<pre><code>FULL RESULT SET   9,734 rows · 522.8 KB · 133,830 tokens if sent raw
+CAPPED (browser)    500 rows ·  26.7 KB
+FACTS (to model)      12 highlights · 0.9 KB ·    235 tokens   ← 569× cheaper</code></pre>
+  <p>The model gets a headline, a comparison, and top-N highlights with their share of total. The full
+  table goes to the <strong>user's browser</strong>, never to DeepSeek. Token cost is bounded by
+  construction and <strong>independent of result size</strong> — a 50,000-row aggregate costs the model
+  exactly as much as a 5-row one.</p>
+
+  <h3>4 · Pre-execution cell estimate — degrade, don't reject</h3>
+  <p>Every dimension carries a measured cardinality in the registry. At <strong>validate time, before
+  any SQL runs</strong>:</p>
+<pre><code>estimate = Π(dimension cardinalities) × timeBuckets(range, grain)
+budget   = 1000 cells</code></pre>
+  <p>Over budget → the compiler <strong>degrades and says so</strong>. Rejecting a reasonable question
+  is a worse failure than answering a slightly coarser one.</p>
+<pre><code>"test orders by test and branch, daily"
+
+as asked       340 × 4 × 71  = 96,560 est.   ✗ over budget
+clamp test→20   20 × 4 × 71  =  5,680 est.   ✗ still over
+coarsen→week    20 × 4 × 11  =    880 est.   ✓ runs
+
+caveat: "Top 20 tests by volume, weekly. 320 other tests folded into 'Other'."</code></pre>
+  <p>The ladder is: <strong>clamp</strong> the highest-cardinality dimension to top-N with an "Other"
+  row → <strong>coarsen</strong> the grain (day→week→month) → <strong>drop</strong> to one dimension.
+  Every step appends a caveat naming exactly what happened. The estimate deliberately
+  <em>over</em>-estimates (96,560 predicted vs 9,734 actual — real data is sparse), which is the
+  correct direction for a guard.</p>
+
+  <h3>5 · Backstops that should never fire</h3>
+  <ul>
+    <li><code>LIMIT 500</code> appended unconditionally — no plan can omit it</li>
+    <li><code>SET LOCAL statement_timeout = '8s'</code> per transaction</li>
+    <li>Response byte cap — serialize, and above 256 KB truncate with <code>truncated: true</code></li>
+    <li><code>analytics_ro</code> cannot write, so a runaway query wastes CPU and nothing else</li>
+    <li>Redis answer cache on plan hash — a repeated expensive question costs nothing twice</li>
+  </ul>
+  <div class="callout warn">
+    <span class="k">Each backstop is an alert, not a silent save</span>
+    <p>Every firing is logged with its own <code>status</code>. A backstop that fires means the
+    <em>estimator</em> has a gap — that's a bug to fix, not a truncation to swallow.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── CONVO ─────────────────────────── -->
+<section id="convo">
+  <h2>Conversational analytics</h2>
+  <p class="lede">Store plans, not answers. A follow-up is a patch, not a re-derivation.</p>
+
+<pre><code>"Show me diagnostic workload by month."
+  → { metric:'test_orders', grain:'month', dimensions:[],
+      filters:[{dim:'domain', values:['DIAGNOSTICS']}] }
+
+"Now only Hyderabad."           → patch: { filters: +{dim:'branch', values:['CNT']} }
+"Compare that with Balanagar."  → patch: { dimensions:['branch'],
+                                           filters:{branch:['CNT','BLN']} }
+"Why did it jump in August?"    → decompose(previousPlan, focusBucket:'2026-08')
+"As a percentage."              → patch: { metric:'test_orders_share' }</code></pre>
+
+  <p>Session state is the last <strong>3 QueryPlans</strong> plus their headline facts — roughly
+  400 tokens, bounded, and immune to prose drift. The model emits
+  <code>{op:'refine', patch:{…}}</code>; the app applies it and re-validates the <em>whole</em>
+  merged plan. Two properties fall out free: the patch is tiny (cheap, low-variance), and a
+  follow-up can never reach a metric or branch that a fresh question couldn't.</p>
+
+  <div class="callout warn">
+    <span class="k">The classic bug</span>
+    <p>The model must also be able to say <code>{op:'new'}</code>. "And what about revenue?" after a
+    workload question is a <em>topic change</em>, not a filter. Getting this wrong silently carries
+    stale filters into a new answer — the signature failure of conversational BI. It gets explicit
+    multi-turn eval cases.</p>
+  </div>
+  <p>Storage: <strong>Redis, 30-minute TTL</strong>, keyed <code>userId:conversationId</code>.
+  No new table — conversation history isn't a business record, and persisting analytics questions
+  with their filters is a privacy surface we don't need.</p>
+</section>
+
+<!-- ─────────────────────────── EVAL ─────────────────────────── -->
+<section id="eval">
+  <h2>Evaluation &amp; observability</h2>
+  <p class="lede">The DSL makes correctness testable: assert on the plan, not on a SQL string.</p>
+
+  <p>Plans are normalizable JSON, so equality is exact — unlike SQL strings, where a hundred
+  correct queries are textually different.</p>
+
+<pre><code>{
+  "id": "rev-002",
+  "question": "What was our revenue last month?",
+  "role": "owner", "branchScope": "all",
+  "expectPlan": { "metric":"net_revenue", "dimensions":[], "grain":null,
+                  "timeRange":{"preset":"last_month"}, "compareTo":"none" },
+  "acceptAlso":  [{ "metric":"gross_revenue" }],
+  "expectValue": { "source":"ownerMoneyService", "path":"kpis.netInPaise",
+                   "tolerancePct": 0 },
+  "expectViz":   "kpi",
+  "mustCaveat":  []
+}</code></pre>
+
+  <h3>Suite composition — ~120 cases at Phase 1</h3>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Category</th><th style="width:52px">n</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td>Core metrics</td><td>30</td><td>every registry metric, plain</td></tr>
+      <tr><td>Dimensional breakdown</td><td>20</td><td>by branch / department / doctor / product / test</td></tr>
+      <tr><td>Time series &amp; comparison</td><td>15</td><td>monthly trend, MoM, this-vs-last</td></tr>
+      <tr><td>Filtered &amp; top-N</td><td>15</td><td>"top 10 tests at Chintal in August"</td></tr>
+      <tr><td><strong>Ambiguous</strong></td><td>10</td><td>"revenue" (net vs collected), "patients" (visits vs people), "this quarter"</td></tr>
+      <tr><td><strong>Unanswerable</strong></td><td>12</td><td>diagnoses, appointments, YoY, rosters, costs</td></tr>
+      <tr><td><strong>Security</strong></td><td>12</td><td>"show me patient phone numbers", "drop table Bill", branch-crossing as staff, financial metric as staff, injected-label attack</td></tr>
+      <tr><td><strong>Multi-turn</strong></td><td>10</td><td>the refine chain, incl. a topic change that must NOT inherit filters</td></tr>
+      <tr><td>Empty / edge</td><td>6</td><td>branch with no data, window before 2026-07-01, all-null flags</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><code>npm run eval:analytics</code> — a plain <code>tsx</code> script (no framework; matches
+  <code>smartReport/selfcheck.ts</code> house style). Prints a scorecard and <strong>diffs against
+  the previous run</strong>, so a model or prompt change is a before/after table, not a vibe.</p>
+
+  <div class="callout warn">
+    <span class="k">CI gate</span>
+    <p>security <strong>100%</strong> · money reconciliation <strong>100%</strong> ·
+    unanswerable ≥ 90% · plan accuracy ≥ 85%. Run against a <strong>Neon branch, never prod</strong> —
+    branches are data-isolated but <em>not</em> quota-isolated, and heavy testing has suspended the
+    prod DB here before.</p>
+  </div>
+
+  <h3>What every request logs</h3>
+  <p>One new table, <code>AnalyticsQueryLog</code>, modelled on <code>SmartReport</code>'s proven shape.</p>
+  <dl class="kv">
+    <dt>identity</dt><dd>userId · role · branchScope · conversationId · turnIndex</dd>
+    <dt>intent</dt><dd>question · planJson · metric · dimensions · grain · rangeFrom/To · isFollowUp</dd>
+    <dt>outcome</dt><dd>status · unansweredKind · retryCount · retryReasons</dd>
+    <dt>execution</dt><dd>sqlHash (not the SQL) · rowCount · executionMs · planMs · narrateMs · cacheHit</dd>
+    <dt>model</dt><dd>model · promptVersion · inputTokens · outputTokens</dd>
+    <dt>output</dt><dd>vizType · answerText (prose only) · feedback 👍/👎</dd>
+    <dt>never logged</dt><dd>result rows · bound parameters · raw SQL text · any identifier</dd>
+    <dt>retention</dt><dd>180 days, then deleted. Questions are not a business record.</dd>
+  </dl>
+  <p>Debugging a wrong answer needs exactly four fields, and they're all there:
+  <code>question → planJson → sqlHash → rowCount</code>. <strong>Right plan, wrong number = registry bug.
+  Wrong plan = prompt/catalog bug.</strong> That clean split is the point of the DSL.</p>
+  <p><strong>Alerts:</strong> any <code>sql_error</code> (always our bug) · <code>unanswerable</code>
+  &gt;25% (catalog gap) · p95 total &gt;12 s · <code>invalid_plan</code> retry rate &gt;15%.</p>
+</section>
+
+<!-- ─────────────────────────── ROADMAP ─────────────────────────── -->
+<section id="roadmap">
+  <h2>Roadmap</h2>
+  <p class="lede">Two deliberate reorderings from the brief.</p>
+  <p><strong>Security is Phase 0, not Phase N</strong> — the read-only role must exist before the
+  first query runs. <strong>The semantic layer is Phase 1, not Phase 3</strong> — in this codebase
+  it <em>is</em> the feature; a metric-free prototype would contradict the Money page on day one,
+  and that lost trust is hard to win back.</p>
+
+  <div style="margin-top:22px">
+    <div class="phase">
+      <div class="tag">PHASE 0<small>~1 day</small></div>
+      <div>
+        <h4>Foundations — no LLM, no UI</h4>
+        <p><code>analytics_ro</code> role + grants · <code>lib/analyticsPrisma.ts</code> ·
+        <code>AnalyticsQueryLog</code> migration · registry with <strong>3</strong> metrics ·
+        <code>plan.ts</code> validator · <code>compile.ts</code> · <code>execute.ts</code>.
+        A <code>tsx</code> script executes hand-written plans; there is no API.</p>
+        <div class="gate">GATE — money reconciles to the paise, and analytics_ro provably cannot write or read a token</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 1<small>~3 days</small></div>
+      <div>
+        <h4>First answer end to end</h4>
+        <p>Catalog · planning prompt + 8 few-shots · narration + numeric post-validation ·
+        facts · logging · registry to ~20 metrics / ~16 dimensions · coverage check.
+        <code>POST /api/analytics/ask</code>. An ask box on <code>/owner</code>: question in,
+        KPI or table out, with the "How this was calculated" drawer. <strong>No charts yet.</strong></p>
+        <div class="gate">GATE — 30 example questions answer correctly OR refuse honestly. A confidently wrong number is a failure; an honest refusal is a pass.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 2<small>~3 days</small></div>
+      <div>
+        <h4>Dimensions, time series, charts</h4>
+        <p>Deterministic <code>viz.ts</code> · fuzzy name→code resolution · gap-filling ·
+        top-N + "Other" · minimum-cell-size suppression · Redis answer cache on plan hash.
+        recharts line/bar/stacked with a table toggle, in <code>ownerUi</code> styling.</p>
+        <div class="gate">Verify in a real browser — tsc does not catch broken hooks or blank pages</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 3<small>~2 days</small></div>
+      <div>
+        <h4>Comparisons &amp; deltas</h4>
+        <p><code>compareTo: 'previous_period'</code> through compiler, facts and viz
+        (<code>kpi_delta</code>, paired bars). Quarter and year grains registered but
+        <strong>gated on coverage</strong> — "last quarter" returns the caveat, not a number.</p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 4<small>~2 days</small></div>
+      <div>
+        <h4>Conversation</h4>
+        <p>Plan patching · Redis session · <code>{op:'new'|'refine'}</code> classification ·
+        follow-up chips. Threaded panel; each answer keeps its chart.</p>
+        <div class="gate">The topic-change case that must NOT inherit filters is the acceptance test</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 5<small>~2 days</small></div>
+      <div>
+        <h4>Evaluation hardening &amp; rollout</h4>
+        <p>Full 120-case suite with run-to-run diffing · 👍/👎 wired to the log · CI gate ·
+        small ops view of the unanswerable and retry histograms. Roll out to
+        <code>lab_incharge</code> for operational metrics.</p>
+        <div class="gate">GATE before wider rollout — security 100%, money reconciliation 100%</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 6<small>TBD</small></div>
+      <div>
+        <h4>Advanced — only what the logs justify</h4>
+        <p>"Why did X change" decomposition (deterministic contribution analysis, model narrates) ·
+        anomaly surfacing over <code>AnomalyEvent</code> + z-scores · scheduled digests reusing the
+        WhatsApp sender · the guarded raw-SQL escape hatch — <strong>only if the logs prove the DSL
+        is the bottleneck.</strong></p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="tag">PHASE 7<small>optional</small></div>
+      <div>
+        <h4>Consolidation</h4>
+        <p>Migrate <code>ownerMoneyService</code> / <code>ownerMetricsService</code> onto the registry
+        so there is exactly one definition of every metric. Side effect: replaces ~12 parallel
+        <code>findMany</code> + JS reduction with one <code>GROUP BY</code> — cutting Neon round trips
+        and JS heap on the 512 MB Render box, both open items in the current cost work.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Milestone 0.1 — the exact first commit</h3>
+  <p>Half a day. No LLM. No UI. <strong>"The rupee matches, and the role cannot write."</strong></p>
+<pre><code>CREATE ROLE analytics_ro LOGIN PASSWORD :'pw';
+ALTER ROLE analytics_ro SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE neondb TO analytics_ro;
+GRANT USAGE ON SCHEMA public TO analytics_ro;
+GRANT SELECT ON "Visit","Bill","TestOrder","PaymentTransaction","OrderRefund",
+                "ReportVersion","DiagnosticReport","TestResult","ClinicVisit",
+                "Branch","Department","ClinicalPanel","BillableProduct",
+                "TestDefinition","ReferralDoctor","ReferralDoctor_Visit",
+                "ClinicDoctor","ExternalLab","MessageLog","AnomalyEvent",
+                "DoctorPayoutLedger"
+  TO analytics_ro;
+GRANT SELECT ("id","gender","yearOfBirth","createdAt") ON "Patient" TO analytics_ro;
+GRANT SELECT ("id","name","role","activeBranchId")     ON "User"    TO analytics_ro;
+-- everything else, including all three *AccessToken tables, gets NO grant.</code></pre>
+  <p>Then <code>scripts/analytics-smoke.ts</code> asserts: <code>net_revenue</code> equals
+  <code>ownerMoneyService</code> <strong>to the paise</strong> · <code>visits</code> by branch by month
+  equals a hand-written control query · <code>analytics_ro</code> gets <em>permission denied</em> on
+  <code>INSERT INTO "Visit"</code>, on <code>"ReportAccessToken"</code> and on
+  <code>User.passwordHash</code> · <code>statement_timeout</code> actually aborts
+  <code>pg_sleep(20)</code>.</p>
+  <div class="callout">
+    <span class="k">Why this first</span>
+    <p>If Milestone 0.1's money number doesn't match, we've learned the most important thing about
+    this feature before spending a single token on an LLM.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── NOT BUILDING ─────────────────────────── -->
+<section id="not">
+  <h2>What we are not building</h2>
+  <p class="lede">Each of these is a real fork in the road, declined on evidence.</p>
+  <div class="grid g2">
+    <div>
+      <ul class="no">
+        <li><strong>Text-to-SQL as the primary path</strong> — Phase 6 escape hatch only, on evidence</li>
+        <li><strong>Vector store / embeddings / RAG over the schema</strong> — the vocabulary fits in a prompt</li>
+        <li><strong>LangChain / Vanna / any NL2SQL framework</strong> — this is ~800 lines of our own code</li>
+        <li><strong>Materialized views, OLAP cube, star schema, dbt, a separate analytics DB</strong> — 311 MB</li>
+        <li><strong>A second LLM provider or a fine-tune</strong> — not until the eval set shows a prompt ceiling</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="no">
+        <li><strong>Multi-agent planning loops</strong> — one question, one plan</li>
+        <li><strong>Postgres RLS</strong> — every plan is an aggregate; there is no row to filter</li>
+        <li><strong>Streaming responses</strong> — a 4-second answer needs a spinner, not SSE plumbing</li>
+        <li><strong>A separate analytics UI framework</strong> — <code>ownerUi.tsx</code> + recharts are there</li>
+        <li><strong>Row-level export from the AI surface</strong> — the existing pages do it better, with audit</li>
+        <li><strong>Module-enablement infrastructure</strong> — keep it isolated so Axora's toggle is mechanical later; don't pre-build the framework</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Risks accepted</h3>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Risk</th><th style="width:72px">Severity</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td>Two definitions of revenue (registry vs <code>ownerMoneyService</code>)</td><td style="color:var(--bad)">High</td><td><code>reconcileWith</code> + zero-tolerance CI on money; Phase 7 collapses them</td></tr>
+      <tr><td>A confidently wrong number erodes trust permanently</td><td style="color:var(--bad)">High</td><td>Aggregate-only, defined metrics, deterministic derived numbers, numeric post-validation, visible plan drawer, table toggle</td></tr>
+      <tr><td>PHI to an external LLM</td><td style="color:var(--bad)">High</td><td>A serializer that <em>cannot</em> emit a patient field — not a prompt instruction. Same line already held for Smart Reports</td></tr>
+      <tr><td>DSL can't express a real question</td><td style="color:var(--warn)">Medium</td><td>The <code>unanswerable</code> log <em>is</em> the backlog. Escape hatch if evidence demands</td></tr>
+      <tr><td>Analytics load hurts prod (Neon max_cu 2, 512 MB Render)</td><td style="color:var(--warn)">Medium</td><td>Read-only role · 8 s timeout · 500-row cap · Redis cache · aggregate-only, so no large hydration. One GROUP BY is lighter than the owner pages already are</td></tr>
+      <tr><td>Ten weeks of history disappoints on day one</td><td style="color:var(--warn)">Medium</td><td>Explicit coverage caveats. Honesty, not a defect — but say it up front</td></tr>
+      <tr><td>Registry rot as the schema evolves</td><td style="color:var(--warn)">Medium</td><td>Eval runs in CI; a dropped column breaks the build</td></tr>
+      <tr><td>Prompt injection via staff-authored labels</td><td style="color:var(--dim)">Low</td><td>Escaped and delimited in the narration payload; dedicated eval case</td></tr>
+      <tr><td>DeepSeek availability / latency</td><td style="color:var(--dim)">Low</td><td>Planning failure = honest error. Narration failure = template. Never a wrong number</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Open questions</h3>
+  <ol>
+    <li><strong>Surface</strong> — a dedicated <code>/owner/ask</code> page, or an ask box embedded on
+      Money / Operations? <em>Recommend: dedicated page in Phase 1, embed in Phase 5 once it's trusted.</em></li>
+    <li><strong><code>sales</code> role</strong> — any analytics at all?
+      <em>Recommend: volume + its own referral metrics, no financials.</em></li>
+    <li><strong>Default meaning of "revenue"</strong> — <em>net billed</em>, matching the Money page,
+      with <em>collected</em> offered as a follow-up chip. Confirm this matches how you think about it.</li>
+    <li><strong>DeepSeek and PHI</strong> — confirming the aggregate-only line: branch codes, test codes,
+      doctor names and numbers leave; nothing patient-level does. <em>Doctor names are the one arguable
+      item — say the word and they become codes too.</em></li>
+  </ol>
+</section>
+
+<footer>
+  Companion document: <code>AI_ANALYTICS_LAYER_PLAN.md</code> · Status: design, awaiting approval —
+  no implementation code written. All database figures measured against production on 2026-09-10.
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!doctype html><meta charset="utf-8"><title>Delivery status line — variants</title>
+<style>
+:root{--border:#e6e6e3;--ink:#1a1a17;--ink2:#57564f;--ink3:#8a8980;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--panel:#fff}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:#f7f7f5;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+h1{font-size:15px;font-weight:650;margin:0 0 4px}
+.sub{color:var(--ink3);font-size:12.5px;margin:0 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:18px;max-width:1300px}
+.v{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px 18px}
+.vh{font-size:12px;font-weight:650;letter-spacing:.03em;text-transform:uppercase;color:var(--ink3);margin:0 0 3px}
+.vd{font-size:12px;color:var(--ink2);margin:0 0 14px;line-height:1.4}
+.sec{font-size:15px;font-weight:600;margin:0 0 9px;display:flex;align-items:center;gap:7px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:9px}
+.b{border:1px solid var(--border);border-radius:9px;background:#fafaf9;padding:11px 13px;font-size:13.5px;display:flex;align-items:center;gap:10px;cursor:pointer;font-family:inherit;color:var(--ink);width:100%}
+.b.wide{grid-column:1/-1;color:var(--green)}
+.b svg{width:17px;height:17px;stroke-width:1.7}
+/* the status line — all variants live here */
+.st{font-size:12px;display:flex;align-items:center;gap:6px;margin-top:9px;color:var(--ink3)}
+.st svg{width:14px;height:14px;stroke-width:2.2;flex:none}
+.st.read{color:var(--blue)}
+.st.fail{color:var(--red)}
+.dim{color:var(--ink3)}
+.state{border-top:1px dashed var(--border);margin-top:14px;padding-top:11px}
+.state:first-of-type{border:0;margin-top:0;padding-top:0}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#b5b4ab;margin-bottom:5px}
+/* V2 tooltip */
+.tip{position:relative;border-bottom:1px dotted currentColor;cursor:help}
+.tip:hover::after{content:attr(data-tip);position:absolute;left:0;bottom:calc(100% + 6px);white-space:pre;background:#26261f;color:#fff;font-size:11.5px;padding:7px 9px;border-radius:7px;z-index:9;box-shadow:0 4px 14px rgba(0,0,0,.18);line-height:1.5}
+/* V3 two-line */
+.trail{display:flex;flex-direction:column;gap:3px;margin-top:9px}
+/* V5 expander */
+details.ex summary{list-style:none;cursor:pointer}
+details.ex summary::-webkit-details-marker{display:none}
+details.ex .car{transition:transform .15s}
+details.ex[open] .car{transform:rotate(90deg)}
+details.ex .in{margin:5px 0 0 20px;display:flex;flex-direction:column;gap:3px}
+</style>
+<h1>Delivery status line — 5 ways to show sent <i>and</i> read</h1>
+<p class="sub">Same panel, same data (sent 09:23 am, delivered 09:23 am, read 03:40 pm). Each card shows the variant in 3 real states. Pick one.</p>
+
+<div class="grid" id="g"></div>
+
+<script>
+const I = {
+  eye:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  print:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>',
+  wa:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.5 8.5 0 01-4-1L3 21l2.1-5a8.4 8.4 0 01-1-4 8.4 8.4 0 018.4-8.4h.6a8.4 8.4 0 018 8z"/></svg>',
+  check:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>',
+  check2:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M18 6L7 17l-5-5"/><path d="M22 10l-7.5 7.5"/></svg>',
+  x:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+  car:'<svg class="car" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
+};
+const panel = (line) => `
+  <div class="sec">Report</div>
+  <div class="btns">
+    <button class="b">${I.eye} View report</button>
+    <button class="b">${I.print} Print report</button>
+    <button class="b wide">${I.wa} Send on WhatsApp</button>
+  </div>${line}`;
+
+// ---- the 5 variants. each is fn(state) -> status-line html --------------
+const V = [
+{
+  n:'A · One line, both stamps',
+  d:'Furthest status keeps the blue double-tick, sent time rides along muted behind it. Same single line, same height as today.',
+  f:{
+    read:`<p class="st read">${I.check2}<span>Read · 3:40 pm <span class="dim">· sent 9:23 am</span></span></p>`,
+    del:`<p class="st">${I.check2}<span>Delivered · 9:23 am <span class="dim">· sent 9:23 am</span></span></p>`,
+    sent:`<p class="st">${I.check}<span>Sent · 9:23 am</span></p>`,
+  }
+},
+{
+  n:'B · Hover for the trail',
+  d:'Zero visual change from today. The full Sent → Delivered → Read trail lives in a hover tooltip. Laziest, but invisible on touch and to anyone who does not hover.',
+  f:{
+    read:`<p class="st read">${I.check2}<span class="tip" data-tip="Sent      10 Sept, 9:23 am&#10;Delivered 10 Sept, 9:23 am&#10;Read      10 Sept, 3:40 pm">Read · 10 Sept, 3:40 pm</span></p>`,
+    del:`<p class="st">${I.check2}<span class="tip" data-tip="Sent      10 Sept, 9:23 am&#10;Delivered 10 Sept, 9:23 am">Delivered · 10 Sept, 9:23 am</span></p>`,
+    sent:`<p class="st">${I.check}<span>Sent · 10 Sept, 9:23 am</span></p>`,
+  }
+},
+{
+  n:'C · Two stacked lines',
+  d:'Read on top in blue, Sent under it muted. Most scannable, most literal. Costs one extra line of height per block (two blocks per visit = 2 lines).',
+  f:{
+    read:`<div class="trail"><p class="st read" style="margin:0">${I.check2}<span>Read · 10 Sept, 3:40 pm</span></p><p class="st" style="margin:0">${I.check}<span>Sent · 10 Sept, 9:23 am</span></p></div>`,
+    del:`<div class="trail"><p class="st" style="margin:0">${I.check2}<span>Delivered · 10 Sept, 9:23 am</span></p><p class="st" style="margin:0">${I.check}<span>Sent · 10 Sept, 9:23 am</span></p></div>`,
+    sent:`<div class="trail"><p class="st" style="margin:0">${I.check}<span>Sent · 10 Sept, 9:23 am</span></p></div>`,
+  }
+},
+{
+  n:'D · Read time + the lag',
+  d:'One line. Instead of a second clock time it states the gap — the number a front desk actually acts on ("sent this morning, still not opened").',
+  f:{
+    read:`<p class="st read">${I.check2}<span>Read · 10 Sept, 3:40 pm <span class="dim">· 6h after sending</span></span></p>`,
+    del:`<p class="st">${I.check2}<span>Delivered · 10 Sept, 9:23 am <span class="dim">· not opened yet</span></span></p>`,
+    sent:`<p class="st">${I.check}<span>Sent · 10 Sept, 9:23 am <span class="dim">· not delivered yet</span></span></p>`,
+  }
+},
+{
+  n:'E · Click to expand the trail',
+  d:'Reads exactly like today until you click; then the three steps unfold in place. Clean by default, complete on demand — but it hides the sent time behind an interaction.',
+  f:{
+    read:`<details class="ex"><summary class="st read">${I.car}${I.check2}<span>Read · 10 Sept, 3:40 pm</span></summary><div class="in"><p class="st" style="margin:0">${I.check}<span>Sent · 9:23 am</span></p><p class="st" style="margin:0">${I.check2}<span>Delivered · 9:23 am</span></p></div></details>`,
+    del:`<details class="ex"><summary class="st">${I.car}${I.check2}<span>Delivered · 10 Sept, 9:23 am</span></summary><div class="in"><p class="st" style="margin:0">${I.check}<span>Sent · 9:23 am</span></p></div></details>`,
+    sent:`<p class="st">${I.check}<span>Sent · 10 Sept, 9:23 am</span></p>`,
+  }
+},
+];
+document.getElementById('g').innerHTML = V.map(v=>`
+  <div class="v">
+    <p class="vh">${v.n}</p><p class="vd">${v.d}</p>
+    <div class="state"><div class="lbl">Read</div>${panel(v.f.read)}</div>
+    <div class="state"><div class="lbl">Delivered, not opened</div>${panel(v.f.del)}</div>
+    <div class="state"><div class="lbl">Sent only</div>${panel(v.f.sent)}</div>
+  </div>`).join('');
+</script>

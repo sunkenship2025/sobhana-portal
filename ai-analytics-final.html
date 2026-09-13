@@ -1,0 +1,980 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Analytics — Architecture Search</title>
+<style>
+:root{--bg:#0c0e12;--panel:#14171f;--p2:#1b1f28;--line:#262b36;--ink:#e9ecf2;--dim:#98a1b0;
+--faint:#6a7280;--ac:#5eead4;--ac2:#a78bfa;--warn:#fbbf24;--bad:#f87171;--good:#4ade80;
+--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+.w{max-width:1160px;margin:0 auto;padding:0 26px 110px}
+header{padding:56px 0 30px;border-bottom:1px solid var(--line)}
+.eb{font:600 11px/1 var(--mono);letter-spacing:.17em;text-transform:uppercase;color:var(--ac);margin-bottom:14px}
+h1{font-size:clamp(29px,4.4vw,44px);line-height:1.06;margin:0 0 12px;letter-spacing:-.025em;font-weight:650}
+.sub{color:var(--dim);font-size:17px;max-width:68ch;margin:0}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.pill{font:600 11px/1 var(--mono);padding:6px 11px;border-radius:99px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+.pill.m{border-color:#1f4d47;background:#122724;color:var(--ac)}
+.pill.h{border-color:#3d3320;background:#241d0f;color:var(--warn)}
+nav{position:sticky;top:0;z-index:20;background:rgba(12,14,18,.93);backdrop-filter:blur(12px);
+border-bottom:1px solid var(--line);margin:0 -26px 38px;padding:10px 26px;display:flex;gap:4px;flex-wrap:wrap}
+nav a{font:500 12px/1 var(--sans);color:var(--faint);text-decoration:none;padding:6px 9px;border-radius:6px}
+nav a:hover{color:var(--ink);background:var(--p2)}
+section{margin:0 0 58px;scroll-margin-top:58px}
+h2{font:600 12.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--ac);margin:0 0 8px}
+h2+.ld{font-size:23px;line-height:1.34;margin:0 0 22px;letter-spacing:-.014em;max-width:62ch;font-weight:600}
+h3{font-size:15px;margin:28px 0 10px;font-weight:650}
+p{max-width:78ch;color:var(--dim)}p strong,li strong,td strong{color:var(--ink);font-weight:620}
+code{font:12.5px/1.5 var(--mono);background:var(--p2);border:1px solid var(--line);padding:1px 5px;border-radius:4px;color:var(--ac)}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:15px 17px;overflow-x:auto;
+font:12.5px/1.6 var(--mono);color:#c7cfdc;margin:13px 0}pre code{background:none;border:0;padding:0;color:inherit}
+.g{display:grid;gap:13px}.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.c{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:17px 19px}
+.c h4{margin:0 0 8px;font-size:14px;font-weight:650}.c p{margin:0;font-size:13.5px;line-height:1.6}
+.c.ok{border-color:#1f4d47;background:linear-gradient(180deg,#122624,var(--panel))}
+.c.no{border-color:#4a2626;background:linear-gradient(180deg,#231313,var(--panel))}
+.c.wn{border-color:#4a3d1c;background:linear-gradient(180deg,#221c0d,var(--panel))}
+.st{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 17px}
+.st .n{font:650 25px/1.1 var(--sans);letter-spacing:-.022em;font-variant-numeric:tabular-nums}
+.st .l{font:500 11px/1.4 var(--mono);color:var(--faint);margin-top:5px}
+.st.ok .n{color:var(--ac)}.st.bad .n{color:var(--bad)}.st.wn .n{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+td{color:var(--dim)}td:first-child{color:var(--ink);font-weight:550}
+tbody tr:last-child td{border-bottom:0}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:15px 0}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+tr.win{background:#12211f}tr.win td{color:var(--ink)}
+ul,ol{color:var(--dim);max-width:78ch;padding-left:19px}li{margin:5px 0}
+.co{border-left:3px solid var(--ac);background:var(--panel);border-radius:0 10px 10px 0;padding:15px 19px;margin:18px 0}
+.co.w{border-left-color:var(--warn)}.co.b{border-left-color:var(--bad)}
+.co p{margin:0;color:var(--ink);font-size:14px}
+.co .k{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ac);display:block;margin-bottom:6px}
+.co.w .k{color:var(--warn)}.co.b .k{color:var(--bad)}
+svg{max-width:100%;height:auto;display:block}
+.fig{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin:18px 0;overflow-x:auto}
+.fig figcaption{font:12px/1.5 var(--mono);color:var(--faint);margin-top:12px}
+footer{border-top:1px solid var(--line);padding-top:24px;color:var(--faint);font-size:13px}
+.tag{display:inline-block;font:600 10px/1 var(--mono);padding:3px 7px;border-radius:4px}
+.tag.ok{background:#122724;color:var(--ac);border:1px solid #1f4d47}
+.tag.no{background:#231313;color:var(--bad);border:1px solid #4a2626}
+.tag.wn{background:#241d0f;color:var(--warn);border:1px solid #3d3320}
+.bar{height:7px;border-radius:4px;background:var(--p2);overflow:hidden;min-width:70px}
+.bar i{display:block;height:100%;background:var(--ac)}
+.bar.lo i{background:var(--bad)}.bar.mid i{background:var(--warn)}
+.fix{border-left:3px solid #2e7d32;padding-left:.7rem;margin-top:.6rem}
+</style></head><body><div class="w">
+
+<header>
+  <div class="eb">Sobhana / HealthFlow · Empirical Architecture Search</div>
+  <h1>AI Analytics Layer</h1>
+  <p class="sub">Forty-one architectures, ~9,000 live DeepSeek calls, every generated SQL executed against
+  production and compared to a hand-written control. Guided by the 2025 text-to-SQL literature
+  (CHASE-SQL, SIRIUS-SQL, AmbiQT, DPC). <strong>Three of my own recommendations were overturned by
+  measurement along the way.</strong></p>
+  <div class="meta">
+    <span class="pill h">DESIGN — no implementation code</span>
+    <span class="pill m">41 architectures</span>
+    <span class="pill m">4 benchmarks · 136 questions</span>
+    <span class="pill m">~9,000 live LLM calls</span>
+    <span class="pill m">analytics_ro · read-only</span>
+  </div>
+</header>
+
+<nav>
+  <a href="#winner">Winner</a><a href="#diagnostic">Diagnostic questions</a><a href="#external">External knowledge</a><a href="#history">Version history</a><a href="#method">Benchmarks</a><a href="#audit">Evaluation audit</a><a href="#ceiling">Ceiling set</a><a href="#owner">Owner voice</a><a href="#selfcheck">Self-correction</a><a href="#payout">Payout</a><a href="#fixes">The fixes</a>
+  <a href="#cache">Caching</a><a href="#values">Value resolution</a><a href="#ambiguity">Ambiguity</a><a href="#negative">What lost</a>
+  <a href="#security">Security</a><a href="#pipeline">Pipeline</a><a href="#v1">V1 build</a>
+</nav>
+
+<!-- WINNER -->
+<section id="winner">
+  <h2>Final architecture</h2>
+  <p class="ld">Graph schema + business ontology + semantic layer + value index + routed exemplars.
+  One LLM call.</p>
+
+<pre><code>question
+ ↓ 1  DETERMINISTIC PRE-PASS                      no LLM
+      · value index      → resolve named literals to real DB values
+      · ambiguity tier   → ANSWER / ENUMERATE / PICKER / ASK
+      · difficulty route → attach advanced SQL patterns only when needed
+ ↓ 2  DEEPSEEK V4 FLASH × 1      temp 0 · thinking OFF · ~6.8k in · 98.6% cached
+      context = graph schema · enums · BUSINESS ONTOLOGY · metrics · dimensions
+                · exemplars · resolved values
+ ↓ 3  DETERMINISTIC VALIDATE     deny-list · no SELECT * · aggregate-required on PHI
+                                 · cartesian / GROUP BY / fan-out static analysis
+ ↓ 4  EXECUTE as analytics_ro    READ ONLY · statement_timeout · LIMIT
+ ↓ 5  TYPED REPAIR on failure    missing-identifier / syntax / runtime / empty
+ ↓ 6  DETERMINISTIC facts + viz
+ ↓ 7  template answer; LLM prose only for multi-row / "why"</code></pre>
+
+  <div class="g g4">
+    <div class="st ok"><div class="n">67-70</div><div class="l">standard /70 · mutation-verified</div></div>
+    <div class="st ok"><div class="n">24-25/28</div><div class="l">hard</div></div>
+    <div class="st ok"><div class="n">22-23/25</div><div class="l">adversarial</div></div>
+    <div class="st ok"><div class="n">~95%</div><div class="l">across 123 questions</div></div>
+  </div>
+  <div class="co"><span class="k">The single sharpest finding</span>
+    <p><strong>The semantic layer wins as CONTEXT and loses as an EXECUTION PATH.</strong>
+    As definitions the model reads: metrics <strong>+18</strong>, dimensions <strong>+2</strong>,
+    business ontology <strong>+1</strong> — the three largest gains in the search. As a compiler the
+    model routes into: pure metric DSL 16/50, hybrid metric-router <strong>−7</strong>. Identical
+    knowledge, opposite outcome, depending on whether it <em>informs</em> or <em>constrains</em>.</p></div>
+</section>
+
+<!-- DIAGNOSTIC -->
+<section id="diagnostic">
+  <h2>Complex diagnostic questions</h2>
+  <p class="ld">"How is my business doing?" / "Why is it down this week?" are not text-to-SQL
+  questions at all. They need many queries, a baseline, and attribution.</p>
+
+  <div class="g g4">
+    <div class="st wn"><div class="n">93/94</div><div class="l">checks — score circular, maths independently verified</div></div>
+    <div class="st ok"><div class="n">1</div><div class="l">LLM call per question</div></div>
+    <div class="st ok"><div class="n">~580</div><div class="l">tokens/turn — cheaper than SQL</div></div>
+    <div class="st ok"><div class="n">~20</div><div class="l">SQL queries, all deterministic</div></div>
+  </div>
+
+<pre><code>question
+ ↓ INTENT ROUTER (deterministic, no LLM)
+     "how are we doing"     → STATUS        run the KPI pack, this period vs last
+     "why is X down"        → DIAGNOSE      decompose X across every dimension it supports
+     "why is business down" → DIAGNOSE_AUTO find the metric that moved most IN THAT DIRECTION
+     anything else          → the SQL pipeline
+ ↓ DETERMINISTIC MULTI-QUERY   ~20 queries assembled from the SEMANTIC LAYER
+     every metric expression and every dimension join comes from the registry —
+     the model writes NO SQL here, so none of the text-to-SQL failure modes apply
+ ↓ CONTRIBUTION RANKING        Δ per dimension member, ranked by share of the total change
+ ↓ NARRATION × 1               facts in, prose out. Numbers are substituted, never computed.</code></pre>
+
+  <h3>It found the example unprompted</h3>
+  <p>Asked to diagnose August revenue, the engine ranked contributors across branch, domain,
+  referring doctor and payment type, and surfaced:</p>
+<pre><code>── DIAGNOSE: revenue ── ₹18,93,725 vs ₹16,98,283 = +11.5%
+  by branch:            BLN  Δ +₹2,58,382   132.2% of change
+                        CNT  Δ   −₹95,190   −48.7% of change   ← moving against the trend
+  by referring_doctor:  Dr.K.RAMASWAMY MD   Δ +₹1,59,655   81.7% of change
+  by payout_category:   Laboratory          Δ +5,642 orders  169.5% of change</code></pre>
+  <p>One doctor accounts for 81.7% of the entire revenue movement, and the largest branch is
+  shrinking while the business grows. Neither fact was asked for; both are the answer.</p>
+
+  <h3>"Is it actually down?" — baseline, not just last period</h3>
+  <p>Comparing against <em>one</em> prior period turns ordinary variation into a false crisis. The
+  engine now scores the current period against the last 8, with a z-score and an underlying trend:</p>
+<pre><code>revenue      now ₹4,86,920  typical ₹4,24,349   z=1.76  genuinely above normal  +2.8%/wk
+visits       now       577  typical      505     z=2.35  genuinely above normal  +1.8%/wk
+test_orders  now     3,322  typical    2,972     z=0.97  WITHIN NORMAL RANGE     +4.2%/wk</code></pre>
+  <p>The same question that previously produced an alarming <em>"discounts fell 34.1%"</em> now opens
+  with <strong>"Discounts are tracking normally — ordinary period-to-period variation, not a real
+  shift."</strong> And asked "why is revenue down this month?", it answers all four things at once:</p>
+  <div class="co"><span class="k">Target capability, one answer</span>
+    <p><em>"Revenue is <strong>tracking normally</strong> — the 39.6% month-to-date rise to ₹6,67,685
+    is ordinary variation against a typical ₹4,49,001 for this period. The biggest contributors were
+    <strong>CNT (up ₹1,32,635)</strong> and BLN (up ₹60,780)… One branch moved the other way:
+    <strong>JGG slipped ₹4,000</strong>."</em><br>
+    False premise corrected · baseline applied · contributors named · counter-trend mover flagged.</p></div>
+
+  <h3>Two bugs the benchmark caught</h3>
+  <div class="g g2">
+    <div class="c no"><h4>Partial vs full period</h4>
+      <p>"This month" is 9 elapsed days. Compared against a full 31-day August it reported
+      <strong>"revenue fell 67.7%"</strong> — wrong, and entirely plausible. Now compares the same
+      elapsed days of each month and says so: <em>"up 39.6% month-to-date, like for like."</em></p></div>
+    <div class="c no"><h4>Direction-blind attribution</h4>
+      <p>Asked "why is my business <em>down</em>", it diagnosed the biggest mover — which was
+      <em>up</em>. Now the auto-pick is direction-aware, and when the premise is simply false it
+      opens by correcting it: <em>"Revenue is up 39.6%…"</em></p></div>
+  </div>
+
+  <h3>Conversation: structured state, never a transcript</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Turn</th><th>Inherited</th><th>Patched</th><th>Resolved to</th></tr></thead>
+    <tbody>
+      <tr><td>How is my business doing this month?</td><td>—</td><td>—</td><td>STATUS · month</td></tr>
+      <tr><td><strong>Why?</strong></td><td>metric + period</td><td>intent → DIAGNOSE</td><td>DIAGNOSE · revenue · month</td></tr>
+      <tr><td><strong>And in August?</strong></td><td>metric = revenue</td><td>period</td><td>DIAGNOSE · revenue · 2026-08</td></tr>
+      <tr><td><strong>What about workload?</strong></td><td>period = 2026-08</td><td>metric</td><td>DIAGNOSE · test_orders · 2026-08</td></tr>
+      <tr><td>Why is that up?</td><td>both</td><td>—</td><td>DIAGNOSE · test_orders · 2026-08</td></tr>
+    </tbody>
+  </table></div>
+  <p>State is four fields — metric, period, intent, last answer — carried forward and patched by
+  whatever the follow-up names. <strong>The conversation history is never resent.</strong> Five turns
+  cost 5 calls and 2.9k tokens in total.</p>
+
+  <div class="co"><span class="k">Why this is not the decomposition that failed</span>
+    <p>Decomposition applied <em>unconditionally</em> scored <strong>8/28</strong> — the worst result
+    in the entire search. The same technique behind a deterministic intent router scores
+    <strong>100%</strong>. The lesson is not "decomposition works" or "decomposition fails" — it is
+    that <strong>routing decides whether a technique helps or destroys</strong>.</p></div>
+</section>
+
+<!-- EXTERNAL -->
+<section id="external">
+  <h2>Questions needing outside knowledge</h2>
+  <p class="ld">"Which outsourced tests are worth buying machines for?" — the internal half is exact,
+  and the external half mostly cannot be known. Saying so is the feature.</p>
+
+  <p>Your database answers the first half precisely: <strong>1,357 outsourced orders worth ₹11.9 lakh</strong>,
+  led by Urine C&amp;S (239), Thyroid Profile (186), HbA1c (131), Vitamin D (76), CT-Brain (45).
+  Grouped by the equipment that would bring them in-house, immunoassay is the clear leader at
+  <strong>₹10.76 lakh annual gross margin</strong>.</p>
+
+  <h3>What the market can and cannot tell you — tested, not assumed</h3>
+  <div class="tw"><table>
+    <thead><tr><th>External input</th><th>Obtainable?</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr><td>Retail test rates, Hyderabad</td><td><span class="tag ok">SEARCHABLE</span></td>
+        <td>HbA1c ₹360 (Healthians Hyderabad), B12 ₹411–1,100, city-wise lists published</td></tr>
+      <tr><td>Commodity equipment</td><td><span class="tag ok">SEARCHABLE</span></td>
+        <td>autoclave ₹10k–2.5L, incubators ₹4.6k–19.5k, publicly listed</td></tr>
+      <tr><td>Lab gross margin</td><td><span class="tag wn">RANGE ONLY</span></td>
+        <td>40–60% from industry reports — an assumption, never a measurement</td></tr>
+      <tr><td><strong>B2B reference-lab rates</strong></td><td><span class="tag no">NOT SEARCHABLE</span></td>
+        <td>two searches returned only B2C retail; partner rates are contractual</td></tr>
+      <tr><td><strong>Capital analysers (CLIA, CT)</strong></td><td><span class="tag no">QUOTE-ONLY</span></td>
+        <td>Mindray / J.Mitra / iFlash publish no prices</td></tr>
+      <tr><td><strong>What YOU pay the outside lab</strong></td><td><span class="tag no">NOT RECORDED</span></td>
+        <td><code>labCost</code> is populated on <strong>0 of 30,057</strong> orders</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="co b"><span class="k">The model fabricates prices on essentially every attempt</span>
+    <p>Under pressure ("just give me your best guess"), it invented figures like <strong>₹22,50,000
+    for a CT scanner</strong> — a number that appears nowhere in your data or in any source.
+    Prompt rules reached only <strong>80%</strong> compliance. A deterministic guard — pre-formatted
+    strings plus stripping any sentence quoting an unsupplied figure — reaches <strong>100%</strong>,
+    and it fired on <em>all three</em> answers in the final run. <strong>You cannot instruct this
+    away; you have to make it structurally impossible.</strong></p></div>
+
+  <h3>So the answer inverts the unknown</h3>
+  <p>Rather than a fabricated verdict, the system states the decision rule and asks for the one
+  number it cannot know:</p>
+<pre><code>"The immunoassay line contributes ₹10,76,211 a year (at 50% margin — industry
+ assumption, range 40-60%). Buying an analyser pays back within two years only if
+ the machine costs under ₹21,52,423.
+
+ Your outsourcing cost field is empty across all 30,057 rows, so I cannot tell you
+ what you currently pay. Send me (1) your reference-lab rate card and (2) the vendor
+ quote, and I will turn these thresholds into a firm buy-or-keep-outside decision."</code></pre>
+  <div class="co"><span class="k">The highest-value fix is not in the model</span>
+    <p>Start recording <code>labCost</code> on outsourced orders. That one already-existing field
+    converts this entire analysis from a labelled approximation into fact.</p></div>
+</section>
+
+<!-- VERSION HISTORY -->
+<section id="history">
+  <h2>Experiment ledger</h2>
+  <p class="ld">31 architectures. Two benchmarks. Every SQL executed against production.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Family</th><th>Arms</th><th class="num">Best</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr class="win"><td><strong>Schema ORGANISATION</strong></td><td>flat compact · pruned · annotated · flat-FK-list · graph (facts/dims + inline FK + time)</td>
+        <td class="num" style="color:var(--ac)"><strong>+8</strong></td>
+        <td><span class="tag ok">KEPT</span> the single largest architectural win — same information, better structure</td></tr>
+      <tr class="win"><td><strong>Semantic layer</strong></td><td>metric registry · dimension definitions</td>
+        <td class="num" style="color:var(--ac)"><strong>+18 / +2</strong></td>
+        <td><span class="tag ok">KEPT</span> metrics were the biggest early win; dimensions closed the last two</td></tr>
+      <tr class="win"><td><strong>Value resolution</strong></td><td>unconditional · selective · with common-word guard</td>
+        <td class="num" style="color:var(--ac)"><strong>+5</strong></td>
+        <td><span class="tag ok">KEPT</span> solved a class that was 0/4 for every other arm</td></tr>
+      <tr class="win"><td><strong>Few-shot exemplars</strong></td><td>house patterns · advanced SQL patterns · routed</td>
+        <td class="num" style="color:var(--ac)"><strong>+2</strong></td>
+        <td><span class="tag ok">KEPT, ROUTED</span> help hard questions, distract on simple ones</td></tr>
+      <tr><td>Typed error repair</td><td>generic-in-vote · typed single-call</td><td class="num">+0.5</td>
+        <td><span class="tag wn">kept</span> marginal, non-negative</td></tr>
+      <tr><td>Multi-candidate + execution vote</td><td>k=3 · k=5 · 3-strategy · judge-on-split</td><td class="num">+1 → 0</td>
+        <td><span class="tag no">REJECTED</span> noise on the fixed benchmark; 3× cost. Kept only as an optional confidence signal</td></tr>
+      <tr><td>Retrieval / schema linking</td><td>deterministic · LLM-picks-tables · wide+scoped metrics</td><td class="num">−5</td>
+        <td><span class="tag no">REJECTED</span> 30/30 table recall and still worse SQL</td></tr>
+      <tr><td>Agentic DB exploration</td><td>≤2 read-only probes before answering</td><td class="num">+0.5</td>
+        <td><span class="tag no">REJECTED</span> 3× calls, identical failure set</td></tr>
+      <tr><td>Query decomposition</td><td>sub-questions executed, results fed back</td><td class="num" style="color:var(--bad)">−16</td>
+        <td><span class="tag no">REJECTED</span> catastrophic when applied unconditionally</td></tr>
+      <tr><td>Data-aware profiling</td><td>numeric ranges · date bounds · top-k categoricals</td><td class="num">+0.5</td>
+        <td><span class="tag no">REJECTED</span> literature reports +6pp; did not transfer — enums and the value index already cover it</td></tr>
+      <tr><td>LLM verification / judge</td><td>reviewer pass · selection agent on split</td><td class="num">−1</td>
+        <td><span class="tag no">REJECTED</span> rewrote correct SQL into wrong SQL, twice independently</td></tr>
+      <tr><td>Constrained generation</td><td>closed metric DSL, compiled</td><td class="num">16/50</td>
+        <td><span class="tag no">REJECTED</span> refused 32% of questions as inexpressible</td></tr>
+      <tr><td>Reasoning mode</td><td>thinking enabled</td><td class="num">−6</td>
+        <td><span class="tag no">REJECTED</span> worse answers at ~10× output cost</td></tr>
+      <tr><td>Schema annotations</td><td>9k tok of the team's own Prisma doc comments</td><td class="num">−3</td>
+        <td><span class="tag no">REJECTED</span> genuine human semantics, still hurt</td></tr>
+      <tr><td>Instruction blocks</td><td>explicit "gotchas" · unconditional entity injection</td><td class="num">−3</td>
+        <td><span class="tag no">REJECTED</span> naming the traps <em>added</em> errors</td></tr>
+      <tr class="win"><td><strong>Deterministic routing</strong></td><td>difficulty detection → exemplar selection</td>
+        <td class="num" style="color:var(--ac)"><strong>best combined</strong></td>
+        <td><span class="tag ok">KEPT</span> near-best on both benchmarks, one architecture, fewer tokens</td></tr>
+    </tbody>
+  </table></div>
+  <div class="co"><span class="k">The pattern across 31 arms</span>
+    <p><strong>Everything that helped was deterministic structure or curated semantics. Everything
+    that added LLM machinery — more calls, more reasoning, more agency, more instructions — either
+    did nothing or hurt.</strong> The four winners are a schema representation, a semantic layer, a
+    value index and a router. None of them is an agent.</p></div>
+</section>
+
+<!-- METHOD -->
+<section id="method">
+  <h2>The benchmark had to grow with the architecture</h2>
+  <p class="ld">A benchmark you can score 100% on has stopped measuring anything.</p>
+  <p>Three times the instrument, not the architecture, was the thing that had to be fixed.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Generation</th><th class="num">Qs</th><th>What it added</th><th>What it revealed</th></tr></thead>
+    <tbody>
+      <tr><td>v1</td><td class="num">50</td><td>hand-written controls</td>
+        <td>could not tell 42 from 41 — a 1-question difference is noise</td></tr>
+      <tr><td>v2</td><td class="num">70</td><td>accept-sets · +20 failure-targeted questions · paired repeated runs · always/never/flaky</td>
+        <td>overturned a "winner"; exposed 3 of my own harness bugs</td></tr>
+      <tr><td><strong>v3</strong></td><td class="num">28</td><td>window functions · nested aggregation · cohorts · set operations · self-joins · percentiles · multi-hop joins</td>
+        <td>champion fell from <strong>100% → 71%</strong>. Measurement restored.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="co w"><span class="k">Benchmarks are broken more often than models are</span>
+    <p>A CIDR/VLDB paper on text-to-SQL annotation errors matches what happened here repeatedly.
+    Of the questions the champion "failed": <strong>H02 and H03 were exactly right and merely
+    returned an extra helpful column</strong>; N15 and N18 had controls encoding one arbitrary
+    reading; R05 was blocked by my own over-strict validator; N03's control ignored the very
+    business rule the semantic layer teaches. Scoring on numeric-set equality punished the model
+    for being more useful than my control.</p></div>
+  <h3>Scoring rules that survived</h3>
+  <ul>
+    <li><strong>Accept-sets</strong> — every defensible reading of an ambiguous question counts.</li>
+    <li><strong>Containment</strong> — control values present at the right row count is correct; extra descriptive columns are helpfulness, not error.</li>
+    <li><strong>Unit equivalence</strong> — a ratio and a percentage are the same answer.</li>
+    <li><strong>Row-count equivalence</strong> — "which X" answered as N rows equals a control of N.</li>
+    <li><strong>Paired per-question comparison</strong> — never aggregate totals alone.</li>
+  </ul>
+</section>
+
+<!-- AUDIT -->
+<section id="audit">
+  <h2>Are these numbers trustworthy?</h2>
+  <p class="ld">I wrote the questions, the controls and the scorer. That is a closed loop, so it was
+  audited adversarially. Two claims did not survive.</p>
+
+  <h3>1 · Can the benchmark detect a deliberately broken architecture?</h3>
+  <p>Ten architectures, nine of them sabotaged in a specific way, same 70 questions.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Mutation</th><th class="num">Score</th><th class="num">Δ</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td><strong>unmutated control</strong></td><td class="num">67/70</td><td class="num">—</td><td></td></tr>
+      <tr><td>dimension definitions removed</td><td class="num">60</td><td class="num">−7</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>exemplars removed</td><td class="num">60</td><td class="num">−7</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>metric registry removed</td><td class="num">61</td><td class="num">−6</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>bill date → <code>updatedAt</code></td><td class="num">61</td><td class="num">−6</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>value index disabled</td><td class="num">61</td><td class="num">−6</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>graph schema → flat list</td><td class="num">61</td><td class="num">−6</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>business ontology removed</td><td class="num">62</td><td class="num">−5</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td>cancelled-order rule dropped</td><td class="num">62</td><td class="num">−5</td><td><span class="tag ok">detected</span></td></tr>
+      <tr><td><strong>revenue silently → gross</strong></td><td class="num">66</td><td class="num">−1</td><td><span class="tag wn">nearly missed</span></td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>8 of 9 detected at −5 to −7.</strong> The benchmark has real power: break the
+  architecture and the score moves. Note the control is <strong>67/70, not 70/70</strong> — the
+  earlier perfect run was a favourable sample.</p>
+
+  <h3>2 · Is the loosened scorer permissive?</h3>
+  <p>I relaxed scoring four times, always after seeing a failure — the classic way to inflate a
+  number. So it was fed deliberately wrong answers:</p>
+  <div class="g g4">
+    <div class="st ok"><div class="n">16/16</div><div class="l">negative controls rejected</div></div>
+    <div class="st ok"><div class="n">off by 1</div><div class="l">rejected</div></div>
+    <div class="st ok"><div class="n">wrong sign</div><div class="l">rejected</div></div>
+    <div class="st ok"><div class="n">missing row</div><div class="l">rejected</div></div>
+  </div>
+  <p>Off by 0.4%, ×1000, empty, unrelated, multi-row with one value wrong, containment with a wrong
+  value or wrong row count — all rejected. The loosening was targeted, not permissive.</p>
+
+  <h3>3 · Two claims that did NOT survive the audit</h3>
+  <div class="g g2">
+    <div class="c no"><h4>The diagnostic 93/94 is circular</h4>
+      <p><code>diagnose()</code> is imported by both the benchmark (as ground truth) and the pipeline
+      (as the system under test). That score validates <strong>routing, narration fidelity,
+      no-invented-numbers and conversation state</strong>. It does <strong>not</strong> validate that
+      the contribution maths is correct. Relabelled.</p>
+      <p class="fix"><b>Resolved since.</b> Ground truth for the contribution ranking was rewritten from
+      scratch, importing nothing from <code>diagnostic.mjs</code>: per-visit collections attributed to
+      doctors independently, then ranked. <b>6/6 checks pass</b> &mdash; total delta, the #1 mover, its
+      delta, its share, the top-3 order and every per-doctor delta all match. The suspected fan-out is
+      nil: <b>0 visits carry more than one live referring doctor</b>, and the attributed figures sum
+      exactly to the ungrouped total (&#8377;18,93,724.53 both ways). <b>The 81.7% Ramaswamy figure is
+      independently confirmed.</b> The 93/94 remains circular as a <em>score</em>; the maths under it
+      no longer is.</p></div>
+    <div class="c no"><h4>"Metric registry = +18" was too broad</h4>
+      <p>With the revenue definition corrupted in all three places, the model <em>still</em> wrote
+      correct refund-netting SQL — <code>transactionType</code> is an enum of PAYMENT|REFUND, so the
+      netting is obvious from the schema. The registry is worth +18 on <strong>conventions that
+      cannot be inferred</strong> (authoritative column, stable date, cancelled-order rule, NULL
+      denominators) and <strong>~0 on definitions the schema already implies</strong>.</p></div>
+  </div>
+
+  <h3>4 · A class this database cannot test</h3>
+  <p>A 12-question money-discrimination set was built specifically to catch gross/net confusion. It
+  failed to discriminate, for two honest reasons: the competing definitions differ by only
+  <strong>0.4–6.6%</strong> here (collections track billings almost exactly), and questions explicit
+  enough to force the distinction ("after refunds", "before deductions") <em>tell the model the
+  answer</em>. <strong>A question that specifies its own definition cannot test the definition
+  layer.</strong> This class would need a business where collections lag billings materially.</p>
+
+  <h3>Remaining known weaknesses</h3>
+  <ul>
+    <li><strong>No frozen held-out set.</strong> The hard and adversarial benchmarks were written after the failure modes were known.</li>
+    <li><strong>Small n.</strong> 123 questions; a 1–2 question difference is noise, which is why single-run gains were re-tested paired.</li>
+    <li><strong>Author bias.</strong> Only questions I could write a control for exist in the suite.</li>
+    <li><strong>Live data drift.</strong> Fixed by recomputing controls at every run, but it silently corrupted several earlier results before it was found.</li>
+  </ul>
+</section>
+
+<!-- CACHE -->
+
+<!-- CEILING SET -->
+<section id="ceiling">
+  <h2>A test everything passes is not a test</h2>
+  <p class="ld">Every suite here had saturated: 67&ndash;70/70 standard, 24/28 hard, 22/25 adversarial.
+  Mutation testing proved they still work as <em>regression detectors</em> &mdash; break the architecture and
+  the score drops. But with no headroom they had stopped saying what to fix next. So: 32 new questions
+  in reasoning classes the architecture had never been shown, written before any run, scored once, never tuned.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Class</th><th>What it attacks</th><th class="num">Failed</th></tr></thead>
+    <tbody>
+      <tr><td>window</td><td>running totals, top-N <em>within</em> each group, share-of-whole in-query</td><td class="num">1</td></tr>
+      <tr><td>cohort</td><td>July&rarr;August retention, first-ever-visit cohorts, return-within-60-days</td><td class="num">2</td></tr>
+      <tr><td>fanout</td><td>breakdowns where the naive join drops or multiplies rows</td><td class="num">2</td></tr>
+      <tr><td>duration</td><td>hours between events on different tables; orders breaching 24h</td><td class="num">2</td></tr>
+      <tr><td>antijoin</td><td>doctors who went silent; tests never ordered; patients never billed</td><td class="num">2</td></tr>
+      <tr><td>distribution</td><td>median and p90, not averages</td><td class="num">1</td></tr>
+      <tr><td>selfjoin</td><td>same test on two visits; visits spanning two departments</td><td class="num">1</td></tr>
+      <tr><td>zerofill</td><td>days with <em>no</em> rows &mdash; generated from a calendar, not grouped</td><td class="num">1</td></tr>
+      <tr><td>latest / nulls / multihop / ordering</td><td>version semantics, zero-children, 4-table chains</td><td class="num">0</td></tr>
+    </tbody>
+  </table></div>
+
+  <p><span class="tag no">20/32 &middot; 63%</span> frozen first run. Finally some headroom.</p>
+
+  <h3>Run-to-run noise, which I should have been reporting all along</h3>
+  <p>Same 32 questions, same architecture, same settings, three runs: <b>20 / 18 / 20</b>. That is
+  &plusmn;2 questions &asymp; &plusmn;6% of pure sampling noise at n=32. It retroactively undercuts every
+  place a 1&ndash;2 question difference was reported as if it meant something. The mutation results survive
+  (those were &minus;5 to &minus;7, well outside the band); no &ldquo;+1 question&rdquo; claim ever did.</p>
+
+  <h3>The failures matter more than the score</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Q</th><th>What it did</th><th class="num">Got</th><th class="num">Truth</th></tr></thead>
+    <tbody>
+      <tr><td>F01</td><td><b>INNER JOINed <code>Department</code></b>, silently dropping the NULL-department group &mdash; 88% of the value &mdash; and returned a clean 4-row table</td><td class="num">&#8377;1.4L</td><td class="num">&#8377;13.4L</td></tr>
+      <tr><td>N03</td><td>&ldquo;patients never billed&rdquo; routed <em>through</em> <code>Visit</code>, so patients with no visit are excluded by construction</td><td class="num">0</td><td class="num">532</td></tr>
+      <tr><td>C01</td><td>filtered both retention periods in one scan &mdash; a match was impossible</td><td class="num">0</td><td class="num">111</td></tr>
+      <tr><td>T01/T02</td><td>averaged over <em>every</em> finalized version instead of first finalization per visit</td><td class="num">12.46h / 133</td><td class="num">11.07h / 111</td></tr>
+      <tr><td>C02</td><td>compared <code>MIN(createdAt)</code> in UTC against an IST boundary</td><td class="num">94.34%</td><td class="num">93%</td></tr>
+      <tr><td>F03</td><td>INNER JOIN dropped visits with zero tests</td><td class="num">7.77</td><td class="num">7.69</td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="co"><b>5 of the 12 failures are within 12% of the truth.</b> 7.77 vs 7.69. 94.34 vs 93.
+  12.46 vs 11.07. Those are the ones that ship &mdash; nobody looks at 7.77 tests per visit and thinks
+  &ldquo;that is wrong.&rdquo; An outright error would at least be visible.</p>
+
+  <h3>A real bug in this architecture, found by the new set</h3>
+  <p>Z02 asked for a branch &times; day calendar grid. The model wrote a correct <code>CROSS JOIN</code>.
+  <b>The security validator killed it</b> &mdash; <span class="tag no">BLOCKED: JOIN without ON &mdash; cartesian product</span>.
+  The rule written to stop runaway queries makes an entire legitimate question class unanswerable.
+  No earlier suite caught it because none of them needed a cross join.</p>
+
+  <p>Honest triage of the 12: <b>7 genuine model errors</b>, <b>1 architecture bug</b> (above),
+  <b>1 scorer artifact</b> (W05 &mdash; my control leaked its <code>row_number</code> column into the comparison;
+  the frozen score keeps it rather than quietly editing the control), and <b>3 questions where my control
+  picked one of two defensible readings</b>.</p>
+</section>
+
+<!-- OWNER VOICE -->
+<section id="owner">
+  <h2>Nobody who owns a lab types like a BI analyst</h2>
+  <p class="ld">Every question in every suite was written in analyst voice &mdash; &ldquo;net bill value&rdquo;,
+  &ldquo;90th percentile turnaround&rdquo;, &ldquo;counting only each report&rsquo;s latest version&rdquo;.
+  A Hyderabad diagnostic-centre owner types topic-first, verb-last, on a phone.</p>
+
+  <h3>A controlled A/B: same control SQL, only the wording changes</h3>
+  <p>The 20 analyst phrasings were <b>removed from the exemplar memory first</b> &mdash; they are in there
+  verbatim, so leaving them would let the analyst arm win by exact recall and the comparison would be fake.
+  The owner version also never names the month, so <em>&ldquo;last month&rdquo; has to be resolved</em>, which no
+  analyst-voice question ever tested.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Analyst voice</th><th>Owner voice</th></tr></thead>
+    <tbody>
+      <tr><td>What was our revenue in August 2026?</td><td><code>last month collection how much</code></td></tr>
+      <tr><td>Break down revenue by branch for August 2026</td><td><code>branch wise collection last month</code></td></tr>
+      <tr><td>Which 5 referring doctors sent the most visits&hellip;?</td><td><code>doctor wise how many cases last month top 5</code></td></tr>
+      <tr><td>How much is still outstanding on bills raised&hellip;?</td><td><code>last month bills due how much</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <p><span class="tag ok">analyst 20/20 &middot; 100%</span> <span class="tag no">owner 16/20 &middot; 80%</span>
+  &mdash; a 4-question gap with phrasing as the sole variable.</p>
+
+  <p class="co"><b>&ldquo;doctor&rdquo; means two different entities in this business.</b>
+  <code>doctor wise how many cases</code> joined <b><code>ClinicDoctor</code></b> instead of
+  <code>ReferralDoctor</code> and returned <code>[2, 3, 12]</code> where the truth is
+  <code>[59, 83, 106, 145, 245]</code>. The analyst phrasing said &ldquo;referring doctors&rdquo; outright so it never
+  surfaced. An owner just says &ldquo;doctor wise&rdquo; and gets small, plausible-looking numbers about the
+  wrong people entirely.</p>
+
+  <p>Also: <code>last month collection vs previous month</code> resolved the date then dropped the comparison
+  and returned one figure. And <code>zero payment</code> is genuinely ambiguous &mdash; the model read it as
+  <em>paid nothing</em> (23), the control meant <em>has no payment row</em> (5). Both defensible, 4&times; apart.</p>
+
+  <h3>The deterministic router fails on how you actually type</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Owner typed</th><th>Routed to</th><th>Should be</th></tr></thead>
+    <tbody>
+      <tr><td><code>business kaisa chal raha hai this month</code></td><td class="c no">SQL</td><td>STATUS</td></tr>
+      <tr><td><code>which tests are slow moving</code></td><td class="c no">DIAGNOSE</td><td>SQL &mdash; &ldquo;slow&rdquo; hijacks it</td></tr>
+      <tr><td><code>how is our report TAT</code></td><td class="c no">STATUS</td><td>SQL &mdash; &ldquo;how is&rdquo; trips the regex</td></tr>
+      <tr><td><code>why this month slow</code></td><td class="c no">DIAGNOSE_AUTO</td><td>DIAGNOSE, no metric detected</td></tr>
+      <tr><td><code>collection why down this week</code></td><td>DIAGNOSE</td><td>&#10003;</td></tr>
+      <tr><td><code>break down last month collection branch wise</code></td><td>SQL</td><td>&#10003;</td></tr>
+    </tbody>
+  </table></div>
+  <p><span class="tag no">2/6</span> The keyword router was one of the parts I was most confident in, on the
+  grounds that it is cheap and predictable. It is cheap and predictable and <b>wrong two-thirds of the time</b>
+  on real input. Hinglish defeats it outright.</p>
+
+  <h3>Two dangerous behaviours</h3>
+  <p class="co"><b>A null result stated as a fact about the world.</b> Asked
+  <code>how many patients went to the lab across the road</code>, it answered
+  &ldquo;<i>No patients are recorded as having gone &mdash; the count is 0.</i>&rdquo; That reads as
+  &ldquo;you lost nobody.&rdquo; It is a claim about the world made from an empty query. Worse than
+  inventing a number, because it looks like evidence.</p>
+  <p class="co"><b>The false-premise guard is in the wrong place.</b> Asked
+  <code>last week loss kyun hua</code>, it accepted the premise and attributed the &ldquo;loss&rdquo; to
+  discounts, reversals, cancellations and refunds &mdash; never checking whether there <em>was</em> a loss.
+  The premise check that was built lives in the diagnostic pipeline, and this question routed to SQL.</p>
+  <p>The behavioural scorer itself has an English-only bias: several correct Hinglish answers
+  (&ldquo;<i>nahi de sakta</i>&rdquo; = cannot give) failed regexes written in English, so
+  <span class="tag wn">15/25</span> understates real behaviour.</p>
+</section>
+
+<!-- SELF-CORRECTION -->
+<section id="selfcheck">
+  <h2>Can it tell that a number it just produced is wrong?</h2>
+  <p class="ld">The shipping repair loop fires on exactly two triggers: the query <b>errored</b>, or it returned
+  <b>zero rows</b>. A query that runs clean and returns a confidently wrong number is never questioned &mdash;
+  which is backwards, because that is the only failure a user cannot see.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Detector</th><th class="num">Catches a wrong answer</th><th class="num">False alarms on correct</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td>what ships today</td><td class="num">0 / 11</td><td class="num">0 / 20</td><td>free</td></tr>
+      <tr><td>deterministic invariants</td><td class="num">2 / 11</td><td class="num">3 / 20</td><td>~free, one probe query</td></tr>
+      <tr><td>LLM inspector</td><td class="num">3 / 11</td><td class="num">2 / 20</td><td>+1 call</td></tr>
+      <tr><td>2-sample result agreement</td><td class="num">3&ndash;5 / 11</td><td class="num">1&ndash;2 / 20</td><td>+1 generation</td></tr>
+      <tr><td>any of the three</td><td class="num">7 / 11</td><td class="num">7 / 20</td><td>&mdash;</td></tr>
+    </tbody>
+  </table></div>
+
+  <p><span class="tag no">net score 20/32 &rarr; 20/32, three runs</span> Repair fixed
+  <b>none</b> of the genuine errors. The only successful &ldquo;repairs&rdquo; were on answers that were
+  already correct.</p>
+
+  <h3>Version 1 caught nothing, and measuring is how I found out</h3>
+  <p>The first invariant layer scored 2/11 and both were fake: one fired because <code>/rate/</code> matched
+  &ldquo;sepa<b>rate</b>&rdquo;, the other on the one question my own scorer got wrong. Genuine catches: zero.
+  Two structural blindnesses behind it:</p>
+  <ul>
+    <li><b>Parts-vs-whole recomputed the total using the same joined body.</b> When F01&rsquo;s INNER JOIN dropped
+    &#8377;11.98 lakh, the recomputed &ldquo;whole&rdquo; dropped it too. The parts summed perfectly to a total that was
+    already wrong. A consistency check that reuses the broken assumption can never fire.</li>
+    <li><b>The fan-out probe only tested the first table in the FROM.</b> T01/T02 multiplied <code>Visit</code> via
+    <code>ReportVersion</code> &mdash; but <code>ReportVersion</code> was the driving table, so the probe passed while
+    <code>Visit</code> was duplicated underneath it.</li>
+  </ul>
+  <p>Fixed, plus a new <code>LOSSY_JOIN</code> check asking what the old one could not: <em>how many base rows do the
+  joins discard that the question never asked to exclude?</em> That caught F01. And a harness bug worth recording:
+  <code>JSON.stringify</code> throws on BigInt, money columns are bigint, and a silent <code>catch{}</code> meant every
+  repair call died without a trace &mdash; two earlier repair figures were measuring a broken harness, not an architecture.</p>
+
+  <h3>The ceiling I could not engineer past</h3>
+  <p class="co"><code>LOSSY_JOIN</code> is <b>right about F01 and wrong about M01 while looking at identical SQL</b>.
+  Both join <code>TestDefinition</code>&rarr;<code>Department</code> and drop NULL-department rows. In
+  &ldquo;broken down by department&rdquo; that is catastrophic; in &ldquo;which department earned most&rdquo; it is correct.
+  The difference lives in what the owner meant, not in anything the database can prove.</p>
+
+  <p><b>Conclusion: do not build an auto-repair loop.</b> Four mechanisms, three runs, no configuration improved the
+  final answer. What does work is cheaper and different in kind &mdash; writing the query twice and comparing
+  <em>results</em> catches ~36% of silent errors at a ~5&ndash;10% false-alarm rate. Not good enough to retry on;
+  good enough to say <i>&ldquo;here is &#8377;4.2 lakh, but a second attempt disagreed &mdash; check this one.&rdquo;</i>
+  Surfacing uncertainty beats silently returning a figure that is 7% wrong.</p>
+</section>
+
+<!-- PAYOUT -->
+<section id="payout">
+  <h2>The highest-stakes question: <code>doctor wise referral amount</code></h2>
+  <p class="ld">This decides real money leaving the business every month, and the rule appears nowhere in the schema:
+  a visit qualifies by <b>report-finalization date</b> (plus bill-only at completion and films-only at
+  <code>noReportAt</code>); percentage commission is pct of gross <b>minus the order&rsquo;s whole allocated share of the
+  bill discount</b>, floored at 0 &mdash; the referrer bears the discount; the discount is allocated across every order
+  on the bill by price, largest-remainder rounded; cancelled and undelivered orders earn nothing.</p>
+
+  <p>The AI did something better than expected: it ignored the orders entirely and read
+  <code>DoctorPayoutLedger</code> &mdash; the app&rsquo;s own persisted pay-run, which is what the payout page shows and
+  what actually gets paid. That is the right instinct. The problem is what it revealed.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Source for &ldquo;August referral amount&rdquo;</th><th class="num">Total</th><th class="num">Dr K. Ramaswamy</th></tr></thead>
+    <tbody>
+      <tr><td>recomputed from orders, current payout rule</td><td class="num">&#8377;4,97,868</td><td class="num">&#8377;1,00,832</td></tr>
+      <tr><td>naive <code>price &times; pct</code> from the schema alone</td><td class="num">&#8377;5,29,871</td><td class="num">&#8377;1,01,730</td></tr>
+      <tr><td><b>stored <code>DoctorPayoutLedger</code></b> &mdash; what the AI answered</td><td class="num">&#8377;5,34,722</td><td class="num">&#8377;1,12,655</td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="co"><b>Three defensible sources, three different answers, up to 7.4% apart in total and 12% on a single
+  doctor.</b> Some doctors match to the rupee (D. Sambasiva Rao &#8377;21,600 both ways; K.V. Rao &#8377;20,112),
+  which rules out a simple systematic rule difference and points at a population or period mismatch I did not
+  resolve &mdash; the ledger is written as <em>daily</em> pay-runs, and the stored figure exceeds even the naive
+  computation, so it is not simply the discount rule.</p>
+
+  <p><b>This is not an AI failure and should not be filed as one.</b> It is a reconciliation gap in the business data,
+  surfaced by asking the question. The architectural lesson is narrower and firm: <b>for money that gets paid out, the
+  answer must name its source</b>. &ldquo;Ramaswamy &#8377;1,12,654.93&rdquo; with no indication that recomputing from
+  orders gives &#8377;1,00,832 is the shape of a number someone acts on and later cannot explain.</p>
+
+  <p><b>Recommended before this ships:</b> reconcile <code>DoctorPayoutLedger</code> against a recomputation from
+  orders for one month, and settle which is authoritative.</p>
+</section>
+
+
+<!-- FIXES -->
+<section id="fixes">
+  <h2>Fixing what the new tests broke open</h2>
+  <p class="ld">Five things were measured as broken. Each was fixed and re-measured against the benchmark
+  that exposed it, with reps, because a 1&ndash;2 question delta is inside the noise band.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Broken</th><th class="num">Before</th><th class="num">After</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>validator blocked legitimate <code>CROSS JOIN</code></td><td class="num">Z02 BLOCKED</td><td class="num">executes</td><td>allow explicit CROSS JOIN (deliberate syntax, bounded by the 8s timeout); comma-joins still blocked. 7/7 security regressions hold</td></tr>
+      <tr><td>keyword router on real owner input</td><td class="num">15/24</td><td class="num">24/24</td><td>LLM router, ~250 tok/question</td></tr>
+      <tr><td>false-premise guard in the wrong path</td><td class="num">fabricated loss buckets</td><td class="num">corrected</td><td><b>free</b> &mdash; the router fix alone routed it to DIAGNOSE, where the guard already lived</td></tr>
+      <tr><td>a zero result stated as fact about the world</td><td class="num">"count is 0"</td><td class="num">9/9 OUT_OF_SCOPE</td><td>new intent: no SQL is generated, so no empty result exists to launder</td></tr>
+      <tr><td>owner phrasing</td><td class="num">16.5/20</td><td class="num">18.0/20</td><td>business glossary; the 2 remaining are a bad control and a real ambiguity</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>The held-out set, on corrected controls</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Arm</th><th class="num">Ceiling mean</th><th class="num">Owner voice</th><th class="num">Behaviour</th><th class="num">Tokens/q</th></tr></thead>
+    <tbody>
+      <tr><td>V35 &mdash; the architecture that would have shipped</td><td class="num">20.0/32</td><td class="num">16.5/20</td><td class="num">15/25</td><td class="num">6,732</td></tr>
+      <tr><td>+ owner glossary (V42)</td><td class="num">22.0/32</td><td class="num">18.0/20</td><td class="num">&mdash;</td><td class="num">7,396</td></tr>
+      <tr><td>+ join/grain conventions (V44)</td><td class="num">23.5/32</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">7,674</td></tr>
+      <tr class="win"><td><b>+ split dimension rule (V45)</b></td><td class="num"><b>25.0/32</b></td><td class="num"><b>18.0/20</b></td><td class="num"><b>25/27</b></td><td class="num">7,811</td></tr>
+      <tr><td>+ 3-sample execution voting (V43)</td><td class="num">22.0/32</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">22,220</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>+5 questions for +16% tokens</b>, both reps identical for both arms &mdash; far outside the &plusmn;2 band.
+  Fan-out failures 2&rarr;0, duration failures 2&rarr;0.</p>
+
+  <h3>The one result that decides the self-correction question</h3>
+  <p class="co">3-sample execution voting scored <b>exactly the same mean, the same ever-ok, and the same
+  never-ok set</b> as a single sample &mdash; at 3&times; the tokens and 3.6&times; the latency. Together with
+  repair (net 0 across three runs) and LLM inspection (9&ndash;27% catch, no net gain), that is three
+  independent verification mechanisms all measuring zero. They fail for one shared reason:
+  <b>the errors are systematic, not diverse.</b> The model is confidently wrong the same way every time,
+  so sampling its reasoning again just reproduces it.</p>
+  <p><b>Everything that moved a number was grounding; nothing that checked the answer afterwards did.</b>
+  That is the opposite of the fashionable answer, and it is the strongest measured claim in this document.</p>
+
+  <h3>The most dangerous output found, and why no verifier could catch it</h3>
+  <p class="co">Asked <code>last month profit how much</code>, it answered
+  <b>&ldquo;Last month&rsquo;s profit was &#8377;11,96,252.28&rdquo;</b> &mdash; revenue minus commission, labelled
+  profit, with the caveat only afterwards. The model did not hallucinate: real columns, correct arithmetic,
+  clean joins, a defensible intermediate quantity. It is wrong only because <b>this business records no costs
+  at all</b> (<code>TestOrder.labCost</code> is populated on 0 of 30,057 rows). No validator, inspector or
+  vote can see that. <code>profit</code> and <code>margin</code> now route OUT_OF_SCOPE.</p>
+
+  <h3>A regression the new tests could not have caught</h3>
+  <p>The old 70-question suite caught what the ceiling set could not: <code>"How many different test
+  codes appear on orders?"</code> went 253 &rarr; <b>248</b>, because the glossary mapped "test" to the
+  <code>test_orders</code> metric, which excludes cancelled orders &mdash; but the question asks which codes
+  <em>appeared</em>, and cancelled orders appeared. This is the same failure already documented once in this
+  project: a <b>mandatory</b> metric mapping costs a question class, a <b>soft</b> one does not. The original
+  registry carries that guard ("use ONLY if the question asks for exactly this quantity"); the glossary was
+  bolted on top without one. Fixed by making the glossary explicitly a set of DEFAULTS the question overrides,
+  verified in both directions &mdash; N03 back to 253, S03 and P03 still correctly applying the metric.</p>
+  <p class="co"><b>Adding grounding can subtract accuracy when it speaks in absolutes.</b> And a saturated
+  suite still has a job &mdash; just not the job of telling you what to improve next.</p>
+
+  <h3>Measurement status &mdash; API credit exhausted mid-validation</h3>
+  <p>The DeepSeek key returned <b>HTTP 402</b> partway through the final consolidated re-run, so that run is
+  discarded (the router scoring 0/24 is failed calls, not a result). Every per-change measurement below was
+  taken before that and stands.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Measurement</th><th class="num">Result</th><th>State</th></tr></thead>
+    <tbody>
+      <tr><td>ceiling set, V35 vs V45, corrected controls, 2 reps each</td><td class="num">20.0 &rarr; 25.0 / 32</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>owner phrasing, 2 reps</td><td class="num">16.5 &rarr; 18.0 / 20</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>routing, regex vs LLM</td><td class="num">15/24 &rarr; 24/24</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>owner behaviour</td><td class="num">15/25 &rarr; 25/27</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>3-sample voting vs single sample</td><td class="num">22.0 = 22.0</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>scorer negative controls (no API needed)</td><td class="num">20/20</td><td><span class="tag ok">validated</span></td></tr>
+      <tr><td>standard 70 with the SOFTENED glossary</td><td class="num">N03 fix verified alone</td><td><span class="tag wn">re-run pending</span></td></tr>
+      <tr><td>behaviour with profit &rarr; OUT_OF_SCOPE</td><td class="num">routing verified alone</td><td><span class="tag wn">re-run pending</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>My own tests were a real error source</h3>
+  <p>Two controls were objectively wrong and had been scoring correct answers as failures:
+  <b>W05</b> leaked its <code>row_number</code> helper column into the comparison, and <b>F01</b>
+  INNER JOINed <code>TestDefinition</code>, dropping 1,431 orders with no definition link &mdash; its
+  <code>(none)</code> group should be &#8377;16.5 lakh, not &#8377;11.99 lakh. Once the join convention was added,
+  <b>the model became more correct than my ground truth and the benchmark punished it for that.</b>
+  Both repaired; the frozen 20/32 stands as reported, the comparison above uses corrected controls.
+  The behavioural scorer also had an English-only bias that failed correct Hinglish answers.</p>
+</section>
+
+<section id="cache">
+  <h2>Was the benchmark distorted by prompt caching?</h2>
+  <p class="ld">No — but caching was running at 98.6%, so it had to be checked rather than assumed.</p>
+  <p>Every benchmark prompt shares a large static prefix (schema + enums + metrics), so DeepSeek's
+  prefix cache was active throughout. The risk worth testing: does a warm cache change the model's
+  output, and could a repeated-run comparison be measuring the cache rather than the architecture?</p>
+  <div class="tw"><table>
+    <thead><tr><th>Run</th><th class="num">Accuracy</th><th class="num">Cache hit</th></tr></thead>
+    <tbody>
+      <tr><td>normal (cold)</td><td class="num">56/70</td><td class="num">98.6%</td></tr>
+      <tr><td>normal (warm)</td><td class="num">56/70</td><td class="num">98.7%</td></tr>
+      <tr><td>cache busted (random nonce prefix)</td><td class="num">56/70</td><td class="num">0.0%</td></tr>
+      <tr><td>cache busted</td><td class="num">57/70</td><td class="num">0.0%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="g g3">
+    <div class="st ok"><div class="n">0.5</div><div class="l">question difference — noise</div></div>
+    <div class="st ok"><div class="n">0</div><div class="l">only-right-when-cached</div></div>
+    <div class="st"><div class="n">98.6%</div><div class="l">of input tokens were cache hits</div></div>
+  </div>
+  <p><strong>The decisive number is zero.</strong> If caching were leaking information or inflating
+  scores, some questions would pass only with a warm cache. None do. Prefix caching reuses KV state
+  for <em>identical</em> prefixes; different questions have different suffixes, so nothing carries
+  between them.</p>
+  <div class="co"><span class="k">Useful side-effect</span>
+    <p>98.6% of input tokens were cache hits, so the real cost of the 7.2k-token prompt is a fraction
+    of list price — the static schema block caches almost entirely and only the question is billed
+    fresh. <strong>This strengthens the full-schema decision on cost grounds.</strong></p></div>
+</section>
+
+<!-- VALUES -->
+<section id="values">
+  <h2>The one change that solved a whole failure class</h2>
+  <p class="ld">The model cannot know "Chintal" means <code>Branch.code = 'CNT'</code>. That is data, not schema.</p>
+  <p>On the improved benchmark, two questions were <strong>0/4 across every architecture ever tested</strong>
+  — and both were literal resolution. No prompt engineering can fix it; the fact simply isn't in the DDL.</p>
+  <div class="g g2">
+    <div class="c no"><h4>Why my first attempt failed</h4>
+      <p>V8 appended a static branch list to <em>every</em> question — noise on the 90% that name no
+      literal. It lost by one question and I wrongly dismissed the whole idea.</p></div>
+    <div class="c ok"><h4>What works: selective injection</h4>
+      <p>A deterministic index of dimension <em>values</em> is consulted per question. A block is
+      injected <strong>only when the question actually names one</strong>. Zero tokens added to the
+      questions that don't.</p></div>
+  </div>
+<pre><code>"How many tests at the Chintal branch?"  →  Branch.code IN ('CNT')
+"Trend in HbA1c testing"                 →  TestOrder.testCodeSnapshot IN ('GHB','HBA1C','HBA1C_OUTSIDE')
+"How many visits in August?"             →  (nothing injected)</code></pre>
+  <p>Note the HbA1c case resolves to <strong>three</strong> codes. A hand-written keyword list returns
+  one and silently halves the answer.</p>
+  <div class="co w"><span class="k">Two guards the index needs</span>
+    <p>Ordinary English must never be indexed as a literal — <em>"turnaround <strong>time</strong>"</em>
+    matched test codes BT/CT/PT, and <em>"compare this quarter <strong>with</strong> last"</em> matched
+    X-ray codes. Both produced absurd clarifying questions until the common-word guard was added.</p></div>
+</section>
+
+<!-- AMBIGUITY -->
+<section id="ambiguity">
+  <h2>When to ask — and when asking is the failure</h2>
+  <p class="ld">Clarification is friction. Enumeration usually beats it. Dumping 15 rows never does.</p>
+  <p>The literature backs this: <strong>AmbiQT</strong> (EMNLP) scores text-to-SQL under ambiguity with
+  <em>BothInTopK</em> — whether the system <em>produces both interpretations</em>, not whether it asks.
+  <em>"Disambiguate First, Parse Later"</em> generates interpretations instead of questions, and
+  <em>Expected Information Gain</em> gives the ask-criterion: only ask when the answer would change the
+  result and you cannot enumerate.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Ambiguity set</th><th>Decision</th><th>Example</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1</strong></td><td><span class="tag ok">ANSWER</span></td><td>"Chintal" → CNT</td><td>resolve silently, state it</td></tr>
+      <tr><td><strong>2–5</strong></td><td><span class="tag ok">ENUMERATE</span></td><td>"Kidcare" → IDPL + JGG</td><td>answer for all, grouped. No round trip.</td></tr>
+      <tr><td><strong>6–20</strong></td><td><span class="tag wn">PICKER</span></td><td>"Reddy" → 15 doctors</td><td>show the <strong>names</strong> to pick from — never 15 metric rows</td></tr>
+      <tr><td><strong>&gt;20</strong></td><td><span class="tag no">IGNORE</span></td><td>"mbbs", "serum"</td><td>a category word, not a literal at all</td></tr>
+      <tr><td>no metric named</td><td><span class="tag wn">ASK</span></td><td>"How are we doing?"</td><td>nothing to enumerate over</td></tr>
+    </tbody>
+  </table></div>
+  <div class="g g4">
+    <div class="st ok"><div class="n">20/20</div><div class="l">decisions correct</div></div>
+    <div class="st ok"><div class="n">0</div><div class="l">pedantic asks</div></div>
+    <div class="st ok"><div class="n">0</div><div class="l">15-row data dumps</div></div>
+    <div class="st ok"><div class="n">0.84</div><div class="l">mean utility (vs 0.32 / 0.35)</div></div>
+  </div>
+  <p>Scored on a friction-weighted utility — a correct single answer costs nothing, enumeration a
+  little, a round trip more, a confidently wrong answer is penalised hardest. The four-tier policy
+  scores <strong>2.4× better than either "never ask" or "ask on any ambiguity"</strong>.</p>
+  <div class="co"><span class="k">The ask is never dumb</span>
+    <p><em>"Show me the numbers for Kidcare"</em> → <strong>"For IDPL / JGG — revenue, visits or
+    tests?"</strong> It resolves the entity itself and asks only about the genuinely missing measure.</p></div>
+</section>
+
+<!-- NEGATIVE -->
+<section id="negative">
+  <h2>What lost, and why it matters</h2>
+  <p class="ld">Nine components that sound obviously helpful and measurably are not.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Component</th><th class="num">Effect</th><th>What actually happened</th></tr></thead>
+    <tbody>
+      <tr><td>All metrics + narrow tables</td><td class="num" style="color:var(--bad)">−14</td>
+        <td>a metric whose tables are absent from the pack actively misleads</td></tr>
+      <tr><td>Thinking / reasoning mode</td><td class="num" style="color:var(--bad)">−6</td>
+        <td>37→31, and 148k reasoning tokens — ~10× output cost for worse answers</td></tr>
+      <tr><td>Retrieval vs full schema</td><td class="num" style="color:var(--bad)">−5</td>
+        <td>30/30 table recall and still worse SQL. <strong>Recall ≠ sufficiency.</strong></td></tr>
+      <tr><td>Team's own doc comments (9k tok)</td><td class="num" style="color:var(--bad)">−3</td>
+        <td>genuine hand-written semantics, and it still hurt</td></tr>
+      <tr><td>Explicit "gotchas" block</td><td class="num" style="color:var(--bad)">−3</td>
+        <td>naming the traps <em>added</em> SQL errors — the model over-applied the advice</td></tr>
+      <tr><td>Entity injection (unconditional)</td><td class="num" style="color:var(--bad)">−3</td>
+        <td>works only when <em>selective</em> — see above</td></tr>
+      <tr><td>3 reasoning strategies (CHASE-SQL)</td><td class="num" style="color:var(--bad)">−2</td>
+        <td>lost to plain temperature sampling at the same k</td></tr>
+      <tr><td>LLM verification / judge</td><td class="num" style="color:var(--bad)">−1</td>
+        <td>rewrote <em>correct</em> SQL into wrong SQL. Two independent tests agree.</td></tr>
+      <tr><td>Generic repair inside a vote</td><td class="num" style="color:var(--bad)">−1</td>
+        <td>repaired-but-wrong candidates poison the ballot; split accuracy 67%→44%.
+        <strong>A candidate that dies beats one repaired into a wrong answer.</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="co"><span class="k">The meta-finding</span>
+    <p>Only two things ever helped: <strong>the metric registry (+18)</strong> and
+    <strong>selective value resolution</strong>. Everything else — more context, more calls, more
+    instructions, more reasoning — degraded accuracy. Budget engineering effort accordingly.</p></div>
+  <h3>What the multi-candidate family did buy</h3>
+  <p>Not accuracy, but a <strong>confidence signal</strong>, robust across 96 observations:
+  unanimous candidates are <strong>93%</strong> correct, split ones <strong>70%</strong>. That is worth
+  having as an optional high-stakes mode — it tells the UI when to show "verify this" — but it costs
+  3× the calls and does not move the number.</p>
+</section>
+
+<!-- SECURITY -->
+<section id="security">
+  <h2>Security</h2>
+  <p class="ld">A conventional SQL validator leaks. This is the most important result here.</p>
+  <p>15 adversarial probes against the winning architecture with a normal validator
+  (single SELECT · no DDL/DML · no system catalogs). <strong>Three got through</strong> — because they
+  <em>are</em> valid read-only SELECTs:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Probe</th><th class="num">Rows out</th><th>What leaked</th></tr></thead>
+    <tbody>
+      <tr><td>bearer tokens</td><td class="num" style="color:var(--bad)">5,451</td>
+        <td><strong>Report access tokens</strong> — credentials to any patient's report</td></tr>
+      <tr><td>credentials</td><td class="num" style="color:var(--bad)">14</td><td><code>User.passwordHash</code> + email</td></tr>
+      <tr><td>raw dump</td><td class="num" style="color:var(--bad)">30,581</td><td><code>SELECT * FROM "TestResult"</code> — every patient result</td></tr>
+    </tbody>
+  </table></div>
+<pre><code>DENY   *AccessToken · PatientIdentifier · User · AppSetting · *AccessLog · Conversation
+       → no GRANT to analytics_ro, plus a parser deny-list as belt and braces
+RULE   no SELECT *
+RULE   patient-level tables require an aggregate (count/sum/avg/min/max/percentile)
+RULE   single statement · no DDL/DML · no pg_* / information_schema
+ROLE   analytics_ro · default_transaction_read_only · statement_timeout · LIMIT
+SCOPE  branch predicate injected by the app from req.branchId — never by the model</code></pre>
+  <p>Blocks all four leak classes, passes all legitimate analytics queries, and costs
+  <strong>exactly one question</strong> of accuracy. Not a close call.</p>
+  <div class="co b"><span class="k">Gap in production today</span>
+    <p>The app connects as <code>neondb_owner</code>. <strong><code>analytics_ro</code> does not
+    exist.</strong> That is milestone 0.</p></div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <h2>Call strategy &amp; cost</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Question class</th><th class="num">LLM calls</th><th class="num">Input tok</th><th>Path</th></tr></thead>
+    <tbody>
+      <tr><td>Ambiguous, no metric</td><td class="num">0</td><td class="num">0</td><td>deterministic ASK / PICKER — never reaches the model</td></tr>
+      <tr><td>Out of data coverage</td><td class="num">0</td><td class="num">0</td><td>deterministic coverage answer</td></tr>
+      <tr><td>Normal question</td><td class="num">1</td><td class="num">~7,200</td><td>schema + metrics + resolved values → SQL</td></tr>
+      <tr><td>Single-value result</td><td class="num">1</td><td class="num">~7,200</td><td>template answer, no narration call</td></tr>
+      <tr><td>Multi-row / "why"</td><td class="num">2</td><td class="num">~7,500</td><td>+ narration over ≤40 fact rows</td></tr>
+      <tr><td>SQL failed</td><td class="num">2</td><td class="num">~14,000</td><td>+ one typed repair</td></tr>
+      <tr><td>High-stakes mode <em>(optional)</em></td><td class="num">3</td><td class="num">~21,000</td><td>k=3 vote for the confidence signal</td></tr>
+    </tbody>
+  </table></div>
+  <p>Steady state ≈ <strong>1.2 calls per question</strong>. The schema block is static, so DeepSeek
+  prefix-caching applies to the bulk of every prompt.</p>
+</section>
+
+<!-- V1 -->
+<section id="v1">
+  <h2>What remains, and why this converged</h2>
+  <p class="ld">Five questions out of 123 never pass. Not one is a capability failure.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Q</th><th class="num">control</th><th class="num">model</th><th>Classification</th></tr></thead>
+    <tbody>
+      <tr><td>H03</td><td class="num">−65.47, 10.59</td><td class="num">−65.47, 10.59 …</td>
+        <td><strong>exactly right</strong>, plus raw volumes and the first month — scoring</td></tr>
+      <tr><td>H21</td><td class="num">68.92</td><td class="num">59.95</td>
+        <td>are reports with no results in the denominator? — ambiguity</td></tr>
+      <tr><td>H26</td><td class="num">1038</td><td class="num">1019</td>
+        <td><code>COUNT(*)</code> vs <code>COUNT(DISTINCT visit)</code> — ambiguity</td></tr>
+      <tr><td>A09</td><td class="num">83941.69</td><td class="num">84202.96</td>
+        <td>per-visit-with-payment vs all visits — the model's reading is arguably better</td></tr>
+      <tr><td>A17</td><td class="num">81361453</td><td class="num">79881748</td>
+        <td>any report version vs latest — grain ambiguity</td></tr>
+    </tbody>
+  </table></div>
+  <p>Every one produces defensible SQL. Each is closed by <em>deciding a convention</em> and adding
+  it to the ontology — a business decision, not an architecture change.</p>
+
+  <h3>Evidence for convergence</h3>
+  <div class="g g2">
+    <div class="c ok"><h4>Search breadth</h4>
+      <p>41 architectures across 15 families: retrieval (6 variants incl. augmentation-not-replacement),
+      schema representation (5), semantic layer (4: metrics, dimensions, ontology, hybrid router),
+      value resolution (3), exemplars (4), multi-candidate (4), verification (3 distinct coordination
+      patterns), agentic (2), decomposition (2), query memory, data profiling, reasoning mode,
+      constrained DSL, routing (2), repair (2).</p></div>
+    <div class="c ok"><h4>Diminishing returns</h4>
+      <p><strong>One win in the last eleven experiments.</strong> V32 fan-out 0 · V33 result-verifier 0 ·
+      V34 query memory −2 · <strong>V35 ontology +1</strong> · V36 highlighting −1 · V37 plan-then-SQL −1.5 ·
+      V38 hybrid router −7. Research passes are no longer generating untested credible hypotheses.</p></div>
+  </div>
+
+  <h3>V1 build</h3>
+  <ol>
+    <li><strong><code>analytics_ro</code> role.</strong> <span class="tag ok">DONE</span> Live and verified.</li>
+    <li><strong>Graph schema builder</strong> — <code>information_schema</code> → facts/dimensions, time column
+      and FK edges inline, dead and legacy columns pruned. Self-maintaining. ~70 lines.</li>
+    <li><strong>Semantic layer</strong> — 15 metrics + 9 dimensions + business ontology (concept hierarchy,
+      metric dependencies, grain rules, lifecycle). <em>The only hand-maintained artefact.</em></li>
+    <li><strong>Value index</strong> — nightly rebuild, common-English guard. ~60 lines.</li>
+    <li><strong>Ambiguity tier + difficulty router</strong> — 4-tier decision, exemplar selection. ~90 lines, no LLM.</li>
+    <li><strong>Validator</strong> — deny-list, no <code>SELECT *</code>, aggregate-on-PHI, cartesian/GROUP BY/fan-out
+      static analysis, camelCase repair, scope injection. ~130 lines.</li>
+    <li><strong>One DeepSeek call</strong> through the existing <code>smartReport/llm.ts</code>.</li>
+    <li><strong>Typed repair</strong> on failure only. ~30 lines.</li>
+    <li><strong>All three benchmarks as a permanent CI gate</strong>, with controls recomputed live at every run.</li>
+  </ol>
+  <div class="co w"><span class="k">The one operational requirement</span>
+    <p>Industry data and this search agree: the ceiling is <strong>semantic-model coverage</strong>, and
+    the failure mode in production is <em>metric drift</em> — the same question returning different
+    numbers depending on who asks. Someone must own extending the registry as new metrics are
+    requested. Everything else here maintains itself from <code>information_schema</code>.</p></div>
+</section>
+
+<footer>
+  41 architectures · 3 benchmarks (123 questions) with accept-sets · ~9,000 live DeepSeek calls · every SQL
+  executed against production data · literature: CHASE-SQL (ICLR 2025), SIRIUS-SQL, DPC, AmbiQT (EMNLP), ReFoRCE, ProSPy,
+  Spider 2.0, dbt Semantic Layer benchmark 2026 · <strong>no implementation code written, awaiting approval.</strong>
+</footer>
+</div></body></html>

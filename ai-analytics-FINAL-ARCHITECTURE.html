@@ -1,0 +1,221 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Analytics Layer — Final Architecture</title>
+<style>
+:root{--bg:#fbfbfa;--fg:#1a1a18;--mut:#6b6b66;--line:#e3e2de;--card:#fff;--ok:#2e7d32;--no:#b3261e;--wn:#a06000;--acc:#1a5c8a}
+@media(prefers-color-scheme:dark){:root{--bg:#16161a;--fg:#eceae6;--mut:#9a9a94;--line:#2c2c32;--card:#1d1d22;--ok:#6fbf73;--no:#f2857c;--wn:#e0a53a;--acc:#7fb8dd}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px}
+header{padding:56px 0 28px;border-bottom:1px solid var(--line);margin-bottom:34px}
+h1{font-size:31px;margin:0 0 8px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:16px;max-width:70ch}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:4px;margin-right:6px}
+.tag.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.tag.no{background:color-mix(in srgb,var(--no) 14%,transparent);color:var(--no)}
+.tag.wn{background:color-mix(in srgb,var(--wn) 16%,transparent);color:var(--wn)}
+h2{font-size:21px;margin:44px 0 6px;letter-spacing:-.01em}
+h2 .n{color:var(--mut);font-weight:400;font-size:15px;margin-right:8px}
+h3{font-size:15px;margin:26px 0 8px;color:var(--acc)}
+p{margin:9px 0;max-width:76ch}
+.lead{color:var(--mut)}
+code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:color-mix(in srgb,var(--fg) 6%,transparent);padding:1px 5px;border-radius:3px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line);padding:7px 10px 7px 0;font-weight:600}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.win td{background:color-mix(in srgb,var(--ok) 7%,transparent);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.stat .v{font-size:25px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat .l{font-size:12px;color:var(--mut);margin-top:3px;line-height:1.4}
+.flow{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px;margin:16px 0;overflow-x:auto}
+.flow pre{margin:0;font:12.5px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}
+.co{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:14px 0;color:var(--fg)}
+.co.bad{border-color:var(--no)}
+.co.good{border-color:var(--ok)}
+ul{margin:8px 0;padding-left:20px;max-width:76ch}li{margin:4px 0}
+.blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:14px 0}
+.blk{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:12px 14px;font-size:13px}
+.blk b{display:block;font-size:13px;margin-bottom:3px}
+.blk span{color:var(--mut);font-size:12px}
+.tok{float:right;color:var(--mut);font-variant-numeric:tabular-nums;font-size:11px}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>AI Analytics Layer — Final Architecture</h1>
+<p class="sub">Natural-language analytics over the Sobhana/HealthFlow database. Converged after
+~50 architecture variants and roughly 11,000 live model calls. Design only — no implementation code written.</p>
+<p style="margin-top:14px"><span class="tag ok">held-out 25.3/32</span><span class="tag ok">owner voice 18/20</span><span class="tag ok">routing 24/24</span><span class="tag wn">1 LLM call · 6,406 tok</span></p>
+</header>
+
+<h2><span class="n">01</span>Shape of the thing</h2>
+<p class="lead">One model call answers a data question. A second, tiny call decides which of five
+paths the question takes. Everything else is deterministic.</p>
+
+<div class="flow"><pre>
+  owner types a question
+          │
+          ▼
+  ┌─────────────────┐   ~250 tokens, its own call
+  │  INTENT ROUTER  │   regex router scored 15/24 on real input; this scores 24/24
+  └────────┬────────┘
+           │
+   ┌───────┼───────┬──────────────┬─────────────────┐
+   ▼       ▼       ▼              ▼                 ▼
+  SQL   STATUS  DIAGNOSE     OUT_OF_SCOPE        LADDER
+   │       │       │              │                 │
+   │       └───┬───┘              │                 │
+   │           ▼                  ▼                 ▼
+   │   deterministic       "we don't record    collected → less each
+   │   multi-query         that" — no SQL      recorded payout → what's
+   │   + contribution      is generated        left, and why it is NOT
+   │   ranking, then       at all              profit
+   │   1 narration call
+   ▼
+  ┌──────────────────────────────────────────────────┐
+  │ 1 call: question + grounded prompt → ONE SELECT   │
+  └───────────────────────┬──────────────────────────┘
+                          ▼
+              deterministic VALIDATOR
+              (deny-list · no SELECT * · aggregate-required
+               on PHI · fan-out · GROUP BY · camelCase repair)
+                          ▼
+              analytics_ro   read-only · column-granted · 8s timeout
+                          ▼
+              typed repair — ONLY on error / empty result
+</pre></div>
+
+<h2><span class="n">02</span>What is in the prompt, and what each part bought</h2>
+<p class="lead">6,406 tokens for an ordinary question, 6,647 when the question touches an unpopulated
+column. ~98% prefix-cached. Every block below survived a measured ablation.</p>
+
+<div class="blocks">
+<div class="blk"><b>Graph schema <span class="tok">~2,900</span></b><span>Fact tables first with their TIME column, then dimensions. <b style="color:var(--no);display:inline">No FK edges</b> — see §4.</span></div>
+<div class="blk"><b>Owner glossary <span class="tok">~380</span></b><span>"collection", "cases", "due", "doctor wise" → the right entity and metric. Defaults, never overrides.</span></div>
+<div class="blk"><b>Business ontology <span class="tok">~420</span></b><span>Concept hierarchy, metric dependencies, grain rules, lifecycle.</span></div>
+<div class="blk"><b>Join/grain conventions <span class="tok">~300</span></b><span>Breakdown vs ranking need opposite joins. TAT is first finalization.</span></div>
+<div class="blk"><b>Metric registry <span class="tok">~640</span></b><span>Authoritative formulas, behind a SOFT header the question can override.</span></div>
+<div class="blk"><b>Column coverage <span class="tok">~242</span></b><span>Columns that exist but are never filled. Injected <i>only</i> when the question touches one.</span></div>
+<div class="blk"><b>Value index <span class="tok">varies</span></b><span>Deterministic entity resolution with a common-English guard.</span></div>
+<div class="blk"><b>Routed exemplars <span class="tok">~700</span></b><span>Few-shot pairs chosen by question shape.</span></div>
+</div>
+
+<h2><span class="n">03</span>Measured results</h2>
+<p class="lead">All three arms in one run, same cache, same controls, FK edges stripped from each so
+the architecture is the only variable. Three reps each.</p>
+<table>
+<thead><tr><th>Arm</th><th class="num">Reps</th><th class="num">Mean</th><th class="num">Range</th><th class="num">Never right</th><th class="num">Tok/q</th></tr></thead>
+<tbody>
+<tr><td>Baseline — ontology + registry only</td><td class="num">22, 22, 21</td><td class="num">21.67</td><td class="num">21–22</td><td class="num">10</td><td class="num">6,732</td></tr>
+<tr class="win"><td><b>Final</b> — + glossary, conventions, conditional coverage</td><td class="num">25, 25, 26</td><td class="num"><b>25.33</b></td><td class="num">24–26</td><td class="num"><b>5</b></td><td class="num">6,406</td></tr>
+</tbody></table>
+<p><b>+3.67 questions on held-out data, with non-overlapping ranges</b> — and a <i>smaller</i> prompt than
+the baseline, because dropping the dead FK edges paid for everything added.</p>
+
+<div class="grid">
+<div class="stat"><div class="v">25.3<span style="font-size:15px;color:var(--mut)">/32</span></div><div class="l">Held-out hard questions — window, cohort, anti-join, fan-out, duration, versioning</div></div>
+<div class="stat"><div class="v">69<span style="font-size:15px;color:var(--mut)">/70</span></div><div class="l">Original standard suite — regression guard</div></div>
+<div class="stat"><div class="v">18<span style="font-size:15px;color:var(--mut)">/20</span></div><div class="l">Owner phrasing (analyst phrasing 20/20)</div></div>
+<div class="stat"><div class="v">24<span style="font-size:15px;color:var(--mut)">/24</span></div><div class="l">Intent routing incl. Hinglish and trap words</div></div>
+<div class="stat"><div class="v">25<span style="font-size:15px;color:var(--mut)">/27</span></div><div class="l">Behaviour — refusals, false premises, messy input</div></div>
+<div class="stat"><div class="v">20<span style="font-size:15px;color:var(--mut)">/20</span></div><div class="l">Scorer negative controls — the benchmark's own guard</div></div>
+</div>
+
+<h2><span class="n">04</span>Self-checking: measured, then cut back to one thing</h2>
+<p class="lead">Three positions in one day, each corrected by measurement. Final answer: <b>mark the
+answer, never repair it, and only on questions where a wrong number costs money.</b></p>
+
+<p><b>A flag is only worth showing if it beats the base rate.</b> 22% of answers on the held-out set
+are wrong. A detector whose precision is below 22% means a flagged answer is <i>less</i> likely to be
+wrong than an unflagged one — worse than silence.</p>
+
+<table>
+<thead><tr><th>Detector</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">False alarm on correct</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td style="color:var(--mut)">base rate of a wrong answer</td><td class="num">22%</td><td class="num">—</td><td class="num">—</td><td style="color:var(--mut)">the bar</td></tr>
+<tr><td>Deterministic invariants — fan-out, lossy-join, parts-vs-whole</td><td class="num">20%</td><td class="num">14%</td><td class="num">16%</td><td><span class="tag no">cut</span> below base rate</td></tr>
+<tr><td>Same, restricted to money questions</td><td class="num">13%</td><td class="num">20%</td><td class="num">26%</td><td><span class="tag no">cut</span> anti-informative</td></tr>
+<tr><td>2-sample result disagreement, all questions</td><td class="num">50%</td><td class="num">29%</td><td class="num">8%</td><td><span class="tag wn">costly</span> 2× tokens everywhere</td></tr>
+<tr class="win"><td><b>2-sample, money questions only</b></td><td class="num"><b>50%</b></td><td class="num"><b>40%</b></td><td class="num"><b>7%</b></td><td><span class="tag ok">ship</span> ~1.5× tokens overall</td></tr>
+</tbody></table>
+
+<p class="co">The deterministic probes were the part I was most confident in, and they are the part
+that failed. They caught F01 — the query that silently dropped &#8377;11.98 lakh — which is exactly why
+a single dramatic catch is not evidence. Across 64 answers they are wrong four times in five,
+because <code>LOSSY_JOIN</code> cannot distinguish F01's catastrophic dropped rows from M01's correct
+ones. That ambiguity is in the question's meaning, not in the data.</p>
+
+<p>What ships is one mechanism: on a question that produces money or a ranking, write the query a
+second time at a different temperature and compare <b>executed results</b>, not SQL text. If they
+disagree, the number is still shown — with a line under it:</p>
+<div class="flow"><pre>
+  Referral payout for August is ₹5,34,722.
+
+  ⚠ Worth checking before you act on this — a second, independently
+    written query returned a different answer.
+</pre></div>
+<p><b>Never auto-repair.</b> Regeneration measured net zero three separate times: the errors are
+systematic, so a second attempt reproduces the same mistake. Detection and repair are different
+mechanisms with different results, and an earlier draft of this document wrongly collapsed them.</p>
+
+<h3>Cut outright</h3>
+<table>
+<thead><tr><th>Removed</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>3-sample execution voting</td><td>Identical mean, ever-ok and never-ok set at 3× tokens and 3.6× latency</td></tr>
+<tr><td>Auto-repair after a flag</td><td>Net 0 across three runs; it only ever "fixed" answers already correct</td></tr>
+<tr><td>Deterministic invariants as a user-facing flag</td><td>Precision below the base rate of being wrong</td></tr>
+<tr><td>FK edges in the schema block</td><td>Lost 3/3 reps, cost 583 tok/q; silently absent for months — <code>information_schema</code> returns zero rows for a column-granted role</td></tr>
+<tr><td>Always-on coverage block</td><td>Cost 1.67 questions generally to gain 2 on hollow-column questions; now gated on the question</td></tr>
+</tbody></table>
+
+<h2><span class="n">05</span>The failure that defines the design</h2>
+<div class="co bad">
+<p style="margin-top:0"><b>Asked <code>last month profit how much</code>, it answered "₹11,96,252.28".</b></p>
+<p>Real columns. Correct arithmetic. Clean joins. Plausible number. It is revenue minus referral
+commission minus clinic payouts — a perfectly good quantity that is <b>not profit</b>, because this
+business records no costs at all.</p>
+</div>
+<p>No validator, inspector or vote can catch that. Only knowing something true about the business
+can. So <code>profit</code> routes to a <b>ladder</b> instead:</p>
+<div class="flow"><pre>
+  Collected in August                         ₹18,93,725
+  Less referring-doctor commission            −₹5,34,722   leaves ₹13,59,002
+  Less clinic-doctor payouts                  −₹1,62,750   leaves ₹11,96,252
+  ─────────────────────────────────────────────────────────────────────────
+  That is what remains after the payouts we DO record. It is NOT profit.
+  Not recorded anywhere: outside-lab charges, salaries, rent, consumables, utilities.
+</pre></div>
+<p>Every figure is computed in SQL and pre-formatted; the model narrates strings and a deterministic
+pass strips any sentence containing a rupee figure it was not given. Structural, not a polite instruction.</p>
+
+<h2><span class="n">06</span>Security</h2>
+<p class="lead">A conventional validator leaked 5,451 report bearer tokens, 14 password hashes and
+30,581 patient results. The hardened layer blocks all four classes for the cost of exactly one question.</p>
+<ul>
+<li><code>analytics_ro</code> — <b>live and verified</b>. Read-only, <code>default_transaction_read_only</code>, 8s <code>statement_timeout</code>, table <i>and column</i> grants. <code>Patient</code> exposes only id, gender, yearOfBirth, ageUnit, createdAt, patientNumber.</li>
+<li>Deny-list on token/PHI tables and columns; no <code>SELECT *</code>; patient-level tables require an aggregate.</li>
+<li>Static analysis: comma-joins, <code>JOIN</code> without <code>ON</code>, aggregate without <code>GROUP BY</code>, fan-out shapes. Explicit <code>CROSS JOIN</code> is allowed — it is deliberate syntax and the timeout bounds it.</li>
+</ul>
+
+<h2><span class="n">07</span>Known limits</h2>
+<ul>
+<li><b>Empty column → confident zero.</b> "How many bills used a coupon" answers <b>0</b>; <code>couponId</code> is never populated, so 0 means <i>unrecorded</i>, not <i>none</i>. The money case (<code>profit</code>) is fixed by routing; the general class is not.</li>
+<li><b>±2 questions of run-to-run noise at n=32.</b> No single-run difference below that is meaningful. Several claims made during this project were retracted for exactly this reason.</li>
+<li><b>Remaining held-out failures</b> cluster in p90-of-a-derived-duration, catalogue anti-joins, self-joins and calendar zero-fill.</li>
+<li><b>My own tests were a real error source</b> — two controls were objectively wrong and scored correct answers as failures for several runs.</li>
+</ul>
+
+<h2><span class="n">08</span>Open for you, not for the code</h2>
+<ul>
+<li><b>Payout reconciliation.</b> "August referral amount" has three defensible answers: ₹4,97,868 recomputed from orders, ₹5,29,871 naive, <b>₹5,34,722 from the stored ledger</b> — 7.4% apart, 12% on one doctor. Worth settling one month by hand.</li>
+<li><b>Unused cost machinery.</b> <code>externalLabId</code> and <code>labCost*</code> are empty on all 30,283 orders, while 1,380 tests are handled externally. Populating them converts profit from unanswerable to answerable.</li>
+<li><b>V1 scope</b> — owner-only? And should the owner Money page headline change from net <i>billed</i> to match the AI's net <i>collected</i> default?</li>
+</ul>
+
+<footer>Sobhana / HealthFlow · design only, awaiting approval before implementation ·
+benchmarks: 70 standard, 32 held-out, 28 hard, 25 adversarial, 20 paired phrasing, 24 routing, 17 behaviour, 10 hollow-column, 20 scorer negative controls</footer>
+
+</div></body></html>

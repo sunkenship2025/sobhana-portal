@@ -1,0 +1,453 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse — Wireframes</title>
+<style>
+:root{--bg:#f4f4f2;--fg:#1c1c1a;--mut:#6f6f69;--dim:#a3a39c;--line:#dcdcd7;--card:#fff;--ink:#2b2b28;
+--acc:#1f6f9f;--ok:#2e7d32;--wn:#a06000;--no:#b3261e;--wire:#8a8a84;--wire2:#c9c9c4;--canvas:#eeeeeb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 100px}
+header{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-size:32px;margin:0 0 8px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:16px;max-width:70ch;margin:0}
+h2{font-size:22px;margin:56px 0 4px;letter-spacing:-.01em}
+h2 .n{color:var(--dim);font-weight:400;font-size:15px;margin-right:10px}
+.lead{color:var(--mut);margin:0 0 18px;max-width:76ch}
+h3{font-size:14px;margin:0 0 6px;color:var(--acc);font-weight:650}
+.vars{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px;margin:18px 0 6px}
+.var{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.var .why{font-size:13px;color:var(--mut);line-height:1.5;margin:0}
+.var .why b{color:var(--fg)}
+.var .spec{font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);border-top:1px dashed var(--line);padding-top:8px;margin:0}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle}
+.tag.rec{background:#e3f1e5;color:var(--ok)}.tag.you{background:#e7eef5;color:var(--acc)}.tag.me{background:#f2e9f7;color:#6b3d8a}
+
+/* ── wireframe canvas: a fake HealthFlow screen ── */
+.app{position:relative;width:100%;aspect-ratio:16/10;background:var(--canvas);border:1px solid var(--wire2);border-radius:8px;overflow:hidden;font-size:11px}
+.app .top{height:26px;background:#fff;border-bottom:1px solid var(--wire2);display:flex;align-items:center;padding:0 10px;gap:8px;color:var(--wire)}
+.app .top i{width:44px;height:8px;background:var(--wire2);border-radius:2px}
+.app .side{position:absolute;left:0;top:26px;bottom:0;width:60px;background:#fff;border-right:1px solid var(--wire2)}
+.app .side i{display:block;width:36px;height:6px;background:var(--wire2);border-radius:2px;margin:12px auto 0}
+.app .main{position:absolute;left:60px;top:26px;right:0;bottom:0;padding:12px}
+.app .main .ttl{width:120px;height:9px;background:var(--wire);border-radius:2px;opacity:.5;margin-bottom:10px}
+.app .main .kpi{display:flex;gap:8px;margin-bottom:10px}
+.app .main .kpi i{flex:1;height:34px;background:#fff;border:1px solid var(--wire2);border-radius:4px}
+.app .main .chart{height:calc(100% - 70px);background:#fff;border:1px solid var(--wire2);border-radius:4px}
+.dimmed .main,.dimmed .side{opacity:.45}
+
+/* ── blob ── */
+.blob{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+.orb{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6ab0dd,#1f6f9f 70%);box-shadow:0 2px 8px rgba(31,111,159,.35)}
+.orb.think{background:radial-gradient(circle at 50% 50%,#fff 0,#6ab0dd 30%,#1f6f9f 70%);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+.blob .lb{font-size:7.5px;font-weight:700;letter-spacing:.14em;color:var(--acc)}
+.blob.br{right:14px;bottom:12px}
+.badge{position:absolute;top:-4px;right:-6px;width:9px;height:9px;border-radius:50%;background:var(--wn);border:1.5px solid #fff}
+.tip{position:absolute;background:var(--ink);color:#fff;font-size:9px;padding:5px 8px;border-radius:5px;white-space:nowrap;line-height:1.35}
+.tip:after{content:"";position:absolute;left:50%;bottom:-4px;margin-left:-4px;border:4px solid transparent;border-top-color:var(--ink);border-bottom:0}
+
+/* strip variant */
+.strip{position:absolute;left:60px;right:0;bottom:0;height:20px;background:#fff;border-top:1px solid var(--wire2);display:flex;align-items:center;padding:0 10px;gap:8px}
+.strip .lb{font-size:7.5px;font-weight:700;letter-spacing:.14em;color:var(--acc)}
+.strip .spark{flex:1;height:12px;background:linear-gradient(90deg,transparent 0 0),
+ repeating-linear-gradient(90deg,transparent 0 3px,var(--wire2) 3px 4px);position:relative}
+.strip .spark:before{content:"";position:absolute;left:0;right:0;top:3px;height:1.5px;background:var(--acc);clip-path:polygon(0 80%,10% 60%,20% 70%,30% 40%,40% 55%,50% 30%,60% 45%,70% 20%,80% 35%,90% 25%,100% 30%,100% 100%,0 100%);opacity:.7}
+.strip .num{font-size:9px;font-weight:600;color:var(--fg)}
+.strip .num s{text-decoration:none;color:var(--ok);font-size:8px;margin-left:3px}
+
+/* kpi-blob variant */
+.kblob{position:absolute;right:12px;bottom:10px;background:#fff;border:1px solid var(--wire2);border-radius:20px;padding:5px 10px 5px 6px;display:flex;align-items:center;gap:7px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.kblob .orb{width:16px;height:16px}
+.kblob .v{font-size:10px;font-weight:700}
+.kblob .v small{font-weight:400;color:var(--mut);font-size:8px;margin-left:3px}
+
+/* ── panel ── */
+.panel{position:absolute;background:#fff;border:1px solid var(--wire2);border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;overflow:hidden}
+.panel.sm{right:12px;bottom:12px;width:58%;height:78%}
+.panel.lg{right:12px;bottom:12px;width:78%;height:92%}
+.panel.sheet{right:0;top:26px;bottom:0;width:46%;border-radius:0;border-right:0;border-top:0;border-bottom:0;box-shadow:-6px 0 20px rgba(0,0,0,.08)}
+.ph{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--wire2);font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--acc)}
+.ph .orb{width:12px;height:12px}
+.ph .x{margin-left:auto;color:var(--dim);font-weight:400;letter-spacing:0;font-size:11px}
+.ph .ctx{margin-left:auto;font-weight:500;letter-spacing:0;color:var(--dim);font-size:8.5px}
+.pb{flex:1;padding:10px;overflow:hidden;display:flex;flex-direction:column;gap:7px}
+.pf{border-top:1px solid var(--wire2);padding:7px 10px;display:flex;align-items:center;gap:6px}
+.pf .in{flex:1;height:22px;border:1px solid var(--wire2);border-radius:11px;padding:0 9px;font-size:9px;color:var(--dim);display:flex;align-items:center}
+.pf .go{width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}
+.greet{font-size:12px;font-weight:600;margin:6px 0 0}
+.greet2{font-size:10px;color:var(--mut);margin:0 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:8.5px;padding:3px 8px;border:1px solid var(--wire2);border-radius:12px;color:var(--fg);background:#fafaf8}
+.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.you{align-self:flex-end;background:#eef2f6;border-radius:10px 10px 2px 10px;padding:5px 9px;font-size:9px;max-width:80%}
+.bot{font-size:9px;line-height:1.5;max-width:92%}
+.bot .who{font-size:7.5px;font-weight:700;letter-spacing:.12em;color:var(--acc);margin-bottom:2px}
+.card{border:1px solid var(--wire2);border-radius:7px;padding:8px 10px;background:#fbfbf9}
+.card .big{font-size:16px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.card .big s{text-decoration:none;font-size:9px;font-weight:600;color:var(--ok);margin-left:6px}
+.card .big s.dn{color:var(--no)}
+.card .k{font-size:8px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase}
+.card .row{display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-top:1px dashed var(--wire2)}
+.card .row:first-of-type{border-top:0}
+.acts{display:flex;gap:5px;margin-top:5px}
+.act{font-size:8px;padding:2px 7px;border:1px solid var(--wire2);border-radius:4px;color:var(--acc);background:#fff}
+.flag{background:#fff7e6;border:1px solid #f2d9a6;border-radius:6px;padding:5px 8px;font-size:8.5px;color:#7a4b00;line-height:1.4}
+.flag b{display:block;font-size:8px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:1px}
+.ctxbar{display:flex;gap:4px;padding:6px 10px;border-bottom:1px solid var(--wire2);background:#fafaf8}
+.ctxbar .c{font-size:8px;padding:2px 7px;border-radius:10px;background:#fff;border:1px solid var(--wire2);color:var(--mut)}
+.ctxbar .c b{color:var(--fg);font-weight:600}
+.collapsed{font-size:8.5px;color:var(--mut);padding:4px 0;border-bottom:1px dashed var(--wire2);display:flex;justify-content:space-between}
+.collapsed b{color:var(--fg);font-weight:600}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;overflow:hidden}
+.split>div{padding:10px;overflow:hidden;display:flex;flex-direction:column;gap:7px}
+.split>div+div{border-left:1px solid var(--wire2);background:#fbfbf9}
+.ev{font:8.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut);background:#f3f3f0;border-radius:5px;padding:6px 8px;white-space:pre;overflow:hidden}
+.ev b{color:var(--fg)}
+.ladder .row{font-size:9px}
+.ladder .row.tot{font-weight:700;border-top:1px solid var(--wire);margin-top:2px;padding-top:4px}
+.ladder .row .m{color:var(--no)}
+.pick{border:1px solid var(--wire2);border-radius:7px;overflow:hidden}
+.pick .pr{display:flex;justify-content:space-between;font-size:9px;padding:5px 9px;border-top:1px solid var(--wire2)}
+.pick .pr:first-child{border-top:0}
+.pick .pr small{color:var(--dim);font-size:8px}
+.dots{display:flex;gap:3px;align-items:center;height:12px}
+.dots i{width:4px;height:4px;border-radius:50%;background:var(--acc);animation:pulse 1s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:16px 0}
+.state{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:16px 12px;text-align:center}
+.state .orbwrap{height:44px;display:flex;align-items:center;justify-content:center;position:relative}
+.state .orb{width:26px;height:26px}
+.state .nm{font-size:12px;font-weight:650;margin-top:6px}
+.state .d{font-size:11.5px;color:var(--mut);line-height:1.4}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);padding:7px 10px 7px 0;font-weight:650}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.co{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;max-width:76ch}
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>Pulse — Wireframes</h1>
+<p class="sub">Your five states, each in two or three versions — yours, plus alternatives that come
+from what the backend actually does. Then the states the backend forces that a chatbot shell doesn't
+have. Mid-fidelity: real proportions, real copy, grey boxes for the rest.</p>
+<p style="margin:14px 0 0;font-size:13px;color:var(--mut)"><span class="tag you" style="margin-left:0">yours</span> your spec, rendered &nbsp;
+<span class="tag me">alt</span> a different idea &nbsp; <span class="tag rec">rec</span> the one I'd build</p>
+</header>
+
+<h2><span class="n">01</span>Collapsed</h2>
+<p class="lead">The persistent object. The question is what it <i>is</i> when it's closed — an icon,
+an ambient signal, or a fact.</p>
+<div class="vars">
+
+<div class="var"><h3>A · The blob <span class="tag you">yours</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="blob br"><div class="orb"></div><div class="lb">PULSE</div></div></div>
+<p class="why">A product object, not a support button. No "chat with AI". Identity carried by the orb.
+<b>Risk:</b> it's a closed door — nothing about it says what's behind it until you click.</p>
+<p class="spec">orb 44px · label 10px/700/.14em · bottom-right 20px inset · idle drift ±1px over 6s</p></div>
+
+<div class="var"><h3>B · The pulse line <span class="tag me">alt</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main" style="bottom:20px"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="strip"><span class="lb">PULSE</span><div class="spark"></div><span class="num">₹62,410<s>today ↑</s></span></div></div>
+<p class="why">Not a button — a <b>living strip</b> along the bottom edge showing today's collection as a
+sparkline. The identity <i>is</i> the data. It literally pulses as bills land. Tap anywhere on it to open.
+<b>Risk:</b> takes 20px of every screen; needs SSE (which HealthFlow already has).</p>
+<p class="spec">height 24px · sparkline = today, 30-min buckets · number = live collection · docked, not floating</p></div>
+
+<div class="var"><h3>C · The number you can talk to <span class="tag me">alt</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="kblob"><div class="orb"></div><div class="v">₹62,410<small>today</small></div></div></div>
+<p class="why">The orb carries <b>one live number</b> — today's collection, or whatever matters on this page
+(Payouts page → this month's payout). It reads as a KPI chip you happen to be able to question.
+Answers "why would I click this?" before you ask it. <b>Risk:</b> a wrong live number here is the
+most-seen number in the app.</p>
+<p class="spec">pill 34px tall · orb 20px · number 13px/700 · page-aware metric · falls back to blob when no metric fits</p></div>
+</div>
+
+<h2><span class="n">02</span>Hover</h2>
+<p class="lead">Discoverability. The cheap version says what it is. The better version says
+something <i>true</i> about your data right now.</p>
+<div class="vars">
+
+<div class="var"><h3>A · Label <span class="tag you">yours</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="tip" style="right:10px;bottom:62px">Ask Pulse<br>about your data</div>
+<div class="blob br"><div class="orb"></div><div class="lb">PULSE</div></div></div>
+<p class="why">Subtle, honest, generic. Fine as a floor.</p>
+<p class="spec">appears 400ms after hover · 8px above orb · fades 150ms</p></div>
+
+<div class="var"><h3>B · One true thing <span class="tag me">alt</span><span class="tag rec">rec</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="tip" style="right:10px;bottom:62px;text-align:left">Dr Ramaswamy is 82% of this<br>month's growth &nbsp;<span style="opacity:.6">— ask why</span></div>
+<div class="blob br"><div class="orb"></div><div class="lb">PULSE</div></div></div>
+<p class="why">Hover shows <b>one sentence the backend already knows</b> — the top mover from the diagnostic
+engine, computed deterministically, no model call. It changes daily. This is the same machinery that
+later drives the "1 thing to review" badge, so it costs nothing extra to build. <b>Risk:</b> a stale or
+wrong line here erodes trust fast — it must come from the deterministic path, never from generation.</p>
+<p class="spec">source = diagnose() top contributor, cached 15 min · max 2 lines · page-aware (Payouts → payout mover)</p></div>
+
+<div class="var"><h3>C · Silent — hover does nothing <span class="tag me">alt</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="blob br"><div class="orb" style="transform:scale(1.15)"></div><div class="lb">PULSE</div></div></div>
+<p class="why">The orb just brightens and grows 15%. No text. Your users are on phones — hover
+barely exists there. Spend the discoverability budget on the <i>first-open</i> experience instead.
+Honest option if the persona is mobile-first.</p>
+<p class="spec">scale 1.15 · glow +20% · 120ms ease-out</p></div>
+</div>
+
+<h2><span class="n">03</span>Open · empty</h2>
+<p class="lead">The first thing they see. A greeting invites typing. Facts invite <i>questions</i>.</p>
+<div class="vars">
+
+<div class="var"><h3>A · Greeting + curated chips <span class="tag you">yours</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><p class="greet">Hey.</p><p class="greet2">What would you like to look into?</p>
+<div class="chips"><span class="chip">Collection</span><span class="chip">Cases</span><span class="chip">Referrals</span><span class="chip">Reports late?</span></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Clean. Chips lower the blank-box fear. I'd change the chip words to <b>the owner's own
+vocabulary</b> — "Collection", "Cases", "Referrals" — not "OPD performance" / "Revenue". The backend's
+glossary already maps these.</p>
+<p class="spec">panel 400×560 · greeting 17px/600 · chips 12px, max 4 · input 40px pill</p></div>
+
+<div class="var"><h3>B · Today, then the box <span class="tag me">alt</span><span class="tag rec">rec</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="ctx">Today · all branches</span></div>
+<div class="pb">
+<div class="card"><div class="k">Collection today</div><div class="big">₹62,410<s>↑ 9% vs usual Tue</s></div></div>
+<div class="card" style="display:flex;gap:14px"><div><div class="k">Cases</div><div class="big" style="font-size:13px">84</div></div><div><div class="k">Pending due</div><div class="big" style="font-size:13px">₹18,200</div></div><div><div class="k">Reports &gt;24h</div><div class="big" style="font-size:13px">3<s class="dn">▲</s></div></div></div>
+<div class="chips"><span class="chip">why is due high?</span><span class="chip">which reports are late</span></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">No greeting. Three <b>deterministic live numbers</b> and one comparison to a normal day,
+then the box. You start from a fact and the natural next move is a question about it. The chips
+below are generated from whichever number is off-normal — "why is due high?" appears because due
+<i>is</i> high. This is the STATUS path rendered as the front door.</p>
+<p class="spec">numbers from the registry, no model call · "vs usual Tue" = baseline z-score · chips: top 2 anomalies</p></div>
+
+<div class="var"><h3>C · Picks up where you are <span class="tag me">alt</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="ctxbar"><span class="c">Page <b>Payouts</b></span><span class="c">Period <b>August</b></span><span class="c">Branch <b>All</b></span></div>
+<div class="pb"><p class="greet" style="font-size:11px">You're looking at August payouts.</p>
+<div class="chips"><span class="chip">who moved the most</span><span class="chip">Ramaswamy vs July</span><span class="chip">any doctor stopped referring?</span></div>
+<p class="greet2" style="margin-top:6px">…or ask anything.</p></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Your §6 made visible. The <b>context bar</b> shows what Pulse inherited from the page —
+module, period, filters — as tappable chips, so "how are we doing" unambiguously means <i>payouts in
+August</i>. The three suggestions are specific to that page. Users can correct the context before
+asking, which removes a whole class of "did you mean…" turns.</p>
+<p class="spec">context = {module, period, branch, entity} — the same 4 fields the backend keeps as conversation state</p></div>
+</div>
+
+<h2><span class="n">04</span>Conversation</h2>
+<p class="lead">The core. Bubbles say "chat". Cards say "answers". The backend returns numbers with
+deltas, breakdowns and sometimes a warning — the UI should have a shape for each.</p>
+<div class="vars">
+
+<div class="var"><h3>A · Bubbles + a structured reply <span class="tag you">yours</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><div class="you">last month collection how much</div>
+<div class="bot"><div class="who">PULSE</div>Last month you collected ₹18,93,724, up 11.5% on July.<div class="card" style="margin-top:5px"><div class="k">Collection · August</div><div class="big">₹18,93,724<s>+11.5%</s></div></div>Want that branch wise?</div>
+<div class="you">yes</div><div class="dots"><i></i><i></i><i></i></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Familiar. The inline card is the right instinct. The trailing "Want that branch wise?"
+is generated text — I'd make it a <b>tappable chip</b> instead, since the backend can enumerate valid
+follow-ups (the dimensions the metric supports) without a model call.</p>
+<p class="spec">user bubble right, 80% max · bot: no bubble, small label, cards inline · follow-ups as chips not prose</p></div>
+
+<div class="var"><h3>B · A feed of answers, not a chat <span class="tag me">alt</span><span class="tag rec">rec</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="ctxbar"><span class="c">Metric <b>Collection</b></span><span class="c">Period <b>August</b></span><span class="c">By <b>Branch</b></span></div>
+<div class="pb">
+<div class="collapsed"><span>last month collection how much</span><b>₹18,93,724</b></div>
+<div class="card"><div class="k">branch wise</div>
+<div class="row"><span>Chintal</span><b>₹10,42,880</b></div><div class="row"><span>Balanagar</span><b>₹8,06,412</b></div><div class="row"><span>IDPL</span><b>₹44,432</b></div>
+<div class="acts"><span class="act">why?</span><span class="act">vs July</span><span class="act">by doctor</span><span class="act" style="color:var(--dim)">show query</span></div></div>
+</div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">No bubbles. Each answer is a <b>card with actions</b>; the previous Q&amp;A collapses to one
+line so the thread reads as <i>drilling</i>, not chatting. The context bar at top is the backend's
+4-field state made visible and <b>tappable</b> — change "August" to "July" and the card re-runs.
+"why?" routes to DIAGNOSE; "by doctor" is a dimension the registry allows; "show query" is provenance.
+This is the version that feels like a HealthFlow instrument rather than ChatGPT in a box.</p>
+<p class="spec">card actions = supported dimensions + DIAGNOSE + provenance · collapsed rows re-expand on tap · context chips are inputs</p></div>
+
+<div class="var"><h3>C · Answer with a warning <span class="tag me">alt</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><div class="you">doctor wise referral amount last month</div>
+<div class="card"><div class="k">Referral payout · August</div>
+<div class="row"><span>Dr K. Ramaswamy</span><b>₹1,12,655</b></div><div class="row"><span>Dr G. Dasarathi</span><b>₹50,116</b></div><div class="row"><span>Lalitha Hospital</span><b>₹44,440</b></div>
+<div class="flag" style="margin-top:6px"><b>Worth checking</b>A second, independently written query gave a different total. Verify on the Payouts page before you pay.</div>
+<div class="acts"><span class="act">open Payouts</span><span class="act" style="color:var(--dim)">show both queries</span></div></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">The state a chatbot shell doesn't have. On money questions the backend sometimes
+<b>disagrees with itself</b> and cannot say which attempt is right — measured at 50% precision against
+a 22% base rate, firing on ~1 answer in 8. The number still shows. The flag is <i>inside</i> the card,
+amber not red, and the primary action is the real page where the authoritative figure lives.
+Never a modal, never hides the number.</p>
+<p class="spec">amber #fff7e6 · label 9px caps · fires only on money/ranking questions · action = deep link to source page</p></div>
+</div>
+
+<h2><span class="n">05</span>Expanded</h2>
+<p class="lead">Longer analysis. Bigger panel is the obvious move. The question is what the extra
+space is <i>for</i>.</p>
+<div class="vars">
+
+<div class="var"><h3>A · Same panel, bigger <span class="tag you">yours</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel lg"><div class="ph"><div class="orb"></div>PULSE<span class="x">⤡ &nbsp; ×</span></div>
+<div class="pb"><div class="collapsed"><span>why is collection down this week</span><b>it isn't — up 2.4%</b></div>
+<div class="bot">Collections are up 2.4% on last week and above the normal level for this period, so this is a real lift. Chintal (+₹15,748) and diagnostics (+₹14,548) drove it; cash was up ₹30,383. Working against it: IDPL (−₹6,300) and Dr Dasarathi (−₹21,485).</div>
+<div class="card"><div class="k">what moved it</div><div class="row"><span>Chintal</span><b style="color:var(--ok)">+₹15,748</b></div><div class="row"><span>Diagnostics</span><b style="color:var(--ok)">+₹14,548</b></div><div class="row"><span>Dr Dasarathi</span><b style="color:var(--no)">−₹21,485</b></div></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Works. Reading room for diagnostic answers, which are naturally 4–6 sentences plus a movers
+table. The expand toggle lives in the header. Fine as the V1 default.</p>
+<p class="spec">560×720 · toggle ⤡ in header · remembers last size per user</p></div>
+
+<div class="var"><h3>B · Answer left, evidence right <span class="tag me">alt</span><span class="tag rec">rec</span></h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel lg"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="split"><div>
+<div class="collapsed"><span>doctor wise referral amount</span><b>7 doctors</b></div>
+<div class="card"><div class="row"><span>Dr K. Ramaswamy</span><b>₹1,12,655</b></div><div class="row"><span>Dr G. Dasarathi</span><b>₹50,116</b></div><div class="row"><span>Lalitha Hospital</span><b>₹44,440</b></div></div>
+<div class="flag"><b>Worth checking</b>Two attempts disagreed on the total.</div>
+</div><div>
+<div class="k" style="font-size:8px;color:var(--mut);letter-spacing:.08em;text-transform:uppercase">Evidence</div>
+<div class="ev"><b>source</b>  DoctorPayoutLedger
+<b>period</b>  Aug 1 – Sep 1 (IST)
+<b>rows</b>    562 ledger entries
+<b>filter</b>  REFERRAL · not deleted
+
+<b>query</b>
+SELECT rd.name, SUM(pl."derivedAmountInPaise")
+FROM "DoctorPayoutLedger" pl
+JOIN "ReferralDoctor" rd …</div>
+<div class="ev" style="border-left:2px solid var(--wn)"><b>2nd attempt</b>  ₹4,97,868 total
+recomputed from orders, not
+the ledger — different source</div>
+</div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">The expanded state earns its space by showing <b>where the number came from</b>: source
+table, period as actually applied, row count, the query, and — when flagged — what the second attempt
+did differently. This is the "trust panel". For the payout case it would have shown you in one
+glance that the two attempts read <i>different tables</i>, which is precisely the reconciliation gap
+we found. Owners won't read SQL, but "source: DoctorPayoutLedger · 562 rows · Aug 1–Sep 1" they will.</p>
+<p class="spec">split 55/45 · evidence panel is plain text, monospace, scrolls · SQL collapsed by default under "query"</p></div>
+
+<div class="var"><h3>C · Side sheet that pushes the page <span class="tag me">alt</span></h3>
+<div class="app"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main" style="right:46%"><div class="ttl"></div><div class="kpi"><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sheet"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="ctxbar"><span class="c">Page <b>Payouts</b></span><span class="c"><b>August</b></span></div>
+<div class="pb"><div class="collapsed"><span>who stopped referring</span><b>4 doctors</b></div>
+<div class="card"><div class="row"><span>Dr S. Rao</span><b>July 31 → 0</b></div><div class="row"><span>Dr P. Kumar</span><b>July 22 → 0</b></div><div class="row"><span>City Clinic</span><b>July 12 → 0</b></div></div>
+<p class="bot" style="color:var(--mut)">← the Payouts table stays visible; tap a doctor here to filter it there.</p></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Not floating — a <b>docked sheet</b> that narrows the page instead of covering it. The
+page stays live, so an answer can <i>act on it</i>: tap a doctor in Pulse and the Payouts table filters
+to them. Pulse becomes a control surface for the screen you're on rather than a window over it. This
+is the shell that grows into your "Actions" slot without redesign. <b>Risk:</b> on narrow screens it
+must fall back to the floating panel.</p>
+<p class="spec">width 46% (min 380px) · pushes content, doesn't overlay · &lt;1024px → floating panel · answers can emit page filters</p></div>
+</div>
+
+<h2><span class="n">06</span>States the backend forces</h2>
+<p class="lead">A chatbot shell has one reply shape. This backend has at least four more, and each
+needs its own rendering or it degrades into a paragraph.</p>
+<div class="vars">
+
+<div class="var"><h3>The ladder — "profit kitna"</h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><div class="you">last month profit how much</div>
+<div class="card ladder"><div class="k">August · what we can see</div>
+<div class="row"><span>Collected</span><b>₹18,93,725</b></div>
+<div class="row"><span class="m">− referral commission</span><span class="m">₹5,34,722</span></div>
+<div class="row"><span class="m">− clinic-doctor payouts</span><span class="m">₹1,62,750</span></div>
+<div class="row tot"><span>Left after recorded payouts</span><b>₹11,96,252</b></div>
+<div class="flag" style="margin-top:6px;background:#f3f3f0;border-color:var(--wire2);color:var(--mut)"><b style="color:var(--fg)">This is not profit</b>Salaries, rent, consumables and lab costs aren't recorded. Add them and I'll finish the sum.</div></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">A stepped subtraction, not prose. The line under it is the boundary — grey, not amber,
+because nothing is <i>wrong</i>; the data just stops. "Add them and I'll finish the sum" is a real
+input affordance for later.</p>
+<p class="spec">rows: label left, amount right, deductions in red · total row rule above · boundary note grey</p></div>
+
+<div class="var"><h3>Out of scope — no query was run</h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><div class="you">how many patients went to the lab across the road</div>
+<div class="bot"><div class="who">PULSE</div>I can't see that — only what happens inside your centre is recorded. I didn't run a query, so there's no number to give you.
+<div class="chips" style="margin-top:6px"><span class="chip">patients who didn't return in 90 days</span><span class="chip">first-visit patients this month</span></div></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">Plain refusal, no card, no number — <b>and it says no query ran</b>, so "0" can never be
+mistaken for a fact. The chips offer the nearest thing it <i>can</i> answer. The tone is short; a long
+apology reads as evasion.</p>
+<p class="spec">no card · ≤2 sentences · always offer 1–2 in-scope alternatives</p></div>
+
+<div class="var"><h3>The picker — 20 Sharmas</h3>
+<div class="app dimmed"><div class="top"><i></i><i></i><i></i></div><div class="side"><i></i><i></i><i></i><i></i></div>
+<div class="main"><div class="ttl"></div><div class="kpi"><i></i><i></i><i></i></div><div class="chart"></div></div>
+<div class="panel sm"><div class="ph"><div class="orb"></div>PULSE<span class="x">×</span></div>
+<div class="pb"><div class="you">sharma referrals this month</div>
+<div class="bot"><div class="who">PULSE</div>Which Sharma?</div>
+<div class="pick"><div class="pr"><span>Dr A. Sharma <small>· Chintal</small></span><small>31 this month</small></div><div class="pr"><span>Dr R. K. Sharma <small>· Balanagar</small></span><small>12</small></div><div class="pr"><span>Sharma Clinic</span><small>4</small></div><div class="pr" style="color:var(--acc)"><span>show all 20</span></div></div></div>
+<div class="pf"><div class="in">Ask Pulse…</div><div class="go">↑</div></div></div></div>
+<p class="why">The ambiguity tier where asking beats guessing. Ranked by <b>recent activity</b> so the
+likely one is on top; the branch disambiguates; "show all" is there but not the default. Two-name
+ties (KidCare / Kid Care) skip this entirely and show both — enumerate, don't ask.</p>
+<p class="spec">max 3 rows + "show all" · sorted by activity in the asked period · tap = re-runs with entity bound</p></div>
+
+<div class="var"><h3>Thinking — and what the orb does</h3>
+<div class="states" style="margin:0">
+<div class="state"><div class="orbwrap"><div class="orb"></div></div><div class="nm">Idle</div><div class="d">Slow drift, ±1px. Alive, not busy.</div></div>
+<div class="state"><div class="orbwrap"><div class="orb think"></div></div><div class="nm">Thinking</div><div class="d">Scale-pulse at ~1.1s. Answers take ~2s; this covers it without a spinner.</div></div>
+<div class="state"><div class="orbwrap"><div class="orb"></div><div class="badge" style="position:absolute;top:8px;right:calc(50% - 18px)"></div></div><div class="nm">1 thing</div><div class="d">Amber dot. The diagnostic engine found a mover outside normal range. Same machinery as hover B.</div></div>
+</div>
+<p class="why" style="margin-top:12px">Three states, not six. "Responding" doesn't need its own animation —
+text appearing <i>is</i> the animation. The badge is the future proactive entry point and it's
+driven by the same deterministic baseline/z-score code that answers "is this normal?" today, so V1
+can ship it dark and flip it on later.</p>
+<p class="spec">think: scale 1→1.18 sine, 1.1s · badge: 10px amber, top-right, only when |z| ≥ 2 · never a red badge</p></div>
+</div>
+
+<h2><span class="n">07</span>What I'd lock for V1</h2>
+<table>
+<thead><tr><th>State</th><th>Pick</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><b>Collapsed</b></td><td>A · blob, with C's page-aware number as a later toggle</td><td>Ship the object first; the live number needs the SSE metric feed to be trustworthy</td></tr>
+<tr><td><b>Hover</b></td><td>B · one true thing</td><td>Free — the diagnostic engine already computes it. Turns discoverability into a reason to open</td></tr>
+<tr><td><b>Empty</b></td><td>B · today, then the box; with C's context bar</td><td>Facts invite questions; the context bar kills the "did you mean" round-trip</td></tr>
+<tr><td><b>Conversation</b></td><td>B · feed of cards with actions</td><td>Every answer already carries dimensions, a DIAGNOSE path and provenance. Render them as buttons, not prose</td></tr>
+<tr><td><b>Expanded</b></td><td>B · evidence panel</td><td>Trust is the product. Source · period · rows · query is what makes a number believable to an owner</td></tr>
+<tr><td><b>Forced states</b></td><td>all four</td><td>Ladder, out-of-scope, picker, warning — each has a backend path already; skipping the UI for any of them degrades it to a paragraph</td></tr>
+</tbody></table>
+
+<div class="co"><p style="margin:0"><b>The one principle underneath all of it:</b> every answer the backend
+produces is either a number with a source, a ranked list, a stepped sum, a warning, a question
+back, or a refusal. Six shapes. Give each a component, and Pulse feels like an instrument. Flatten them
+into chat bubbles, and it's ChatGPT in a box no matter how nice the blob is.</p></div>
+
+<footer>Pulse wireframes · HealthFlow · mid-fidelity, local file · dimensions are proposals, to be
+checked against the existing HealthFlow type scale and control shapes before pixel work</footer>
+
+</div></body></html>

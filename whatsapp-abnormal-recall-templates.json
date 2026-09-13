@@ -1,0 +1,96 @@
+{
+  "_meta": {
+    "waba_id": "4311046405806986",
+    "purpose": "Abnormal-result recall + concessional repeat-test offer.",
+    "strategy": "Same message body, submitted across the category spectrum so Meta reveals where 'utility' stops and 'marketing' begins. {{1}}=patient name, {{2}}=abnormal panel list (from abnormal-panel-recall.sql).",
+    "submit": "node scripts/submit-wa-templates.mjs"
+  },
+  "templates": [
+    {
+      "_label": "1. SAFE UTILITY — pure follow-up, no offer (expected: APPROVED, UTILITY)",
+      "name": "abnormal_result_followup",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, this is a health follow-up from Sobhana Diagnostics. Some of your recent results ({{2}}) were outside the normal range, and a repeat test is recommended to keep track. Reply here or call us to book a convenient time.",
+          "example": { "body_text": [["Ramesh", "Complete Blood Picture, Liver Function Test"]] }
+        }
+      ]
+    },
+    {
+      "_label": "2. UTILITY + soft concession, no number (expected: UTILITY or recat MARKETING)",
+      "name": "abnormal_recheck_courtesy",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, following up on your recent report from Sobhana Diagnostics. Your {{2}} results were outside the normal range and a repeat test is advised. As a returning patient, a concessional rate applies on your follow-up test. Reply to book.",
+          "example": { "body_text": [["Ramesh", "Complete Blood Picture"]] }
+        }
+      ]
+    },
+    {
+      "_label": "3. UTILITY submit, explicit 50% (expected: likely RECAT to MARKETING)",
+      "name": "abnormal_recheck_halfoff",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, a follow-up from Sobhana Diagnostics: your {{2}} results were outside the normal range and a repeat test is advised. To make re-checking easier, your follow-up test is available at 50% off this month. Reply or call to book.",
+          "example": { "body_text": [["Ramesh", "Liver Function Test"]] }
+        }
+      ]
+    },
+    {
+      "_label": "4. HONEST MARKETING — 50%, vague health ref, opt-out (expected: APPROVED, MARKETING)",
+      "name": "health_recheck_offer",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, staying on top of your health is easier with the right check-up. Some of your recent Sobhana Diagnostics results were outside the normal range. Re-check now at 50% off, valid this month. Reply BOOK and we will arrange a convenient time.",
+          "example": { "body_text": [["Ramesh"]] }
+        },
+        { "type": "FOOTER", "text": "Reply STOP to opt out" }
+      ]
+    },
+    {
+      "_label": "5. MARKETING — 50% + named panel (expected: APPROVED, MARKETING; panel-in-marketing is the risk)",
+      "name": "abnormal_recheck_offer_specific",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, your recent {{2}} results at Sobhana Diagnostics were outside the normal range. Re-check and track your progress with 50% off your repeat test this month. Reply BOOK to schedule.",
+          "example": { "body_text": [["Ramesh", "Complete Blood Picture"]] }
+        },
+        { "type": "FOOTER", "text": "Reply STOP to opt out" }
+      ]
+    },
+    {
+      "_label": "6. UTILITY 'reminder' framing, special price (expected: borderline)",
+      "name": "wellness_recheck_reminder",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, a quick reminder from Sobhana Diagnostics. Your {{2}} results need a follow-up test to monitor them. Reply BOOK this month to reserve a special returning-patient price and we will schedule your visit.",
+          "example": { "body_text": [["Ramesh", "Liver Function Test"]] }
+        }
+      ]
+    }
+  ]
+}

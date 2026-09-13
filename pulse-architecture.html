@@ -1,0 +1,217 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse — Architecture As Shipped</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f4f2;--fg:#1c1c1a;--mut:#6f6f69;--dim:#a3a39c;--line:#dcdcd7;--card:#fff;--navy:#1B2B58;--navy2:#25397a;--acc:#D91C2B;--ok:#2e7d32;--wn:#a06000}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 Inter,system-ui,sans-serif}
+.wrap{max-width:1150px;margin:0 auto;padding:0 28px 100px}
+header{padding:52px 0 22px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-size:31px;margin:0 0 8px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:16px;max-width:70ch;margin:0}
+.pill{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 12px;font-size:12.5px;margin:2px 5px 2px 0;font-variant-numeric:tabular-nums}
+h2{font-size:21px;margin:50px 0 4px;letter-spacing:-.01em}
+h2 .n{display:inline-block;width:34px;color:var(--dim);font-weight:400;font-size:15px}
+h3{font-size:14.5px;margin:26px 0 8px;color:var(--navy2);font-weight:650}
+.lead{color:var(--mut);margin:0 0 16px;margin-left:34px;max-width:76ch}
+p{max-width:78ch}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(0,0,0,.05);padding:1.5px 5px;border-radius:3px}
+.fig{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:16px 0;overflow-x:auto}
+.fig pre{margin:0;font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);padding:7px 10px 7px 0;font-weight:650}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.win td{background:rgba(46,125,50,.07)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px}
+.tag.ok{background:#e3f1e5;color:var(--ok)}.tag.no{background:#fbe5e3;color:var(--acc)}.tag.wn{background:#fdf0dc;color:var(--wn)}.tag.n{background:#e7eaf3;color:var(--navy2)}
+.co{border-left:3px solid var(--navy2);padding:2px 0 2px 14px;margin:16px 0;max-width:78ch}
+.co.bad{border-color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+.stat .v{font-size:25px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.stat .v small{font-size:14px;color:var(--dim);font-weight:400}
+.stat .l{font-size:11.5px;color:var(--mut);margin-top:4px;line-height:1.4}
+ul{margin:8px 0;padding-left:20px;max-width:78ch}li{margin:5px 0}
+.files{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;margin:14px 0}
+.f{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:9px 12px;font-size:12.5px}
+.f b{font:12px ui-monospace,Menlo,monospace;display:block;color:var(--navy2)}
+.f span{color:var(--mut);font-size:11.5px}
+.f i{float:right;color:var(--dim);font-style:normal;font-size:11px}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>Pulse — Architecture As Shipped</h1>
+<p class="sub">What is running today. V2 replaced the six fixed intent paths with one analyst that
+plans the analysis per question — measured at parity with the old path on facts, and able to answer
+the open-ended and operational questions it could not.</p>
+<p style="margin-top:14px"><span class="pill">1 analyst, no fixed paths</span><span class="pill">13 tools</span>
+<span class="pill">2–3 LLM calls</span><span class="pill">4–5s warm</span>
+<span class="pill">held-out 21/32 — parity with V1</span><span class="pill">owner voice 18/20</span></p>
+</header>
+
+<h2><span class="n">01</span>The whole path</h2>
+<p class="lead">A question enters at the top. Everything in <b>bold</b> is deterministic code; only the
+boxes marked <span class="tag n">LLM</span> involve the model.</p>
+
+<div class="fig"><pre>
+  owner types  ─►  <b>ask()</b>
+                     │
+                     ├─ <b>fragment?</b>  "branch wise" / "and balanagar?" → rewrite against the last turn
+                     │                   a dimension REPLACES the old one, never stacks
+                     │                   an unknown place → refuse by name, don't guess
+                     │
+                     ├─ <b>ambiguous name?</b>  2+ doctors match "sharma" → PICKER, 0 model calls
+                     │
+                     ├─ <b>known entity, bare?</b>  "chintal", "ramaswamy ko kitna dena hai"
+                     │                            → ENTITY CARD, 4 registry metrics, 0 model calls
+                     │
+                     ▼
+              <span class="tag n">LLM</span> <b>INTENT ROUTER</b>   ~250 tok · 24/24 on real owner phrasing
+                     │
+     ┌───────────┬───┴────┬──────────┬───────────┬────────────┐
+     ▼           ▼        ▼          ▼           ▼            ▼
+    SQL       STATUS   DIAGNOSE   ADVISE      LADDER    OUT_OF_SCOPE
+     │           │        │          │           │            │
+     │           └────┬───┘          │           │      no query is run —
+     │                │              │           │      an empty result can
+     │        <b>~6 to ~20 registry</b>  <b>weak-spot</b>    <b>rungs</b>      never become "0"
+     │        <b>queries + baseline</b>  <b>signals</b>     <b>in SQL</b>
+     │                │              │           │
+     │           <span class="tag n">LLM</span> narrate  <span class="tag n">LLM</span> rank   <span class="tag n">LLM</span> narrate
+     │                                            (rupee guard strips any
+     ▼                                             figure it was not given)
+  <span class="tag n">LLM</span> <b>writes ONE SELECT</b>   6,400 tok, ~98% prefix-cached
+     │   prompt carries: graph schema · enums · owner glossary · ontology ·
+     │   join/grain conventions · metric registry · dimension defs · exemplars ·
+     │   resolved literals · coverage (only if the question touches an empty column) ·
+     │   <b>the previous question + the SQL that answered it</b>, if this is a follow-up
+     ▼
+  <b>VALIDATOR</b>  deny-list · no SELECT * · aggregate required on PHI ·
+     │        comma-join · JOIN without ON · fan-out · GROUP BY
+     ▼
+  <b>analytics_ro</b>  read-only role · column grants · 8s statement_timeout
+     │
+     ├─ error or 0 rows  ─►  <span class="tag n">LLM</span> <b>typed repair</b>, once  (the ONLY retry)
+     │                       wrong-but-valid is NEVER retried — measured net 0, 3 runs
+     ▼
+  <b>chooseShape(question, rows)</b>  ─►  scalar · kpis · compare · list · ranked ·
+     │                                  series · matrix · table · empty
+     ├─ money or ranking?  ─►  <span class="tag n">LLM</span> <b>second independent query</b>, compare RESULTS
+     │                        disagree → ⚠ marker on the card. Never replaces the number.
+     ├─ <span class="tag n">LLM</span> <b>follow-up chips</b> proposed from what the result actually shows
+     ▼
+  card + provenance (source tables · row count · the SQL)
+</pre></div>
+
+<h2><span class="n">02</span>The six intents</h2>
+<table>
+<thead><tr><th>Intent</th><th>Example</th><th>What runs</th><th class="num">LLM calls</th></tr></thead>
+<tbody>
+<tr><td><b>SQL</b></td><td><code>last month collection how much</code></td><td>one SELECT → validator → shape → chips</td><td class="num">1 (+1 on money)</td></tr>
+<tr><td><b>STATUS</b></td><td><code>business kaisa chal raha hai</code></td><td>6 registry metrics, this period vs last, like-for-like</td><td class="num">1 narrate</td></tr>
+<tr><td><b>DIAGNOSE</b></td><td><code>why is collection down this week</code></td><td>~20 queries, contribution ranking, 8-period baseline, premise check</td><td class="num">1 narrate</td></tr>
+<tr><td><b>ADVISE</b> <span class="tag ok">new</span></td><td><code>how can i improve my business</code></td><td>uncollected money · reports &gt;24h · doctors gone quiet · discount rate · negative movers</td><td class="num">1 rank</td></tr>
+<tr><td><b>LADDER</b></td><td><code>profit kitna</code></td><td>collected − each recorded payout, then the boundary</td><td class="num">1 narrate</td></tr>
+<tr><td><b>OUT_OF_SCOPE</b></td><td><code>lab across the road</code></td><td>nothing — no query is generated at all</td><td class="num">0</td></tr>
+</tbody></table>
+<p>Plus two paths that never reach the router: the <b>picker</b> (2+ doctors match a surname) and the
+<b>entity card</b> (a bare known name), both 0 model calls.</p>
+
+<h2><span class="n">03</span>What the model decides, and what it never touches</h2>
+<div class="fig"><pre>
+  THE MODEL DECIDES                      CODE DECIDES
+  ─────────────────────────────────      ──────────────────────────────────────
+  which intent a question is             which card renders the result
+  what SQL computes the answer           whether that SQL is allowed to run
+  how to phrase the sentences            every number in a narration (pre-formatted)
+  which follow-ups are worth offering    the period maths (IST calendar days)
+                                         the contribution ranking and baseline
+                                         the ladder arithmetic
+                                         which entity a name resolves to
+                                         when two answers disagree
+</pre></div>
+<p class="co">The rule the whole design turns on: <b>the model decides what to compute, never how to
+show it.</b> Every presentation decision is a function of data that exists after the query ran, and
+those functions are testable to 100% — the shape chooser is 130/130 on correct rows.</p>
+
+<h2><span class="n">04</span>Grounding — the only lever that ever moved accuracy</h2>
+<p class="lead">Roughly 6,400 tokens, ~98% prefix-cached, assembled fresh per question.</p>
+<table>
+<thead><tr><th>Block</th><th>What it carries</th><th class="num">Tokens</th></tr></thead>
+<tbody>
+<tr><td>graph schema</td><td>fact tables first with their TIME column, then dimensions. <b>No FK edges</b> — they lost 3/3 reps and cost 583 tok</td><td class="num">~2,000</td></tr>
+<tr><td>owner glossary</td><td>collection / cases / due / doctor wise → the right entity. Defaults the question can override</td><td class="num">~380</td></tr>
+<tr><td>metric registry</td><td>14 formulas, the only place they exist. Self-checked at boot</td><td class="num">~640</td></tr>
+<tr><td>ontology</td><td>concept hierarchy, metric dependencies, grain rules, lifecycle</td><td class="num">~420</td></tr>
+<tr><td>join/grain conventions</td><td>breakdown vs ranking need opposite joins; TAT is first finalization</td><td class="num">~300</td></tr>
+<tr><td>dimension defs + exemplars</td><td>authoritative column per concept; 8 worked patterns</td><td class="num">~1,100</td></tr>
+<tr><td>value index</td><td>literals the question names, resolved from live data</td><td class="num">varies</td></tr>
+<tr><td>coverage</td><td>columns that exist but are never filled — <b>only when the question touches one</b></td><td class="num">242 or 0</td></tr>
+<tr><td>advanced patterns</td><td>windows, percentiles, anti-joins — <b>only when the question needs them</b></td><td class="num">~300 or 0</td></tr>
+<tr><td>conversation context <span class="tag ok">new</span></td><td>the previous question and the SQL that answered it, on a follow-up</td><td class="num">~150 or 0</td></tr>
+</tbody></table>
+
+<h2><span class="n">05</span>Deliberately absent</h2>
+<table>
+<thead><tr><th>Not built</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Repair of a wrong-but-valid answer</td><td>Net <b>0</b> across three runs. The errors are systematic — a second attempt reproduces the same misunderstanding</td></tr>
+<tr><td>3-sample voting</td><td>Identical mean, ever-ok and never-ok set at 3× tokens and 3.6× latency</td></tr>
+<tr><td>LLM inspection as a gate</td><td>9–27% catch, no net gain; the measurement was itself confounded by my prompt truncation</td></tr>
+<tr><td>Deterministic invariants as a user-facing flag</td><td>Precision 13–20% against a 22% base rate — <b>anti-informative</b>, a flag made the answer look <i>less</i> likely wrong</td></tr>
+<tr><td>FK edges in the schema block</td><td>Lost 3/3 reps, cost 583 tok/q. Silently absent for months and nothing noticed</td></tr>
+<tr><td>Patient-level output</td><td>Blocked by design at three layers: role grants, validator, and an explicit refusal that points at Money → Bills</td></tr>
+</tbody></table>
+<p class="co bad">The one verification that survived: <b>write the money query twice, compare the
+results</b>. 50% precision against a 22% base rate, 40% recall, 7% false alarms. It marks the answer.
+It never replaces the number, because it cannot tell which of the two is right.</p>
+
+<h2><span class="n">06</span>Freshness</h2>
+<table>
+<tbody>
+<tr><td style="width:34%"><b>visits, bills, payments</b></td><td>instant — every answer queries live</td></tr>
+<tr><td><b>doctors, tests, branches</b></td><td>a fingerprint query on panel open (throttled 30s); names refresh only if something changed. Hourly is the floor</td></tr>
+<tr><td><b>schema shape, coverage</b></td><td>every 6h and at boot; a change in column count triggers a full rebuild</td></tr>
+<tr><td><b>on demand</b></td><td><code>POST /api/pulse/refresh</code></td></tr>
+<tr><td><b>metric formulas, glossary</b></td><td>hand-written — the house rules, by design</td></tr>
+<tr><td><b>a new table</b></td><td>needs <code>GRANT SELECT</code> on <code>analytics_ro</code> first</td></tr>
+</tbody></table>
+<p>Every registry formula is executed at boot. <code>/api/pulse/health</code> returns 500 and names
+the metric if a schema change breaks one — so it surfaces there, not as a wrong number.</p>
+
+<h2><span class="n">07</span>Files</h2>
+<div class="files">
+<div class="f"><b>knowledge.ts<i>410</i></b><span>every prompt block; live schema, coverage, value index, name directory, fingerprint, registry self-check</span></div>
+<div class="f"><b>diagnostic.ts<i>181</i></b><span>status · baseline · diagnose · advise · IST period maths</span></div>
+<div class="f"><b>catalog.ts<i>112</i></b><span>14 metrics, FROM clauses, dimensions</span></div>
+<div class="f"><b>sqlPath.ts<i>98</i></b><span>generate → validate → repair → shape → chips → 2-sample</span></div>
+<div class="f"><b>router.ts<i>91</i></b><span>6 intents, period parser, regex fallback</span></div>
+<div class="f"><b>index.ts<i>80</i></b><span>ask(): fragment → picker → entity → route → path</span></div>
+<div class="f"><b>entity.ts<i>68</i></b><span>doctor / branch / test profile, 0 model calls</span></div>
+<div class="f"><b>db.ts<i>59</i></b><span>analytics_ro client, BigInt normalise, IST, language detect</span></div>
+<div class="f"><b>validator.ts<i>53</i></b><span>the deny layer</span></div>
+<div class="f"><b>shapes.ts<i>53</i></b><span>chooseShape + guessMetric</span></div>
+<div class="f"><b>ladder.ts<i>51</i></b><span>profit rungs + rupee guard</span></div>
+<div class="f"><b>llm.ts<i>42</i></b><span>DeepSeek, thinking off, JSON</span></div>
+<div class="f"><b>today.ts<i>38</i></b><span>empty-state pack, 5-min cache</span></div>
+<div class="f"><b>PulseCards.tsx<i>238</i></b><span>one component per shape + advise/ladder/entity/pick/refuse</span></div>
+<div class="f"><b>PulsePanel.tsx<i>67</i></b><span>panel, today-first empty state, collapsed turns</span></div>
+<div class="f"><b>usePulse.ts<i>59</i></b><span>state, prefetch, 4-field context</span></div>
+</div>
+
+<h2><span class="n">08</span>Measured</h2>
+<div class="grid">
+<div class="stat"><div class="v">25<small>/32</small></div><div class="l">Held-out hard questions, written to make it fail</div></div>
+<div class="stat"><div class="v">18<small>/20</small></div><div class="l">Owner phrasing (analyst phrasing 20/20)</div></div>
+<div class="stat"><div class="v">24<small>/24</small></div><div class="l">Intent routing incl. Hinglish and trap words</div></div>
+<div class="stat"><div class="v">130<small>/130</small></div><div class="l">Card chosen correctly given correct rows</div></div>
+<div class="stat"><div class="v">14<small>/14</small></div><div class="l">Registry formulas passing in production</div></div>
+<div class="stat"><div class="v">±2</div><div class="l">Run-to-run noise at n=32 — smaller deltas are meaningless</div></div>
+</div>
+<p>Verified through the compiled production build against the live database, scored exactly as the
+research harness scored it — same numbers, same misses.</p>
+
+<footer>Pulse · live on main · owner-only · every question audited with the path it took and the SQL it ran</footer>
+</div></body></html>

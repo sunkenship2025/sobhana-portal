@@ -65,6 +65,9 @@ bun.lockb
 .agent/
 .agents/
 
+# Graphify knowledge-graph output (regenerable via `graphify update .`)
+graphify-out/
+
 # Secrets & local data dumps — never commit (P0-15/P0-16)
 go-proxy.js
 extras/*.sql

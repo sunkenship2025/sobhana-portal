@@ -1,0 +1,193 @@
+<title>Earned Layers</title>
+<style>
+  :root{
+    --bg:#faf9f7;--card:#fff;--ink:#1a1917;--dim:#6b6862;--faint:#9a958d;--line:#e3e0da;
+    --a:#c2571f;--b:#3f7d68;--c:#8a8580;--d:#6b7fa3;--up:#2f6f4e;--down:#a32b1c;--grid:#efedea;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#171614;--card:#1f1e1b;--ink:#eceae5;--dim:#9d9890;--faint:#6d6862;--line:#33312d;
+    --a:#e8834a;--b:#6fb89c;--c:#7a746d;--d:#8fa3c7;--up:#7fc39a;--down:#e88a7c;--grid:#2a2825;
+  }}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);margin:0;padding:34px 22px 70px;
+       font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
+  .lede{color:var(--dim);font-size:13.5px;margin:0 0 8px}
+  .rule{font-size:13.5px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--a);
+        border-radius:8px;padding:11px 14px;margin:0 0 30px}
+  .rule code{font-family:var(--mono);font-size:.87em;background:var(--grid);padding:1px 5px;border-radius:3px}
+
+  .case{margin:0 0 34px}
+  .caseh{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;flex-wrap:wrap}
+  .caseh h2{font-size:14px;margin:0;letter-spacing:-.01em}
+  .caseh .q{font-size:12.5px;color:var(--dim);font-style:italic}
+  .ev{font-family:var(--mono);font-size:11px;color:var(--faint);margin:0 0 9px}
+
+  .art{background:var(--card);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .head{padding:13px 16px 11px}
+  .head.bd{border-bottom:1px solid var(--line)}
+  .verdict{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 3px;line-height:1.35}
+  .basis{font-size:12.5px;color:var(--dim);margin:0}
+  .basis b{color:var(--ink);font-weight:600}
+  svg{display:block;width:100%;height:auto}
+  .plot{padding:4px 6px 0}
+  .cards{display:grid;border-top:1px solid var(--line)}
+  .cd{padding:10px 14px;border-right:1px solid var(--line)}
+  .cd:last-child{border-right:0}
+  .cd .k{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:2px}
+  .cd .v{font-size:17px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .cd .n{font-size:11px;color:var(--dim)}
+  .cd .v.up{color:var(--up)}.cd .v.down{color:var(--down)}.cd .v.est{font-style:italic;color:var(--faint)}
+  .legend{display:flex;gap:11px;padding:0 16px 11px;flex-wrap:wrap}
+  .lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dim)}
+  .lg .sw{width:13px;height:2.5px;border-radius:2px}
+
+  .why{margin:8px 0 0;font-size:12.5px;color:var(--dim);display:grid;gap:2px}
+  .why span{font-family:var(--mono);font-size:11.5px}
+  .on{color:var(--up)} .off{color:var(--faint)}
+</style>
+
+<div class="wrap">
+<h1>Earned layers</h1>
+<p class="lede">One trajectory component, four evidence shapes. Nothing below is a different renderer —
+it is the same code, and each layer is present only where the evidence justifies it.</p>
+<p class="rule">Every layer carries an <code>earns(evidence, contract)</code> predicate, evaluated deterministically
+against the real shape of the rows — exactly like <code>requires</code> and <code>buildable</code> already gate
+whole renderers. A layer that cannot justify itself is not a faint, low-priority layer. It is absent.</p>
+
+<div id="out"></div>
+</div>
+
+<script>
+const RAW = [["2026-07",2,1],["2026-07",4,1],["2026-07",11,2],["2026-07",12,2],["2026-07",13,1],["2026-07",15,2],["2026-07",17,1],["2026-07",18,1],["2026-07",19,1],["2026-07",20,4],["2026-07",21,1],["2026-07",23,1],["2026-07",24,2],["2026-07",25,2],["2026-07",26,1],["2026-07",27,1],["2026-08",6,1],["2026-08",8,3],["2026-08",10,3],["2026-08",11,1],["2026-08",12,1],["2026-08",13,3],["2026-08",14,1],["2026-08",15,1],["2026-08",17,4],["2026-08",18,3],["2026-08",19,3],["2026-08",20,1],["2026-08",22,1],["2026-08",25,1],["2026-08",27,4],["2026-08",29,2],["2026-08",31,3],["2026-09",2,4],["2026-09",5,2],["2026-09",7,2],["2026-09",8,4],["2026-09",10,2],["2026-09",12,3]];
+const COLOUR = { '2026-07':'var(--c)', '2026-08':'var(--b)', '2026-09':'var(--a)', '2026-06':'var(--d)', '2026-05':'var(--c)' };
+const NAME = { '2026-05':'May','2026-06':'June','2026-07':'July','2026-08':'August','2026-09':'September' };
+
+function series(pid, elapsed){
+  const by = new Map(RAW.filter(r => r[0] === pid).map(r => [r[1], r[2]]));
+  const out = []; let run = 0;
+  for (let d = 1; d <= elapsed; d++){ run += by.get(d) || 0; out.push({ day:d, value:by.get(d)||0, cumulative:run }); }
+  return out;
+}
+const total = p => series(p.id, p.elapsed).slice(-1)[0]?.cumulative ?? 0;
+
+/* ── THE CONTRACT ─────────────────────────────────────────────────────────────────────────
+   Each layer answers one question against the evidence. No question about the user's words,
+   no scoring, no "would this look nice" — the same discipline as the capability gates. */
+const LAYERS = {
+  todayMarker:    { earns: e => e.periods.some(p => !p.complete),
+                    why: 'a period is still running' },
+  partialShading: { earns: e => e.periods.some(p => !p.complete),
+                    why: 'there is a future to shade' },
+  sameDayCard:    { earns: e => e.periods.length >= 2 && e.periods.some(p => !p.complete),
+                    why: 'an incomplete period needs an aligned comparison or the totals mislead' },
+  projection:     { earns: e => { const c = e.periods.find(p => !p.complete); return !!c && c.elapsed / c.of >= 0.25; },
+                    why: 'at least a quarter of the period has elapsed — less is noise' },
+  paceCard:       { earns: e => e.periods.some(p => !p.complete),
+                    why: 'per-day rate only matters when lengths differ' },
+  deltaCard:      { earns: e => e.periods.length === 2 && e.periods.every(p => p.complete),
+                    why: 'two complete periods compare directly, no normalising needed' },
+  legend:         { earns: e => e.periods.length > 2,
+                    why: 'two lines label themselves at their endpoints' },
+  endpointLabels: { earns: e => e.periods.length <= 3,
+                    why: 'more than three and the labels collide' },
+};
+
+const W = 700, H = 190, M = { t:12, r:16, b:22, l:38 };
+const iw = W - M.l - M.r, ih = H - M.t - M.b;
+
+function chart(e, on){
+  const X = d => M.l + (d - 1) / (e.of - 1) * iw;
+  const max = Math.max(1, ...e.periods.flatMap(p => series(p.id, p.elapsed).map(x => x.cumulative))) * 1.14;
+  const Y = v => M.t + ih - v / max * ih;
+  const s = [];
+  for (let i = 0; i <= 3; i++){
+    const y = Y(max / 3 * i);
+    s.push(`<line x1="${M.l}" y1="${y}" x2="${W-M.r}" y2="${y}" stroke="var(--grid)"/>`);
+    s.push(`<text x="${M.l-7}" y="${y+3.5}" text-anchor="end" font-size="9.5" fill="var(--faint)" font-family="var(--mono)">${Math.round(max/3*i)}</text>`);
+  }
+  const cur = e.periods.find(p => !p.complete);
+  if (on.partialShading && cur)
+    s.push(`<rect x="${X(cur.elapsed)}" y="${M.t}" width="${W-M.r-X(cur.elapsed)}" height="${ih}" fill="var(--grid)" opacity=".5"/>`);
+  if (on.todayMarker && cur){
+    s.push(`<line x1="${X(cur.elapsed)}" y1="${M.t-3}" x2="${X(cur.elapsed)}" y2="${M.t+ih}" stroke="var(--dim)" stroke-dasharray="3 3"/>`);
+    s.push(`<text x="${X(cur.elapsed)+4}" y="${M.t+7}" font-size="9" fill="var(--dim)" font-family="var(--mono)">TODAY</text>`);
+  }
+  for (const d of [1, Math.round(e.of/3), Math.round(e.of*2/3), e.of])
+    s.push(`<text x="${X(d)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="var(--faint)" font-family="var(--mono)">${d}</text>`);
+  for (const p of e.periods){
+    const ser = series(p.id, p.elapsed), last = ser[ser.length-1];
+    s.push(`<polyline points="${ser.map(x => `${X(x.day)},${Y(x.cumulative)}`).join(' ')}" fill="none" stroke="${COLOUR[p.id]}" stroke-width="2" stroke-linejoin="round"/>`);
+    s.push(`<circle cx="${X(last.day)}" cy="${Y(last.cumulative)}" r="${p.complete?3:4.5}" fill="${p.complete?COLOUR[p.id]:'var(--card)'}" stroke="${COLOUR[p.id]}" stroke-width="2"/>`);
+    if (on.endpointLabels)
+      s.push(`<text x="${X(last.day)+7}" y="${Y(last.cumulative)+3.5}" font-size="10" font-weight="600" fill="${COLOUR[p.id]}">${NAME[p.id]}</text>`);
+  }
+  return `<svg viewBox="0 0 ${W} ${H}">${s.join('')}</svg>`;
+}
+
+function render(c){
+  const e = c.ev;
+  const on = {}; for (const k in LAYERS) on[k] = LAYERS[k].earns(e);
+  const cur = e.periods.find(p => !p.complete), base = e.periods.filter(p => p.complete).slice(-1)[0];
+  const cards = [];
+
+  if (on.paceCard && cur)
+    cards.push(`<div class="cd"><div class="k">Current pace</div><div class="v">${(total(cur)/cur.elapsed).toFixed(2)}</div><div class="n">per day</div></div>`);
+  if (on.sameDayCard && cur && base){
+    const a = total(cur), b = series(base.id, cur.elapsed).slice(-1)[0].cumulative;
+    const pct = b ? Math.round((a-b)/b*100) : 0;
+    cards.push(`<div class="cd"><div class="k">Same-day comparison</div><div class="v ${pct>4?'up':pct<-4?'down':''}">${pct>0?'+':''}${pct}%</div><div class="n">${a} vs ${b} to day ${cur.elapsed}</div></div>`);
+  }
+  if (on.projection && cur)
+    cards.push(`<div class="cd"><div class="k">Month-end projection</div><div class="v est">~${Math.round(total(cur)/cur.elapsed*cur.of)}</div><div class="n">a projection, not observed</div></div>`);
+  if (on.deltaCard && e.periods.length === 2){
+    const [x, y] = e.periods, pct = Math.round((total(y)-total(x))/total(x)*100);
+    cards.push(`<div class="cd"><div class="k">Change</div><div class="v ${pct>0?'up':'down'}">${pct>0?'+':''}${pct}%</div><div class="n">${total(x)} → ${total(y)}</div></div>`);
+  }
+
+  let verdict, basis;
+  if (cur && base){
+    const a = total(cur), b = series(base.id, cur.elapsed).slice(-1)[0].cumulative;
+    const pct = b ? Math.round((a-b)/b*100) : 0;
+    verdict = `${NAME[cur.id]} is tracking ${Math.abs(pct)<=4?'level with':(pct>0?'ahead of':'behind')} ${NAME[base.id]}`;
+    basis = `<b>${a}</b> through day ${cur.elapsed} against <b>${b}</b> over the same days.`;
+  } else {
+    const f = e.periods[0], l = e.periods[e.periods.length-1];
+    const pct = Math.round((total(l)-total(f))/total(f)*100);
+    verdict = `${NAME[l.id]} ${pct>0?'rose':'fell'} ${Math.abs(pct)}% against ${NAME[f.id]}`;
+    basis = `<b>${total(f)}</b> → <b>${total(l)}</b> across ${e.periods.length} complete periods.`;
+  }
+
+  return `<div class="case">
+    <div class="caseh"><h2>${c.title}</h2><span class="q">"${c.q}"</span></div>
+    <p class="ev">${c.shape}</p>
+    <div class="art">
+      <div class="head bd"><p class="verdict">${verdict}</p><p class="basis">${basis}</p></div>
+      <div class="plot">${chart(e, on)}</div>
+      ${on.legend ? `<div class="legend">${e.periods.map(p => `<span class="lg"><span class="sw" style="background:${COLOUR[p.id]}"></span>${NAME[p.id]}</span>`).join('')}</div>` : ''}
+      ${cards.length ? `<div class="cards" style="grid-template-columns:repeat(${cards.length},1fr)">${cards.join('')}</div>` : ''}
+    </div>
+    <div class="why">${Object.keys(LAYERS).map(k =>
+      `<span class="${on[k]?'on':'off'}">${on[k]?'✓':'·'} ${k.padEnd(16,' ')} ${on[k]?LAYERS[k].why:'not earned'}</span>`).join('')}</div>
+  </div>`;
+}
+
+const P = (id, elapsed, of, complete) => ({ id, elapsed, of, complete });
+const CASES = [
+  { title:'1 · Two complete months', q:'how did august compare with july',
+    shape:'2 periods · both complete · 31 days each',
+    ev:{ of:31, periods:[P('2026-07',31,31,true), P('2026-08',31,31,true)] } },
+  { title:'2 · Mid-month, against last month', q:'how is this month ct doing compared with last month',
+    shape:'2 periods · one running · 12 of 30 elapsed',
+    ev:{ of:31, periods:[P('2026-08',31,31,true), P('2026-09',12,30,false)] } },
+  { title:'3 · Three months of history', q:'ct scan volume trend',
+    shape:'3 periods · one running',
+    ev:{ of:31, periods:[P('2026-07',31,31,true), P('2026-08',31,31,true), P('2026-09',12,30,false)] } },
+  { title:'4 · Two days into the month', q:'how are we doing this month',
+    shape:'2 periods · one running · only 2 of 30 elapsed',
+    ev:{ of:31, periods:[P('2026-08',31,31,true), P('2026-09',2,30,false)] } },
+];
+document.getElementById('out').innerHTML = CASES.map(render).join('');
+</script>

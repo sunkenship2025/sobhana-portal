@@ -1,5 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "fable": {
+      "disable": true
+    }
+  },
   "mcp": {
     "neon": {
       "type": "remote",
@@ -17,6 +22,18 @@
       "oauth": false,
       "headers": {
         "Authorization": "Bearer {env:RENDER_API_KEY}"
+      }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "/Users/pranavreddy/.nvm/versions/node/v24.15.0/bin/npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "enabled": true,
+      "environment": {
+        "PATH": "/Users/pranavreddy/.nvm/versions/node/v24.15.0/bin:/usr/local/bin:/usr/bin:/bin"
       }
     }
   }

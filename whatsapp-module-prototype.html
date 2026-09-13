@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sobhana Portal — WhatsApp (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* ===== Tokens copied from the real portal (src/index.css + ownerUi.tsx) ===== */
+  :root{
+    --bg:#fafaf8; --card:#ffffff; --fg:#1f1f1e; --fg2:#5f5e5a; --fg3:#888780;
+    --muted:#f5f5f4; --border:#e6e6e2; --border2:#efefec; --primary:#1a1a1a;
+    --success:#0f6e56; --info:#185fa5; --warning:#854f0b; --destructive:#a32d2d;
+    --radius:8px;
+    /* Branch theme (Sobhana defaults) */
+    --navy:#1B2B58; --navy-active:#25397a; --red:#D91C2B;
+    /* WhatsApp bubble */
+    --bubble-out:#e7f3e8; --thread-bg:#eae6df;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:var(--bg); color:var(--fg); font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-variant-numeric:tabular-nums}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* prototype meta bar */
+  .metabar{position:sticky; top:0; z-index:200; display:flex; align-items:center; gap:10px;
+    background:#111; color:#eee; padding:8px 16px; font-size:12px}
+  .metabar b{color:#fff} .metabar .spacer{flex:1}
+
+  .app{display:flex; min-height:calc(100vh - 35px)}
+
+  /* ===== Sidebar (Sidebar.tsx) ===== */
+  .sidebar{width:256px; flex-shrink:0; background:var(--navy); color:#fff; display:flex; flex-direction:column;
+    position:sticky; top:35px; height:calc(100vh - 35px)}
+  .sb-logo{display:flex; align-items:center; gap:12px; height:64px; padding:0 24px;
+    border-bottom:1px solid rgba(255,255,255,.1); font-weight:700; font-size:20px}
+  .sb-nav{flex:1; overflow-y:auto; padding:20px 12px 12px; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.18) transparent}
+  .sb-nav::-webkit-scrollbar{width:6px} .sb-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15); border-radius:9px}
+  .sb-item{display:flex; align-items:center; gap:12px; padding:11px 16px; border-radius:8px;
+    color:rgba(255,255,255,.7); font-weight:500; font-size:14px; text-decoration:none; margin-bottom:4px; cursor:pointer}
+  .sb-item:hover{color:#fff} .sb-item.active{background:var(--navy-active); color:#fff}
+  .sb-item svg{width:20px; height:20px; flex-shrink:0}
+  .sb-badge{margin-left:auto; background:var(--red); color:#fff; font-size:11px; font-weight:700;
+    min-width:20px; height:20px; border-radius:10px; display:flex; align-items:center; justify-content:center; padding:0 6px}
+  .sb-sub{margin:2px 0 6px 22px; padding-left:14px; border-left:1px solid rgba(255,255,255,.12); display:flex; flex-direction:column; gap:2px}
+  .sb-subitem{display:block; padding:8px 12px; border-radius:8px; color:rgba(255,255,255,.7); font-size:13px; cursor:pointer}
+  .sb-subitem:hover{color:#fff} .sb-subitem.active{background:var(--navy-active); color:#fff}
+  .sb-foot{border-top:1px solid rgba(255,255,255,.1); padding:12px}
+  .sb-user{padding:6px 16px} .sb-user .n{font-weight:500; font-size:14px} .sb-user .r{font-size:12px; color:rgba(255,255,255,.6)}
+  .sb-logout{display:flex; align-items:center; gap:12px; width:100%; padding:10px 16px; color:rgba(255,255,255,.7);
+    background:none; border:none; font:inherit; cursor:pointer; border-radius:8px}
+  .sb-logout:hover{background:rgba(255,255,255,.1); color:#fff} .sb-logout svg{width:16px;height:16px}
+
+  /* ===== Main ===== */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column}
+  .context-banner{display:flex; justify-content:flex-end; align-items:center; gap:10px; padding:12px 24px}
+  .branch-select{display:inline-flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--border);
+    border-radius:8px; padding:8px 12px; font-weight:500; font-size:13px; cursor:pointer; color:var(--fg)}
+  .branch-select svg{width:16px; height:16px; color:var(--fg3)}
+  .page{padding:0 24px 40px}
+  .page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px}
+  .page-head h1{font-size:20px; font-weight:600; letter-spacing:-.01em}
+  .page-head .sub{color:var(--fg3); font-size:12px; margin-top:3px; max-width:560px}
+  .head-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
+  /* ===== Shared primitives ===== */
+  .btn{display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--card); font:inherit; font-size:12.5px; font-weight:500; cursor:pointer; color:var(--fg)}
+  .btn:hover{background:var(--muted)} .btn svg{width:15px; height:15px}
+  .btn.primary{background:var(--primary); color:#fff; border-color:var(--primary)}
+  .btn.primary:hover{opacity:.92; background:var(--primary)}
+  .btn.wa{background:var(--success); color:#fff; border-color:var(--success)}
+  .btn.wa:hover{opacity:.92; background:var(--success)}
+  .btn.sm{padding:5px 9px; font-size:12px}
+  .btn.ghost{background:transparent; border-color:transparent; color:var(--fg2)}
+  .btn.ghost:hover{background:var(--muted)}
+  .btn.big{padding:11px 20px; font-size:14px; border-radius:9px}
+
+  .card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px}
+  .card-label{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--fg2)}
+  .card-desc{font-size:11px; color:var(--fg3); margin-top:2px}
+
+  .seg{display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--card)}
+  .seg button{border:0; background:transparent; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer;
+    color:var(--fg2); border-left:1px solid var(--border)}
+  .seg button:first-child{border-left:0}
+  .seg button.on{background:var(--info); color:#fff}
+
+  .tabs{display:flex; gap:2px; border-bottom:1px solid var(--border); margin-bottom:16px}
+  .tabs button{border:0; background:transparent; padding:9px 14px; font:inherit; font-size:13px; color:var(--fg2);
+    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; font-weight:500}
+  .tabs button.on{color:var(--fg); border-bottom-color:var(--primary); font-weight:600}
+  .tabs .c{font-size:11px; color:var(--fg3); margin-left:5px}
+
+  .pill{display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px}
+  .pill .d{width:6px; height:6px; border-radius:50%}
+  .pill.green{background:#e6f2ec; color:var(--success)} .pill.green .d{background:var(--success)}
+  .pill.blue{background:#e8f0f8; color:var(--info)} .pill.blue .d{background:var(--info)}
+  .pill.amber{background:#f5efe2; color:var(--warning)} .pill.amber .d{background:var(--warning)}
+  .pill.red{background:#f6e7e7; color:var(--destructive)} .pill.red .d{background:var(--destructive)}
+  .pill.gray{background:var(--muted); color:var(--fg2)} .pill.gray .d{background:var(--fg3)}
+
+  /* KPI grid (ownerUi KpiCard) */
+  .kpis{display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:16px}
+  @media(max-width:1100px){ .kpis{grid-template-columns:repeat(3,1fr)} }
+  @media(max-width:640px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+  .kpi{background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px}
+  .kpi .l{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--fg2); margin-bottom:6px}
+  .kpi .v{font-size:22px; font-weight:500; line-height:1.1}
+  .kpi .s{font-size:11px; color:var(--fg3); margin-top:3px}
+  .kpi .s.up{color:var(--success)}
+
+  .grid2{display:grid; grid-template-columns:1.4fr 1fr; gap:14px}
+  @media(max-width:960px){ .grid2{grid-template-columns:1fr} }
+
+  /* generic table */
+  table.tbl{width:100%; border-collapse:collapse; font-size:12.5px}
+  table.tbl th{text-align:left; padding:9px 12px; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--fg3); border-bottom:1px solid var(--border); font-weight:600}
+  table.tbl th.num, table.tbl td.num{text-align:right}
+  table.tbl td{padding:11px 12px; border-bottom:1px solid var(--border2)}
+  table.tbl tr.click{cursor:pointer} table.tbl tr.click:hover td{background:#fafaf7}
+  .tbl .name{font-weight:600}
+  .tbl .muted{color:var(--fg2)}
+  .link{color:var(--info); text-decoration:none; border-bottom:1px dashed rgba(24,95,165,.35); cursor:pointer}
+
+  /* rows list */
+  .rowlist{display:flex; flex-direction:column}
+  .lrow{display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border2)}
+  .lrow:last-child{border-bottom:none}
+  .lrow .main{flex:1; min-width:0}
+  .lrow .t{font-weight:600; font-size:13px}
+  .lrow .m{font-size:11.5px; color:var(--fg3); margin-top:2px}
+
+  /* ===== WhatsApp bubble ===== */
+  .wa-frame{background:var(--thread-bg); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:8px;
+    background-image:radial-gradient(rgba(0,0,0,.03) 1px, transparent 1px); background-size:18px 18px}
+  .bubble{align-self:flex-end; max-width:82%; background:var(--bubble-out); border-radius:10px; border-top-right-radius:3px;
+    padding:9px 12px; font-size:13px; line-height:1.5; box-shadow:0 1px 1px rgba(0,0,0,.06); white-space:pre-line}
+  .bubble .meta{display:flex; align-items:center; gap:4px; justify-content:flex-end; font-size:10.5px; color:#5b7a63; margin-top:4px}
+  .bubble.in{align-self:flex-start; background:#fff; border-top-left-radius:3px; border-top-right-radius:10px}
+  .bubble.in .meta{justify-content:flex-start; color:var(--fg3)}
+  .tick{color:#4a9be0; font-weight:700; letter-spacing:-1px}
+  .bubble b{font-weight:600}
+
+  /* segment / preset cards */
+  .presets{display:grid; grid-template-columns:repeat(2,1fr); gap:12px}
+  @media(max-width:720px){ .presets{grid-template-columns:1fr} }
+  .preset{border:1px solid var(--border); border-radius:10px; padding:14px; cursor:pointer; background:var(--card)}
+  .preset:hover{border-color:#c9c9c2; background:#fcfcfa}
+  .preset.sel{border-color:var(--info); box-shadow:0 0 0 2px rgba(24,95,165,.15)}
+  .preset .pt{font-weight:600; font-size:13.5px}
+  .preset .pm{font-size:11.5px; color:var(--fg3); margin-top:3px}
+  .preset .pc{margin-top:10px; font-size:20px; font-weight:500}
+  .preset .pc span{font-size:12px; color:var(--fg3); font-weight:400}
+
+  /* chips (result flags) */
+  .chiprow{display:flex; gap:7px; flex-wrap:wrap}
+  .fchip{border:1px solid var(--border); background:var(--card); border-radius:999px; padding:5px 12px; font-size:12px;
+    cursor:pointer; color:var(--fg2); font-weight:500}
+  .fchip.on{background:#f6e7e7; color:var(--destructive); border-color:#e3bcbc}
+  .field{margin-bottom:16px}
+  .field > label{display:block; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--fg2); margin-bottom:7px}
+  .inp, select.inp{width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 11px; font:inherit; font-size:13px; background:var(--card); color:var(--fg)}
+  .inp:focus{outline:none; border-color:#b7b7ae; box-shadow:0 0 0 3px rgba(0,0,0,.04)}
+  .inline{display:inline-flex; align-items:center; gap:8px}
+  .stepnum{width:60px}
+
+  /* wizard overlay */
+  .overlay{position:fixed; inset:0; background:rgba(20,20,25,.45); z-index:300; display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto}
+  .overlay.open{display:flex}
+  .wizard{width:100%; max-width:760px; background:var(--card); border-radius:14px; box-shadow:0 24px 70px rgba(0,0,0,.3); overflow:hidden}
+  .wiz-head{display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border)}
+  .wiz-head h2{font-size:16px; font-weight:600}
+  .wiz-x{background:none; border:none; cursor:pointer; color:var(--fg3); font-size:22px; line-height:1; padding:0 4px}
+  .stepper{display:flex; gap:0; padding:14px 20px; border-bottom:1px solid var(--border2)}
+  .stepper .st{flex:1; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--fg3)}
+  .stepper .st .n{width:22px; height:22px; border-radius:50%; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; flex-shrink:0}
+  .stepper .st.on{color:var(--fg)} .stepper .st.on .n{background:var(--info); color:#fff; border-color:var(--info)}
+  .stepper .st.done .n{background:var(--success); color:#fff; border-color:var(--success)}
+  .stepper .st::after{content:''; flex:1; height:1px; background:var(--border2); margin:0 6px}
+  .stepper .st:last-child::after{display:none}
+  .wiz-body{padding:20px; min-height:280px}
+  .wiz-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 20px; border-top:1px solid var(--border); background:#fbfbf9}
+  .wiz-foot .count{font-size:12.5px; color:var(--fg2)}
+  .wstep{display:none} .wstep.on{display:block}
+
+  /* automation flow nodes */
+  .flow{display:flex; flex-direction:column; align-items:stretch; gap:0; max-width:340px}
+  .node{border:1px solid var(--border); border-radius:10px; padding:11px 13px; background:var(--card); position:relative}
+  .node .nt{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--fg3)}
+  .node .nv{font-size:13px; font-weight:500; margin-top:3px}
+  .node.trigger{border-left:3px solid var(--destructive)}
+  .node.wait{border-left:3px solid var(--warning)}
+  .node.cond{border-left:3px solid var(--info)}
+  .node.send{border-left:3px solid var(--success)}
+  .connector{width:2px; height:16px; background:var(--border); align-self:center}
+  .autocard{border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--card)}
+  .autocard .ah{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+  .autocard .ah .t{font-weight:600; font-size:15px}
+
+  /* template editor */
+  .tpl-body{border:1px solid var(--border); border-radius:8px; padding:14px; font-size:13px; line-height:1.7; background:#fcfcfa; white-space:pre-wrap}
+  .var{background:#e8f0f8; color:var(--info); border-radius:5px; padding:1px 6px; font-weight:500; font-size:12.5px}
+  .varmenu{border:1px solid var(--border); border-radius:8px; padding:10px; font-size:12.5px; background:var(--card)}
+  .varmenu .grp{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--fg3); margin:8px 0 4px}
+  .varmenu .grp:first-child{margin-top:0}
+  .varmenu .vi{display:inline-block; margin:2px 4px 2px 0; padding:3px 8px; border:1px solid var(--border); border-radius:6px; cursor:pointer; color:var(--fg2)}
+  .varmenu .vi:hover{background:var(--muted); color:var(--fg)}
+  .note{display:flex; gap:8px; align-items:flex-start; font-size:12px; background:#f5efe2; border:1px solid #e6dcc4; color:var(--warning); border-radius:8px; padding:9px 11px}
+
+  /* drawer */
+  .drawer-scrim{position:fixed; inset:0; background:rgba(20,20,25,.4); z-index:300; display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed; top:0; right:0; height:100vh; width:420px; max-width:92vw; background:var(--card); z-index:301;
+    box-shadow:-12px 0 40px rgba(0,0,0,.18); transform:translateX(100%); transition:transform .18s ease; display:flex; flex-direction:column}
+  .drawer.open{transform:translateX(0)}
+  .drawer-head{display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--border)}
+  .drawer-head .t{font-weight:600; font-size:15px}
+  .drawer-body{flex:1; overflow-y:auto; padding:18px}
+  .timeline{list-style:none; margin:10px 0 0; padding:0}
+  .timeline li{position:relative; padding:0 0 16px 24px}
+  .timeline li::before{content:''; position:absolute; left:5px; top:3px; width:9px; height:9px; border-radius:50%; background:var(--success); border:2px solid #fff; box-shadow:0 0 0 1px var(--success)}
+  .timeline li::after{content:''; position:absolute; left:9px; top:12px; bottom:0; width:1px; background:var(--border)}
+  .timeline li:last-child{padding-bottom:0} .timeline li:last-child::after{display:none}
+  .timeline li.pending::before{background:#fff}
+  .timeline .te{font-weight:500; font-size:13px}
+  .timeline .tt{font-size:11px; color:var(--fg3)}
+  .attr{border:1px solid #cfe0d6; background:#f1f8f4; border-radius:10px; padding:14px; margin-top:6px}
+  .attr .ar{display:flex; justify-content:space-between; font-size:12.5px; padding:5px 0; border-bottom:1px dashed #cfe0d6}
+  .attr .ar:last-child{border-bottom:none}
+  .attr .ar .k{color:var(--fg2)}
+
+  .spacer{flex:1}
+  .mt8{margin-top:8px} .mt12{margin-top:12px} .mt16{margin-top:16px} .mb12{margin-bottom:12px}
+  .row-between{display:flex; align-items:center; justify-content:space-between; gap:10px}
+</style>
+</head>
+<body>
+
+<div class="metabar"><b>PROTOTYPE</b> Sobhana Portal → WhatsApp <span class="spacer"></span> not wired to data · static mockup</div>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR (real chrome) ============ -->
+  <aside class="sidebar">
+    <div class="sb-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18h8"/><path d="M3 22h18"/><path d="M14 22a7 7 0 1 0 0-14h-1"/><path d="M9 14h2"/><path d="M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2Z"/><path d="M12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3"/></svg>
+      SOBHANA
+    </div>
+    <nav class="sb-nav">
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+      <a class="sb-item group" data-group="money"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>Money</a>
+      <div class="sb-sub" data-group-body="money" style="display:none">
+        <span class="sb-subitem" data-sec="bills">Bills</span>
+        <span class="sb-subitem" data-sec="coupons">Coupons</span>
+      </div>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>Doctors</a>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Operations</a>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>Audit &amp; Anomalies</a>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>Messages<span class="sb-badge">5</span></a>
+
+      <!-- NEW: WhatsApp module -->
+      <a class="sb-item group active" data-group="wa" id="wa-group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>WhatsApp</a>
+      <div class="sb-sub" data-group-body="wa">
+        <span class="sb-subitem active" data-sec="overview">Overview</span>
+        <span class="sb-subitem" data-sec="campaigns">Campaigns</span>
+        <span class="sb-subitem" data-sec="automations">Automations</span>
+        <span class="sb-subitem" data-sec="templates">Templates</span>
+        <span class="sb-subitem" data-sec="logs">Logs</span>
+      </div>
+
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>Workflows</a>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 10.5h4a1.5 1.5 0 0 1 0 3H9"/></svg>Payouts</a>
+      <a class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>Admin</a>
+    </nav>
+    <div class="sb-foot">
+      <div class="sb-user"><div class="n">Niranjan Reddy</div><div class="r">owner</div></div>
+      <button class="sb-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <div class="context-banner">
+      <div class="branch-select">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+        All branches
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+    </div>
+
+    <!-- ==================== OVERVIEW ==================== -->
+    <div class="page section" id="sec-overview">
+      <div class="page-head">
+        <div>
+          <h1>WhatsApp</h1>
+          <div class="sub">Follow-up outreach to patients with abnormal results. Send one-off campaigns, or let automations handle recall on their own.</div>
+        </div>
+        <div class="head-actions">
+          <div class="seg"><button>7 days</button><button class="on">30 days</button><button>MTD</button><button>YTD</button></div>
+          <button class="btn wa" onclick="openWizard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg>New campaign</button>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="l">Sent</div><div class="v num">1,284</div><div class="s">last 30 days</div></div>
+        <div class="kpi"><div class="l">Delivered</div><div class="v num">96.4%</div><div class="s num">1,238 messages</div></div>
+        <div class="kpi"><div class="l">Read</div><div class="v num">71.2%</div><div class="s num">914 messages</div></div>
+        <div class="kpi"><div class="l">Replies</div><div class="v num">143</div><div class="s up">+18% vs prior</div></div>
+        <div class="kpi"><div class="l">Redemptions</div><div class="v num">88</div><div class="s">retests booked</div></div>
+        <div class="kpi"><div class="l">Revenue</div><div class="v num">₹28,400</div><div class="s">collected · +₹46,400 influenced</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="row-between mb12"><div class="card-label">Recent campaigns</div><span class="link" onclick="go('campaigns')">View all</span></div>
+          <div class="rowlist">
+            <div class="lrow">
+              <div class="main"><div class="t">Abnormal Thyroid Recall</div><div class="m">Sent 7 Aug · 58 recipients · 71% read · 6 redeemed</div></div>
+              <div style="text-align:right"><span class="pill green"><span class="d"></span>Completed</span><div class="m num" style="margin-top:6px">₹5,100</div></div>
+            </div>
+            <div class="lrow">
+              <div class="main"><div class="t">HbA1c 90-day Recall</div><div class="m">Sent 3 Aug · 41 recipients · 68% read · 4 redeemed</div></div>
+              <div style="text-align:right"><span class="pill green"><span class="d"></span>Completed</span><div class="m num" style="margin-top:6px">₹3,400</div></div>
+            </div>
+            <div class="lrow">
+              <div class="main"><div class="t">Lipid Profile Recall</div><div class="m">Sent 28 Jul · 33 recipients · 64% read · 3 redeemed</div></div>
+              <div style="text-align:right"><span class="pill green"><span class="d"></span>Completed</span><div class="m num" style="margin-top:6px">₹2,550</div></div>
+            </div>
+            <div class="lrow">
+              <div class="main"><div class="t">Vitamin D Recall</div><div class="m">Scheduled 10 Aug · 62 recipients</div></div>
+              <div style="text-align:right"><span class="pill blue"><span class="d"></span>Scheduled</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row-between mb12"><div class="card-label">Active automations</div><span class="link" onclick="go('automations')">Manage</span></div>
+          <div class="rowlist">
+            <div class="lrow">
+              <div class="main"><div class="t">Thyroid Follow-up</div><div class="m">Abnormal → wait 14d → not retested → send</div></div>
+              <div style="text-align:right"><span class="pill green"><span class="d"></span>Active</span><div class="m num" style="margin-top:6px">24 in flow</div></div>
+            </div>
+            <div class="lrow">
+              <div class="main"><div class="t">HbA1c Follow-up</div><div class="m">Abnormal → wait 30d → not normal → send</div></div>
+              <div style="text-align:right"><span class="pill green"><span class="d"></span>Active</span><div class="m num" style="margin-top:6px">18 in flow</div></div>
+            </div>
+          </div>
+          <div class="card-label mt16 mb12">Templates</div>
+          <div class="chiprow">
+            <span class="pill green"><span class="d"></span>2 Approved</span>
+            <span class="pill amber"><span class="d"></span>1 Pending</span>
+            <span class="pill gray"><span class="d"></span>1 Draft</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== CAMPAIGNS ==================== -->
+    <div class="page section" id="sec-campaigns" style="display:none">
+      <div class="page-head">
+        <div>
+          <h1>Campaigns</h1>
+          <div class="sub">One-time WhatsApp sends to a chosen audience. Pick a saved segment, a template, preview, and schedule.</div>
+        </div>
+        <div class="head-actions">
+          <button class="btn wa" onclick="openWizard()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg>New campaign</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="on">All <span class="c">6</span></button>
+        <button>Drafts <span class="c">1</span></button>
+        <button>Scheduled <span class="c">1</span></button>
+        <button>Completed <span class="c">4</span></button>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden">
+        <table class="tbl">
+          <thead><tr>
+            <th>Campaign</th><th>Segment</th><th class="num">Recipients</th><th class="num">Read</th>
+            <th class="num">Redeemed</th><th class="num">Revenue</th><th>When</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            <tr class="click" onclick="go('logs')">
+              <td class="name">Abnormal Thyroid Recall</td><td class="muted">Abnormal Thyroid · 30d</td>
+              <td class="num">58</td><td class="num">71%</td><td class="num">6</td><td class="num">₹5,100</td>
+              <td class="muted">7 Aug, 10:00 am</td><td><span class="pill green"><span class="d"></span>Completed</span></td>
+            </tr>
+            <tr class="click" onclick="go('logs')">
+              <td class="name">HbA1c 90-day Recall</td><td class="muted">HbA1c ≥6.5% · 90d</td>
+              <td class="num">41</td><td class="num">68%</td><td class="num">4</td><td class="num">₹3,400</td>
+              <td class="muted">3 Aug, 9:30 am</td><td><span class="pill green"><span class="d"></span>Completed</span></td>
+            </tr>
+            <tr class="click" onclick="go('logs')">
+              <td class="name">Lipid Profile Recall</td><td class="muted">Lipid abnormal · 60d</td>
+              <td class="num">33</td><td class="num">64%</td><td class="num">3</td><td class="num">₹2,550</td>
+              <td class="muted">28 Jul, 11:00 am</td><td><span class="pill green"><span class="d"></span>Completed</span></td>
+            </tr>
+            <tr class="click">
+              <td class="name">Vitamin D Recall</td><td class="muted">Vit D deficient · 90d</td>
+              <td class="num">62</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+              <td class="muted">10 Aug, 10:00 am</td><td><span class="pill blue"><span class="d"></span>Scheduled</span></td>
+            </tr>
+            <tr class="click">
+              <td class="name">CBP Recall (draft)</td><td class="muted">Anaemia flag · 45d</td>
+              <td class="num">29</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+              <td class="muted">—</td><td><span class="pill gray"><span class="d"></span>Draft</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ==================== AUTOMATIONS ==================== -->
+    <div class="page section" id="sec-automations" style="display:none">
+      <!-- list view -->
+      <div id="auto-list">
+        <div class="page-head">
+          <div>
+            <h1>Automations</h1>
+            <div class="sub">Rules that run on their own — triggered by a test result going abnormal, or by a patient's reply. Auto-reply reveals the coupon inside the 24-hour window; STOP always opts out.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn primary" onclick="showBuilder(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg>Create automation</button>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="autocard">
+            <div class="ah"><div class="t">Thyroid Follow-up</div><span class="pill green"><span class="d"></span>Active</span></div>
+            <div class="flow">
+              <div class="node trigger"><div class="nt">When</div><div class="nv">Thyroid Profile result becomes abnormal</div></div>
+              <div class="connector"></div>
+              <div class="node wait"><div class="nt">Wait</div><div class="nv">14 days</div></div>
+              <div class="connector"></div>
+              <div class="node cond"><div class="nt">Only if</div><div class="nv">No normal thyroid result recorded since</div></div>
+              <div class="connector"></div>
+              <div class="node send"><div class="nt">Send</div><div class="nv">Template · thyroid_followup</div></div>
+            </div>
+            <div class="row-between mt16">
+              <span class="mono" style="color:var(--fg2); font-size:12px">24 patients in flow</span>
+              <span><button class="btn sm">View</button> <button class="btn sm">Pause</button></span>
+            </div>
+          </div>
+
+          <div class="autocard">
+            <div class="ah"><div class="t">HbA1c Follow-up</div><span class="pill green"><span class="d"></span>Active</span></div>
+            <div class="flow">
+              <div class="node trigger"><div class="nt">When</div><div class="nv">HbA1c result becomes abnormal (≥6.5%)</div></div>
+              <div class="connector"></div>
+              <div class="node wait"><div class="nt">Wait</div><div class="nv">30 days</div></div>
+              <div class="connector"></div>
+              <div class="node cond"><div class="nt">Only if</div><div class="nv">HbA1c not subsequently normal</div></div>
+              <div class="connector"></div>
+              <div class="node send"><div class="nt">Send</div><div class="nv">Template · hba1c_followup</div></div>
+            </div>
+            <div class="row-between mt16">
+              <span class="mono" style="color:var(--fg2); font-size:12px">18 patients in flow</span>
+              <span><button class="btn sm">View</button> <button class="btn sm">Pause</button></span>
+            </div>
+          </div>
+
+          <div class="autocard">
+            <div class="ah"><div class="t">Thyroid Recall — auto-reply</div><span class="pill green"><span class="d"></span>Active</span></div>
+            <div class="flow">
+              <div class="node trigger"><div class="nt">When (inbound)</div><div class="nv">Patient replies to "Abnormal Thyroid Recall"</div></div>
+              <div class="connector"></div>
+              <div class="node cond"><div class="nt">Guard</div><div class="nv">Inside 24h window · reply isn't "STOP"</div></div>
+              <div class="connector"></div>
+              <div class="node send"><div class="nt">Auto-reply</div><div class="nv">Mint SB-xxxx + reveal 50% offer & how to book</div></div>
+              <div class="connector"></div>
+              <div class="node wait"><div class="nt">Otherwise</div><div class="nv">STOP → opt out · anything else → staff inbox</div></div>
+            </div>
+            <div class="row-between mt16">
+              <span class="mono" style="color:var(--fg2); font-size:12px">12 replies handled today</span>
+              <span><button class="btn sm">View</button> <button class="btn sm">Pause</button></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- builder view -->
+      <div id="auto-builder" style="display:none">
+        <div class="page-head">
+          <div>
+            <h1>Create automation</h1>
+            <div class="sub">Draft · not live until you activate it</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" onclick="showBuilder(false)">Cancel</button>
+            <button class="btn">Save draft</button>
+            <button class="btn wa">Activate</button>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="field">
+              <label>Automation name</label>
+              <input class="inp" value="Thyroid Follow-up" />
+            </div>
+            <div class="card-label mb12">Flow</div>
+            <div class="flow" style="max-width:100%">
+              <div class="node trigger">
+                <div class="nt">When (trigger)</div>
+                <div class="seg mt8" style="margin-bottom:8px"><button class="on">Test result</button><button>Patient replies</button></div>
+                <div class="nv inline" style="gap:6px; flex-wrap:wrap">
+                  <select class="inp" style="width:auto"><option>Thyroid Profile</option><option>HbA1c</option><option>Lipid Profile</option></select>
+                  result becomes
+                  <select class="inp" style="width:auto"><option>Abnormal (any flag)</option><option>High</option><option>Low</option><option>Critical</option></select>
+                </div>
+                <div class="card-desc mt8">Switch to <b>Patient replies</b> and the trigger becomes an inbound reply / keyword on a chosen campaign — then the flow below is your auto-reply (reveal coupon, answer, or hand off).</div>
+              </div>
+              <div class="connector"></div>
+              <div class="node wait">
+                <div class="nt">Wait</div>
+                <div class="nv inline mt8" style="gap:6px">
+                  <input class="inp stepnum" value="14" /> <select class="inp" style="width:auto"><option>days</option><option>weeks</option></select>
+                </div>
+              </div>
+              <div class="connector"></div>
+              <div class="node cond">
+                <div class="nt">Only continue if</div>
+                <div class="nv inline mt8" style="gap:6px; flex-wrap:wrap">
+                  no <select class="inp" style="width:auto"><option>normal</option><option>any</option></select>
+                  result for the same test since. <span style="color:var(--fg3); font-size:11px">If one exists → stop.</span>
+                </div>
+              </div>
+              <div class="connector"></div>
+              <div class="node send">
+                <div class="nt">Send</div>
+                <div class="nv inline mt8" style="gap:6px">
+                  WhatsApp template <select class="inp" style="width:auto"><option>thyroid_followup ✓ Approved</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-label mb12">Safeguards</div>
+            <div class="card-desc" style="margin-bottom:12px">On by default. These stop the automation from becoming an annoying loop.</div>
+            <label class="inline mt8" style="font-size:13px"><input type="checkbox" checked /> Don't resend the same automation within <input class="inp" style="width:52px; padding:4px 6px" value="30" /> days</label>
+            <div class="card-label mt16 mb12">Patient must be</div>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Has a valid WhatsApp number</label>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Has not opted out</label>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Still an active patient</label>
+            <div class="card-label mt16 mb12">Stop the automation when</div>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Test subsequently becomes normal</label>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Patient books the follow-up</label>
+            <label class="inline mt8" style="font-size:13px; display:flex"><input type="checkbox" checked /> Patient opts out</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TEMPLATES ==================== -->
+    <div class="page section" id="sec-templates" style="display:none">
+      <div id="tpl-list">
+        <div class="page-head">
+          <div>
+            <h1>Templates</h1>
+            <div class="sub">The messages you send. WhatsApp approves every template before it can go out — Sobhana handles the variables for you.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn primary" onclick="showEditor(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></svg>Create template</button>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="on">All <span class="c">4</span></button>
+          <button>Drafts <span class="c">1</span></button>
+          <button>Pending <span class="c">1</span></button>
+          <button>Approved <span class="c">2</span></button>
+          <button>Rejected <span class="c">0</span></button>
+        </div>
+
+        <div class="presets" style="grid-template-columns:repeat(2,1fr)">
+          <div class="preset" onclick="showEditor(true)">
+            <div class="row-between"><div class="pt mono">thyroid_followup</div><span class="pill green"><span class="d"></span>Approved</span></div>
+            <div class="pm">Utility · English · v3</div>
+            <div class="pm mt8">Used by: <b>Abnormal Thyroid Recall</b>, <b>Thyroid Follow-up</b> automation</div>
+            <div class="mt12"><button class="btn sm">View</button> <button class="btn sm">Duplicate</button></div>
+          </div>
+          <div class="preset" onclick="showEditor(true)">
+            <div class="row-between"><div class="pt mono">hba1c_followup</div><span class="pill green"><span class="d"></span>Approved</span></div>
+            <div class="pm">Utility · English · v2</div>
+            <div class="pm mt8">Used by: <b>HbA1c 90-day Recall</b>, <b>HbA1c Follow-up</b> automation</div>
+            <div class="mt12"><button class="btn sm">View</button> <button class="btn sm">Duplicate</button></div>
+          </div>
+          <div class="preset" onclick="showEditor(true)">
+            <div class="row-between"><div class="pt mono">lipid_followup</div><span class="pill amber"><span class="d"></span>Pending</span></div>
+            <div class="pm">Utility · English · v1 · submitted 8 Aug, 5:42 pm</div>
+            <div class="pm mt8">Not yet usable in campaigns</div>
+            <div class="mt12"><button class="btn sm">View</button></div>
+          </div>
+          <div class="preset" onclick="showEditor(true)">
+            <div class="row-between"><div class="pt mono">vitd_followup</div><span class="pill gray"><span class="d"></span>Draft</span></div>
+            <div class="pm">Utility · English</div>
+            <div class="pm mt8">Not submitted</div>
+            <div class="mt12"><button class="btn sm">Edit</button> <button class="btn sm">Submit for approval</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- editor view -->
+      <div id="tpl-editor" style="display:none">
+        <div class="page-head">
+          <div>
+            <h1>thyroid_followup</h1>
+            <div class="sub">Utility · English · <span class="pill green"><span class="d"></span>Approved</span> v3</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" onclick="showEditor(false)">Back</button>
+            <button class="btn">Preview</button>
+            <button class="btn">Duplicate &amp; edit</button>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="field" style="max-width:280px">
+              <label>Template name</label><input class="inp mono" value="thyroid_followup" />
+            </div>
+            <div class="inline" style="gap:16px; margin-bottom:16px">
+              <div class="field" style="margin:0"><label>Category</label><select class="inp" style="width:auto"><option>Utility</option><option>Marketing</option></select></div>
+              <div class="field" style="margin:0"><label>Language</label><select class="inp" style="width:auto"><option>English</option><option>Telugu</option><option>Hindi</option></select></div>
+            </div>
+            <div class="field">
+              <label>Message</label>
+              <div class="tpl-body">Hello <span class="var">Patient Name</span>,
+
+Our records show the following test(s) from your last visit are due for a follow-up:
+
+<span class="var">Follow-up Tests</span>
+
+As part of your continued care, you're entitled to repeat these at your standing concession until <span class="var">Offer Expiry</span>.
+
+Reference: <span class="var">Reference Code</span>
+<span class="var">Branch Phone</span></div>
+            </div>
+            <div class="note mt12">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+              <div>Framed as an <b>entitlement</b>, not a discount — that's why WhatsApp approves it as Utility. Discount-led copy gets rejected as Marketing.</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card mb12">
+              <div class="card-label mb12">Insert variable</div>
+              <div class="varmenu" style="border:none; padding:0">
+                <div class="grp">Patient</div>
+                <span class="vi">Patient Name</span><span class="vi">Patient Phone</span>
+                <div class="grp">Test</div>
+                <span class="vi">Test Name</span><span class="vi">Result Flag</span>
+                <div class="grp">Follow-up</div>
+                <span class="vi">Follow-up Tests</span><span class="vi">Offer Expiry</span>
+                <div class="grp">Campaign</div>
+                <span class="vi">Reference Code</span>
+                <div class="grp">Clinic</div>
+                <span class="vi">Branch Name</span><span class="vi">Branch Phone</span>
+              </div>
+              <div class="card-desc mt12">Staff pick a plain name; Sobhana maps it to WhatsApp's {{1}}, {{2}} behind the scenes.</div>
+            </div>
+            <div class="card">
+              <div class="card-label mb12">Versions</div>
+              <div class="rowlist">
+                <div class="lrow"><div class="main"><div class="t">Version 3</div><div class="m">Live · added standing-concession wording</div></div><span class="pill green"><span class="d"></span>Approved</span></div>
+                <div class="lrow"><div class="main"><div class="t">Version 2</div><div class="m">Superseded</div></div><span class="pill green"><span class="d"></span>Approved</span></div>
+                <div class="lrow"><div class="main"><div class="t">Version 1</div><div class="m">"...at half price" — flagged promotional</div></div><span class="pill red"><span class="d"></span>Rejected</span></div>
+              </div>
+              <div class="card-desc mt12">Editing an approved template creates a new version — live campaigns keep running on the old one.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== LOGS ==================== -->
+    <div class="page section" id="sec-logs" style="display:none">
+      <div class="page-head">
+        <div>
+          <h1>Logs</h1>
+          <div class="sub">Every message, its delivery state, and what happened next — down to the booking and revenue a reference code brought in.</div>
+        </div>
+        <div class="head-actions">
+          <div class="branch-select" style="padding:7px 11px">Abnormal Thyroid Recall <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="on">All <span class="c">58</span></button>
+        <button>Sent <span class="c">58</span></button>
+        <button>Delivered <span class="c">56</span></button>
+        <button>Read <span class="c">41</span></button>
+        <button>Replied <span class="c">12</span></button>
+        <button>Redeemed <span class="c">6</span></button>
+        <button>Influenced <span class="c">9</span></button>
+        <button>Failed <span class="c">2</span></button>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden">
+        <table class="tbl">
+          <thead><tr>
+            <th>Patient</th><th>Template</th><th>Ref</th><th>Status</th><th>Sent</th><th>Read</th><th class="num">Revenue</th>
+          </tr></thead>
+          <tbody>
+            <tr class="click" onclick="openDrawer()">
+              <td class="name">Rahul Sharma</td><td class="mono muted">thyroid_followup</td><td class="mono">SB-72K9</td>
+              <td><span class="pill green"><span class="d"></span>Redeemed</span></td><td class="muted num">10:02</td><td class="muted num">10:04</td><td class="num">₹850</td>
+            </tr>
+            <tr class="click" onclick="openDrawer()">
+              <td class="name">Priya Shah</td><td class="mono muted">thyroid_followup</td><td class="mono">SB-91P2</td>
+              <td><span class="pill blue"><span class="d"></span>Replied</span></td><td class="muted num">10:02</td><td class="muted num">10:05</td><td class="num">—</td>
+            </tr>
+            <tr class="click" onclick="openDrawer()">
+              <td class="name">Anita Rao</td><td class="mono muted">thyroid_followup</td><td class="mono">SB-33F7</td>
+              <td><span class="pill blue"><span class="d"></span>Read</span></td><td class="muted num">10:02</td><td class="muted num">10:11</td><td class="num">—</td>
+            </tr>
+            <tr class="click">
+              <td class="name">Kavya Nair</td><td class="mono muted">thyroid_followup</td><td class="mono muted">SB-40C8 · unused</td>
+              <td><span class="pill gray"><span class="d"></span>Influenced</span></td><td class="muted num">10:02</td><td class="muted num">10:19</td><td class="num" style="color:var(--fg3)">₹900*</td>
+            </tr>
+            <tr class="click" onclick="openDrawer()">
+              <td class="name">Suresh Menon</td><td class="mono muted">thyroid_followup</td><td class="mono">SB-58K1</td>
+              <td><span class="pill gray"><span class="d"></span>Delivered</span></td><td class="muted num">10:02</td><td class="muted num">—</td><td class="num">—</td>
+            </tr>
+            <tr class="click" onclick="openDrawer()">
+              <td class="name">Amit Patel</td><td class="mono muted">thyroid_followup</td><td class="mono">SB-18D4</td>
+              <td><span class="pill red"><span class="d"></span>Failed</span></td><td class="muted num">10:03</td><td class="muted num">—</td><td class="num">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card-desc" style="padding:10px 12px; border-top:1px solid var(--border2)">* Retested within the window but didn't apply the code — counts as <b>influenced</b> (full price), not <b>collected</b>.</div>
+      </div>
+    </div>
+
+    <!-- ==================== MONEY · BILLS (stub) ==================== -->
+    <div class="page section" id="sec-bills" style="display:none">
+      <div class="page-head"><div><h1>Bills</h1><div class="sub">The existing Money → Bills area. Not part of this prototype — shown only to place Coupons as its sibling under Money.</div></div></div>
+      <div class="card" style="color:var(--fg3)">Existing screen — unchanged.</div>
+    </div>
+
+    <!-- ==================== MONEY · COUPONS (shared ledger) ==================== -->
+    <div class="page section" id="sec-coupons" style="display:none">
+      <div class="page-head">
+        <div>
+          <h1>Coupons</h1>
+          <div class="sub">Every code issued across all channels — recall campaigns, events, manual. One shared ledger, one redemption path, one attribution roll-up.</div>
+        </div>
+        <div class="head-actions">
+          <div class="seg"><button class="on">All sources</button><button>Recall</button><button>Events</button><button>Manual</button></div>
+        </div>
+      </div>
+
+      <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+        <div class="kpi"><div class="l">Issued</div><div class="v num">231</div><div class="s">all channels · 30d</div></div>
+        <div class="kpi"><div class="l">Redeemed</div><div class="v num">88</div><div class="s num">38% redemption</div></div>
+        <div class="kpi"><div class="l">Expired</div><div class="v num">34</div><div class="s">unused</div></div>
+        <div class="kpi"><div class="l">Collected</div><div class="v num">₹28,400</div><div class="s">net, after concession</div></div>
+        <div class="kpi"><div class="l">Influenced</div><div class="v num">₹46,400</div><div class="s">retest, no code</div></div>
+      </div>
+
+      <div class="tabs">
+        <button class="on">All <span class="c">231</span></button>
+        <button>Issued <span class="c">109</span></button>
+        <button>Redeemed <span class="c">88</span></button>
+        <button>Expired <span class="c">34</span></button>
+        <button>Void <span class="c">0</span></button>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden">
+        <table class="tbl">
+          <thead><tr>
+            <th>Code</th><th>Patient</th><th>Source</th><th>Offer</th><th>Issued</th><th>Expires</th><th>Status</th><th class="num">Collected</th>
+          </tr></thead>
+          <tbody>
+            <tr class="click" onclick="openDrawer()">
+              <td class="mono">SB-72K9</td><td class="name">Rahul Sharma</td>
+              <td class="muted">Abnormal Thyroid Recall <span class="pill gray"><span class="d"></span>WhatsApp</span></td>
+              <td class="muted">50% · Thyroid Profile</td><td class="muted num">7 Aug</td><td class="muted num">21 Aug</td>
+              <td><span class="pill green"><span class="d"></span>Redeemed</span></td><td class="num">₹850</td>
+            </tr>
+            <tr class="click">
+              <td class="mono">SB-91P2</td><td class="name">Priya Shah</td>
+              <td class="muted">Abnormal Thyroid Recall <span class="pill gray"><span class="d"></span>WhatsApp</span></td>
+              <td class="muted">50% · Thyroid Profile</td><td class="muted num">7 Aug</td><td class="muted num">21 Aug</td>
+              <td><span class="pill blue"><span class="d"></span>Issued</span></td><td class="num">—</td>
+            </tr>
+            <tr class="click">
+              <td class="mono muted">SB-40C8</td><td class="name">Kavya Nair</td>
+              <td class="muted">Abnormal Thyroid Recall <span class="pill gray"><span class="d"></span>WhatsApp</span></td>
+              <td class="muted">50% · Thyroid Profile</td><td class="muted num">7 Aug</td><td class="muted num">21 Aug</td>
+              <td><span class="pill gray"><span class="d"></span>Expired</span></td><td class="num" style="color:var(--fg3)">₹900 infl.</td>
+            </tr>
+            <tr class="click">
+              <td class="mono">BLD-3F21</td><td class="name">Ramesh Kumar</td>
+              <td class="muted">Blood Donation Camp <span class="pill red"><span class="d"></span>Event</span></td>
+              <td class="muted">50% · Tests</td><td class="muted num">12 Jul</td><td class="muted num">11 Aug</td>
+              <td><span class="pill green"><span class="d"></span>Redeemed</span></td><td class="num">₹1,100</td>
+            </tr>
+            <tr class="click">
+              <td class="mono">SB-18D4</td><td class="name">Amit Patel</td>
+              <td class="muted">HbA1c 90-day Recall <span class="pill gray"><span class="d"></span>WhatsApp</span></td>
+              <td class="muted">50% · HbA1c</td><td class="muted num">3 Aug</td><td class="muted num">2 Sep</td>
+              <td><span class="pill blue"><span class="d"></span>Issued</span></td><td class="num">—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card-desc" style="padding:10px 12px; border-top:1px solid var(--border2)">One ledger, every channel. A recall coupon and a blood-camp coupon share the same lifecycle, redemption path, and attribution — the WhatsApp module just mints into it.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ CAMPAIGN WIZARD ============ -->
+<div class="overlay" id="wizard">
+  <div class="wizard">
+    <div class="wiz-head">
+      <h2>New campaign</h2>
+      <button class="wiz-x" onclick="closeWizard()">&times;</button>
+    </div>
+    <div class="stepper">
+      <div class="st on" data-s="1"><span class="n">1</span> Audience</div>
+      <div class="st" data-s="2"><span class="n">2</span> Template</div>
+      <div class="st" data-s="3"><span class="n">3</span> Preview</div>
+      <div class="st" data-s="4"><span class="n">4</span> Follow-up</div>
+      <div class="st" data-s="5"><span class="n">5</span> Schedule</div>
+    </div>
+
+    <div class="wiz-body">
+      <!-- STEP 1 -->
+      <div class="wstep on" data-s="1">
+        <div class="seg mb12" style="margin-bottom:14px">
+          <button class="on" id="aud-saved" onclick="audMode('saved')">Saved segments</button>
+          <button id="aud-build" onclick="audMode('build')">Build new</button>
+        </div>
+
+        <div id="aud-saved-body">
+          <div class="presets">
+            <div class="preset sel" onclick="pickPreset(this,58)">
+              <div class="pt">Abnormal Thyroid</div><div class="pm">Thyroid Profile flagged high/low · last 30 days · not retested since</div>
+              <div class="pc num">58 <span>patients</span></div>
+            </div>
+            <div class="preset" onclick="pickPreset(this,41)">
+              <div class="pt">HbA1c ≥ 6.5%</div><div class="pm">HbA1c abnormal · last 90 days · not retested since</div>
+              <div class="pc num">41 <span>patients</span></div>
+            </div>
+            <div class="preset" onclick="pickPreset(this,33)">
+              <div class="pt">Lipid Profile abnormal</div><div class="pm">Any lipid flag · last 60 days · not retested since</div>
+              <div class="pc num">33 <span>patients</span></div>
+            </div>
+            <div class="preset" onclick="pickPreset(this,62)">
+              <div class="pt">Vitamin D deficient</div><div class="pm">25-OH Vit D low · last 90 days · not retested since</div>
+              <div class="pc num">62 <span>patients</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="aud-build-body" style="display:none">
+          <div class="field"><label>Test</label>
+            <select class="inp" style="max-width:320px"><option>Thyroid Profile</option><option>HbA1c</option><option>Lipid Profile</option><option>25-OH Vitamin D</option></select>
+          </div>
+          <div class="field"><label>Result flag</label>
+            <div class="chiprow">
+              <span class="fchip on">High</span><span class="fchip on">Low</span><span class="fchip">Critical</span><span class="fchip">Any abnormal</span>
+            </div>
+          </div>
+          <div class="field"><label>Resulted in the last</label>
+            <div class="inline"><input class="inp stepnum" value="30" /> <select class="inp" style="width:auto"><option>days</option><option>weeks</option><option>months</option></select></div>
+          </div>
+          <div class="field"><label class="inline" style="text-transform:none; letter-spacing:normal; font-size:13px; font-weight:400"><input type="checkbox" checked /> and the patient has <b>not retested</b> the same test since</label></div>
+          <div class="row-between card" style="border-color:var(--info); background:#f4f8fc">
+            <div><div class="num" style="font-size:20px; font-weight:500">58 patients match</div><div class="card-desc">Live count · updates as you change the rule</div></div>
+            <button class="btn">Save as segment</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="wstep" data-s="2">
+        <div class="seg" style="margin-bottom:14px">
+          <button class="on" id="tpl-use" onclick="tplMode('use')">Use one of yours</button>
+          <button id="tpl-write" onclick="tplMode('write')">Write a new one</button>
+        </div>
+
+        <div id="tpl-use-body">
+          <div class="card-label mb12">Your approved templates</div>
+          <div class="presets" style="grid-template-columns:1fr">
+            <div class="preset sel">
+              <div class="row-between"><div class="pt mono">thyroid_followup</div><span class="pill green"><span class="d"></span>Approved</span></div>
+              <div class="pm">Utility · English · standing-concession follow-up</div>
+            </div>
+            <div class="preset">
+              <div class="row-between"><div class="pt mono">generic_recall</div><span class="pill green"><span class="d"></span>Approved</span></div>
+              <div class="pm">Utility · English · generic retest reminder</div>
+            </div>
+          </div>
+          <div class="card-desc mt12">Every template here is one you (or staff) wrote and Meta approved — not a fixed list. Full editor lives in the <span class="link" onclick="closeWizard();go('templates')">Templates</span> tab.</div>
+        </div>
+
+        <div id="tpl-write-body" style="display:none">
+          <div class="field" style="max-width:280px"><label>Template name</label><input class="inp mono" value="thyroid_retest_aug" /></div>
+          <div class="field"><label>Your message</label>
+            <textarea class="inp" rows="6" style="resize:vertical">Hello {Patient Name}, your {Follow-up Tests} from your last visit are due for a follow-up. As part of your continued care you're eligible to repeat these at your standing concession. Reply here or call {Branch Phone}.</textarea>
+          </div>
+          <div class="note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <div>WhatsApp reviews every new cold message once (Utility, usually minutes–hours). The campaign saves as a draft and <b>sends automatically once it's approved</b>. Keep it entitlement-framed — "50% off" gets rejected as Marketing; the actual discount goes in the reply.</div>
+          </div>
+        </div>
+        <div class="card mt16">
+          <div class="card-label mb12">Variables — filled automatically per patient</div>
+          <div class="rowlist">
+            <div class="lrow" style="padding:8px 0"><div class="main"><div class="t" style="font-size:12.5px">Patient Name</div></div><span class="mono" style="color:var(--fg2)">→ from patient record</span></div>
+            <div class="lrow" style="padding:8px 0"><div class="main"><div class="t" style="font-size:12.5px">Follow-up Tests</div></div><span class="mono" style="color:var(--fg2)">→ the abnormal test(s)</span></div>
+            <div class="lrow" style="padding:8px 0"><div class="main"><div class="t" style="font-size:12.5px">Reference Code</div></div><span class="mono" style="color:var(--fg2)">→ auto-generated (SB-xxxx)</span></div>
+            <div class="lrow" style="padding:8px 0"><div class="main"><div class="t" style="font-size:12.5px">Branch Phone</div></div><span class="mono" style="color:var(--fg2)">→ sending branch</span></div>
+          </div>
+        </div>
+        <div class="card mt16">
+          <div class="row-between mb12"><div class="card-label">Offer attached to this campaign</div><span class="link" onclick="closeWizard();go('coupons')">Manage offers</span></div>
+          <div class="preset sel">
+            <div class="row-between"><div class="pt">Thyroid retest — standing concession</div><span class="pill green"><span class="d"></span>Active</span></div>
+            <div class="pm mt8">50% off · Thyroid Profile only (exact product) · valid 14 days from each send</div>
+          </div>
+          <div class="row-between mt12" style="font-size:12.5px">
+            <span style="color:var(--fg2)">Reveal the code</span>
+            <div class="seg"><button>In the message</button><button class="on">When they reply</button></div>
+          </div>
+          <div class="card-desc mt12">Reveal-on-reply keeps the cold message Utility-safe and mints the code only when a patient engages — auto-sent inside the 24h window by the <b>Thyroid Recall auto-reply</b> automation. Codes + redemptions live in <b>Money → Coupons</b>.</div>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="wstep" data-s="3">
+        <div class="row-between mb12">
+          <div class="card-label"><span class="num" id="rc3">58</span> patients will receive this message</div>
+          <span class="link">Show 3 examples</span>
+        </div>
+        <div class="wa-frame">
+          <div class="bubble">Hello <b>Rahul</b>,
+
+Our records show the following test(s) from your last visit are due for a follow-up:
+
+<b>HbA1c, TSH</b>
+
+As part of your continued care, you're entitled to repeat these at your standing concession until <b>21 Aug 2026</b>.
+
+Reference: <b>SB-72K9</b>
+Sobhana Diagnostics, Balanagar · 040 1234 5678
+            <div class="meta">10:02 am <span class="tick">✓✓</span></div>
+          </div>
+        </div>
+        <div class="inline mt16" style="gap:16px; color:var(--fg2); font-size:12px">
+          <span>Rahul Sharma → HbA1c, TSH → <span class="mono">SB-72K9</span></span>
+        </div>
+        <div class="inline mt8" style="gap:16px; color:var(--fg2); font-size:12px">
+          <span>Priya Shah → TSH → <span class="mono">SB-91P2</span></span>
+          <span>Amit Patel → T3, T4 → <span class="mono">SB-18D4</span></span>
+        </div>
+      </div>
+
+      <!-- STEP 4 — Follow-up (campaign = mini-flow) -->
+      <div class="wstep" data-s="4">
+        <div class="card-label mb12">What happens after it sends</div>
+        <div class="flow" style="max-width:100%">
+          <div class="node send"><div class="nt">Send</div><div class="nv">Utility template → 58 patients</div></div>
+          <div class="connector"></div>
+          <div class="node cond">
+            <div class="row-between">
+              <div><div class="nt">When they reply (within 24h)</div><div class="nv">Auto-reply: mint SB-xxxx + reveal 50% offer & how to book</div></div>
+              <label class="inline" style="font-size:12px; flex-shrink:0"><input type="checkbox" checked /> On</label>
+            </div>
+          </div>
+          <div class="connector"></div>
+          <div class="node wait">
+            <div class="row-between">
+              <div><div class="nt">If no reply after</div><div class="nv inline" style="gap:6px"><input class="inp stepnum" value="3" /> days → send a reminder template</div></div>
+              <label class="inline" style="font-size:12px; flex-shrink:0"><input type="checkbox" /> On</label>
+            </div>
+          </div>
+        </div>
+        <div class="card-desc mt16">These steps live on the campaign — no separate automation to manage. Need keyword routes or multiple waits? <span class="link" onclick="closeWizard();go('automations')">Build it as an automation</span> — same steps, event trigger.</div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="wstep" data-s="5">
+        <div class="field"><label>When should this campaign run?</label>
+          <label class="inline mt8" style="font-size:13px; display:flex"><input type="radio" name="sched" checked onclick="schedMode(false)" /> Send now</label>
+          <label class="inline mt8" style="font-size:13px; display:flex"><input type="radio" name="sched" onclick="schedMode(true)" /> Schedule for later</label>
+        </div>
+        <div id="sched-fields" style="display:none">
+          <div class="inline" style="gap:16px">
+            <div class="field" style="margin:0"><label>Date</label><input class="inp" type="date" value="2026-08-10" /></div>
+            <div class="field" style="margin:0"><label>Time</label><input class="inp" type="time" value="10:00" /></div>
+          </div>
+        </div>
+        <div class="card mt16" style="background:#f4f8fc; border-color:var(--info)">
+          <div class="card-label mb12">Final check</div>
+          <div class="lrow" style="padding:7px 0; border:none"><div class="main muted">Segment</div><b>Abnormal Thyroid · 30d</b></div>
+          <div class="lrow" style="padding:7px 0; border:none"><div class="main muted">Template</div><b class="mono">thyroid_followup</b></div>
+          <div class="lrow" style="padding:7px 0; border:none"><div class="main muted">Recipients</div><b class="num">58 patients</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wiz-foot">
+      <button class="btn ghost" id="wiz-back" onclick="wizStep(-1)" style="visibility:hidden">Back</button>
+      <span class="count"><span class="num" id="rc-foot">58</span> recipients</span>
+      <button class="btn primary" id="wiz-next" onclick="wizStep(1)">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ LOG DRAWER ============ -->
+<div class="drawer-scrim" id="scrim" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="t">Rahul Sharma</div>
+    <button class="wiz-x" onclick="closeDrawer()">&times;</button>
+  </div>
+  <div class="drawer-body">
+    <div class="wa-frame" style="padding:12px; gap:8px">
+      <div class="bubble" style="font-size:12.5px">Hello <b>Rahul</b>, our records show <b>HbA1c, TSH</b> from your last visit are due for a follow-up. As part of your continued care you're eligible to repeat these at your standing concession. Reply here or call us.
+        <div class="meta">10:02 am <span class="tick">✓✓</span></div></div>
+      <div class="bubble in" style="font-size:12.5px">Ok please book
+        <div class="meta">10:06 am</div></div>
+      <div class="bubble" style="font-size:12.5px"><b>Auto-reply · </b>Here's your code <b>SB-72K9</b> — 50% off HbA1c + TSH, valid till <b>21 Aug</b>. Show it at any Sobhana branch, or reply BOOK and we'll call you.
+        <div class="meta">10:06 am <span class="tick">✓✓</span></div></div>
+    </div>
+
+    <div class="card-label mt16 mb12">Timeline</div>
+    <ul class="timeline">
+      <li><div class="te">Created</div><div class="tt">7 Aug, 10:01 am</div></li>
+      <li><div class="te">Queued</div><div class="tt">7 Aug, 10:02 am</div></li>
+      <li><div class="te">Sent</div><div class="tt">7 Aug, 10:02 am</div></li>
+      <li><div class="te">Delivered</div><div class="tt">7 Aug, 10:02 am · <span class="tick">✓✓</span></div></li>
+      <li><div class="te">Read</div><div class="tt">7 Aug, 10:04 am</div></li>
+      <li><div class="te">Patient replied</div><div class="tt">7 Aug, 10:06 am · "Ok please book"</div></li>
+      <li><div class="te">Coupon minted &amp; revealed</div><div class="tt">7 Aug, 10:06 am · SB-72K9 auto-sent in the 24h window</div></li>
+      <li><div class="te">Follow-up booked</div><div class="tt">7 Aug, 2:20 pm · Booking #18429</div></li>
+      <li><div class="te">Follow-up completed</div><div class="tt">8 Aug, 9:10 am</div></li>
+    </ul>
+
+    <div class="card-label mt16 mb12">Coupon &amp; attribution</div>
+    <div class="attr">
+      <div class="ar"><span class="k">Code</span><span class="mono">SB-72K9</span></div>
+      <div class="ar"><span class="k">Status</span><span class="pill green"><span class="d"></span>Redeemed</span></div>
+      <div class="ar"><span class="k">Expires</span><span class="mono">21 Aug 2026</span></div>
+      <div class="ar"><span class="k">Redeemed on</span><span class="mono">Bill #18429 · 7 Aug</span></div>
+      <div class="ar"><span class="k">Thyroid Profile (list)</span><span class="mono">₹1,700</span></div>
+      <div class="ar"><span class="k">Concession 50%</span><span class="mono" style="color:var(--warning)">−₹850</span></div>
+      <div class="ar"><span class="k">Net collected</span><span class="mono" style="font-weight:600; color:var(--success)">₹850</span></div>
+    </div>
+    <div class="card-desc mt12">Counts in <b>Collected</b>. A retest without the code counts in <b>Influenced</b> (full price) instead. Full ledger: <span class="link" onclick="closeDrawer();go('coupons')">Money → Coupons</span>.</div>
+  </div>
+</div>
+
+<script>
+  // ---- sidebar groups + section switching ----
+  const SEC_GROUP = {overview:'wa',campaigns:'wa',automations:'wa',templates:'wa',logs:'wa',bills:'money',coupons:'money'};
+  function openGroup(name){
+    document.querySelectorAll('.sb-item.group').forEach(g => g.classList.toggle('active', g.dataset.group===name));
+    document.querySelectorAll('.sb-sub').forEach(b => b.style.display = b.dataset.groupBody===name ? 'flex' : 'none');
+  }
+  function go(sec){
+    document.querySelectorAll('.section').forEach(s => s.style.display='none');
+    const el = document.getElementById('sec-'+sec); if(el) el.style.display='block';
+    openGroup(SEC_GROUP[sec] || 'wa');
+    document.querySelectorAll('.sb-subitem').forEach(i => i.classList.toggle('active', i.dataset.sec===sec));
+    showBuilder(false); showEditor(false);
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('.sb-subitem').forEach(i => i.addEventListener('click', () => go(i.dataset.sec)));
+  document.querySelectorAll('.sb-item.group').forEach(g => g.addEventListener('click', () => openGroup(g.dataset.group)));
+  openGroup('wa');
+
+  // ---- automations builder / templates editor sub-views ----
+  function showBuilder(on){ document.getElementById('auto-list').style.display = on?'none':'block';
+    document.getElementById('auto-builder').style.display = on?'block':'none'; }
+  function showEditor(on){ document.getElementById('tpl-list').style.display = on?'none':'block';
+    document.getElementById('tpl-editor').style.display = on?'block':'none'; }
+
+  // ---- campaign wizard ----
+  let step=1, recip=58;
+  function openWizard(){ step=1; recip=58; renderWiz(); document.getElementById('wizard').classList.add('open'); }
+  function closeWizard(){ document.getElementById('wizard').classList.remove('open'); }
+  function wizStep(dir){
+    if(step===5 && dir>0){ closeWizard(); return; } // "Send" on last step
+    step = Math.min(5, Math.max(1, step+dir)); renderWiz();
+  }
+  function renderWiz(){
+    document.querySelectorAll('.wstep').forEach(w => w.classList.toggle('on', +w.dataset.s===step));
+    document.querySelectorAll('.stepper .st').forEach(s => {
+      const n=+s.dataset.s; s.classList.toggle('on', n===step); s.classList.toggle('done', n<step);
+    });
+    document.getElementById('wiz-back').style.visibility = step===1?'hidden':'visible';
+    const next=document.getElementById('wiz-next');
+    next.textContent = step===5 ? ('Send to '+recip+' patients') : 'Continue';
+    next.className = step===5 ? 'btn wa' : 'btn primary';
+    document.getElementById('rc3').textContent=recip;
+    document.getElementById('rc-foot').textContent=recip;
+  }
+  function audMode(m){
+    const saved=m==='saved';
+    document.getElementById('aud-saved').classList.toggle('on',saved);
+    document.getElementById('aud-build').classList.toggle('on',!saved);
+    document.getElementById('aud-saved-body').style.display=saved?'block':'none';
+    document.getElementById('aud-build-body').style.display=saved?'none':'block';
+  }
+  function tplMode(m){
+    const use=m==='use';
+    document.getElementById('tpl-use').classList.toggle('on',use);
+    document.getElementById('tpl-write').classList.toggle('on',!use);
+    document.getElementById('tpl-use-body').style.display=use?'block':'none';
+    document.getElementById('tpl-write-body').style.display=use?'none':'block';
+  }
+  function pickPreset(el,n){
+    el.parentElement.querySelectorAll('.preset').forEach(p=>p.classList.remove('sel'));
+    el.classList.add('sel'); recip=n;
+    document.getElementById('rc-foot').textContent=n; document.getElementById('rc3').textContent=n;
+  }
+  function schedMode(later){ document.getElementById('sched-fields').style.display = later?'block':'none'; }
+
+  // ---- log drawer ----
+  function openDrawer(){ document.getElementById('scrim').classList.add('open'); document.getElementById('drawer').classList.add('open'); }
+  function closeDrawer(){ document.getElementById('scrim').classList.remove('open'); document.getElementById('drawer').classList.remove('open'); }
+
+  document.addEventListener('keydown', e => { if(e.key==='Escape'){ closeWizard(); closeDrawer(); } });
+</script>
+</body>
+</html>

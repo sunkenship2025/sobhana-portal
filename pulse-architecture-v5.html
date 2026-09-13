@@ -1,0 +1,203 @@
+<title>Pulse Architecture v5</title>
+<style>
+  :root{
+    --bg:#faf9f7;--card:#fff;--ink:#1a1917;--dim:#6b6862;--faint:#9a958d;--line:#e3e0da;
+    --det:#2f6f4e;--det-bg:#eaf4ee;--mod:#9a5b12;--mod-bg:#fbf1e2;--bad:#a32b1c;--bad-bg:#fbecea;
+    --a:#c2571f;--grid:#efedea;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#171614;--card:#1f1e1b;--ink:#eceae5;--dim:#9d9890;--faint:#6d6862;--line:#33312d;
+    --det:#7fc39a;--det-bg:#1d2b23;--mod:#e0a95e;--mod-bg:#2d2417;--bad:#e88a7c;--bad-bg:#2e1c19;
+    --a:#e8834a;--grid:#2a2825;
+  }}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);margin:0;padding:40px 22px 90px;
+       font:15px/1.62 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 30px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+     margin:46px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  code{font-family:var(--mono);font-size:.87em;background:var(--grid);padding:1px 5px;border-radius:3px}
+  .law{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--a);
+       border-radius:9px;padding:13px 16px;margin:0 0 12px}
+  .law b{color:var(--a);display:block;margin-bottom:3px;font-size:14.5px}
+  .law p{margin:0;font-size:13.5px;color:var(--dim)}
+  .law p.ev{margin-top:6px;color:var(--ink);font-family:var(--mono);font-size:11.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600;white-space:nowrap}
+  td.m{font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  .up{color:var(--det);font-weight:600} .down{color:var(--bad)}
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 14px;
+         margin:0 0 8px;border-left:3px solid var(--det);font-size:13.5px}
+  .stage.m{border-left-color:var(--mod)}
+  .stage b{font-size:14.5px}
+  .stage .w{font-family:var(--mono);font-size:11px;color:var(--faint);display:block;margin:1px 0 5px}
+  .stage p{margin:0;color:var(--dim);font-size:13px}
+  .arrow{text-align:center;color:var(--line);margin:-3px 0 5px}
+  ul{margin:6px 0;padding-left:19px;font-size:13.5px} li{margin:4px 0}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim);margin-right:16px}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+</style>
+
+<div class="wrap">
+<h1>Pulse — architecture v5</h1>
+<p class="sub">Everything below is stated because it was measured, not because it sounded right.
+Where a claim has a number, the number is from an instrument in the repo that can be re-run.</p>
+
+<p><span class="chip"><span class="dot" style="background:var(--det)"></span> deterministic</span>
+<span class="chip"><span class="dot" style="background:var(--mod)"></span> model</span></p>
+
+<h2>The laws, and what each one cost to learn</h2>
+
+<div class="law"><b>1 · An invariant in a prompt is not an invariant.</b>
+<p>Every rule that stayed in a prompt failed again. Every one moved into code held. "A rate is not
+a total" was reworded three times and ignored three times; it held the first run after becoming a
+repair guard.</p>
+<p class="ev">dues definition · paise convention · rate-vs-total · test grain · commission basis</p></div>
+
+<div class="law"><b>2 · The model proposes. Code decides.</b>
+<p>Not "the model reasons and code checks" — code also does the grounding, the stopping and the
+enforcement. An empty <code>next</code> is "I am done" wearing a structured coat, so the loop stops
+on convergence it can measure, never on the model's appetite.</p></div>
+
+<div class="law"><b>3 · A guard that can refuse correct work is worse than no guard.</b>
+<p>Learned four separate times in one day: a time filter that turned a correct all-time figure into
+month-to-date; a JGG regex that confirmed a fix that had not worked; a validator rejecting SQL it
+merely failed to parse; a registry guard that answered "no patients have dues" against a true 11.</p>
+<p class="ev">every gate now falls back permissively, and says so in its own comment</p></div>
+
+<div class="law"><b>4 · Identity travels with the number.</b>
+<p>A figure without its period, scope and dimension is indistinguishable from one over a different
+window. The investigator was sent <code>{step, label, tool, result}</code> and compared a 30-day
+figure against a 90-day one, called the 6.6× ratio a contradiction, and abandoned a CT ROI
+question that was three numbers and one division.</p></div>
+
+<div class="law"><b>5 · Absence of evidence in one index is not absence in the business.</b>
+<p>An index miss, a policy block and a failed lookup are all facts about <em>us</em>. Reported as
+facts about the centre they are worse than silence — the owner named three real enum values and
+was told the system had no such thing.</p></div>
+
+<div class="law"><b>6 · Measure the baseline before building the mechanism.</b>
+<p>Three subsystems were correctly <em>not</em> built this way, and two estimates of mine shrank to
+nothing under measurement.</p>
+<p class="ev">learned catalogue · calculation engine · job-classification rebuild</p></div>
+
+<div class="law"><b>7 · The instruments are wrong about as often as the product.</b>
+<p>Eight instrument corrections in one session — a probe sharing the code's blind spot, a 130-char
+truncation that invented a defect, a stopwatch measuring the knowledge build, an assertion
+encoding one implementation of a right answer. Every measurement here has been re-derived at
+least once.</p></div>
+
+<h2>The pipeline</h2>
+
+<div class="stage"><b>1 · Entry &amp; authorization</b><span class="w">index.ts · routes/pulse.ts</span>
+<p>Small talk, follow-up detection, entity picker, entity card. Authorization is settled at the door
+— <code>maySeePeople(req)</code> → <code>rowLevel</code> — and travels as policy. It is never
+re-litigated by a flag the planner sets from the wording of a question.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>2 · Knowledge</b><span class="w">knowledge.ts · built once, ~80s, 819 concepts</span>
+<p>Live introspection: schema graph, every Postgres enum, branches, departments, test codes
+<em>and names</em>, payout categories. Concepts carry a <b>family</b> — a test's category, a
+category's service kind — so terms can disambiguate each other.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>3 · Resolution</b><span class="w">scoreMatch · resolveRanked · termsIn</span>
+<p>Ranked and deterministic: exact 1.00 · normalized 0.95 · prefix 0.75r · partial 0.75r · word
+0.70r · substring 0.40r, where r is the length ratio. <b>Per question, not per term</b> — "ct scan
+machine" resolves <code>scan → IMAGING</code>, and only then is it decidable that <code>ct</code>
+means the CT/MRI category and not Clotting Time.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage m"><b>4 · Plan</b><span class="w">askPlan — given the resolved terms</span>
+<p>Goal, analytical job, spec, first steps. The only inferred thing in the resolution path is which
+words become a scope term.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>5 · Spec grounding &amp; binding</b><span class="w">completeSpec · compileBindings · BindingAuthority</span>
+<p>Terms re-resolved against live data; the planner's guess is overwritten when resolution succeeds
+and dropped when the value does not exist. <b>Authority decides force</b>: a period the owner named
+binds; a planner default is carried but never spoken, because a binding stated in the context is an
+instruction whatever hedge sits beside it.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>6 · Tools — 17</b><span class="w">registry 8 · operational 7 · semantic 1 · generated 1</span>
+<p>Registry and operational tools have never failed in production. The generated <code>query</code>
+path carries every guard: spec verification, rate-vs-total, test grain, commission basis, due
+definition, money alias.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>7 · Verification</b><span class="w">validator.ts · sqlscope.ts (AST)</span>
+<p><b>Safe?</b> no writes, no secrets, no cartesian products, no fan-out. <b>Would it return a
+person?</b> projected columns, only when policy forbids. <b>Does the predicate restrict the
+ANSWER?</b> walks outward from the result statement through referenced CTEs — and not through outer
+joins, which add columns and remove no rows. <b>Did the committed scope survive?</b> including into
+registry steps, which had no such check at all.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>8 · Investigation</b><span class="w">run.ts · investigation.ts</span>
+<p>Hypotheses with requirements; <code>enforce()</code> reopens a claim settled without the analysis
+it named. Stops on <b>resolved</b>, or measured <b>stagnation</b> — three rounds earning nothing,
+belief unchanged despite fresh rows, or nothing satisfying a requirement. Ceilings are an emergency
+brake and hitting one marks the answer incomplete. <b>Comparability is checked before a
+contradiction may mean anything</b>, in three states: comparable survives, different is dropped,
+unknown becomes an open question.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>9 · Job → contract → capability</b><span class="w">contract.ts · capability.ts</span>
+<p>Thirteen jobs, declared not matched. <code>requires</code> is a hard structural gate,
+<code>buildable</code> asks whether the renderer could construct its input. <code>continuous</code>
+now separates a measurement from a per-category count, so a histogram can no longer claim a
+breakdown. <b>No question text reaches this layer.</b></p></div>
+<div class="arrow">↓</div>
+
+<div class="stage m"><b>10 · Write-up</b><span class="w">askResponse — retry-guarded</span>
+<p>Segments, artifact choices, sized opportunities. A truncated response salvages its parseable
+prefix — never by closing an unterminated string, because a half-written WHERE would close into SQL
+that runs and returns a confidently wrong number.</p></div>
+<div class="arrow">↓</div>
+
+<div class="stage"><b>11 · Derivation &amp; post-checks</b><span class="w">deriveView.ts · grounding.ts · opportunity.ts</span>
+<p>One shared derivation feeds every renderer: shares, totals, remainder, concentration — arithmetic,
+never authored by the model. A field that cannot justify itself is <b>absent, not null</b>. Grounding
+admits exact, derived, or ordinary; anything else is sent back. Opportunities rank
+<code>rupees × confidence × causality</code>; unsized candidates are considered, never recommended.</p></div>
+
+<h2>What moved, measured</h2>
+<table>
+<tr><th></th><th>Before</th><th>After</th></tr>
+<tr><td>Resolved terms fed to the planner</td><td>50% segmentation artifacts, none above 0.45</td><td class="up">0% artifacts, 14/15 exact</td></tr>
+<tr><td><code>CT-BRAIN PLAIN</code> billed</td><td class="down">₹1,918 — the clotting-time figure</td><td class="up">₹1,03,400</td></tr>
+<tr><td><code>give me cost</code></td><td class="down">31 calls, no answer</td><td class="up">₹2,200 per unit</td></tr>
+<tr><td><code>name him</code> after a patient ranking</td><td class="down">Dr.K.RAMASWAMY MD</td><td class="up">ABDUL SALEEM, P-000594</td></tr>
+<tr><td>CT scanner ROI</td><td class="down">"any ROI figure would be invented"</td><td class="up">"pays back in about 4.1 years"</td></tr>
+<tr><td>Owner's own vocabulary</td><td class="down">"the system has no such report types"</td><td class="up">resolves; patient lists unblocked</td></tr>
+<tr><td>Artifact useful context</td><td>24%</td><td class="up">46%</td></tr>
+<tr><td>Artifact derived quantities</td><td class="down">0% — never computed anywhere</td><td class="up">100%</td></tr>
+<tr><td>Calculation benchmark</td><td>3/6</td><td class="up">4/6, zero formula failures</td></tr>
+<tr><td>Regression</td><td>12/12 on an easier suite</td><td class="up">13–14/14, two asserting the query</td></tr>
+</table>
+
+<h2>Not built, on evidence</h2>
+<table>
+<tr><th>Proposed</th><th>Measurement that killed it</th></tr>
+<tr><td>Learned semantic catalogue</td><td>6 denials in 79 turns, 5 already fixed deterministically</td></tr>
+<tr><td>Calculation / formula engine</td><td>0 CALCULATION failures in 6; the model can already do the arithmetic</td></tr>
+<tr><td>Job-classification rebuild</td><td>92% opportunity activation, above the pre-registered gate</td></tr>
+<tr><td>Artifact schema redesign</td><td>retention is 100% — the whole evidence is already on the wire</td></tr>
+<tr><td>Wall-clock rework</td><td>no logged turn exceeds 180s; the write-up takes 5s, not 30</td></tr>
+<tr><td>Sub-agents, deferred context, tool contracts</td><td>the failures are semantic, not architectural</td></tr>
+</table>
+
+<h2>Open, honestly</h2>
+<ul>
+<li><b><code>TEST_BILLED</code> is flaky.</b> ₹1,03,400 on most runs, a period-scoped figure on others — and the period it then names is one the SQL does not contain. A period claimed in prose and absent from every step is now checkable and not yet checked.</li>
+<li><b>Stagnation has fired once</b> in production, on a genuinely stuck run. Still the least-exercised mechanism.</li>
+<li><b><code>recheckScope</code> has never fired.</b> Insurance against a bug the ranked resolver mostly prevents.</li>
+<li><b>No feedback signal.</b> Every quality judgment this session came from reading logs by hand. It does not scale past one person with a long afternoon.</li>
+<li><b><code>ct</code> remains genuinely ambiguous</b> — a live test code and an imaging abbreviation. Family disambiguation settles it inside a question that names a family and nowhere else.</li>
+</ul>
+
+</div>

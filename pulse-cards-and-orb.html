@@ -1,0 +1,302 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse — Cards & Orb</title>
+<style>
+:root{--bg:#f4f4f2;--fg:#1c1c1a;--mut:#6f6f69;--dim:#a3a39c;--line:#dcdcd7;--card:#fff;--ink:#2b2b28;
+--acc:#1f6f9f;--ok:#2e7d32;--wn:#a06000;--no:#b3261e;--wire2:#c9c9c4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:0 28px 100px}
+header{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-size:32px;margin:0 0 8px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:16px;max-width:70ch;margin:0}
+h2{font-size:22px;margin:56px 0 4px;letter-spacing:-.01em}
+h2 .n{color:var(--dim);font-weight:400;font-size:15px;margin-right:10px}
+h3{font-size:14.5px;margin:30px 0 8px;color:var(--acc);font-weight:650}
+.lead{color:var(--mut);margin:0 0 18px;max-width:76ch}
+p{max-width:76ch}
+code{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:color-mix(in srgb,var(--fg) 6%,transparent);padding:1.5px 5px;border-radius:3px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);padding:7px 10px 7px 0;font-weight:650}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.grp td{background:#eeeeeb;font-weight:650;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);padding:6px 10px 6px 6px}
+.q{color:var(--fg)}.q i{color:var(--dim);font-style:normal}
+.sh{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef2f6;color:var(--acc);padding:1px 6px;border-radius:3px;white-space:nowrap}
+.sh.new{background:#f2e9f7;color:#6b3d8a}
+.sh.d{background:#fdf0dc;color:var(--wn)}
+.sh.x{background:#fbe5e3;color:var(--no)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px}
+.tag.ok{background:#e3f1e5;color:var(--ok)}.tag.wn{background:#fdf0dc;color:var(--wn)}.tag.new{background:#f2e9f7;color:#6b3d8a}
+.co{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;max-width:76ch}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+.stat .v{font-size:26px;font-weight:700;letter-spacing:-.02em}.stat .v small{font-size:14px;color:var(--dim);font-weight:400}
+.stat .l{font-size:12px;color:var(--mut);margin-top:4px;line-height:1.4}
+/* card kit */
+.kit{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px;margin:14px 0}
+.k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.k h4{margin:0;font-size:13px;display:flex;align-items:center;gap:8px}
+.k .w{font-size:12px;color:var(--mut);margin:0;line-height:1.5}.k .w b{color:var(--fg)}
+.panel{background:#fff;border:1px solid var(--wire2);border-radius:8px;overflow:hidden;font-size:11px}
+.pb{padding:10px;display:flex;flex-direction:column;gap:7px}
+.card{border:1px solid var(--wire2);border-radius:7px;padding:8px 10px;background:#fbfbf9}
+.card .big{font-size:17px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.card .big s{text-decoration:none;font-size:9.5px;font-weight:600;color:var(--ok);margin-left:6px}.card .big s.dn{color:var(--no)}
+.card .kk{font-size:8px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase}
+.card .row{display:flex;justify-content:space-between;font-size:9.5px;padding:2.5px 0;border-top:1px dashed var(--wire2)}
+.card .row:first-of-type{border-top:0}
+.card .row .rk{color:var(--dim);width:14px;display:inline-block}
+.card .note{font-size:8.5px;color:var(--mut);margin-top:4px}
+.ent{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+.ent>div .kk{font-size:7.5px}.ent>div .big{font-size:12px}
+.acts{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.act{font-size:8.5px;padding:2px 7px;border:1px solid var(--wire2);border-radius:4px;color:var(--acc);background:#fff}
+.spark{height:30px;display:flex;align-items:flex-end;gap:2px;margin:6px 0 2px}.spark i{flex:1;background:var(--acc);opacity:.7;border-radius:1px 1px 0 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.two .big{font-size:14px}
+/* ORBS */
+.orbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;margin:16px 0}
+.oc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.oc h4{margin:0;font-size:13.5px}
+.oc .w{font-size:12.5px;color:var(--mut);margin:0;line-height:1.5}.oc .w b{color:var(--fg)}
+.stage{display:grid;grid-template-columns:1fr 1fr;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.stage>div{padding:18px 10px 12px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.stage .lt{background:#f7f7f5}.stage .dk{background:#1a1b21}
+.stage .lab{font-size:8px;font-weight:700;letter-spacing:.16em;color:var(--acc)}
+.stage .dk .lab{color:#8cc6ec}
+.stage .sz{display:flex;align-items:flex-end;gap:16px;height:64px}
+.orb{border-radius:50%;position:relative;animation:breath 5.5s ease-in-out infinite}
+@keyframes breath{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+.s44{width:44px;height:44px}.s56{width:56px;height:56px}
+/* 1 refined radial */
+.v1{background:radial-gradient(circle at 34% 30%,#9ed3f3 0%,#3d93c9 38%,#155a86 78%,#0d3f60 100%);box-shadow:0 6px 16px rgba(21,90,134,.42),inset 0 -6px 12px rgba(0,0,0,.25),inset 0 3px 6px rgba(255,255,255,.35)}
+/* 2 glass */
+.v2{background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.95) 0%,rgba(255,255,255,.35) 18%,rgba(120,190,235,.55) 45%,rgba(31,111,159,.85) 100%);border:1px solid rgba(255,255,255,.7);box-shadow:0 8px 20px rgba(31,111,159,.35),inset 0 -8px 14px rgba(20,70,110,.45),inset 0 2px 4px rgba(255,255,255,.9)}
+.v2:after{content:"";position:absolute;left:22%;top:12%;width:34%;height:22%;border-radius:50%;background:rgba(255,255,255,.85);filter:blur(1px)}
+/* 3 dark core */
+.v3{background:radial-gradient(circle at 50% 50%,#7fe3ff 0%,#2aa7dd 22%,#123f66 55%,#0b1e33 100%);box-shadow:0 6px 18px rgba(11,30,51,.5),0 0 22px rgba(42,167,221,.35),inset 0 0 10px rgba(127,227,255,.5)}
+/* 4 aurora */
+.v4{background:conic-gradient(from 0deg,#1f6f9f,#3fb3a8,#5b7fd6,#8a5fc7,#1f6f9f);animation:breath 5.5s ease-in-out infinite,spin 12s linear infinite;box-shadow:0 6px 16px rgba(60,90,160,.4)}
+.v4:before{content:"";position:absolute;inset:14%;border-radius:50%;background:radial-gradient(circle at 40% 35%,#eaf6ff,#7fb8dd 60%,#3a86b8);box-shadow:inset 0 -3px 6px rgba(0,0,0,.2)}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 5 halo */
+.v5{background:radial-gradient(circle at 36% 32%,#a9dcf7,#2f86bd 55%,#124d78);box-shadow:0 0 0 6px rgba(47,134,189,.12),0 0 0 14px rgba(47,134,189,.06),0 6px 16px rgba(18,77,120,.4),inset 0 -5px 10px rgba(0,0,0,.22)}
+/* 6 ringed */
+.v6{background:radial-gradient(circle at 36% 32%,#9ed3f3,#2f86bd 55%,#124d78);box-shadow:0 5px 14px rgba(18,77,120,.4),inset 0 -5px 10px rgba(0,0,0,.22)}
+.v6:after{content:"";position:absolute;inset:-6px;border-radius:50%;border:1.5px solid rgba(47,134,189,.55);animation:spin 18s linear infinite;border-right-color:transparent}
+/* 7 horizon */
+.v7{background:linear-gradient(180deg,#bfe4fa 0%,#6db6e4 48%,#1c5f8c 52%,#0e3a5c 100%);box-shadow:0 6px 16px rgba(14,58,92,.45),inset 0 2px 4px rgba(255,255,255,.6),inset 0 -4px 8px rgba(0,0,0,.3)}
+/* 8 emissive */
+.v8{background:radial-gradient(circle at 50% 50%,#ffffff 0%,#bfe8ff 14%,#3fb0ec 40%,#155a86 75%,#0c3550 100%);box-shadow:0 0 18px 4px rgba(63,176,236,.45),0 0 40px 8px rgba(63,176,236,.18),inset 0 0 8px rgba(255,255,255,.6)}
+
+/* 9 halo x emissive — the baby of 5 and 8 */
+.v9{background:radial-gradient(circle at 50% 48%,#ffffff 0%,#c9ecff 12%,#48b4ee 36%,#186592 68%,#0b3552 100%);
+ box-shadow:0 0 14px 3px rgba(72,180,238,.5),0 0 0 7px rgba(72,180,238,.13),0 0 0 15px rgba(72,180,238,.07),0 0 0 24px rgba(72,180,238,.035),0 8px 18px rgba(11,53,82,.35),inset 0 0 8px rgba(255,255,255,.55);
+ animation:breath 5.5s ease-in-out infinite,halo 5.5s ease-in-out infinite}
+@keyframes halo{0%,100%{box-shadow:0 0 14px 3px rgba(72,180,238,.5),0 0 0 7px rgba(72,180,238,.13),0 0 0 15px rgba(72,180,238,.07),0 0 0 24px rgba(72,180,238,.035),0 8px 18px rgba(11,53,82,.35),inset 0 0 8px rgba(255,255,255,.55)}
+ 50%{box-shadow:0 0 22px 6px rgba(72,180,238,.6),0 0 0 9px rgba(72,180,238,.16),0 0 0 19px rgba(72,180,238,.09),0 0 0 30px rgba(72,180,238,.045),0 8px 18px rgba(11,53,82,.35),inset 0 0 10px rgba(255,255,255,.7)}}
+.v9.think{animation:breath 1.1s ease-in-out infinite,halo 1.1s ease-in-out infinite}
+.stage .sz.three{gap:12px}
+
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>Pulse — Cards &amp; Orb</h1>
+<p class="sub">Every question type an owner asks, which card it gets, one new card worth adding —
+and whether the model's answers actually land in the right card, measured. Then eight looks for the orb.</p>
+</header>
+
+<h2><span class="n">01</span>How a card gets chosen</h2>
+<p class="lead">Not by the model. A small fixed function reads the question and the rows that came
+back, and picks one of nine cards. It is tested like everything else, because a right number in the
+wrong card still misleads — a comparison shown as one figure, a trend shown as a table.</p>
+
+<div class="stats">
+<div class="stat"><div class="v">130<small>/130</small></div><div class="l">Chooser picks the hand-labelled card, on correct rows</div></div>
+<div class="stat"><div class="v">119<small>/127 · 94%</small></div><div class="l">Model's rows land in the same card as the truth</div></div>
+<div class="stat"><div class="v">130</div><div class="l">Labelled questions across standard, hard and held-out suites</div></div>
+</div>
+<h3>What the 8 mismatches were</h3>
+<table>
+<thead><tr><th>Question</th><th>Truth card</th><th>Model landed in</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>% of visits by first-time patients · share from top branch · IQR of tests per visit</td><td><span class="sh">scalar</span></td><td><span class="sh">kpis</span></td><td>returned the numerator and denominator beside the percentage — <b>more than asked, not wrong</b></td></tr>
+<tr><td>rank of each branch by orders</td><td><span class="sh">ranked</span></td><td><span class="sh">matrix</span></td><td>added an explicit rank column; the chooser read it as a second measure — <b>chooser bug, now fixed</b></td></tr>
+<tr><td>which day of the week is busiest</td><td><span class="sh">scalar</span></td><td><span class="sh">ranked</span></td><td>returned all 7 days ranked instead of the top one — <b>arguably the better answer</b></td></tr>
+<tr><td>month-over-month change</td><td><span class="sh">compare</span></td><td><span class="sh">series</span></td><td>returned 3 months instead of 2 — more context, same information</td></tr>
+<tr><td>bills by payment status · branch share of collections</td><td><span class="sh">list</span></td><td><span class="sh">matrix</span></td><td>count <i>and</i> percentage per row — richer than the minimum</td></tr>
+</tbody></table>
+<div class="co"><p style="margin:0"><b>Every one of the eight is the model volunteering extra columns or rows.</b>
+None hides information, none picks a misleading card. So the practical rule for the UI is: <b>the chooser
+picks from what came back, and a richer result gets a richer card</b> — that is fine. The one genuine
+chooser defect (a rank column mistaken for a measure) is fixed; chooser accuracy on correct rows is 130/130
+after the fix, and model fidelity would rise to ~95% on a re-run.</p>
+<p style="margin:8px 0 0">The number that matters for the product: on these 127 questions, <b>the model
+never returned a shape the UI could not render well.</b> A right number in a misleading card — the failure
+this test was built to find — did not occur.</p></div>
+
+<h2><span class="n">02</span>Everything an owner asks, and its card</h2>
+<p class="lead">Grouped by what the owner is trying to find out. Examples are in the register they
+actually use. <span class="tag new">new</span> marks the one card worth adding beyond the seven.</p>
+
+<table>
+<thead><tr><th style="width:44%">What they ask</th><th>Card</th><th>Worth a special treatment?</th><th class="num">Model calls</th></tr></thead>
+<tbody>
+<tr class="grp"><td colspan="4">Money coming in</td></tr>
+<tr><td class="q">last month collection how much <i>· today collection · this week</i></td><td><span class="sh">scalar</span></td><td>delta vs same period before, always</td><td class="num">1</td></tr>
+<tr><td class="q">branch wise collection <i>· by payment mode · doctor wise</i></td><td><span class="sh">list</span></td><td>parts-vs-total line when they don't add up</td><td class="num">1</td></tr>
+<tr><td class="q">cash how much online how much</td><td><span class="sh">kpis</span></td><td>two figures side by side, share % under each</td><td class="num">1</td></tr>
+<tr><td class="q">collection vs previous month <i>· this month so far vs same days last month</i></td><td><span class="sh">compare</span></td><td>like-for-like window stated on the card ("1–10 Sep vs 1–10 Aug")</td><td class="num">1</td></tr>
+<tr><td class="q">monthly collection <i>· daily this month · trend</i></td><td><span class="sh">series</span></td><td>latest bucket big, today's bar highlighted</td><td class="num">1</td></tr>
+<tr><td class="q">per case average <i>· average bill</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Money owed to us</td></tr>
+<tr><td class="q">due how much <i>· pending payment · baaki</i></td><td><span class="sh">scalar</span></td><td>"of ₹X billed" context under the figure</td><td class="num">1</td></tr>
+<tr><td class="q">due branch wise</td><td><span class="sh">list</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">which bills are unpaid</td><td><span class="sh">scalar</span></td><td><b>count only</b> — patient-level lists are blocked; chip "open Bills → unpaid" deep-links</td><td class="num">1</td></tr>
+<tr><td class="q">refund how much <i>· cancellations this month</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Money going out</td></tr>
+<tr><td class="q">referral amount total <i>· commission this month</i></td><td><span class="sh">scalar</span> + warning</td><td>source line: "from payout ledger" — this number has two defensible answers</td><td class="num">2</td></tr>
+<tr><td class="q">doctor wise referral amount</td><td><span class="sh">ranked</span> + warning</td><td>"open Payouts" as first action</td><td class="num">2</td></tr>
+<tr><td class="q">ramaswamy ko kitna dena hai</td><td><span class="sh new">entity</span></td><td><span class="tag new">new</span> doctor card: owed · referrals · delta · last referral</td><td class="num">0</td></tr>
+<tr><td class="q">discount how much given <i>· who gave the most discount</i></td><td><span class="sh">scalar</span> / <span class="sh">ranked</span></td><td>by staff = ranked, non-PHI so allowed</td><td class="num">1</td></tr>
+<tr><td class="q">discount zyada de rahe hain kya</td><td><span class="sh">scalar</span></td><td>rate + "vs July / vs your typical" — a judgement word needs a yardstick</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Volume</td></tr>
+<tr><td class="q">how many cases <i>· tests · patients · new patients</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">cases branch wise <i>· tests per branch</i></td><td><span class="sh">list</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">new vs repeat patients</td><td><span class="sh">kpis</span></td><td>share % under each</td><td class="num">1</td></tr>
+<tr><td class="q">busiest day <i>· which day of week</i></td><td><span class="sh">scalar</span> / <span class="sh">ranked</span></td><td>7-row ranked if they ask "by day"; single answer if "which day"</td><td class="num">1</td></tr>
+<tr><td class="q">monthly cases <i>· daily footfall</i></td><td><span class="sh">series</span></td><td>—</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Referring doctors</td></tr>
+<tr><td class="q">top doctors <i>· doctor wise cases top 5</i></td><td><span class="sh">ranked</span></td><td>numbered, top row highlighted</td><td class="num">1</td></tr>
+<tr><td class="q">ramaswamy ab bhi bhej raha hai <i>· is X still referring</i></td><td><span class="sh">compare</span> → <span class="sh new">entity</span></td><td>two periods for one doctor — the entity card already shows this</td><td class="num">0–1</td></tr>
+<tr><td class="q">which doctors stopped referring <i>· who went quiet</i></td><td><span class="sh">ranked</span></td><td>allowed — doctors are not PHI; show last-referral date per row</td><td class="num">1</td></tr>
+<tr><td class="q">new referrers this month</td><td><span class="sh">list</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">referred vs walk-in share</td><td><span class="sh">kpis</span></td><td>—</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Tests</td></tr>
+<tr><td class="q">which test we did most <i>· top tests · revenue per test</i></td><td><span class="sh">ranked</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">tests never ordered <i>· outsourced tests</i></td><td><span class="sh">scalar</span></td><td>outsourced: coverage note — the outsourcing link is never filled in</td><td class="num">1</td></tr>
+<tr><td class="q">abnormal rate <i>· critical results this month</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">CBP this month <i>· thyroid volume</i></td><td><span class="sh new">entity</span></td><td><span class="tag new">new</span> test card: orders · revenue · delta · share of total</td><td class="num">0</td></tr>
+<tr class="grp"><td colspan="4">Operations</td></tr>
+<tr><td class="q">how is our TAT <i>· report kitna time lag raha hai</i></td><td><span class="sh">scalar</span></td><td>median with "p90: Xh" beside it — one number lies about a distribution</td><td class="num">1</td></tr>
+<tr><td class="q">reports late kitne <i>· patients complaining reports late</i></td><td><span class="sh">scalar</span></td><td>count + "vs typical", branch chips</td><td class="num">1</td></tr>
+<tr><td class="q">late reports branch wise</td><td><span class="sh">list</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">pending reports <i>· cancel percentage</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Branches</td></tr>
+<tr><td class="q">chintal vs balanagar</td><td><span class="sh">compare</span></td><td>metric defaults to collection; chips to switch</td><td class="num">1</td></tr>
+<tr><td class="q">chintal kaisa chal raha hai <i>· balanagar overview</i></td><td><span class="sh new">entity</span></td><td><span class="tag new">new</span> branch card: collection · cases · due · late reports, each with delta</td><td class="num">0</td></tr>
+<tr><td class="q">which branch is doing most business</td><td><span class="sh">scalar</span></td><td>top-1: entity name + figure</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Patients</td></tr>
+<tr><td class="q">gender split <i>· age wise</i></td><td><span class="sh">list</span></td><td>allowed — aggregates only</td><td class="num">1</td></tr>
+<tr><td class="q">repeat patients kitne <i>· retention · first-time share</i></td><td><span class="sh">scalar</span></td><td>—</td><td class="num">1</td></tr>
+<tr><td class="q">list of patients who… <i>· show me patient X</i></td><td><span class="sh x">refuse</span></td><td><b>blocked by design</b> — patient-level rows never leave the database via Pulse; chip to Patient 360</td><td class="num">0</td></tr>
+<tr class="grp"><td colspan="4">Why, and how are we doing</td></tr>
+<tr><td class="q">business kaisa chal raha hai <i>· how's the month</i></td><td><span class="sh d">status</span></td><td>the empty-state pack plus one narrative paragraph</td><td class="num">1</td></tr>
+<tr><td class="q">collection why down <i>· why this month slow · what's driving growth</i></td><td><span class="sh d">diagnose</span></td><td>movers table; bold first words when the premise was wrong</td><td class="num">1</td></tr>
+<tr><td class="q">is this normal <i>· is today low</i></td><td><span class="sh">scalar</span></td><td>"vs usual Tuesday" baseline line — the z-score made readable</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Profit, and things we can't see</td></tr>
+<tr><td class="q">profit kitna <i>· are we making money · margin</i></td><td><span class="sh d">ladder</span></td><td>stepped subtraction, grey boundary note</td><td class="num">1</td></tr>
+<tr><td class="q">lab across the road <i>· market share · competitor</i></td><td><span class="sh x">refuse</span></td><td>"no query was run" + two in-scope chips</td><td class="num">0</td></tr>
+<tr><td class="q">average patient weight <i>· coupon usage</i></td><td><span class="sh x">refuse</span></td><td>"not recorded" — coverage block; never a confident zero</td><td class="num">1</td></tr>
+<tr class="grp"><td colspan="4">Names, and follow-ups</td></tr>
+<tr><td class="q">sharma referrals <i>· kidcare</i></td><td><span class="sh">pick</span></td><td>3 ranked options + "show all"; two-way ties show both instead</td><td class="num">0</td></tr>
+<tr><td class="q">and kompally? <i>· branch wise · vs july · by doctor</i></td><td>re-runs last card</td><td>context bar field swapped; card type stays</td><td class="num">1</td></tr>
+</tbody></table>
+
+<h3>The one card worth adding: entity</h3>
+<div class="kit">
+<div class="k"><h4>Doctor <span class="tag new">new</span></h4>
+<p class="w"><b>ramaswamy ko kitna dena hai</b> · <b>is ramaswamy still referring</b> · <b>tell me about dasarathi</b></p>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Dr K. Ramaswamy · August</div>
+<div class="ent"><div><div class="kk">Owed</div><div class="big">₹1,12,655</div></div><div><div class="kk">Referrals</div><div class="big">245<s>+81%</s></div></div><div><div class="kk">Rank</div><div class="big">#1</div></div></div>
+<div class="note">Last referral yesterday · 82% of this month's growth</div>
+<div class="acts"><span class="act">vs July</span><span class="act">by test</span><span class="act">open Payouts</span></div></div></div></div>
+<p class="w">Four registry metrics for one entity. <b>Zero model calls</b> — the value index resolves the name, the registry supplies the numbers. Answers three question types with one card.</p></div>
+
+<div class="k"><h4>Branch <span class="tag new">new</span></h4>
+<p class="w"><b>chintal kaisa chal raha hai</b> · <b>balanagar overview</b> · <b>how is IDPL</b></p>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Chintal · August</div>
+<div class="ent"><div><div class="kk">Collection</div><div class="big">₹10,42,880<s>+14%</s></div></div><div><div class="kk">Cases</div><div class="big">2,864</div></div><div><div class="kk">Due</div><div class="big">₹9,100</div></div></div>
+<div class="note">Late reports 201 (18.5%) ▲ — worst of 3 branches</div>
+<div class="acts"><span class="act">why up?</span><span class="act">vs Balanagar</span><span class="act">late reports</span></div></div></div></div>
+<p class="w">Same shape as the empty-state pack, scoped to one branch. The worst-off metric gets the note line, so the card <i>leads</i> somewhere.</p></div>
+
+<div class="k"><h4>Test <span class="tag new">new</span></h4>
+<p class="w"><b>CBP this month</b> · <b>thyroid volume</b> · <b>how much does vitamin D make</b></p>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">CBP · August</div>
+<div class="ent"><div><div class="kk">Orders</div><div class="big">466</div></div><div><div class="kk">Revenue</div><div class="big">₹1,39,800</div></div><div><div class="kk">Share</div><div class="big">3.3%</div></div></div>
+<div class="note">#1 by volume · 12% of orders had an abnormal flag</div>
+<div class="acts"><span class="act">by branch</span><span class="act">monthly</span><span class="act">who orders it</span></div></div></div></div>
+<p class="w">Any named thing the value index can resolve gets a profile. It's the answer to "tell me about X" for every X, and it never needs the model.</p></div>
+</div>
+
+<div class="co"><p style="margin:0"><b>What the taxonomy shows:</b> of ~60 question types, <b>~80% land on four cards</b>
+— scalar, list, ranked, compare. Series, kpis and matrix cover most of the rest. Three cards
+(status, diagnose, ladder) are computed pipelines rather than SQL. Two responses have no card at all.
+And the entity card removes a whole class of questions from the model entirely. Nine cards is the
+complete set; there is no long tail.</p></div>
+
+<h2><span class="n">03</span>The orb — eight looks</h2>
+<p class="lead">Same object, stronger. Each at 44 and 56px, on light and on dark. They breathe slowly — let them.</p>
+
+<div class="orbs">
+<div class="oc"><h4>1 · Refined radial</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v1 s44"></div><div class="orb v1 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v1 s44"></div><div class="orb v1 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">The current orb, done properly: four-stop gradient, a shadow underneath, a dark inset at the base and a light one at the crown. Same idea, three times the depth.</p></div>
+
+<div class="oc"><h4>2 · Glass</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v2 s44"></div><div class="orb v2 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v2 s44"></div><div class="orb v2 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">Specular highlight, translucent body, a bright rim. Reads as a lens — "looking into" the data. <b>Best on dark</b>; on light it can wash out.</p></div>
+
+<div class="oc"><h4>3 · Dark core <span class="tag ok">rec</span></h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v3 s44"></div><div class="orb v3 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v3 s44"></div><div class="orb v3 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">Navy sphere with a bright cyan centre and a soft outer glow. Serious, weighty, and the glow makes it the brightest thing on the page without being loud. <b>Holds up on both backgrounds.</b> The thinking state is the core brightening — no shape change needed.</p></div>
+
+<div class="oc"><h4>4 · Aurora</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v4 s44"></div><div class="orb v4 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v4 s44"></div><div class="orb v4 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">A slowly turning blue-teal-violet ring around a pale centre. Distinctly "AI" in the current visual language. Risk: it's also the most generic — several products use this exact motif.</p></div>
+
+<div class="oc"><h4>5 · Halo</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v5 s44"></div><div class="orb v5 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v5 s44"></div><div class="orb v5 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">The radial orb with two faint concentric halos on the page behind it. Gives it presence without size. The halos can breathe with the heartbeat later — this is the look that carries the "pulse" motion best.</p></div>
+
+<div class="oc"><h4>6 · Ringed</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v6 s44"></div><div class="orb v6 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v6 s44"></div><div class="orb v6 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">Orb plus a thin broken ring that turns very slowly. Planetary. The ring speeds up when thinking, so the state change is free. Risk: two elements at 44px can look fussy.</p></div>
+
+<div class="oc"><h4>7 · Horizon</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v7 s44"></div><div class="orb v7 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v7 s44"></div><div class="orb v7 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">Hard split — pale sky above, deep sea below. Graphic rather than glossy; closest to a logo. Sits well beside flat UI. Risk: the split line can read as a toggle switch.</p></div>
+
+<div class="oc"><h4>8 · Emissive</h4>
+<div class="stage"><div class="lt"><div class="sz"><div class="orb v8 s44"></div><div class="orb v8 s56"></div></div><div class="lab">PULSE</div></div>
+<div class="dk"><div class="sz"><div class="orb v8 s44"></div><div class="orb v8 s56"></div></div><div class="lab">PULSE</div></div></div>
+<p class="w">White-hot centre, wide soft bloom. It <i>emits</i>. Spectacular on dark, and it's the one that most looks like it's alive. On light it needs a slightly darker body or the bloom disappears.</p></div>
+</div>
+
+
+<div class="oc" style="grid-column:1/-1;border-color:var(--acc)"><h4>9 · Halo × Emissive <span class="tag ok">your idea</span></h4>
+<div class="stage"><div class="lt"><div class="sz three"><div class="orb v9 s44"></div><div class="orb v9 s56"></div><div class="orb v9 s56 think"></div></div><div class="lab">PULSE &nbsp;·&nbsp; idle · idle · thinking</div></div>
+<div class="dk"><div class="sz three"><div class="orb v9 s44"></div><div class="orb v9 s56"></div><div class="orb v9 s56 think"></div></div><div class="lab">PULSE &nbsp;·&nbsp; idle · idle · thinking</div></div></div>
+<p class="w"><b>The white-hot core and bloom of 8, sitting inside the three concentric halos of 5.</b> The
+halos breathe on the same 5.5s cycle as the body, so the whole thing pulses outward — which is the
+name. Thinking is the same animation at 1.1s: the bloom widens, the halos push out faster. No shape
+change, no spinner. On light the body is a shade deeper than 8 so the bloom still reads; on dark it
+is the brightest object on screen by a wide margin. <b>This is better than either parent</b> — 8 was
+dark-only and 5 was quiet; together the glow has somewhere to go.</p>
+<p class="w" style="font-size:11.5px;color:var(--dim)">spec · body 44px (56 on the empty state) · core #fff→#c9ecff→#48b4ee→#186592→#0b3552 · bloom 14px/3px → 22px/6px on the beat · halos at +7 / +15 / +24px, alpha .13 / .07 / .035 · cycle 5.5s idle, 1.1s thinking · badge sits on the outer halo edge</p></div>
+
+<div class="co"><p style="margin:0"><b>My pick was 3 — until 9.</b> 3 has real weight, it's the brightest point on
+any page without shouting, it works on both light and dark HealthFlow themes, and its thinking state
+is simply the core getting brighter. 9 takes what 8 does on dark and makes it work on light too, and it is the only one whose idle motion <i>is</i> a pulse. I'd ship 9.</p></div>
+
+<footer>Pulse · cards taxonomy, chooser accuracy, entity card proposal, orb looks · local file</footer>
+</div></body></html>

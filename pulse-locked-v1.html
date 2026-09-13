@@ -1,0 +1,372 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse V1 — Locked</title>
+<style>
+:root{--bg:#f4f4f2;--fg:#1c1c1a;--mut:#6f6f69;--dim:#a3a39c;--line:#dcdcd7;--card:#fff;--ink:#2b2b28;
+--acc:#1f6f9f;--ok:#2e7d32;--wn:#a06000;--no:#b3261e;--wire:#8a8a84;--wire2:#c9c9c4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 100px}
+header{padding:56px 0 24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-size:32px;margin:0 0 8px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:16px;max-width:70ch;margin:0}
+h2{font-size:22px;margin:56px 0 4px;letter-spacing:-.01em}
+h2 .n{color:var(--dim);font-weight:400;font-size:15px;margin-right:10px}
+h3{font-size:14.5px;margin:26px 0 8px;color:var(--acc);font-weight:650}
+.lead{color:var(--mut);margin:0 0 18px;max-width:76ch}
+p{max-width:76ch}
+code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:color-mix(in srgb,var(--fg) 6%,transparent);padding:1.5px 5px;border-radius:3px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);padding:7px 10px 7px 0;font-weight:650}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px}
+.tag.ok{background:#e3f1e5;color:var(--ok)}.tag.wn{background:#fdf0dc;color:var(--wn)}.tag.no{background:#fbe5e3;color:var(--no)}.tag.ll{background:#e7eef5;color:var(--acc)}
+.co{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;max-width:76ch}
+.co.warn{border-color:var(--wn)}
+/* flow */
+.flow{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:16px 0;overflow-x:auto}
+.flow pre{margin:0;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}
+/* mini panel / card kit (same as wireframes) */
+.kit{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin:16px 0}
+.k{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.k h4{margin:0;font-size:13px;display:flex;align-items:center;gap:8px}
+.k .q{font-size:12px;color:var(--mut);margin:0}.k .q b{color:var(--fg);font-weight:600}
+.k .shape{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);background:#f3f3f0;border-radius:5px;padding:7px 9px;white-space:pre;overflow:auto}
+.panel{background:#fff;border:1px solid var(--wire2);border-radius:9px;overflow:hidden;font-size:11px}
+.pb{padding:10px;display:flex;flex-direction:column;gap:7px}
+.you{align-self:flex-end;background:#eef2f6;border-radius:10px 10px 2px 10px;padding:5px 9px;font-size:9.5px;max-width:85%}
+.bot{font-size:9.5px;line-height:1.5}
+.bot .who{font-size:7.5px;font-weight:700;letter-spacing:.12em;color:var(--acc);margin-bottom:2px}
+.card{border:1px solid var(--wire2);border-radius:7px;padding:8px 10px;background:#fbfbf9}
+.card .big{font-size:17px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.card .big s{text-decoration:none;font-size:9.5px;font-weight:600;color:var(--ok);margin-left:6px}
+.card .big s.dn{color:var(--no)}
+.card .kk{font-size:8px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase}
+.card .row{display:flex;justify-content:space-between;font-size:9.5px;padding:2.5px 0;border-top:1px dashed var(--wire2)}
+.card .row:first-of-type{border-top:0}
+.card .row .m{color:var(--no)}
+.card .row.tot{font-weight:700;border-top:1px solid var(--wire);margin-top:2px;padding-top:4px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.two>div .big{font-size:14px}
+.acts{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.act{font-size:8.5px;padding:2px 7px;border:1px solid var(--wire2);border-radius:4px;color:var(--acc);background:#fff}
+.act.dim{color:var(--dim)}
+.flag{background:#fff7e6;border:1px solid #f2d9a6;border-radius:6px;padding:5px 8px;font-size:8.5px;color:#7a4b00;line-height:1.4;margin-top:6px}
+.flag b{display:block;font-size:8px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:1px}
+.flag.grey{background:#f3f3f0;border-color:var(--wire2);color:var(--mut)}.flag.grey b{color:var(--fg)}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:8.5px;padding:3px 8px;border:1px solid var(--wire2);border-radius:12px;background:#fafaf8}
+.collapsed{font-size:9px;color:var(--mut);padding:4px 0;border-bottom:1px dashed var(--wire2);display:flex;justify-content:space-between}
+.collapsed b{color:var(--fg);font-weight:600}
+.spark{height:34px;display:flex;align-items:flex-end;gap:2px;margin:6px 0 2px}
+.spark i{flex:1;background:var(--acc);opacity:.75;border-radius:1px 1px 0 0}
+.pick{border:1px solid var(--wire2);border-radius:7px;overflow:hidden}
+.pick .pr{display:flex;justify-content:space-between;font-size:9.5px;padding:5px 9px;border-top:1px solid var(--wire2)}
+.pick .pr:first-child{border-top:0}.pick .pr small{color:var(--dim);font-size:8.5px}
+.skel{height:10px;background:linear-gradient(90deg,#eee 25%,#f7f7f5 50%,#eee 75%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:3px}
+@keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+/* ORBS */
+.orbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:18px;margin:16px 0}
+.orbc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.orbc h4{margin:0;font-size:13.5px}
+.orbc .why{font-size:12.5px;color:var(--mut);margin:0;line-height:1.5}
+.orbc .why b{color:var(--fg)}
+.orbc .st{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:#f6f6f4;border-radius:8px;padding:14px 6px 8px}
+.orbc .st>div{display:flex;flex-direction:column;align-items:center;gap:8px}
+.orbc .st .l{font-size:8.5px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+.o{width:44px;height:44px;position:relative;display:flex;align-items:center;justify-content:center}
+.lb{font-size:8px;font-weight:700;letter-spacing:.16em;color:var(--acc);margin-top:-2px}
+.bd{position:absolute;top:2px;right:2px;width:10px;height:10px;border-radius:50%;background:var(--wn);border:2px solid #fff;box-shadow:0 0 0 1px #f2d9a6}
+/* 1 classic */
+.o1{width:32px;height:32px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#7cbde6,#1f6f9f 70%);box-shadow:0 3px 10px rgba(31,111,159,.35)}
+.o1.t{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.16)}}
+/* 2 heartbeat ring */
+.o2{width:32px;height:32px;border-radius:50%;border:2.5px solid var(--acc);position:relative}
+.o2:after{content:"";position:absolute;inset:-2.5px;border-radius:50%;border:2px solid var(--acc);opacity:0}
+.o2.i:after{animation:ring 2.4s ease-out infinite}
+.o2.t:after{animation:ring .9s ease-out infinite}
+@keyframes ring{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.7);opacity:0}}
+.o2 i{width:8px;height:8px;border-radius:50%;background:var(--acc);display:block}
+/* 3 ECG */
+.o3{width:34px;height:34px;border-radius:50%;background:#fff;border:1.5px solid var(--wire2);overflow:hidden;position:relative}
+.o3 svg{position:absolute;inset:0;width:100%;height:100%}
+.o3 path{fill:none;stroke:var(--acc);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:60;stroke-dashoffset:60}
+.o3.i path{animation:ecg 3s linear infinite}
+.o3.t path{animation:ecg 1s linear infinite}
+@keyframes ecg{0%{stroke-dashoffset:60}60%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+/* 4 liquid */
+.o4{width:34px;height:34px;background:linear-gradient(135deg,#5aa8dc,#1f6f9f);animation:liq 7s ease-in-out infinite}
+.o4.t{animation:liq 1.6s ease-in-out infinite}
+@keyframes liq{0%,100%{border-radius:58% 42% 55% 45%/50% 55% 45% 50%}33%{border-radius:45% 55% 40% 60%/60% 40% 60% 40%}66%{border-radius:52% 48% 60% 40%/42% 58% 42% 58%}}
+/* 5 dots */
+.o5{width:34px;height:34px;position:relative}
+.o5 i{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--acc);left:50%;top:50%;margin:-4.5px}
+.o5.i i:nth-child(1){transform:translate(-9px,4px)}.o5.i i:nth-child(2){transform:translate(9px,4px)}.o5.i i:nth-child(3){transform:translate(0,-9px)}
+.o5.t i{animation:orbit 1.4s linear infinite}
+.o5.t i:nth-child(2){animation-delay:-.47s}.o5.t i:nth-child(3){animation-delay:-.93s}
+@keyframes orbit{from{transform:rotate(0) translate(10px) rotate(0)}to{transform:rotate(360deg) translate(10px) rotate(-360deg)}}
+/* 6 aperture */
+.o6{width:32px;height:32px;border-radius:50%;border:3px solid var(--acc);border-right-color:transparent;position:relative}
+.o6.i{animation:spin 9s linear infinite}.o6.t{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.o6 i{position:absolute;inset:7px;border-radius:50%;background:var(--acc);opacity:.15}
+/* 7 sonar */
+.o7{width:34px;height:34px;position:relative;display:flex;align-items:center;justify-content:center}
+.o7 i{width:10px;height:10px;border-radius:50%;background:var(--acc);z-index:1}
+.o7:before,.o7:after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--acc);opacity:0}
+.o7.i:before{animation:ring 3s ease-out infinite}.o7.i:after{animation:ring 3s ease-out 1.5s infinite}
+.o7.t:before{animation:ring 1s ease-out infinite}.o7.t:after{animation:ring 1s ease-out .5s infinite}
+/* 8 monogram */
+.o8{width:34px;height:34px;border-radius:9px;background:var(--ink);display:flex;align-items:center;justify-content:center}
+.o8 svg{width:22px;height:22px}
+.o8 path{fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.o8.t path{stroke-dasharray:50;animation:ecg 1s linear infinite}
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>Pulse V1 — Locked</h1>
+<p class="sub">Your picks, the one you flagged as risky worked through against every question type we
+tested, and eight more orbs.</p>
+<p style="margin:14px 0 0;font-size:13.5px;color:var(--mut)">
+<span class="tag ll">1A blob</span> <span class="tag ll">2A label</span> <span class="tag wn">3B today-first — verified below</span>
+<span class="tag ll">4B feed of cards</span> <span class="tag ll">5A bigger panel</span> <span class="tag ll">6 all four forced states</span></p>
+</header>
+
+<h2><span class="n">01</span>3B — can "today, then the box" actually be executed?</h2>
+<p class="lead">Your concern was right to raise. The short answer: <b>yes, because the empty state is
+not a new feature — it is the STATUS path rendered without narration.</b> Every number on it comes
+from code that already exists and was already tested. Here is exactly where each piece comes from.</p>
+
+<div class="flow"><pre>
+  EMPTY STATE                          SOURCE                                  MODEL CALLS
+  ─────────────────────────────────────────────────────────────────────────────────────────
+  Collection today       ₹62,410       registry metric  revenue, today            0
+  "↑ 9% vs usual Tue"                  baseline():  z-score vs same weekday       0
+  Cases                  84            registry metric  visits, today             0
+  Pending due            ₹18,200       registry metric  outstanding               0
+  Reports >24h           3             registry metric  tat breach count          0
+  chip "why is due high?"              diagnose(): the metric furthest from       0
+  chip "which reports late"            its baseline, phrased from a template      0
+  ─────────────────────────────────────────────────────────────────────────────────────────
+  total                                ~6 SQL queries · deterministic · cacheable   0
+</pre></div>
+
+<p><b>Zero model calls on open.</b> The numbers are the same registry queries the diagnostic pipeline
+already runs for "how's business". The comparison line is the same baseline/z-score code that answers
+"is this normal?". The chips are templated from whichever metric is furthest off-baseline — not generated.</p>
+
+<h3>The real risk is latency, not correctness</h3>
+<p>Six queries on Neon is 1–3 seconds. That is too slow for something that appears on click. Three
+mitigations, all cheap:</p>
+<table>
+<tbody>
+<tr><td style="width:30%"><b>Prefetch on hover</b></td><td>The 2A tooltip appears at 400ms. Start fetching then. Most opens are preceded by a hover.</td></tr>
+<tr><td><b>Cache 5 minutes per user + branch</b></td><td>"Today" doesn't change meaningfully in 5 minutes. Second open is instant.</td></tr>
+<tr><td><b>Box first, numbers slide in</b></td><td>Never block the input on the numbers. Show the input immediately with skeleton rows above; fill them as they land. If nothing has landed by 2s, show a plain greeting instead.</td></tr>
+</tbody></table>
+
+<div class="kit" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+<div class="k"><h4>t = 0ms — input is usable</h4>
+<div class="panel"><div class="pb"><div class="skel" style="width:40%"></div><div class="skel" style="width:70%;height:18px"></div><div class="skel" style="width:55%"></div></div>
+<div style="border-top:1px solid var(--wire2);padding:7px 10px;font-size:9px;color:var(--dim)">Ask Pulse…</div></div></div>
+<div class="k"><h4>t ≈ 400ms — cached / prefetched</h4>
+<div class="panel"><div class="pb">
+<div class="card"><div class="kk">Collection today</div><div class="big">₹62,410<s>↑ 9% vs usual Tue</s></div></div>
+<div class="card two"><div><div class="kk">Cases</div><div class="big">84</div></div><div><div class="kk">Pending due</div><div class="big">₹18,200</div></div></div>
+<div class="chips"><span class="chip">why is due high?</span></div></div>
+<div style="border-top:1px solid var(--wire2);padding:7px 10px;font-size:9px;color:var(--dim)">Ask Pulse…</div></div></div>
+<div class="k"><h4>t &gt; 2s — fallback, no numbers</h4>
+<div class="panel"><div class="pb"><p style="font-size:12px;font-weight:600;margin:6px 0 0">Hey.</p><p style="font-size:9.5px;color:var(--mut);margin:0 0 6px">What would you like to look into?</p>
+<div class="chips"><span class="chip">Collection</span><span class="chip">Cases</span><span class="chip">Referrals</span></div></div>
+<div style="border-top:1px solid var(--wire2);padding:7px 10px;font-size:9px;color:var(--dim)">Ask Pulse…</div></div></div>
+</div>
+
+<div class="co warn"><p style="margin:0"><b>The one thing that would make 3B too complex:</b> if the
+empty-state numbers had to be <i>page-aware</i> in V1 (Payouts page → payout numbers, OPD page →
+OPD numbers). That multiplies the query sets by the number of modules. <b>V1 locks the empty state to
+one fixed set — collection, cases, due, late reports — regardless of page.</b> Page-awareness goes in
+the context bar (which page you're on) but does not change the numbers shown. That keeps it to six
+queries, one cache key, and one thing to get right.</p></div>
+
+<h2><span class="n">02</span>4B — how every tested question type renders in the feed</h2>
+<p class="lead">"Feed of cards" only works if every backend answer maps to a card cleanly. The backend
+produces <b>seven shapes</b> and one overlay. Each gets exactly one component. Below: the shape, its
+JSON, a real question from the test suites, and what the card looks like.</p>
+
+<div class="kit">
+
+<div class="k"><h4><span class="tag ll">1</span> Scalar</h4>
+<p class="q"><b>last month collection how much</b> · <b>how many cases yesterday</b> · <b>last mnth colection how mcuh</b></p>
+<div class="shape">{ shape:"scalar", label:"Collection · August",
+  value:189372453, unit:"paise",
+  delta:{ vs:"July", pct:+11.5 },
+  dims:["branch","payment_type","doctor"] }</div>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Collection · August</div><div class="big">₹18,93,724<s>+11.5% vs July</s></div>
+<div class="acts"><span class="act">branch wise</span><span class="act">by payment</span><span class="act">why?</span><span class="act dim">show query</span></div></div></div></div>
+<p class="q">The action chips are the dimensions the registry says this metric supports — enumerated, not generated.</p></div>
+
+<div class="k"><h4><span class="tag ll">2</span> Breakdown / ranking</h4>
+<p class="q"><b>branch wise collection</b> · <b>doctor wise how many cases top 5</b> · <b>which test we did most</b></p>
+<div class="shape">{ shape:"list", label:"Collection · by branch",
+  rows:[{k:"Chintal",v:104288000},{k:"Balanagar",v:80641200},…],
+  total:189372453, sumsToTotal:true }</div>
+<div class="panel"><div class="pb"><div class="collapsed"><span>last month collection how much</span><b>₹18,93,724</b></div>
+<div class="card"><div class="kk">by branch</div><div class="row"><span>Chintal</span><b>₹10,42,880</b></div><div class="row"><span>Balanagar</span><b>₹8,06,412</b></div><div class="row"><span>IDPL</span><b>₹44,432</b></div>
+<div class="acts"><span class="act">vs July</span><span class="act">by doctor</span><span class="act dim">show query</span></div></div></div></div>
+<p class="q">Previous answer collapses to one line above it. If <code>sumsToTotal</code> is false the card shows "parts don't add to the total" in grey — the lossy-join case, surfaced instead of hidden.</p></div>
+
+<div class="k"><h4><span class="tag ll">3</span> Comparison</h4>
+<p class="q"><b>last month collection vs previous month</b> · <b>cash how much online how much</b> · <b>ramaswamy ab bhi cases bhej raha hai</b></p>
+<div class="shape">{ shape:"compare", label:"Collection",
+  a:{ k:"July", v:169828300 }, b:{ k:"August", v:189372453 },
+  delta:{ abs:+19544153, pct:+11.5 } }</div>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Collection</div><div class="two"><div><div class="kk">July</div><div class="big">₹16,98,283</div></div><div><div class="kk">August</div><div class="big">₹18,93,724<s>+11.5%</s></div></div></div>
+<div class="acts"><span class="act">why the change?</span><span class="act">branch wise</span></div></div></div></div>
+<p class="q">Two columns, never one number — the backend rule "a comparison answered with one figure is wrong" is enforced at the shape level. "why the change?" routes straight to DIAGNOSE with both periods bound.</p></div>
+
+<div class="k"><h4><span class="tag ll">4</span> Series</h4>
+<p class="q"><b>monthly visit volume</b> · <b>daily collection first week of august</b> · <b>show monthly revenue</b></p>
+<div class="shape">{ shape:"series", label:"Visits · monthly",
+  points:[{t:"2026-03",v:1240},{t:"2026-04",v:1310},…],
+  last:{ t:"2026-08", v:1529 } }</div>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Visits · monthly</div><div class="big">1,529<s>Aug</s></div>
+<div class="spark"><i style="height:55%"></i><i style="height:60%"></i><i style="height:58%"></i><i style="height:72%"></i><i style="height:68%"></i><i style="height:100%"></i></div>
+<div class="acts"><span class="act">by branch</span><span class="act">why Aug up?</span><span class="act dim">table</span></div></div></div></div>
+<p class="q">A bucketed result becomes bars, not a table. Latest value big. "table" flips to rows for owners who want the numbers.</p></div>
+
+<div class="k"><h4><span class="tag ll">5</span> Narrative + movers <span class="tag" style="background:#eee;color:var(--mut)">1 model call</span></h4>
+<p class="q"><b>collection why down this week</b> · <b>why this month slow</b> · <b>last week loss kyun hua</b></p>
+<div class="shape">{ shape:"diagnose", metric:"revenue",
+  premiseCorrected:true, text:"…up 2.4%, a real lift…",
+  movers:[{k:"Chintal",delta:+1574800},{k:"Dr Dasarathi",delta:-2148500}] }</div>
+<div class="panel"><div class="pb"><div class="you">collection why down this week</div>
+<div class="bot"><div class="who">PULSE</div><b>It isn't down</b> — collections are up 2.4% on last week and above the normal level for this period. Chintal and diagnostics drove it; Dr Dasarathi and online payments worked against it.</div>
+<div class="card"><div class="kk">what moved it</div><div class="row"><span>Chintal</span><b style="color:var(--ok)">+₹15,748</b></div><div class="row"><span>Diagnostics</span><b style="color:var(--ok)">+₹14,548</b></div><div class="row"><span>Dr Dasarathi</span><b style="color:var(--no)">−₹21,485</b></div></div></div></div>
+<p class="q">The only shape that starts with prose. When <code>premiseCorrected</code> is true the first words are bold — the owner asked why it fell and it didn't. Movers are deterministic; only the paragraph is generated.</p></div>
+
+<div class="k"><h4><span class="tag ll">6</span> Ladder</h4>
+<p class="q"><b>last month profit how much</b> · <b>are we making money</b> · <b>margin kitna</b></p>
+<div class="shape">{ shape:"ladder", period:"August",
+  rungs:[{l:"Collected",v:189372500},{l:"− referral commission",v:-53472200},…],
+  remaining:119625200, isProfit:false,
+  missing:["salaries","rent","consumables","lab costs"] }</div>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">August · what we can see</div>
+<div class="row"><span>Collected</span><b>₹18,93,725</b></div><div class="row"><span class="m">− referral commission</span><span class="m">₹5,34,722</span></div><div class="row"><span class="m">− clinic-doctor payouts</span><span class="m">₹1,62,750</span></div><div class="row tot"><span>Left after recorded payouts</span><b>₹11,96,252</b></div>
+<div class="flag grey"><b>This is not profit</b>Salaries, rent, consumables and lab costs aren't recorded.</div></div></div></div>
+<p class="q">Every rung is computed and pre-formatted; the model never touches a number here. Grey note, not amber — nothing is wrong, the data just stops.</p></div>
+
+<div class="k"><h4><span class="tag ll">7</span> Refusal / question back</h4>
+<p class="q"><b>how many patients went to the lab across the road</b> · <b>average patient weight</b> · <b>sharma referrals</b></p>
+<div class="shape">{ shape:"refuse", reason:"out_of_scope"|"not_recorded",
+  text:"…", alternatives:["patients who didn't return in 90 days"] }
+
+{ shape:"pick", entity:"ReferralDoctor",
+  options:[{id,name,hint:"Chintal · 31 this month"},…], more:17 }</div>
+<div class="panel"><div class="pb"><div class="you">sharma referrals this month</div><div class="bot"><div class="who">PULSE</div>Which Sharma?</div>
+<div class="pick"><div class="pr"><span>Dr A. Sharma <small>· Chintal</small></span><small>31 this month</small></div><div class="pr"><span>Dr R. K. Sharma <small>· Balanagar</small></span><small>12</small></div><div class="pr" style="color:var(--acc)"><span>show all 20</span></div></div></div></div>
+<p class="q">Two sub-shapes, no card for either. A refusal always says <i>no query was run</i> and offers what it can do. A pick is ranked by activity in the asked period; tapping re-runs with the entity bound.</p></div>
+
+<div class="k"><h4><span class="tag wn">overlay</span> Warning — on any money shape</h4>
+<p class="q"><b>doctor wise referral amount</b> · any scalar / list / compare where a 2nd attempt disagreed</p>
+<div class="shape">{ …any shape…,
+  warning:{ kind:"disagreement",
+            second:{ v:49786800, source:"recomputed from orders" },
+            deepLink:"/payouts?period=2026-08" } }</div>
+<div class="panel"><div class="pb"><div class="card"><div class="kk">Referral payout · August</div><div class="row"><span>Dr K. Ramaswamy</span><b>₹1,12,655</b></div><div class="row"><span>Dr G. Dasarathi</span><b>₹50,116</b></div>
+<div class="flag"><b>Worth checking</b>A second attempt gave a different total. Verify on the Payouts page before you pay.</div>
+<div class="acts"><span class="act">open Payouts</span><span class="act dim">show both</span></div></div></div></div>
+<p class="q">Not a shape — a field any money shape may carry. Rendered inside the card, amber, never hides the number, and the first action is the authoritative page.</p></div>
+</div>
+
+<h3>Every question type from the test suites, mapped</h3>
+<table>
+<thead><tr><th>Question class (from the suites)</th><th>Example</th><th>Shape</th><th>Model calls</th></tr></thead>
+<tbody>
+<tr><td>Simple aggregate</td><td>last month collection how much</td><td>scalar</td><td class="num">1</td></tr>
+<tr><td>Group by</td><td>branch wise collection</td><td>list</td><td class="num">1</td></tr>
+<tr><td>Top-N / ranking</td><td>doctor wise cases top 5</td><td>list</td><td class="num">1</td></tr>
+<tr><td>Period comparison</td><td>collection vs previous month</td><td>compare</td><td class="num">1</td></tr>
+<tr><td>Time series</td><td>monthly visits</td><td>series</td><td class="num">1</td></tr>
+<tr><td>Percentage / rate</td><td>cancel percentage</td><td>scalar (unit %)</td><td class="num">1</td></tr>
+<tr><td>Distinct counts, cohorts, anti-joins, durations</td><td>doctors who stopped referring</td><td>scalar or list</td><td class="num">1</td></tr>
+<tr><td>Status</td><td>business kaisa chal raha hai</td><td>= the empty state, plus narrative</td><td class="num">1</td></tr>
+<tr><td>Diagnose</td><td>collection why down</td><td>diagnose</td><td class="num">1</td></tr>
+<tr><td>False premise</td><td>last week loss kyun hua</td><td>diagnose, premiseCorrected</td><td class="num">1</td></tr>
+<tr><td>Profit / margin</td><td>profit kitna</td><td>ladder</td><td class="num">1</td></tr>
+<tr><td>Out of scope</td><td>lab across the road</td><td>refuse</td><td class="num">0 after routing</td></tr>
+<tr><td>Not recorded</td><td>average patient weight</td><td>refuse (not_recorded)</td><td class="num">1</td></tr>
+<tr><td>Ambiguous entity</td><td>sharma referrals</td><td>pick</td><td class="num">0 — value index</td></tr>
+<tr><td>Follow-up fragment</td><td>and kompally?</td><td>re-runs last shape with entity swapped</td><td class="num">1</td></tr>
+<tr><td>Money question, attempts disagree</td><td>doctor wise referral amount</td><td>list + warning</td><td class="num">2</td></tr>
+</tbody></table>
+
+<div class="co"><p style="margin:0"><b>Verdict on 4B:</b> executable. The backend already returns rows plus
+metadata (metric, unit, dimensions, period); the shape is decided by a small deterministic function
+over that metadata, not by the model. Seven components, one overlay. The one place to be careful is
+<b>which shape wins when a result is ambiguous</b> — e.g. a 2-row list vs a comparison. Rule: if the
+question named two periods, it's a compare; if the rows are time buckets, it's a series; otherwise
+a list. That rule is testable against the 123 questions we already have controls for.</p></div>
+
+<h2><span class="n">03</span>The orb — eight directions</h2>
+<p class="lead">Each shown idle, thinking, and with the "1 thing" badge. They're animated — let them run.</p>
+
+<div class="orbs">
+
+<div class="orbc"><h4>1 · Radial orb <span class="tag" style="background:#eee;color:var(--mut)">current</span></h4>
+<div class="st"><div><div class="o"><div class="o1"></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o1 t"></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o1"></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">Soft sphere with a highlight. Reads as "AI" instantly — which is both its strength and its problem: every product has one now.</p></div>
+
+<div class="orbc"><h4>2 · Heartbeat ring <span class="tag ok">rec</span></h4>
+<div class="st"><div><div class="o"><div class="o2 i"><i></i></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o2 t"><i></i></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o2 i"><i></i></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">A ring that <b>beats</b> — one expanding pulse every 2.4s idle, fast when thinking. Literal to the name, native to a diagnostic centre, and it's an outline so it sits quietly on any page. The thinking state needs no separate design: same beat, faster.</p></div>
+
+<div class="orbc"><h4>3 · ECG trace <span class="tag ok">rec</span></h4>
+<div class="st"><div><div class="o"><div class="o3 i"><svg viewBox="0 0 34 34"><path d="M3 18 H10 L13 11 L17 25 L21 14 L24 18 H31"/></svg></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o3 t"><svg viewBox="0 0 34 34"><path d="M3 18 H10 L13 11 L17 25 L21 14 L24 18 H31"/></svg></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o3 i"><svg viewBox="0 0 34 34"><path d="M3 18 H10 L13 11 L17 25 L21 14 L24 18 H31"/></svg></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">A heartbeat line that <b>draws itself</b> across a white disc, then rests. Unmistakably medical, unmistakably "pulse", and nobody else's AI looks like this. Strongest identity of the eight. Risk: at 44px the trace must stay very simple — one spike, no more.</p></div>
+
+<div class="orbc"><h4>4 · Liquid blob</h4>
+<div class="st"><div><div class="o"><div class="o4"></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o4 t"></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o4"></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">Organic, slowly morphing. Feels alive without being busy. Closest to what "blob" evokes. Risk: soft shapes read as playful; a payout number under a wobbling blob is a tonal mismatch.</p></div>
+
+<div class="orbc"><h4>5 · Three dots</h4>
+<div class="st"><div><div class="o"><div class="o5 i"><i></i><i></i><i></i></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o5 t"><i></i><i></i><i></i></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o5 i"><i></i><i></i><i></i></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">Three points at rest; they <b>orbit</b> when thinking. Reads as "data points", not "assistant". Very light. Risk: at rest it's abstract enough that first-time users may not see it as clickable.</p></div>
+
+<div class="orbc"><h4>6 · Aperture</h4>
+<div class="st"><div><div class="o"><div class="o6 i"><i></i></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o6 t"><i></i></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o6 i"><i></i></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">A ring with a gap that turns — slowly idle, fast thinking. "Looking into" something. Clean and technical. Risk: the fast spin is a loading spinner, which is exactly the association to avoid.</p></div>
+
+<div class="orbc"><h4>7 · Sonar</h4>
+<div class="st"><div><div class="o"><div class="o7 i"><i></i></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o7 t"><i></i></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o7 i"><i></i></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">A dot emitting rings. "Scanning your data." Very quiet at rest. Similar family to the heartbeat ring but the dot is the identity rather than the ring. Risk: two overlapping rings can look busy on a dense page.</p></div>
+
+<div class="orbc"><h4>8 · Monogram</h4>
+<div class="st"><div><div class="o"><div class="o8"><svg viewBox="0 0 24 24"><path d="M6 19 V5 H12 A4 4 0 0 1 12 13 H6 M13 13 L15 10 L17 16 L19 13"/></svg></div></div><div class="lb">PULSE</div><div class="l">idle</div></div>
+<div><div class="o"><div class="o8 t"><svg viewBox="0 0 24 24"><path d="M6 19 V5 H12 A4 4 0 0 1 12 13 H6 M13 13 L15 10 L17 16 L19 13"/></svg></div></div><div class="lb">PULSE</div><div class="l">thinking</div></div>
+<div><div class="o"><div class="o8"><svg viewBox="0 0 24 24"><path d="M6 19 V5 H12 A4 4 0 0 1 12 13 H6 M13 13 L15 10 L17 16 L19 13"/></svg></div><div class="bd"></div></div><div class="lb">PULSE</div><div class="l">1 thing</div></div></div>
+<p class="why">A "P" whose bowl ends in a heartbeat. A mark, not an orb — feels like a brand asset that could live in the app header, in emails, on the login page. Most "product" of the eight. Risk: a lettermark is static by nature; the thinking state has to redraw the stroke, which is subtle at small sizes.</p></div>
+</div>
+
+<div class="co"><p style="margin:0"><b>My pick: 3 (ECG) for the object, 8 (monogram) for the brand mark.</b> The
+ECG disc is what sits on the page; the monogram is Pulse everywhere else. They share the same heartbeat
+stroke, so they read as one identity. If you want one only, the heartbeat ring (2) is the safest
+single choice: distinctive, quiet, and its thinking state is free.</p></div>
+
+<footer>Pulse V1 locked · picks 1A · 2A · 3B (empty state = STATUS path, fixed metric set, prefetch + 5-min cache + skeleton) · 4B (7 shapes + 1 overlay) · 5A · all four forced states · orb decision pending</footer>
+</div></body></html>

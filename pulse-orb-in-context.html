@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse Orb — In Context</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:hsl(0 0% 98%);--fg:hsl(0 0% 5%);--mut:hsl(0 0% 40%);--card:#fff;--border:hsl(0 0% 88%);--muted:hsl(0 0% 96%);--side:#1B2B58;--sideActive:#25397a;--accent:#D91C2B}
+*{box-sizing:border-box}body{margin:0;background:#e9e9e6;color:var(--fg);font:14px/1.5 Inter,system-ui,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:36px 28px 90px}
+h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 22px}
+h2{font-size:15px;margin:34px 0 10px;color:var(--mut);font-weight:600}h2 b{color:var(--fg)}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 30px}
+.cell{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:30px 10px 16px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.cell .nm{font-size:12px;font-weight:600}.cell .d{font-size:11.5px;color:var(--mut);text-align:center}
+.app{position:relative;width:100%;aspect-ratio:1440/900;background:var(--bg);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12),0 8px 28px rgba(0,0,0,.08);font-size:14px;margin-bottom:26px}
+.side{position:absolute;left:0;top:0;bottom:0;width:256px;background:var(--side);color:#fff;display:flex;flex-direction:column}
+.brand{height:64px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid rgba(255,255,255,.1);gap:12px}
+.brand .mark{width:30px;height:30px;border-radius:7px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.brand span{font-size:20px;font-weight:700}
+.side nav{padding:24px 12px 0;flex:1}
+.sec{padding:8px 12px 6px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.18em;color:rgba(255,255,255,.4)}
+.it{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border-radius:8px;font-weight:500;color:rgba(255,255,255,.85);margin-bottom:2px}
+.it i{width:18px;height:18px;border-radius:4px;border:1.6px solid rgba(255,255,255,.55)}
+.it.on{background:var(--sideActive);color:#fff}.it.on i{border-color:#fff}
+.it .n{margin-left:auto;background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 6px}
+.sub-it{padding:6px 12px 6px 42px;font-size:13px;color:rgba(255,255,255,.65)}
+.user{border-top:1px solid rgba(255,255,255,.1);padding:14px 24px;display:flex;align-items:center;gap:12px}
+.user .av{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px}
+.user p{margin:0;font-size:13px;font-weight:500}.user small{display:block;font-size:12px;color:rgba(255,255,255,.6)}
+.main{position:absolute;left:256px;top:0;right:0;bottom:0}
+.top{height:64px;display:flex;align-items:center;padding:0 32px;gap:16px;border-bottom:1px solid var(--border);background:#fff}
+.top h3{margin:0;font-size:18px;font-weight:600}
+.top .br{margin-left:auto;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:500}
+.top .br i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.top .bell{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--mut)}
+.content{padding:28px 32px}.crumb{font-size:12px;color:var(--mut);margin-bottom:6px}
+.content h4{margin:0 0 4px;font-size:22px;font-weight:600}.sub2{color:var(--mut);font-size:13px;margin:0 0 22px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:22px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+.kpi .l{font-size:12px;color:var(--mut);font-weight:500}.kpi .v{font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+.kpi .d{font-size:12px;margin-top:4px;color:var(--mut)}.kpi .d.up{color:#15803d}.kpi.net{border-color:var(--fg)}
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+.sc{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}
+.sc h5{margin:0 0 14px;font-size:14px;font-weight:600;display:flex;justify-content:space-between}.sc h5 a{font-size:12px;color:var(--mut);font-weight:500}
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.mini div{background:var(--muted);border-radius:8px;padding:12px}
+.mini .l{font-size:11px;color:var(--mut)}.mini .v{font-size:18px;font-weight:600;margin-top:2px}
+.bars{display:flex;align-items:flex-end;gap:6px;height:110px;padding-top:8px}.bars i{flex:1;background:var(--fg);opacity:.85;border-radius:3px 3px 0 0}.bars i.t{background:var(--accent);opacity:1}
+/* orb — one fixed colour, the sidebar navy */
+.pulse{position:absolute;right:24px;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.o{width:48px;height:48px;border-radius:50%;position:relative;animation:pb 5.5s ease-in-out infinite}
+.lb{font-size:9.5px;font-weight:700;letter-spacing:.18em;color:var(--sideActive)}
+@keyframes pb{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+/* 1 refined radial, navy */
+.o1{background:radial-gradient(circle at 34% 30%,#8d9dd0 0%,#3d55a0 38%,#1B2B58 78%,#111c3a 100%);box-shadow:0 6px 16px rgba(27,43,88,.42),inset 0 -6px 12px rgba(0,0,0,.3),inset 0 3px 6px rgba(255,255,255,.3)}
+/* 3 dark core, navy */
+.o3{background:radial-gradient(circle at 50% 50%,#c9d3f3 0%,#5b73bd 22%,#25397a 55%,#101a36 100%);box-shadow:0 6px 18px rgba(16,26,54,.5),0 0 22px rgba(59,84,160,.35),inset 0 0 10px rgba(201,211,243,.45)}
+/* 9 halo x emissive, navy */
+.o9{background:radial-gradient(circle at 50% 48%,#ffffff 0%,#d6ddf5 12%,#5b73bd 36%,#25397a 68%,#111c3a 100%);box-shadow:0 0 14px 3px rgba(59,84,160,.45),0 0 0 7px rgba(27,43,88,.12),0 0 0 15px rgba(27,43,88,.06),0 0 0 24px rgba(27,43,88,.03),0 8px 18px rgba(16,26,54,.35),inset 0 0 8px rgba(255,255,255,.55);animation:pb 5.5s ease-in-out infinite,ph 5.5s ease-in-out infinite}
+@keyframes ph{0%,100%{box-shadow:0 0 14px 3px rgba(59,84,160,.45),0 0 0 7px rgba(27,43,88,.12),0 0 0 15px rgba(27,43,88,.06),0 0 0 24px rgba(27,43,88,.03),0 8px 18px rgba(16,26,54,.35),inset 0 0 8px rgba(255,255,255,.55)}50%{box-shadow:0 0 22px 6px rgba(59,84,160,.55),0 0 0 9px rgba(27,43,88,.15),0 0 0 19px rgba(27,43,88,.08),0 0 0 30px rgba(27,43,88,.04),0 8px 18px rgba(16,26,54,.35),inset 0 0 10px rgba(255,255,255,.7)}}
+</style></head><body><div class="wrap">
+<h1>Pulse Orb — In Context</h1>
+<p class="sub">Orbs 1, 3 and 9 in the sidebar navy (#1B2B58 → #25397a). One fixed colour on every branch. Label in the same navy.</p>
+<div class="strip" id="strip"></div><div id="shells"></div>
+<script>
+const ORBS=[['1','Refined radial'],['3','Dark core'],['9','Halo × Emissive']];
+document.getElementById('strip').innerHTML=ORBS.map(([k,nm])=>`<div class="cell"><div class="o o${k}"></div><div class="lb">PULSE</div><div class="nm">${k} · ${nm}</div></div>`).join('');
+const shell=(k,nm)=>`<h2><b>${k} · ${nm}</b> on the owner dashboard</h2>
+<div class="app"><div class="side"><div class="brand"><div class="mark">S</div><span>SOBHANA</span></div>
+<nav><div class="it on"><i></i>Dashboard</div><div class="it"><i></i>Money</div><div class="it"><i></i>Doctors</div><div class="it"><i></i>Operations</div><div class="it"><i></i>Audit &amp; Anomalies<span class="n">3</span></div><div class="it"><i></i>Messages</div>
+<div class="sec">Workflows</div><div class="sub-it">Patient 360</div><div class="sub-it">Pending results</div><div class="sub-it">Finalized reports</div>
+<div class="it" style="margin-top:6px"><i></i>Payouts</div><div class="it"><i></i>Admin</div></nav>
+<div class="user"><div class="av">PR</div><div><p>Pranav Reddy</p><small>Owner</small></div></div></div>
+<div class="main"><div class="top"><h3>Dashboard</h3><div class="br"><i></i>Chintal</div><div class="bell">◌</div></div>
+<div class="content"><div class="crumb">Owner · Overview</div><h4>Money</h4><p class="sub2">This month to date · 1–11 Sep 2026</p>
+<div class="kpis"><div class="kpi"><div class="l">Gross billed</div><div class="v">₹19,00,924</div><div class="d up">▲ 11.5% vs Aug</div></div>
+<div class="kpi"><div class="l">Discounts</div><div class="v">₹1,05,140</div><div class="d">5.5% of gross</div></div>
+<div class="kpi"><div class="l">Cancellations</div><div class="v">₹7,800</div><div class="d">12 orders</div></div>
+<div class="kpi"><div class="l">Commission accrued</div><div class="v">₹6,97,472</div><div class="d">1,338 lines</div></div>
+<div class="kpi net"><div class="l">Net to you</div><div class="v">₹11,96,252</div><div class="d up">▲ 9.8%</div></div></div>
+<div class="grid2"><div class="sc"><h5>Collections · daily <a>View Money →</a></h5><div class="bars"><i style="height:52%"></i><i style="height:61%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:66%"></i><i style="height:38%"></i><i style="height:74%"></i><i style="height:69%"></i><i style="height:80%"></i><i style="height:63%"></i><i class="t" style="height:58%"></i></div></div>
+<div class="sc"><h5>Diagnostics <a>View queue →</a></h5><div class="mini"><div><div class="l">Orders today</div><div class="v">84</div></div><div><div class="l">Finalized</div><div class="v">61</div></div><div><div class="l">In progress</div><div class="v">19</div></div><div><div class="l">Pending sample</div><div class="v">4</div></div></div></div></div>
+</div><div class="pulse"><div class="o o${k}"></div><div class="lb">PULSE</div></div></div></div>`;
+document.getElementById('shells').innerHTML=ORBS.map(([k,nm])=>shell(k,nm)).join('');
+</script></div></body></html>
