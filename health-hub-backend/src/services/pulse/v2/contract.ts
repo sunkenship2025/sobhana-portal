@@ -269,10 +269,19 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
      was caught and "showing discounts of 708.48%" was not. So the test is on the SHAPE — a
      percentage over 100 anywhere near the word discount — because a discount over 100% is
      impossible however it is worded. */
-  const impossible = [...t.matchAll(/(\d{3,}(?:\.\d+)?)\s*%/g)]
+  /* A THOUSANDS SEPARATOR IS STILL A NUMBER. The writer put it as "1,250%" and the pattern,
+     which demanded three digits in a row, matched the "250" after the comma and read it as under
+     the bar — so the impossible figure shipped a second time, in the same sentence the check was
+     written for. Commas are part of the number here, not a boundary. */
+  const PCT = /(\d[\d,]*(?:\.\d+)?)\s*%/g;
+  const over100 = (raw: string) => Number(String(raw).replace(/,/g, '')) > 100;
+  const impossible = [...t.matchAll(PCT)]
+    .filter((m) => over100(m[1]))
     .map((m) => ({ m, near: t.slice(Math.max(0, m.index! - 60), m.index! + 30) }))
     .find(({ near }) => /\bdiscount/i.test(near))?.m
-    || t.match(/\b(\d{3,}(?:\.\d+)?)\s*%\s+of\s+(?:what|its|their|the)\b[^.]{0,24}\b(bill|bills|billing|price|revenue|total|collection)\b/i);
+    || [...t.matchAll(PCT)].filter((m) => over100(m[1]))
+        .find((m) => /^\s*of\s+(?:what|its|their|the)\b[^.]{0,24}\b(bill|bills|billing|price|revenue|total|collection)\b/i
+          .test(t.slice(m.index! + m[0].length, m.index! + m[0].length + 46)));
   if (impossible) {
     v.push(`"${impossible[0].trim()}" cannot be true — a part cannot exceed its whole. `
       + `That shape comes from dividing two figures that are not about the same thing: bill-level `

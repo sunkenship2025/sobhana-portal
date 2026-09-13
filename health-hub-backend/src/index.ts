@@ -37,6 +37,7 @@ initSentry();
 
 // Routes
 import authRoutes from './routes/auth';
+import automationRoutes from './routes/automations';
 import pulseRoutes from './routes/pulse';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
@@ -412,6 +413,7 @@ app.use('/api/signing-rules', signingRuleRoutes);
 app.use('/api/signing-lab-incharges', signingLabInchargeRoutes);
 app.use('/api/lab-incharge-rules', labInchargeRuleRoutes);
 app.use('/api/owner', ownerDashboardRoutes);
+app.use('/api/automations', automationRoutes); // Admin > Automations
 app.use('/api/pulse', pulseRoutes); // Pulse: owner AI analytics over the analytics_ro role
 // Pulse knowledge (schema shape, coverage, value index) takes ~30s to build; do it at boot,
 // not on the owner's first question. Fire-and-forget; a failure only means a slow first ask.
@@ -426,6 +428,21 @@ if (process.env.ANALYTICS_DATABASE_URL) {
   });
   import('./services/pulse/knowledge').then((m) => { m.ensureKnowledge().catch((e) => console.warn('[pulse] warm-up failed:', e?.message)); setInterval(() => m.ensureKnowledge().catch(() => {}), 6 * 3600 * 1000).unref(); });
 }
+
+// Automations. Deliberately OUTSIDE the ANALYTICS_DATABASE_URL gate above: patient
+// journeys have nothing to do with whether Pulse's read-only analytics role is
+// configured, and a centre without Pulse still needs its automations to run.
+// (The day-sheet ticker sitting inside that gate looks like an accident of the two
+// being added together — worth untangling, but not by changing it here.)
+//
+// One connection per tick, 50 runs at a time. That LIMIT is both the queue and the
+// throttle: a 2,000-patient campaign drains over about three hours instead of
+// stampeding Meta or the Neon pool.
+import('./services/automations/engine').then((m) => {
+  const tick = () => m.tick().catch((e) => console.warn('[automations]', e?.message));
+  tick();
+  setInterval(tick, 5 * 60 * 1000).unref();
+});
 // LEGACY — superseded by /api/clinical-panels
 // app.use('/api/panels', panelRoutes);
 

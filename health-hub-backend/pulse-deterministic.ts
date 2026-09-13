@@ -200,6 +200,8 @@ const near = (name: string, got: number, want: number, tol: number) => {
   /* A part cannot exceed its whole — from the logs, "discounted at 1250% of what it bills". */
   const IMP = /cannot be true/;
   ok('an impossible discount rate is caught', fired(checkAnswer(CONTRACT, 'POST LUNCH URINE SUGAR is discounted at 1250% of what it bills.', [], undefined, noPeriod).violations, IMP), true);
+  ok('  a thousands separator is still a number', fired(checkAnswer(CONTRACT, 'discounted at 1,250% of what it bills.', [], undefined, noPeriod).violations, IMP), true);
+  ok('  but growth of 1,250% is not a share', fired(checkAnswer(CONTRACT, 'revenue is up 1,250% on last year.', [], undefined, noPeriod).violations, IMP), false);
   ok('  and 839% likewise', fired(checkAnswer(CONTRACT, 'FASTING URINE SUGAR is discounted at 839%.', [], undefined, noPeriod).violations, IMP), true);
   ok('  but 4.9% of billing is fine', fired(checkAnswer(CONTRACT, 'discounting ran at 4.9% of billing.', [], undefined, noPeriod).violations, IMP), false);
   ok('  and growth of 150% is not a share', fired(checkAnswer(CONTRACT, 'revenue is up 150% on last year.', [], undefined, noPeriod).violations, IMP), false);

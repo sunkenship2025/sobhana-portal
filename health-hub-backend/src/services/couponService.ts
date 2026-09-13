@@ -146,7 +146,11 @@ export type CouponRejection =
   | 'ALREADY_REDEEMED'
   | 'EXPIRED'
   | 'VOID'
-  | 'CAMPAIGN_INACTIVE';
+  | 'CAMPAIGN_INACTIVE'
+  /// The code belongs to a different patient and the campaign is patient-bound.
+  | 'WRONG_PATIENT'
+  /// Minted but its message never left; it is not a live code.
+  | 'NOT_ISSUED';
 
 export interface CouponValidation {
   ok: boolean;
@@ -166,11 +170,27 @@ export interface CouponValidation {
     discountPercentage: number | null;
     discountReason: string;
     scope: string;
+    /// Caps the rupee value of ONE redemption. 15% of a ₹40,000 bill is ₹6,000
+    /// unless something says otherwise, and nothing did.
+    maxDiscountPerBillInPaise: number | null;
+    /// How much of this discount the referring doctor shares, 0-100. Read by the
+    /// payout allocator so the answer is a decision rather than an accident of
+    /// which column it happened to read.
+    referrerSharePct: number;
   };
 }
 
-/** Look a code up and decide whether it can be redeemed right now. */
-export async function validateCouponByCode(rawCode: string): Promise<CouponValidation> {
+/**
+ * Look a code up and decide whether it can be redeemed right now.
+ *
+ * `redeemingPatientId` is optional so every existing caller keeps working, but a
+ * patient-bound campaign REFUSES when it is absent — the safe direction, since the
+ * alternative is a bound coupon that silently binds to nobody.
+ */
+export async function validateCouponByCode(
+  rawCode: string,
+  redeemingPatientId?: string | null,
+): Promise<CouponValidation> {
   const code = rawCode.trim().toUpperCase();
   const coupon = await prisma.coupon.findUnique({
     where: { code },
@@ -179,6 +199,7 @@ export async function validateCouponByCode(rawCode: string): Promise<CouponValid
         select: {
           id: true, code: true, name: true, isActive: true,
           discountType: true, discountPercentage: true, discountReason: true, scope: true,
+          maxDiscountPerBillInPaise: true, referrerSharePct: true, bindToPatient: true,
         },
       },
     },
@@ -188,10 +209,22 @@ export async function validateCouponByCode(rawCode: string): Promise<CouponValid
   const campaign = coupon.campaign;
   if (coupon.status === CouponStatus.REDEEMED) return { ok: false, reason: 'ALREADY_REDEEMED' };
   if (coupon.status === CouponStatus.VOID) return { ok: false, reason: 'VOID' };
+  // PENDING means the message carrying it never left. It is not a code the patient has.
+  if (coupon.status === CouponStatus.PENDING) return { ok: false, reason: 'NOT_ISSUED' };
   if (coupon.status === CouponStatus.EXPIRED || coupon.expiresAt < new Date()) {
     return { ok: false, reason: 'EXPIRED' };
   }
   if (!campaign.isActive) return { ok: false, reason: 'CAMPAIGN_INACTIVE' };
+
+  // Patient binding. OFF by default and deliberately so: families share a phone here
+  // and someone collecting a relative's coupon is a normal Tuesday. When a campaign
+  // does turn it on, this is the line that makes "unique per patient" mean something —
+  // before it existed, any code worked for anyone holding it.
+  if (campaign.bindToPatient && coupon.patientId) {
+    if (!redeemingPatientId || redeemingPatientId !== coupon.patientId) {
+      return { ok: false, reason: 'WRONG_PATIENT' };
+    }
+  }
 
   return {
     ok: true,
@@ -200,6 +233,8 @@ export async function validateCouponByCode(rawCode: string): Promise<CouponValid
       id: campaign.id, code: campaign.code, name: campaign.name,
       discountType: campaign.discountType, discountPercentage: campaign.discountPercentage,
       discountReason: campaign.discountReason, scope: campaign.scope,
+      maxDiscountPerBillInPaise: campaign.maxDiscountPerBillInPaise,
+      referrerSharePct: campaign.referrerSharePct,
     },
   };
 }
@@ -210,13 +245,19 @@ export async function validateCouponByCode(rawCode: string): Promise<CouponValid
  * WHOLE_BILL -> the whole subtotal), keeping this pure and reusable.
  */
 export function computeCouponDiscountInPaise(
-  campaign: { discountType: BillDiscountType; discountPercentage: number | null },
+  campaign: {
+    discountType: BillDiscountType;
+    discountPercentage: number | null;
+    maxDiscountPerBillInPaise?: number | null;
+  },
   inScopeAmountInPaise: number,
 ): number {
   const subtotal = Math.max(0, Math.round(inScopeAmountInPaise || 0));
+  const cap = campaign.maxDiscountPerBillInPaise ?? null;
   if (campaign.discountType === BillDiscountType.PERCENTAGE) {
     const pct = Math.min(100, Math.max(0, campaign.discountPercentage ?? 0));
-    return Math.min(subtotal, Math.round((subtotal * pct) / 100));
+    const raw = Math.min(subtotal, Math.round((subtotal * pct) / 100));
+    return cap !== null ? Math.min(raw, Math.max(0, cap)) : raw;
   }
   // FLAT_AMOUNT campaigns are not used yet; treat percentage as the primary path.
   return 0;

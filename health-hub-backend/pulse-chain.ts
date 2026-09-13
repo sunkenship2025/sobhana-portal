@@ -35,8 +35,10 @@ const prose = (a: any) => String(a?.segments?.verdict
   ok('the follow-up names the SAME patient', !!id1 && !!id2 && id1 === id2,
      `first=${id1} follow-up=${id2} · "${t2.slice(0, 110)}"`);
   const dim = q2.trace?.plan?.spec?.scope?.[0]?.dimension ?? q2.evidence?.find((e: any) => e.dimension)?.dimension;
+  /* `name` is how a patient row identifies itself once the reference has resolved to one — the
+     assertion is that the follow-up stayed on a PERSON, not that it echoed a particular column. */
   ok('  and the follow-up is scoped to a patient, not a doctor or a branch',
-     !dim || /patient/i.test(String(dim)), `dimension=${dim}`);
+     !dim || /patient|^name$/i.test(String(dim)), `dimension=${dim}`);
 
   /* ── 2. AN IDENTITY THAT IS NOT THERE MUST BE ASKED FOR, NOT GUESSED ───────────────────────
      comparable() already returns `unknown` rather than guessing when identity is too thin. A

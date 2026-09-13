@@ -19,6 +19,7 @@
 import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { resolveInbound } from '../services/automations/inbound';
 import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
 import { cleanWaReason } from '../services/whatsappErrors';
 import { emitCatalogChange } from '../lib/displayEvents';
@@ -106,30 +107,38 @@ async function issueAndSendRetestCoupon(
  * Media bodies are placeholders for Phase 0; the actual file is fetched & stored
  * to R2 in Phase 2.
  */
-function extractInbound(msg: any): { body: string; messageType: string } {
+function extractInbound(msg: any): { body: string; messageType: string; buttonPayload: string | null } {
   const type: string = msg?.type || 'text';
   switch (type) {
     case 'text':
-      return { body: msg.text?.body || '', messageType: 'text' };
+      return { body: msg.text?.body || '', messageType: 'text', buttonPayload: null };
     case 'image':
-      return { body: msg.image?.caption || '[Image]', messageType: 'image' };
+      return { body: msg.image?.caption || '[Image]', messageType: 'image', buttonPayload: null };
     case 'document':
       return {
         body: msg.document?.caption || `[Document: ${msg.document?.filename || 'file'}]`,
         messageType: 'document',
+        buttonPayload: null,
       };
     case 'audio':
-      return { body: '[Voice message]', messageType: 'audio' };
+      return { body: '[Voice message]', messageType: 'audio', buttonPayload: null };
     case 'video':
-      return { body: msg.video?.caption || '[Video]', messageType: 'video' };
+      return { body: msg.video?.caption || '[Video]', messageType: 'video', buttonPayload: null };
     case 'location':
-      return { body: '[Location]', messageType: 'location' };
+      return { body: '[Location]', messageType: 'location', buttonPayload: null };
     case 'contacts':
-      return { body: '[Contact card]', messageType: 'contacts' };
+      return { body: '[Contact card]', messageType: 'contacts', buttonPayload: null };
     case 'sticker':
-      return { body: '[Sticker]', messageType: 'sticker' };
+      return { body: '[Sticker]', messageType: 'sticker', buttonPayload: null };
     case 'button':
-      return { body: msg.button?.text || '[Button reply]', messageType: 'button' };
+      // The PAYLOAD, not the display text. It is the one field we control and the only
+      // exact correlation key WhatsApp offers — quoted-reply context ids only arrive
+      // when the patient uses the swipe gesture, and most people just type.
+      return {
+        body: msg.button?.text || '[Button reply]',
+        messageType: 'button',
+        buttonPayload: msg.button?.payload ?? null,
+      };
     case 'interactive':
       return {
         body:
@@ -137,9 +146,11 @@ function extractInbound(msg: any): { body: string; messageType: string } {
           msg.interactive?.list_reply?.title ||
           '[Interactive reply]',
         messageType: 'interactive',
+        buttonPayload:
+          msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id ?? null,
       };
     default:
-      return { body: `[${type} message]`, messageType: 'other' };
+      return { body: `[${type} message]`, messageType: 'other', buttonPayload: null };
   }
 }
 
@@ -337,7 +348,7 @@ router.post(
                 if (seen) continue;
               }
 
-              const { body: inboundBody, messageType } = extractInbound(msg);
+              const { body: inboundBody, messageType, buttonPayload } = extractInbound(msg);
               const preview = inboundBody.slice(0, 200);
               const now = new Date();
 
@@ -394,6 +405,15 @@ router.post(
               // "BOOK" → auto-send the 50% retest coupon (any hour). Otherwise the
               // generic "we got your message" reply, but ONLY outside work hours
               // (staff answer live during hours) and at most once per 24h.
+              // Automations first: STOP is honoured before anything else can reply, and a
+              // reply that belongs to a waiting journey resumes THAT run — with the patient
+              // pinned when the question was asked, not guessed from the newest outbound.
+              const auto = await resolveInbound(from, inboundBody, buttonPayload, now);
+              if (auto.optedOut || auto.optedIn || auto.stepIndex !== null) {
+                if (convo.branchId) emitCatalogChange(convo.branchId, 'inbox');
+                continue;
+              }
+
               const isBook = /^\s*book\b/i.test(inboundBody);
               if (isBook) {
                 await issueAndSendRetestCoupon(from, convo.patientId, convo.id);
