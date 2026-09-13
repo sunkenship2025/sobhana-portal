@@ -1,0 +1,1870 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Automations — Wireframes v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fafafa;--fg:#0d0d0d;--card:#fff;--mut:#5c5c5c;--dim:#7d7d7d;--line:#e0e0e0;--muted:#f5f5f5;
+--sec:#f0f0f0;--pri:#1a1a1a;--dest:#dc2626;--ok:#1ca851;--warn:#f59e0b;--r:8px;--paper:#f2f2f0;--nav:#1B2B58}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--fg);font:14px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.doc{max-width:1080px;margin:0 auto;padding:0 28px 120px}
+header{padding:56px 0 22px;border-bottom:1px solid #dcdcd8}
+h1{font-size:30px;margin:0 0 10px;letter-spacing:-.02em}
+.sub{color:var(--mut);font-size:15px;max-width:76ch;margin:0}
+.sub b{color:var(--fg)}
+h2{font-size:19px;margin:54px 0 3px;letter-spacing:-.01em}
+h2 .n{color:var(--dim);font-weight:400;font-size:14px;margin-right:9px}
+.lead{color:var(--mut);margin:0 0 16px;max-width:82ch;font-size:14px;line-height:1.6}
+.lead b{color:var(--fg);font-weight:600}
+.note{margin:16px 0 0;font-size:13px;color:var(--mut);max-width:82ch;border-left:2px solid var(--line);padding-left:13px}
+.note b{color:var(--fg)}
+.note:before{content:"Design note";display:block;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:4px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* app frame */
+.frame{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.frame+.frame{margin-top:14px}
+.crumb{font-size:12px;color:var(--dim);margin:0 0 12px}
+.subtabs{display:inline-flex;gap:2px;background:var(--muted);border-radius:6px;padding:4px;margin-bottom:16px}
+.subtabs span{font-size:13px;padding:5px 12px;border-radius:4px;color:var(--mut)}
+.subtabs span.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.07);font-weight:500}
+.tabstrip{display:flex;flex-wrap:wrap;gap:2px;background:var(--muted);border-radius:6px;padding:4px;margin-bottom:14px}
+.tabstrip span{font-size:11px;padding:4px 8px;border-radius:4px;color:var(--mut);white-space:nowrap}
+.tabstrip span.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.07);font-weight:500}
+h3.pt{font-size:17px;font-weight:600;margin:0 0 2px;letter-spacing:-.01em}
+.psub{font-size:13.5px;color:var(--mut);margin:0}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.back{font-size:13px;color:var(--mut);margin:0 0 14px}
+
+/* sidebar mock */
+.nav{background:var(--nav);border-radius:8px;padding:10px 8px;color:#cdd6ea;font-size:12px;min-width:190px}
+.nav i{display:block;font-style:normal;padding:6px 10px;border-radius:5px;opacity:.75}
+.nav i.on{background:#25397a;color:#fff;opacity:1;font-weight:500}
+.nav i.grp{opacity:.9;font-weight:500;margin-top:2px}
+.nav i.sub{padding-left:24px;font-size:11.5px;opacity:.65}
+.nav i.sub.on{opacity:1}
+.navwrap{display:flex;gap:16px;align-items:flex-start}
+.navwrap .pane{flex:1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;min-height:150px}
+
+/* primitives */
+.seclabel{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);margin:0 0 9px}
+.sec{margin-bottom:20px}
+.list{border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px 15px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .grow{min-width:0;flex:1}
+.row .t{font-size:14px;font-weight:500;display:block}
+.row .s{font-size:13px;color:var(--mut);display:block;margin-top:1px}
+.row.sub{padding-left:46px;background:#fcfcfc}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.on{background:var(--ok)}.dot.off{background:#c4c4c4}.dot.bad{background:var(--dest)}
+.chev{color:var(--dim);flex:none;font-size:13px}
+.state{font-size:12.5px;color:var(--mut);flex:none}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.kpis.four{grid-template-columns:repeat(4,1fr)}
+.kpi{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:13px 15px}
+.kpi b{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;display:block;letter-spacing:-.02em}
+.kpi span{font-size:12.5px;color:var(--mut)}
+.kpi b.up{color:var(--ok)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid var(--line);background:var(--card);color:var(--fg);white-space:nowrap}
+.btn.pri{background:var(--pri);color:#fff;border-color:var(--pri)}
+.btn.sec{background:var(--sec);border-color:transparent}
+.btn.dan{color:var(--dest);border-color:#f0cfcf}
+.btn.sm{height:29px;font-size:12px;padding:0 10px}
+.link{font-size:12px;color:var(--mut);border-bottom:1px solid var(--line)}
+.inp{height:34px;border:1px solid var(--line);border-radius:6px;background:var(--card);padding:0 10px;font-size:13px;display:inline-flex;align-items:center;color:var(--fg);min-width:0}
+.inp.dim{color:var(--dim)}
+.inp.big{height:38px;font-size:14px}
+.sel{padding-right:26px;position:relative}
+.sel:after{content:"⌄";position:absolute;right:9px;top:4px;color:var(--dim);font-size:13px}
+.lbl{font-size:12px;color:var(--mut);display:block;margin-bottom:5px}
+.sw{width:36px;height:20px;border-radius:10px;background:var(--pri);position:relative;flex:none}
+.sw:after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;right:2px}
+.sw.off{background:#d4d4d4}.sw.off:after{right:auto;left:2px}
+.cb{width:15px;height:15px;border-radius:3px;border:1px solid #b8b8b8;flex:none}
+.cb.on{background:var(--pri);border-color:var(--pri);position:relative}
+.cb.on:after{content:"✓";color:#fff;font-size:10px;position:absolute;left:2.5px;top:-1px}
+.radio{width:14px;height:14px;border-radius:50%;border:1px solid #b8b8b8;flex:none}
+.radio.on{border:4px solid var(--pri)}
+.badge{font-size:11px;font-weight:500;padding:3px 8px;border-radius:4px;background:var(--muted);color:var(--mut);white-space:nowrap}
+.badge.ok{background:#e8f6ec;color:#15803d}
+.badge.warn{background:#fef4e2;color:#a16207}
+.badge.bad{background:#fdeaea;color:#b91c1c}
+.badge.hold{background:#eef0f6;color:#4b5563}
+.foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.foot.split{justify-content:space-between;align-items:center}
+.inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}
+.hint{font-size:13px;color:var(--mut);padding-bottom:8px}
+.num{width:22px;height:22px;border-radius:50%;background:var(--muted);color:var(--mut);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.when{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;width:108px;flex:none}
+.locked-row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--line);background:#fbfbfb}
+.locked-row .t{font-size:13.5px;font-weight:500;display:block}
+.locked-row .s{font-size:12.5px;color:var(--mut);display:block;margin-top:1px}
+.lock{font-size:11px;color:var(--dim);flex:none}
+
+/* the verb gutter — the builder reads as a sentence */
+.verb{width:66px;flex:none;font-size:11.5px;font-weight:600;color:#4a4a4a;padding-top:1px;align-self:flex-start}
+
+/* temporal grouping — a day is a block, the wait is its header */
+.dayblock{border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden;margin-bottom:12px}
+.dayblock .dh{padding:11px 15px;background:#eeeeec;border-bottom:1px solid var(--line);font-size:14px;font-weight:650;color:var(--fg);display:flex;align-items:center;gap:11px;letter-spacing:-.01em}
+.dayblock .dh .sub2{font-weight:400;color:var(--mut);font-size:12.5px}
+.dayblock .dh + .row{border-top:0}
+
+/* right-side drawer — the sequence stays visible while you edit one step */
+.drawerwrap{background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;min-height:300px}
+.drawerwrap .behind{flex:1;padding:18px;opacity:.42;min-width:0}
+.drawer{width:390px;flex:none;background:var(--card);border-left:1px solid var(--line);box-shadow:-8px 0 22px rgba(0,0,0,.07);display:flex;flex-direction:column}
+.drawer .kh{padding:15px 17px 12px;border-bottom:1px solid var(--line)}
+.drawer .kh h4{margin:0 0 3px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.drawer .kh p{margin:0;font-size:15px;font-weight:600;color:var(--fg);letter-spacing:-.01em}
+.drawer .kb{padding:15px 17px;flex:1}
+.drawer .kf{border-top:1px solid var(--line);padding:11px 16px;display:flex;justify-content:flex-end;gap:8px}
+
+/* three status vocabularies, kept visually distinct on purpose:
+   automation = dot + word · run = outline pill · outcome = filled pill */
+.badge.run{background:transparent;border:1px solid var(--line);color:var(--mut)}
+.badge.run.wait{border-color:#e6cfa4;color:#a16207;background:transparent}
+.badge.run.fail{border-color:#efcccc;color:#b91c1c;background:transparent}
+.badge.run.good{border-color:#c6e4cf;color:#15803d;background:transparent}
+.badge.out{background:#eceff5;color:#3f4d63}
+/* Patient 360 furniture, matching the real page */
+.p360{border-bottom:1px solid var(--line);padding:0 0 12px;margin-bottom:14px;display:flex;align-items:flex-start;gap:12px}
+.p360 .nm{display:flex;align-items:center;gap:8px}
+.p360 .nm h4{margin:0;font-size:18px;font-weight:700;letter-spacing:-.01em}
+.p360 .pn{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--mut)}
+.p360 .meta{font-size:13px;color:var(--mut);margin:3px 0 0}
+.p360 .wa2{font-size:13px;color:var(--mut);margin:5px 0 0;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.glance{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.glance .c{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:13px 14px}
+.glance .c .lb2{font-size:11px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);margin:0 0 6px}
+.glance .c .big{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin:0}
+.glance .c .sm2{font-size:12.5px;color:var(--mut);margin:3px 0 0}
+.cols{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start}
+.tl .v{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:13px 15px;margin-bottom:10px}
+.tl .v.sel{box-shadow:0 0 0 2px var(--pri);background:#fff}
+.tl .v .r1{display:flex;align-items:baseline;gap:9px}
+.tl .v .r1 b{font-size:14px;font-weight:600}
+.tl .v .r1 span{font-size:12.5px;color:var(--mut)}
+.tl .v .r2{font-size:12.5px;color:var(--mut);margin-top:3px}
+.tl .auto{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:12.5px;display:flex;align-items:center;gap:8px}
+.tl .auto .nm2{color:var(--fg);font-weight:500}
+.insp{border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden}
+.insp .ih{padding:12px 14px;border-bottom:1px solid var(--line)}
+.insp .ih b{font-size:14px;font-weight:600;display:block}
+.insp .ih span{font-size:12.5px;color:var(--mut)}
+.insp .sec2{padding:11px 14px;border-top:1px solid var(--line)}
+.insp .sec2:first-of-type{border-top:0}
+.insp .sec2 .lb2{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);margin:0 0 7px}
+.pop{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 30px rgba(0,0,0,.16);width:340px;overflow:hidden;z-index:5}
+.banner{border:1px solid #efcccc;background:#fdf6f6;border-radius:var(--r);padding:12px 14px;font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.banner b{font-weight:600}
+.hold{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:13px 15px;margin-bottom:14px;display:flex;align-items:center;gap:14px}
+.hold .code{font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:600;border:1px dashed #c9c9c4;border-radius:5px;padding:4px 9px;background:#fbfbf9}
+.pop .ph2{padding:12px 15px 10px;font-size:13.5px;font-weight:600;border-bottom:1px solid var(--line);margin:0}
+.search{height:34px;border:1px solid var(--line);border-radius:6px;background:var(--card);padding:0 10px;font-size:13px;display:flex;align-items:center;color:var(--dim);gap:7px}
+.search:before{content:"⌕";font-size:15px;color:var(--dim)}
+.safe{background:#fbfbfb;border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;font-size:13px;color:var(--fg);display:flex;align-items:center;gap:9px}
+.safe b{font-weight:600}
+.row.step{align-items:flex-start}
+.row.step .grow{padding-top:0}
+.branchrow{display:flex;gap:8px;margin-top:6px}
+.branchrow span{font-size:11.5px;color:var(--mut);background:var(--muted);border-radius:4px;padding:2px 8px}
+
+/* dialog */
+.overlay{background:rgba(0,0,0,.32);border-radius:10px;padding:34px 26px;display:flex;justify-content:center}
+.dlg{background:var(--card);border-radius:10px;width:100%;max-width:720px;box-shadow:0 12px 40px rgba(0,0,0,.22);overflow:hidden}
+.dlg.sm{max-width:480px}
+.dlg .dh{padding:16px 18px 12px}
+.dlg .dh h4{margin:0 0 3px;font-size:15px;font-weight:600}
+.dlg .dh p{margin:0;font-size:13px;color:var(--mut)}
+.dlg .db{padding:0 18px 16px}
+.dlg .df{border-top:1px solid var(--line);padding:12px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);font-weight:600;padding:9px 12px;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+tr:last-child td{border-bottom:0}
+td .s{display:block;font-size:12px;color:var(--mut)}
+.summary{background:var(--muted);border-radius:6px;padding:12px 14px;font-size:13px;margin-top:12px}
+.money{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card)}
+.money div{padding:12px 14px;border-left:1px solid var(--line)}
+.money div:first-child{border-left:0}
+.money div.on{background:#f7f9f8;box-shadow:inset 0 0 0 1.5px var(--pri)}
+.money .m1{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.money .m2{font-size:12.5px;color:var(--mut);line-height:1.5}
+.bline{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-top:1px solid #f0f0f0}
+.bline:first-child{border-top:0}
+.bline.strike span:last-child{color:var(--dim);text-decoration:line-through}
+
+/* whatsapp preview */
+.wa{background:#e6ded5;border-radius:8px;padding:14px;display:flex;justify-content:center}
+.bub{background:#fff;border-radius:8px 8px 8px 2px;padding:9px 11px;max-width:290px;font-size:12.5px;line-height:1.5;box-shadow:0 1px 1px rgba(0,0,0,.12)}
+.bub .v{background:#fff8dc;border-radius:2px;padding:0 2px}
+.bub .btns{border-top:1px solid #e8e8e8;margin-top:8px;padding-top:6px;display:flex;flex-direction:column;gap:4px}
+.bub .btns b{color:#0b7ec4;font-weight:500;text-align:center;font-size:12px;padding:3px 0}
+.bub .tm{font-size:9.5px;color:#8a8a8a;text-align:right;margin-top:4px}
+
+/* field tree */
+.tree{font-size:13px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden}
+.tree .g{padding:8px 12px;background:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+.tree .f{padding:6px 12px 6px 20px;border-top:1px solid #f2f2f2}
+.tree .f.on{background:#f2f5f9;font-weight:500}
+.grp{border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden;margin-bottom:10px}
+.grp .gh{padding:9px 14px;background:var(--muted);font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between;align-items:center}
+.joiner{text-align:center;font-size:10.5px;font-weight:700;letter-spacing:.09em;color:var(--dim);margin:0 0 10px}
+
+/* funnel — one bar per stage, width is the share that reached it */
+.fn{border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden}
+.fn .st{display:flex;align-items:center;gap:13px;padding:11px 15px;border-top:1px solid #f0f0f0}
+.fn .st:first-child{border-top:0}
+.fn .lbl3{width:190px;flex:none;font-size:13.5px;font-weight:500}
+.fn .bar{flex:1;height:20px;background:var(--muted);border-radius:3px;overflow:hidden}
+.fn .bar i{display:block;height:100%;background:#3f3f3f;border-radius:3px}
+.fn .bar i.lite{background:#b4b4b0}
+.fn .nmb{width:150px;flex:none;text-align:right;font-size:13.5px;font-variant-numeric:tabular-nums}
+.fn .nmb s{text-decoration:none;color:var(--mut);font-size:12px;margin-left:7px}
+</style></head><body><div class="doc">
+
+<header>
+  <h1>Automations — wireframes v2</h1>
+  <p class="sub">Second pass. Three things changed: Automations moved <b>out of Config Center</b> into
+  its own place under Admin; the builder now reads top-to-bottom as the sentence
+  <b>WHEN → FOR → THEN → CHECK → DO → STOP</b>; and every explanation has been lifted out of the
+  screens into design notes below them. What is inside a frame is what a person sees.</p>
+</header>
+
+<h2><span class="n">01</span>Where it lives</h2>
+<p class="lead">Admin becomes a group with two children, using the same <span class="mono">subItems</span>
+pattern Workflows and Payouts already use — no new nav primitive. Config Center stays what it is:
+things you set once. Automations is something you operate.</p>
+<div class="frame">
+  <div class="navwrap">
+    <div class="nav">
+      <i>Dashboard</i><i>Money</i><i>Doctors</i><i>Operations</i><i>Audit &amp; Anomalies</i>
+      <i>Messages</i><i>Workflows</i><i>Payouts</i>
+      <i class="grp">Admin</i>
+      <i class="sub">Config Center</i>
+      <i class="sub on">Automations</i>
+    </div>
+    <div class="pane">
+      <div class="subtabs"><span class="on">Automations</span><span>Templates</span><span>Offers</span><span>Activity</span></div>
+      <p style="font-size:12.5px;color:var(--mut);margin:0">Automations decide who and when.
+        They use a template to speak, and may issue an offer.</p>
+    </div>
+  </div>
+</div>
+<p class="note">Tab order is Automations · Templates · Offers · Activity, not alphabetical and not
+equal-weight: templates and offers are <b>resources an automation uses</b>, so they sit behind it and
+are reachable inline from the builder. You raised this — the fix is the ordering plus the inline
+links in the builder, not demoting them out of the tab bar, because both also need a place where you
+can see all of them at once.</p>
+
+<h2><span class="n">02</span>Nothing built yet</h2>
+<p class="lead">A new centre opens this and sees an empty list. The empty state has to teach the
+concept in one line and offer a running start, because "create automation" from zero on a blank
+builder is where most of these products lose people.</p>
+<div class="frame">
+  <div class="subtabs"><span class="on">Automations</span><span>Templates</span><span>Offers</span><span>Activity</span></div>
+  <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:34px 20px;text-align:center">
+    <p style="font-size:15px;font-weight:600;margin:0 0 5px">No automations yet</p>
+    <p style="font-size:13px;color:var(--mut);margin:0 0 16px;max-width:46ch;margin-left:auto;margin-right:auto">
+      Follow-ups, reminders and reports that go out on their own — to your patients, or to your team.</p>
+    <span class="btn pri">Create automation</span>
+  </div>
+  <p class="seclabel" style="margin-top:20px">Most centres start here</p>
+  <div class="list" style="margin-bottom:16px">
+    <div class="row" style="padding:15px"><span class="grow"><span class="t" style="font-size:15px">Clinic → diagnostics recovery</span>
+      <span class="s">A patient consulted but never did the tests. Three messages over two weeks, and it
+        stops the moment they come in.</span></span><span class="btn pri">Use this</span></div>
+  </div>
+  <p class="seclabel">Or one of these</p>
+  <div class="list">
+    <div class="row"><span class="grow"><span class="t">Report ready, not opened</span>
+      <span class="s">Nudge once if the report link is untouched after 48 hours</span></span><span class="btn sm">Use</span></div>
+    <div class="row"><span class="grow"><span class="t">Bill outstanding</span>
+      <span class="s">Remind after 7 days, once more at 21</span></span><span class="btn sm">Use</span></div>
+    <div class="row"><span class="grow"><span class="t">Daily owner report</span>
+      <span class="s">The day's collections to the owner's phone at 10:30 PM</span></span><span class="btn sm">Use</span></div>
+  </div>
+</div>
+
+<h2><span class="n">03</span>The list</h2>
+<p class="lead">Three groups, and a day sheet sits beside a patient journey because they are the same
+object with different triggers. Each row answers "is it on, what fires it, and is it working".</p>
+<div class="frame">
+  <div class="subtabs"><span class="on">Automations</span><span>Templates</span><span>Offers</span><span>Activity</span></div>
+  <div class="head">
+    <div><h3 class="pt">Automations</h3><p class="psub">What goes out on its own.</p></div>
+    <span class="btn pri">Create automation</span>
+  </div>
+  <div class="inline" style="margin-bottom:14px">
+    <span class="search" style="width:230px">Search automations…</span>
+    <span class="inp sel" style="width:150px">All statuses</span>
+    <span class="inp sel" style="width:170px">All kinds</span>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><b>5</b><span>Active</span></div>
+    <div class="kpi"><b>2</b><span>Paused</span></div>
+    <div class="kpi"><b>1</b><span>Needs attention</span></div>
+  </div>
+  <p class="seclabel">Patient journeys</p>
+  <div class="list" style="margin-bottom:16px">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Clinic → diagnostics recovery</span>
+      <span class="s">After a clinic visit · 3 messages · Day 2 / Day 10 / Day 15<br>3,412 enrolled · 18.2% converted</span></span>
+      <span class="state">Active</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Report ready, not opened in 48 hours</span>
+      <span class="s">After a report is finalized · 1 message · Day 2<br>890 enrolled · 61% opened after</span></span>
+      <span class="state">Active</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot bad"></span><span class="grow"><span class="t">Bill outstanding over 7 days</span>
+      <span class="s">Paused automatically · template rejected by Meta · 1,248 patients waiting</span></span>
+      <span class="btn sm">Fix</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot off"></span><span class="grow"><span class="t">Annual health checkup due</span>
+      <span class="s">Draft · never activated</span></span>
+      <span class="state">Draft</span><span class="chev">›</span></div>
+  </div>
+  <p class="seclabel">Conversations</p>
+  <div class="list" style="margin-bottom:16px">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Keyword replies</span>
+      <span class="s">When a patient replies · STOP, BOOK · 214 this month</span></span>
+      <span class="state">Active</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Retest booking reply</span>
+      <span class="s">When a patient answers a retest offer · 88 booked · 3 handed to staff</span></span>
+      <span class="state">Active</span><span class="chev">›</span></div>
+  </div>
+  <p class="seclabel">Reports to your team</p>
+  <div class="list">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Daily Diagnostic Report</span>
+      <span class="s">Every day 10:30 PM · 2 branches · owner · last sent 12 Sep</span></span>
+      <span class="state">Active</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot off"></span><span class="grow"><span class="t">Daily OP Report</span>
+      <span class="s">Every day 10:30 PM · 2 branches · owner · last sent 4 Sep</span></span>
+      <span class="state">Paused</span><span class="chev">›</span></div>
+  </div>
+</div>
+<p class="note">Patient journeys are listed first now. The day sheets work today and nobody opens this
+screen to look at them — the thing you come here to check is the one messaging patients.</p>
+
+<h2><span class="n">04</span>Creating one — what, then when</h2>
+<p class="lead">Two short steps before the builder opens. The first asks what kind of thing this is,
+which sets sensible defaults for everything else. The second is the trigger picker, and it is the
+screen that makes "one engine" legible — a day sheet and a result follow-up are two entries in the
+same list.</p>
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>Create automation</h4><p>What do you want to automate?</p></div>
+    <div class="db">
+      <div class="list">
+        <div class="row"><span class="radio on"></span><span class="grow"><span class="t">Follow up when something hasn't happened</span>
+          <span class="s">They consulted but never did the tests · the report was never opened</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Remind them about something due</span>
+          <span class="s">A bill still outstanding · a test due again</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Bring back patients who stopped coming</span>
+          <span class="s">Nobody has seen them in months</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Do something when a patient replies</span>
+          <span class="s">They answer on WhatsApp and it books, stops, or reaches a person</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Send your team a regular report</span>
+          <span class="s">The day's collections, every night</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Send one message to a list, once</span>
+          <span class="s">A campaign to everyone who matches, including past patients</span></span></div>
+      </div>
+    </div>
+    <div class="df"><span></span><span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Continue</span></span></div>
+  </div>
+</div>
+<div class="frame overlay">
+  <div class="dlg">
+    <div class="dh"><h4>When should this run?</h4><p>Patient follow-up · step 2 of 2</p></div>
+    <div class="db">
+      <div class="search" style="margin-bottom:14px">Search events…</div>
+      <div class="pair">
+        <div>
+          <p class="seclabel">Patient events</p>
+          <div class="list" style="margin-bottom:12px">
+            <div class="row" style="padding:8px 12px"><span class="radio on"></span><span class="grow"><span class="t">Clinic visit completed</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Diagnostic visit completed</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Patient registered</span></span></div>
+          </div>
+          <p class="seclabel">Diagnostics</p>
+          <div class="list">
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Report finalized</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Report opened</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Report not opened</span></span></div>
+          </div>
+        </div>
+        <div>
+          <p class="seclabel">Billing</p>
+          <div class="list" style="margin-bottom:12px">
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Bill created</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Payment received</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Amount still due</span></span></div>
+          </div>
+          <p class="seclabel">Conversation</p>
+          <div class="list" style="margin-bottom:12px">
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Patient replies</span></span></div>
+          </div>
+          <p class="seclabel">On a schedule</p>
+          <div class="list">
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Every day, week or month</span>
+              <span class="s">A recurring report, at a fixed time</span></span></div>
+            <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">Once, to everyone who matches</span>
+              <span class="s">A one-off send, including past patients</span></span></div>
+          </div>
+          <p class="hint" style="padding:8px 0 0">Timing <b>inside</b> a journey — Day 2, Day 10 —
+            is set on the steps, not here.</p>
+        </div>
+      </div>
+      <p class="lbl" style="margin:14px 0 5px">Name it</p>
+      <span class="inp big" style="width:100%;color:var(--dim)">Clinic → diagnostics recovery</span>
+    </div>
+    <div class="df"><span class="link">Back</span>
+      <span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Build it</span></span></div>
+  </div>
+</div>
+<p class="note">Greyed here but worth saying: <b>a result-based trigger is deliberately not on this
+list yet</b> — it is V2, behind the settle delay and the critical-value block. When it arrives it is
+one more radio under Diagnostics, not a new screen, which is the test of whether the engine is
+actually generic.</p>
+
+<h2><span class="n">05</span>The builder, read as a sentence</h2>
+<p class="lead">The old version had Trigger, Who qualifies, Steps, Stop when and Safety as five peer
+sections — technically right, and it buried the thing that makes this product work. Wait-then-check-
+before-every-send is not a detail inside Steps; it is the shape of the whole automation. So the
+screen is one sequence with a verb in the gutter, and it reads straight down.</p>
+<div class="frame">
+  <p class="back">← Automations</p>
+  <div class="head">
+    <div><h3 class="pt">Clinic → diagnostics recovery</h3>
+      <p class="psub" style="display:flex;align-items:center;gap:8px"><span class="dot on"></span>Active · v2</p>
+      <p class="psub" style="margin-top:3px;color:var(--dim)">3 messages on Day 2, 10 and 15 · 3,412 runs since 13 Jul</p></div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <span class="subtabs" style="margin:0"><span class="on">Setup</span><span>Results</span></span>
+      <span class="btn sm">Pause</span><span class="btn sm dan">Stop</span>
+    </div>
+  </div>
+  <div class="list" style="margin-bottom:10px">
+    <div class="row step"><span class="verb">When</span><span class="grow">
+      <span class="t">A clinic visit is completed</span>
+      <span class="s">All 3 branches · visits from 13 Jul 2026 onward</span>
+      <span class="s">Every qualifying visit starts its own journey — a patient can have two running at once</span></span><span class="chev">›</span></div>
+
+    <div class="row step"><span class="verb">For</span><span class="grow">
+      <span class="t">Adults, on visits of ₹300 or more</span>
+      <span class="s">3,412 qualifying visits · 3,198 patients</span></span>
+      <span class="btn sm">Preview</span><span class="chev">›</span></div>
+  </div>
+
+  <div class="dayblock">
+    <div class="dh"><span>Day 2</span><span class="sub2">2 days after the clinic visit</span>
+      <span class="grow"></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Check</span><span class="grow">
+      <span class="t">Did this visit lead to diagnostics?</span>
+      <span class="s">Checked live · yes → stop · no → continue</span></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Do</span><span class="grow">
+      <span class="t">Send <span class="mono">clinic_followup_v1</span> on WhatsApp</span>
+      <span class="s">3 blanks filled · approved</span></span>
+      <span class="badge">Reactive</span><span class="chev">›</span></div>
+  </div>
+
+  <div class="dayblock">
+    <div class="dh"><span>Day 10</span><span class="sub2">10 days after the clinic visit</span>
+      <span class="grow"></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Check</span><span class="grow">
+      <span class="t">Did this visit lead to diagnostics?</span>
+      <span class="s">Checked live · yes → stop · no → continue</span></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Do</span><span class="grow">
+      <span class="t">Send <span class="mono">clinic_followup_reminder_v1</span> and issue <span class="mono">RECOVERY15</span></span>
+      <span class="s">15% off tests · 30 days · ₹1,000 cap</span></span>
+      <span class="badge warn">Proactive</span><span class="chev">›</span></div>
+  </div>
+
+  <div class="dayblock">
+    <div class="dh"><span>Day 15</span><span class="sub2">due 15 days after the clinic visit · sending may be delayed until she is eligible again</span>
+      <span class="grow"></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Check</span><span class="grow">
+      <span class="t">Did this visit lead to diagnostics?</span>
+      <span class="s">Checked live · yes → stop · no → continue</span></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Do</span><span class="grow">
+      <span class="t">Send <span class="mono">final_recovery_v1</span></span></span>
+      <span class="badge warn">Proactive</span><span class="chev">›</span></div>
+  </div>
+
+  <div class="list">
+    <div class="row step"><span class="verb">Stop</span><span class="grow">
+      <span class="t">When diagnostics happen for this visit — or after the Day 15 message</span>
+      <span class="s">No new step starts after Day 15. One already due is still sent.</span></span><span class="chev">›</span></div>
+    <div class="row" style="padding-top:9px;padding-bottom:9px"><span class="verb"></span><span class="link">+ Add a day</span></div>
+  </div>
+
+  <div class="sec" style="margin-top:20px">
+    <p class="seclabel">Experiment</p>
+    <div class="list" style="margin-bottom:16px">
+      <div class="row"><span class="grow"><span class="t">Hold back a control group</span>
+        <span class="s">Enrolled and checked, never messaged — so you can tell what this actually caused</span></span>
+        <span class="inp" style="width:64px">10%</span></div>
+    </div>
+
+    <p class="seclabel">Sending rules</p>
+    <div class="list" style="margin-bottom:16px">
+      <div class="row"><span class="grow"><span class="t">Importance</span>
+        <span class="s">When two journeys want the same patient on the same day, the more important one goes first</span></span>
+        <span class="inp sel" style="width:150px">Normal</span></div>
+      <div class="row"><span class="grow"><span class="t">Send only between 8:00 AM and 9:00 PM</span>
+        <span class="s">Set for the whole centre · <span class="link">change</span></span></span><span class="state">On</span></div>
+      <div class="row"><span class="grow"><span class="t">One proactive message per patient per 7 days</span>
+        <span class="s">Across every journey · <span class="link">change</span></span></span><span class="state">On</span></div>
+    </div>
+
+    <p class="seclabel">Always on</p>
+    <div class="list">
+      <div class="locked-row" style="border-top:0"><span class="grow"><span class="t">Stop conditions are re-checked before every action</span>
+        <span class="s">A message, an offer, a task for staff — a patient who comes in while waiting gets none of them</span></span><span class="lock">Cannot be turned off</span></div>
+      <div class="locked-row"><span class="grow"><span class="t">Critical results never enter a journey</span>
+        <span class="s">The lab is alerted instead</span></span><span class="lock">Cannot be turned off</span></div>
+      <div class="locked-row"><span class="grow"><span class="t">No test name or finding in a message</span></span><span class="lock">Cannot be turned off</span></div>
+    </div>
+  </div>
+
+  <div class="foot"><span class="btn">Discard</span><span class="btn pri">Save changes</span></div>
+</div>
+<p class="note">The three fixed rows have no switch because a campaign author must not be able to turn
+them off — but they are shown rather than hidden, so the screen's job is to say they exist. The
+holdout row sits with them for a reason: it is only offered on marketing automations, and the control
+disappears entirely on a clinical follow-up rather than being present and disabled.</p>
+
+<h2><span class="n">06</span>Choosing who, with ALL and ANY</h2>
+<p class="lead">The left column is the whole field vocabulary, which is also the honest statement of
+what this engine can ask about. The right is one ALL group and one ANY group — enough for
+"diabetic, and either no HbA1c in 90 days or no visit in 30" without a segment builder. Relationship
+is shown in the operator itself: <b>for this visit</b> is a different choice from <b>ever</b>.</p>
+<div class="frame overlay">
+  <div class="dlg">
+    <div class="dh"><h4>Who qualifies</h4><p>3,412 qualifying visits · 3,198 patients · updates as you edit</p></div>
+    <div class="db">
+      <div class="pair" style="grid-template-columns:220px 1fr;gap:16px">
+        <div>
+          <p class="lbl">What do you want to check?</p>
+          <div class="search" style="margin-bottom:8px">test</div>
+          <div class="tree">
+            <div class="g">Diagnostics</div>
+            <div class="f on">Test done</div><div class="f">Test not done</div>
+            <div class="f">Days since last test</div><div class="f">Tests in the last year</div>
+            <div class="f">Spend on tests</div><div class="f">Test result</div>
+            <div class="g">Visit</div>
+            <div class="f">Visit value</div><div class="f">Days since last visit</div>
+          </div>
+          <p class="hint" style="padding:8px 0 0">Search everything the system knows about a patient,
+            their visits, their tests and their bills.</p>
+        </div>
+        <div>
+          <div class="grp">
+            <div class="gh"><span>All of these</span><span class="link">+ Add</span></div>
+            <div class="row"><span class="inp sel" style="width:150px">Age</span>
+              <span class="inp sel" style="width:120px">is at least</span>
+              <span class="inp" style="width:64px">18</span><span class="grow"></span><span class="chev">×</span></div>
+            <div class="row"><span class="inp sel" style="width:150px">Visit value</span>
+              <span class="inp sel" style="width:120px">is at least</span>
+              <span class="inp" style="width:78px">₹300</span><span class="grow"></span><span class="chev">×</span></div>
+          </div>
+          <p class="joiner">And</p>
+          <div class="grp">
+            <div class="gh"><span>Any of these</span><span class="link">+ Add</span></div>
+            <div class="row"><span class="inp sel" style="width:150px">Test not done</span>
+              <span class="state">looking</span>
+              <span class="inp sel" style="width:180px">since this clinic visit</span><span class="grow"></span><span class="chev">×</span></div>
+            <div class="row"><span class="inp sel" style="width:150px">Days since last test</span>
+              <span class="inp sel" style="width:120px">is more than</span>
+              <span class="inp" style="width:64px">90</span><span class="grow"></span><span class="chev">×</span></div>
+          </div>
+          <span class="link">+ Add another group</span>
+        </div>
+      </div>
+    </div>
+    <div class="df"><span class="link">Clear all</span>
+      <span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Done</span></span></div>
+  </div>
+</div>
+<p class="note">"For this clinic visit" versus "ever" is the single most consequential dropdown in the
+product — it is the difference between chasing a patient who never did the tests and chasing one who
+did them last year. It is an operator on the condition, not a hidden default, because a hidden
+default is how a recovery campaign quietly messages people who already came.</p>
+
+<h2><span class="n">07</span>Editing one step, without losing the sequence</h2>
+<p class="lead">Every row opens a drawer on the right, not a modal over the middle. The journey stays
+on screen while you edit one part of it — which matters because the question you are answering is
+almost always "where does this sit relative to the others".</p>
+<div class="drawerwrap">
+  <div class="behind">
+    <div class="list" style="margin-bottom:10px">
+      <div class="row step"><span class="verb">When</span><span class="grow"><span class="t">A clinic visit is completed</span></span></div>
+      <div class="row step"><span class="verb">For</span><span class="grow"><span class="t">Adults, on visits of ₹300 or more</span></span></div>
+    </div>
+    <div class="dayblock"><div class="dh"><span>Day 2</span></div>
+      <div class="row step"><span class="verb">Check</span><span class="grow"><span class="t">Did this visit lead to diagnostics?</span></span></div>
+      <div class="row step"><span class="verb">Do</span><span class="grow"><span class="t">Send <span class="mono">clinic_followup_v1</span></span></span></div></div>
+    <div class="dayblock" style="box-shadow:0 0 0 1.5px var(--pri)"><div class="dh"><span>Day 10</span></div>
+      <div class="row step"><span class="verb">Check</span><span class="grow"><span class="t">Did this visit lead to diagnostics?</span></span></div>
+      <div class="row step"><span class="verb">Do</span><span class="grow"><span class="t">Send reminder and issue <span class="mono">RECOVERY15</span></span></span></div></div>
+  </div>
+  <div class="drawer">
+    <div class="kh"><h4>Timing</h4><p>Day 10 · second message</p></div>
+    <div class="kb">
+      <div class="list" style="margin-bottom:12px">
+        <div class="row" style="padding:9px 12px"><span class="radio on"></span><span class="grow">
+          <span class="t">On day <span class="inp" style="width:50px;height:28px">10</span> after the clinic visit</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="radio"></span><span class="grow">
+          <span class="t"><span class="inp" style="width:50px;height:28px">3</span>
+          <span class="inp sel" style="width:92px;height:28px">days</span> after the step before</span></span></div>
+      </div>
+      <p class="hint" style="padding:0">For a visit closed today, that is 23 Sep, around 4:30 PM.</p>
+    </div>
+    <div class="kf"><span class="btn sm">Cancel</span><span class="btn pri sm">Save</span></div>
+  </div>
+</div>
+<p class="note">Anchoring to the visit rather than to the previous step is not only easier to author —
+it stops drift. A ten-hour quiet-hours delay on the Day 2 message would push every later relative
+wait with it; Day 10 anchored to the visit is Day 10 regardless.</p>
+
+<div class="drawerwrap" style="margin-top:14px">
+  <div class="behind">
+    <div class="dayblock"><div class="dh"><span>Day 10</span></div>
+      <div class="row step" style="box-shadow:inset 2px 0 0 var(--pri)"><span class="verb">Check</span><span class="grow"><span class="t">Did this visit lead to diagnostics?</span></span></div>
+      <div class="row step"><span class="verb">Do</span><span class="grow"><span class="t">Send reminder and issue <span class="mono">RECOVERY15</span></span></span></div></div>
+  </div>
+  <div class="drawer">
+    <div class="kh"><h4>Check before acting</h4><p>Day 10 · before the reminder and the offer</p></div>
+    <div class="kb">
+      <div class="safe" style="margin-bottom:12px"><span class="badge run good">Live</span>
+        <span><b>Always re-evaluated the moment this step runs.</b> Never what was true when the
+        patient enrolled.</span></div>
+      <div class="inline" style="margin-bottom:12px">
+        <span class="inp sel" style="width:130px">Test done</span>
+        <span class="inp sel" style="width:180px">since this clinic visit</span>
+      </div>
+      <div class="list">
+        <div class="row" style="padding:8px 12px"><span class="grow"><span class="t">If yes</span></span><span class="inp sel" style="width:150px">Stop — came in</span></div>
+        <div class="row" style="padding:8px 12px"><span class="grow"><span class="t">If no</span></span><span class="inp sel" style="width:150px">Send the message</span></div>
+      </div>
+    </div>
+    <div class="kf"><span class="btn sm">Cancel</span><span class="btn pri sm">Save</span></div>
+  </div>
+</div>
+
+<h2><span class="n">08</span>The message is the thing being edited</h2>
+<p class="lead">The operator's real question is "what will the patient receive", so the preview leads
+and the template metadata follows it. Filled with a real matching patient, because a template that
+reads fine with <span class="mono">{{1}}</span> can read badly with "Venkata Lakshmi Narasimha".</p>
+<div class="frame">
+  <p class="seclabel">Send a message</p>
+  <div class="pair" style="grid-template-columns:330px 1fr;gap:18px">
+    <div>
+      <div class="wa">
+        <div class="bub">Hi <span class="v">Lakshmi</span>,<br><br>
+          Thank you for visiting Sobhana Polyclinic, <span class="v">Chintal</span>.<br><br>
+          If you still have tests to complete, you can see what is available and book a time here:<br>
+          <span class="v">sobhana.in/t/4k9x2</span>
+          <div class="tm">4:32 PM</div></div>
+      </div>
+      <p class="hint" style="padding:8px 0 0">Shown with a patient from the matching list.</p>
+    </div>
+    <div>
+      <div class="inline" style="margin-bottom:14px">
+        <div><span class="lbl">Template</span><span class="inp sel" style="width:240px">clinic_followup_v1</span></div>
+        <span class="badge run good" style="margin-bottom:9px">Approved</span>
+        <span class="badge" style="margin-bottom:9px">Reactive</span>
+      </div>
+      <p class="seclabel">Fill the blanks</p>
+      <div class="list" style="margin-bottom:14px">
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{1}}</span>
+          <span class="grow"></span><span class="inp sel" style="width:220px">Patient first name</span></div>
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{2}}</span>
+          <span class="grow"></span><span class="inp sel" style="width:220px">Branch of the visit</span></div>
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{3}}</span>
+          <span class="grow"></span><span class="inp sel" style="width:220px">Test booking link</span></div>
+      </div>
+      <p class="seclabel">Also do</p>
+      <div class="list">
+        <div class="row" style="padding:8px 12px"><span class="cb"></span><span class="grow"><span class="t">Issue an offer with this message</span></span>
+          <span class="inp sel dim" style="width:160px">No offer</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="btn">Cancel</span><span class="btn pri">Save step</span></div>
+</div>
+<p class="note"><b>The old copy said "Your doctor has advised tests that are still pending" — and this
+system cannot know that.</b> <span class="mono">ClinicVisit</span> stores the doctor, the fee, the
+ward, the queue state and the token. There is no prescription, no advice, no diagnosis field
+anywhere. The audience is "no diagnostics since this visit", which includes every patient who came
+for something that never needed a test, so the message must invite rather than remind.<br><br>
+This is a targeting limit, not only a wording one. The upgrade that would make this the sharpest
+automation in the product is one checkbox at clinic close — <b>"tests advised"</b> — which narrows
+the audience from everyone who consulted to everyone who was actually told to go and didn't.
+Worth doing; not worth blocking V1 on.<br><br>
+Blanks are validated against the approved template when you save: an arity mismatch caught here is a
+dialog, and caught at send time it is a failure for every patient in the run.</p>
+
+<h2><span class="n">09</span>Before it goes live</h2>
+<p class="lead">Two screens, in this order. The list of who matches, then a plain-language summary of
+what is about to start happening. The second one exists because by the time you have configured nine
+steps you have stopped reading them.</p>
+<div class="frame overlay">
+  <div class="dlg">
+    <div class="dh"><h4>Who matches right now</h4>
+      <p><b>3,412 qualifying visits · 3,198 patients</b> · 2,863 would be messaged today ·
+        nothing is sent from this screen</p></div>
+    <div class="db">
+      <table>
+        <tr><th>Patient</th><th>Clinic visit</th><th>Branch</th><th>Why they enrol</th><th>Today</th></tr>
+        <tr><td>Lakshmi N.<span class="s">P-01847</span></td><td>11 Sep<span class="s">2 days ago</span></td><td>Chintal</td>
+          <td>No tests since the visit<span class="s">Age 54 · ₹450</span></td><td><span class="badge ok">Will send</span></td></tr>
+        <tr><td>Ramesh K.<span class="s">P-01822</span></td><td>11 Sep</td><td>Kukatpally</td>
+          <td>No tests since the visit</td><td><span class="badge out">Control group</span></td></tr>
+        <tr><td>Sunitha R.<span class="s">P-01790</span></td><td>10 Sep</td><td>Chintal</td>
+          <td>No tests since the visit</td><td><span class="badge warn">No consent</span></td></tr>
+        <tr><td>Abdul S.<span class="s">P-01777</span></td><td>10 Sep</td><td>Chintal</td>
+          <td>No tests since the visit</td><td><span class="badge warn">Messaged 2 days ago</span></td></tr>
+      </table>
+      <div class="safe" style="margin-bottom:10px"><span class="badge run">Preview</span>
+        <span><b>Nothing is sent from this screen.</b> The journey starts only when you activate it.</span></div>
+      <div class="summary"><b>549 of 3,412 will not be messaged today.</b>
+        341 control group · 121 no consent · 54 no phone · 21 already had a message this week · 12 opted out.
+        <span style="display:block;margin-top:6px;color:var(--mut)"><b>127 patients are already in another journey.</b>
+        81 will still receive this · 32 are behind a more important one — <span class="link">Bill outstanding,
+        set to High</span> · 14 already have a live run of this one.</span></div>
+    </div>
+    <div class="df"><span class="link">Export</span>
+      <span style="display:flex;gap:8px"><span class="btn">Close</span><span class="btn pri">Continue</span></span></div>
+  </div>
+</div>
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>Ready to activate</h4><p>Clinic → diagnostics recovery</p></div>
+    <div class="db">
+      <p class="seclabel">The journey</p>
+      <div class="list" style="margin-bottom:14px">
+        <div class="row" style="padding:9px 12px"><span class="state" style="width:74px">Starts</span>
+          <span class="grow"><span class="t">When a clinic visit is completed</span>
+          <span class="s">Visits from today onward. Past visits are never included.</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="state" style="width:74px">Day 2</span>
+          <span class="grow"><span class="t mono">clinic_followup_v1</span></span><span class="badge">Utility</span></div>
+        <div class="row" style="padding:9px 12px"><span class="state" style="width:74px">Day 10</span>
+          <span class="grow"><span class="t mono">clinic_followup_reminder_v1</span>
+          <span class="s">Issues RECOVERY15</span></span><span class="badge warn">Marketing</span></div>
+        <div class="row" style="padding:9px 12px"><span class="state" style="width:74px">Day 15</span>
+          <span class="grow"><span class="t mono">final_recovery_v1</span>
+          <span class="s">Due on Day 15. Only 5 days after the Day 10 offer, so sending may be held
+          until she is eligible again on Day 17 — the journey is still a Day 15 journey.</span></span>
+          <span class="badge run wait">May be delayed</span></div>
+        <div class="row" style="padding:9px 12px;background:#fbfbfb"><span class="state" style="width:74px">Stops</span>
+          <span class="grow"><span class="t">The moment diagnostics happen for that visit</span>
+          <span class="s">Otherwise after the Day 15 message. No new step starts after Day 15; one already
+          due is still sent.</span></span></div>
+      </div>
+      <p class="seclabel">Safety</p>
+      <div class="list" style="margin-bottom:14px">
+        <div class="row" style="padding:9px 12px"><span class="grow"><span class="t">About 55 patients a day</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="grow"><span class="t">10% held back as a control group</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="grow"><span class="t">Sends only between 8:00 AM and 9:00 PM</span></span></div>
+      </div>
+      <p class="seclabel">Ready</p>
+      <div class="list">
+        <div class="row" style="padding:9px 12px"><span class="badge run good">✓</span><span class="grow"><span class="t">All three templates approved</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="badge run good">✓</span><span class="grow"><span class="t">RECOVERY15 active · ₹2,00,000 budget</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="badge run good">✓</span><span class="grow"><span class="t">Audience checked a moment ago</span></span></div>
+      </div>
+    </div>
+    <div class="df"><span class="link">Back</span>
+      <span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Activate</span></span></div>
+  </div>
+</div>
+
+<h2><span class="n">10</span>Why this patient?</h2>
+<p class="lead">Clicking a row in the matching list. Every condition that was checked, with the value
+it was checked against. The same screen answers both questions people actually ask — "why did she get
+this" and "why didn't he".</p>
+<div class="pair">
+  <div class="frame">
+    <div class="head" style="margin-bottom:12px">
+      <div><h3 class="pt" style="font-size:15px">Lakshmi N.</h3><p class="psub">P-01847 · will be messaged</p></div>
+      <span class="badge ok">Qualifies</span>
+    </div>
+    <div class="list">
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Clinic visit completed</span><span class="s">11 Sep · Chintal</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Age at least 18</span><span class="s">54</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Visit value at least ₹300</span><span class="s">₹450</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">No tests since the visit</span><span class="s">Checked across all branches</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Agreed to offers</span><span class="s">4 Jul 2026</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Not in the control group</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Not messaged in the last 7 days</span><span class="s">Last message 4 Sep</span></span></div>
+    </div>
+    <p class="seclabel" style="margin-top:16px">What happens next</p>
+    <div class="list">
+      <div class="row" style="padding:8px 12px"><span class="state" style="width:88px">Status</span>
+        <span class="grow"><span class="t">Waiting</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="state" style="width:88px">Next step</span>
+        <span class="grow"><span class="t">Day 2 · 13 Sep, 4:30 PM</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="state" style="width:88px">First</span>
+        <span class="grow"><span class="t">Re-check diagnostics for this visit</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="grow"><span class="t">If she has come in → the journey stops</span>
+        <span class="s">No message, no reminder, no offer</span></span></div>
+      <div class="row" style="padding:8px 12px;background:#fbfbfb"><span class="grow"><span class="t">If she has not → <span class="mono">clinic_followup_v1</span> is sent</span></span></div>
+    </div>
+    <p class="seclabel" style="margin-top:16px">So far</p>
+    <div class="list">
+      <div class="row" style="padding:8px 12px"><span class="when" style="width:74px">11 Sep</span>
+        <span class="grow"><span class="t">Enrolled on version 2</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="when" style="width:74px">11 Sep</span>
+        <span class="grow"><span class="t">Waiting until Day 2</span></span></div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="head" style="margin-bottom:12px">
+      <div><h3 class="pt" style="font-size:15px">Sunitha R.</h3><p class="psub">P-01790 · will not be messaged</p></div>
+      <span class="badge run wait">Skipped</span>
+    </div>
+    <div class="list">
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Clinic visit completed</span><span class="s">10 Sep · Chintal</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Age at least 18</span><span class="s">31</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">Visit value at least ₹300</span><span class="s">₹600</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge ok">✓</span><span class="grow"><span class="t">No tests since the visit</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="badge bad">×</span><span class="grow"><span class="t">Has not agreed to offers</span>
+        <span class="s">Reports and bills still reach her. Offers do not.</span></span></div>
+    </div>
+    <p class="seclabel" style="margin-top:16px">What happens next</p>
+    <div class="list">
+      <div class="row" style="padding:8px 12px"><span class="state" style="width:88px">Status</span>
+        <span class="grow"><span class="t">Enrolled, never messaged</span></span></div>
+      <div class="row" style="padding:8px 12px"><span class="state" style="width:88px">Next step</span>
+        <span class="grow"><span class="t">Day 2 · 12 Sep, 3:10 PM — will be skipped again</span></span></div>
+      <div class="row" style="padding:8px 12px;background:#fbfbfb"><span class="grow"><span class="t">Every step still runs and is logged</span>
+        <span class="s">If she agrees to offers before Day 10, that message sends normally</span></span></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="n">11</span>Try it on one patient before anyone is messaged</h2>
+<p class="lead">Pick a patient, add events on a fake clock, and watch the journey run. This costs
+almost nothing to build because it already has to exist: the conditions are pure functions and the
+steps are an array, so the offline test harness walks them anyway. This is that harness with a screen
+on it — and it is where the one case that matters gets proved by hand.</p>
+<div class="frame">
+  <div class="head">
+    <div><h3 class="pt">Try it out</h3><p class="psub">Clinic → diagnostics recovery · nothing is sent</p></div>
+    <span class="btn sec">Run again</span>
+  </div>
+  <div class="inline" style="margin-bottom:14px">
+    <div><span class="lbl">Patient</span><span class="inp sel" style="width:220px">Lakshmi N. · P-01847</span></div>
+    <div><span class="lbl">Starting from</span><span class="inp sel" style="width:220px">Clinic visit, 11 Sep</span></div>
+    <span class="btn sm" style="margin-bottom:0">+ Add an event</span>
+  </div>
+  <div class="list" style="margin-bottom:14px">
+    <div class="row" style="padding:8px 12px"><span class="grow"><span class="t">She does her tests on Day 6</span>
+      <span class="s">Added by you · not real</span></span><span class="chev">×</span></div>
+  </div>
+  <p class="seclabel">What would happen</p>
+  <div class="list">
+    <div class="row step"><span class="verb">Day 0</span><span class="grow"><span class="t">Enrols</span>
+      <span class="s">Age 54 ✓ · visit ₹450 ✓ · agreed to offers ✓ · not held back</span></span><span class="badge ok">✓</span></div>
+    <div class="row step"><span class="verb">Day 2</span><span class="grow"><span class="t">Checks — no tests yet → sends <span class="mono">clinic_followup_v1</span></span></span><span class="badge run">Sent</span></div>
+    <div class="row step"><span class="verb">Day 6</span><span class="grow"><span class="t">She does her tests</span>
+      <span class="s">Your simulated event</span></span></div>
+    <div class="row step"><span class="verb">Day 10</span><span class="grow"><span class="t">Checks — tests done → journey stops</span></span><span class="badge out">Stopped — came in</span></div>
+    <div class="row step" style="opacity:.45"><span class="verb">Day 10</span><span class="grow"><span class="t">Reminder not sent</span></span><span class="badge run">Skipped</span></div>
+    <div class="row step" style="opacity:.45"><span class="verb">Day 10</span><span class="grow"><span class="t"><span class="mono">RECOVERY15</span> never issued</span></span><span class="badge run">Skipped</span></div>
+    <div class="row step" style="opacity:.45"><span class="verb">Day 15</span><span class="grow"><span class="t">Final message not sent</span></span><span class="badge run">Skipped</span></div>
+    <div class="row" style="background:#fbfbfb"><span class="verb"></span><span class="grow"><span class="t">1 message sent · no discount given · counted as converted</span></span></div>
+  </div>
+</div>
+<p class="note">This exact scenario — enrolled Day 0, messaged Day 2, tests on Day 6 — is the named
+case in the test suite. <b>One message, no coupon, no Day 10, no Day 15.</b> If that assertion ever
+goes red, the product is broken in the only way that really costs money, and everything else on these
+screens is decoration.</p>
+
+<h2><span class="n">12</span>Overview, then Results</h2>
+<p class="lead">The detail page used to open straight into configuration. It now opens with the four
+numbers and the one-line statement of what the automation does, because that is what you came to
+check. Setup is a click away, not the front door.</p>
+<div class="frame">
+  <p class="back">← Automations</p>
+  <div class="head">
+    <div><h3 class="pt">Clinic → diagnostics recovery</h3>
+      <p class="psub">When a clinic visit is completed · converted if tests happen within 14 days, at any branch</p></div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <span class="subtabs" style="margin:0"><span>Setup</span><span class="on">Results</span></span>
+      <span class="btn sm">Pause</span><span class="btn sm dan">Stop</span>
+    </div>
+  </div>
+  <div class="kpis four">
+    <div class="kpi"><b>3,412</b><span>Runs enrolled · 3,198 patients</span></div>
+    <div class="kpi"><b>2,913</b><span>Delivered</span></div>
+    <div class="kpi"><b>18.2%</b><span>Converted</span></div>
+    <div class="kpi"><b class="up">+6.1 pts</b><span>Lift vs control · ±3.7</span></div>
+  </div>
+  <div class="sec">
+    <p class="seclabel">Where everyone got to</p>
+    <div class="fn">
+      <div class="st"><span class="lbl3">Visits that qualified</span>
+        <span class="bar"><i style="width:100%"></i></span><span class="nmb">3,412</span></div>
+      <div class="st"><span class="lbl3">Could be messaged</span>
+        <span class="bar"><i style="width:86%"></i></span><span class="nmb">2,930 <s>−482</s></span></div>
+      <div class="st"><span class="lbl3">Message sent</span>
+        <span class="bar"><i style="width:85%"></i></span><span class="nmb">2,913 <s>−17</s></span></div>
+      <div class="st"><span class="lbl3">Delivered</span>
+        <span class="bar"><i style="width:84%"></i></span><span class="nmb">2,871 <s>−42</s></span></div>
+      <div class="st"><span class="lbl3">Read<br><span style="font-weight:400;font-size:11.5px;color:var(--mut)">undercounts — receipts can be switched off</span></span>
+        <span class="bar"><i style="width:57%"></i></span><span class="nmb">1,944 <s>at least</s></span></div>
+      <div class="st"><span class="lbl3">Came in for tests<br><span style="font-weight:400;font-size:11.5px;color:var(--mut)">within 14 days, any branch</span></span>
+        <span class="bar"><i style="width:18%"></i></span><span class="nmb">530 <s>18.2%</s></span></div>
+      <div class="st" style="background:#fbfbfb"><span class="lbl3">Held back, came anyway</span>
+        <span class="bar"><i class="lite" style="width:12%"></i></span><span class="nmb">41 <s>12.1%</s></span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <p class="seclabel">The 482 who could not be messaged</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Held back on purpose</span>
+        <span class="s">The control group — enrolled and checked, never messaged</span></span><span class="state">341</span></div>
+      <div class="row"><span class="grow"><span class="t">Never agreed to offers</span>
+        <span class="s">They still get reports and bills</span></span><span class="state">121</span></div>
+      <div class="row"><span class="grow"><span class="t">No usable phone number</span></span><span class="state">54</span></div>
+      <div class="row"><span class="grow"><span class="t">Already had a message this week</span>
+        <span class="s">Sent later, once they were eligible again</span></span><span class="state">93</span></div>
+      <div class="row"><span class="grow"><span class="t">A more important journey went first</span>
+        <span class="s">Mostly Bill outstanding · sent the following day</span></span><span class="state">63</span></div>
+      <div class="row"><span class="grow"><span class="t">Replied STOP</span></span><span class="state">12</span></div>
+      <div class="row"><span class="grow"><span class="t">A person was handling the conversation</span></span><span class="state">44</span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <p class="seclabel">Running right now</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">1,226 journeys still going</span>
+        <span class="s">892 waiting for their next day · 271 due within the hour · 63 waiting their turn</span></span></div>
+      <div class="row"><span class="grow"><span class="t">2,186 have ended</span>
+        <span class="s">621 came in · 1,204 reached Day 15 without coming · 361 stopped for another reason</span></span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <p class="seclabel">Did it actually cause anything</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Messaged — came in</span><span class="s">2,913 delivered</span></span><span class="state">18.2%</span></div>
+      <div class="row"><span class="grow"><span class="t">Held back — came anyway</span><span class="s">341 patients</span></span><span class="state">12.1%</span></div>
+      <div class="row" style="background:#fbfbfb"><span class="grow"><span class="t">Patients who came because of this</span>
+        <span class="s">Between 133 and 283, most likely 208</span></span><span class="state" style="font-weight:600;color:var(--fg)">208</span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <p class="seclabel">Money</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Billed by everyone who was messaged</span>
+        <span class="s">Observed, not caused — most were coming anyway</span></span><span class="state">₹14,70,000</span></div>
+      <div class="row"><span class="grow"><span class="t">From the 208 extra patients</span>
+        <span class="s">Estimated — the lift multiplied by the average basket, not a sum of bills</span></span><span class="state">≈ ₹4,94,000</span></div>
+      <div class="row"><span class="grow"><span class="t">Discount given</span><span class="s">186 of 412 offers used</span></span><span class="state">− ₹73,400</span></div>
+      <div class="row"><span class="grow"><span class="t">Referral commission on the discount</span>
+        <span class="s">Centre absorbs it on this offer</span></span><span class="state">− ₹14,680</span></div>
+      <div class="row"><span class="grow"><span class="t">WhatsApp cost</span>
+        <span class="s">Not counted — Meta bills per 24-hour conversation and we hold no pricing data.
+        1,204 proactive messages were sent.</span></span><span class="state">—</span></div>
+      <div class="row" style="background:#fbfbfb"><span class="grow"><span class="t">Estimated incremental profit</span>
+        <span class="s">Before messaging cost</span></span>
+        <span class="state" style="font-weight:600;color:var(--fg)">₹4,05,920</span></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <p class="seclabel">Where they came</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Same branch as the consultation</span></span><span class="state">174</span></div>
+      <div class="row"><span class="grow"><span class="t">A different branch</span></span><span class="state">34</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">±3.7 points is the honest width at these numbers — this design can detect a six-point
+lift and cannot detect a two-point one, and the owner should know that before making a decision on
+it. Patients skipped by the 7-day cap stay counted as messaged, which understates the lift rather
+than flattering it. Without the held-back group the screen would read <b>621 conversions and ₹14.7
+lakh</b>: every patient who was coming anyway counted as a win, with the discount given away as pure
+margin loss.</p>
+
+<h2><span class="n">13</span>Activity</h2>
+<p class="lead">Six filters, and the one that matters is <b>Why</b> — "show me everyone skipped because
+they already came" is the question an operator actually has, and it is one dropdown.</p>
+<div class="frame">
+  <div class="subtabs"><span>Automations</span><span>Templates</span><span>Offers</span><span class="on">Activity</span></div>
+  <div class="head"><div><h3 class="pt">Activity</h3>
+    <p class="psub">What each automation did, and what it chose not to do.</p></div>
+    <span class="btn sec">Export</span></div>
+  <div class="inline" style="margin-bottom:14px">
+    <span class="inp sel" style="width:200px">All automations</span>
+    <span class="inp sel" style="width:150px">Why: any</span>
+    <span class="inp sel" style="width:130px">Any step</span>
+    <span class="inp sel" style="width:130px">All branches</span>
+    <span class="inp sel" style="width:120px">Last 7 days</span>
+    <span class="inp dim" style="width:160px">Search a patient…</span>
+  </div>
+  <div class="list">
+    <div class="row"><span class="when">Today 6:12 PM</span><span class="grow"><span class="t">Lakshmi N. · Clinic → diagnostics recovery</span>
+      <span class="s">Tests done at Kukatpally · ₹2,400</span></span><span class="badge ok">Stopped — came in</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Today 5:40 PM</span><span class="grow"><span class="t">Padma V. · Clinic → diagnostics recovery</span>
+      <span class="s"><span class="mono">clinic_followup_v1</span> · delivered</span></span><span class="badge run">Sent</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Today 5:40 PM</span><span class="grow"><span class="t">Ramesh K. · Clinic → diagnostics recovery</span>
+      <span class="s">Checked, not messaged</span></span><span class="badge out">Control group</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Today 5:40 PM</span><span class="grow"><span class="t">Sunitha R. · Clinic → diagnostics recovery</span>
+      <span class="s">Has not agreed to offers</span></span><span class="badge run wait">Skipped</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Today 9:58 PM</span><span class="grow"><span class="t">Abdul S. · Report ready, not opened</span>
+      <span class="s">Outside sending hours · will send tomorrow 8:00 AM</span></span><span class="badge run wait">Waiting</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Today 5:41 PM</span><span class="grow"><span class="t">Suresh B. · Bill outstanding over 7 days</span>
+      <span class="s">Clinic → diagnostics recovery took today's slot · will send tomorrow</span></span><span class="badge run wait">Waiting its turn</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Yest. 8:31 PM</span><span class="grow"><span class="t">Vijay M. · Retest booking reply</span>
+      <span class="s">Replied “what is the price” — no button matched</span></span><span class="badge run">Handed to staff</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">Yest. 7:02 PM</span><span class="grow"><span class="t">Kavitha P. · Keyword replies</span>
+      <span class="s">Replied STOP</span></span><span class="badge out">Opted out</span><span class="chev">›</span></div>
+  </div>
+</div>
+
+<h2><span class="n">14</span>One patient's run</h2>
+<p class="lead">Every step taken, in order, with the value read at the time it was read. Each line is
+stored when it happens — nothing here is reconstructed after the fact.</p>
+<div class="frame">
+  <p class="back">← Activity</p>
+  <div class="head">
+    <div><h3 class="pt">Lakshmi N. · P-01847</h3>
+      <p class="psub">Clinic → diagnostics recovery <b>v1</b> · visit 11 Sep, Chintal</p></div>
+    <span class="badge ok">Stopped — came in</span>
+  </div>
+  <div class="list">
+    <div class="row"><span class="when">11 Sep 4:30 PM</span><span class="grow"><span class="t">Enrolled on version 1</span>
+      <span class="s">Age 54 · visit ₹450 · not in the control group · kept v1 when the automation was edited on 2 Aug</span></span></div>
+    <div class="row"><span class="when">11 Sep 4:30 PM</span><span class="grow"><span class="t">Waiting 48 hours</span>
+      <span class="s">Next check 13 Sep, 4:30 PM</span></span></div>
+    <div class="row"><span class="when">13 Sep 4:32 PM</span><span class="grow"><span class="t">Checked — no tests since the visit</span></span></div>
+    <div class="row"><span class="when">13 Sep 4:32 PM</span><span class="grow"><span class="t">Sent <span class="mono">clinic_followup_v1</span></span>
+      <span class="s">+91 98xxxx4471 · delivered 4:32 PM · read 5:58 PM</span></span><span class="badge run good">Read</span></div>
+    <div class="row"><span class="when">13 Sep 6:12 PM</span><span class="grow"><span class="t">Checked — tests done</span>
+      <span class="s">Kukatpally · ₹2,400 · a different branch, which counts</span></span></div>
+    <div class="row" style="background:#fbfbfb"><span class="when">13 Sep 6:12 PM</span><span class="grow"><span class="t">Stopped — came in</span>
+      <span class="s">The reminder and the discount were never sent</span></span></div>
+  </div>
+  <div class="pair" style="margin-top:14px">
+    <div>
+      <p class="seclabel">Why she entered</p>
+      <div class="list">
+        <div class="row" style="padding:9px 13px"><span class="badge run good">✓</span><span style="flex:1"><span class="t">Clinic visit completed</span><span class="s">11 Sep · Chintal · Dr Suresh Kumar</span></span></div>
+        <div class="row" style="padding:9px 13px"><span class="badge run good">✓</span><span style="flex:1"><span class="t">At least 18</span><span class="s">54</span></span></div>
+        <div class="row" style="padding:9px 13px"><span class="badge run good">✓</span><span style="flex:1"><span class="t">Visit at least ₹300</span><span class="s">₹450</span></span></div>
+        <div class="row" style="padding:9px 13px"><span class="badge run good">✓</span><span style="flex:1"><span class="t">Agreed to offers</span><span class="s">4 Jul 2026</span></span></div>
+      </div>
+    </div>
+    <div>
+      <p class="seclabel">Why she stopped</p>
+      <div class="list">
+        <div class="row" style="padding:9px 13px"><span class="badge out">Came in</span><span style="flex:1"><span class="t">Tests done since the visit</span>
+          <span class="s">13 Sep, 6:12 PM · Kukatpally · ₹2,400 · a different branch, which counts</span></span></div>
+        <div class="row" style="padding:9px 13px"><span style="flex:1"><span class="t">Inside the 14-day window</span>
+          <span class="s">Day 2 of 14 — counted as converted</span></span></div>
+        <div class="row" style="padding:9px 13px"><span style="flex:1"><span class="t">Nothing further was sent</span>
+          <span class="s">Day 10 reminder, the RECOVERY15 offer and the Day 15 message were all skipped</span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">The 6:12 PM row is the safety design in one line. A corrected result, a cancelled
+visit, a withdrawn consent — all of it lands between enrolment and send, and the engine re-reads
+rather than trusting what it captured at the start.</p>
+
+<h2><span class="n">15</span>Why she was not messaged</h2>
+<p class="lead">The run screen answers why someone entered and why they stopped. This is the third
+question, and it is the one staff get on the phone: the journey ran, the step came due, and nothing
+arrived.</p>
+<div class="pair">
+  <div class="frame">
+    <div class="head" style="margin-bottom:12px">
+      <div><h3 class="pt" style="font-size:15px">Sunitha Reddy · P-01790</h3>
+        <p class="psub">Clinic → diagnostics recovery · still running</p></div>
+      <span class="badge run wait">Skipped twice</span>
+    </div>
+    <div class="list">
+      <div class="row" style="padding:10px 13px"><span class="when" style="width:70px">13 Sep</span>
+        <span style="flex:1"><span class="t">Day 2 — not sent</span>
+        <span class="s">She has never agreed to offers. Reports and bills still reach her.</span></span></div>
+      <div class="row" style="padding:10px 13px"><span class="when" style="width:70px">21 Sep</span>
+        <span style="flex:1"><span class="t">Day 10 — not sent</span>
+        <span class="s">Same reason. The offer was not issued either.</span></span></div>
+      <div class="row" style="padding:10px 13px;background:#fbfbfb"><span class="when" style="width:70px">26 Sep</span>
+        <span style="flex:1"><span class="t">Day 15 — will be checked again</span>
+        <span class="s">If she agrees to offers before then, it sends normally.</span></span></div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="head" style="margin-bottom:12px">
+      <div><h3 class="pt" style="font-size:15px">Suresh Babu · P-01655</h3>
+        <p class="psub">Clinic → diagnostics recovery · still running</p></div>
+      <span class="badge run wait">Delayed</span>
+    </div>
+    <div class="list">
+      <div class="row" style="padding:10px 13px"><span class="when" style="width:70px">21 Sep</span>
+        <span style="flex:1"><span class="t">Day 10 — held back a day</span>
+        <span class="s"><b>Bill outstanding</b> messaged him that morning, and it is set to High.</span></span></div>
+      <div class="row" style="padding:10px 13px"><span class="when" style="width:70px">22 Sep</span>
+        <span style="flex:1"><span class="t">Day 10 — sent, 8:04 AM</span>
+        <span class="s">Checked first: still no tests since the visit</span></span><span class="badge run">Sent</span></div>
+      <div class="row" style="padding:10px 13px;background:#fbfbfb"><span style="flex:1">
+        <span class="t">Still due on Day 15, not Day 16</span>
+        <span class="s">A delay moves when a step is sent. It never moves when the next one is due.</span></span></div>
+    </div>
+  </div>
+</div>
+<p class="note">Three questions, three answers, one log: <b>why she entered</b>, <b>why she was not
+messaged</b>, <b>why it stopped</b>. All three read the same step log the engine writes as it goes,
+which is the only reason they can be trusted to agree with each other.</p>
+
+<h2><span class="n">16</span>When it breaks</h2>
+<p class="lead">"Paused — template rejected" is a diagnosis, not a next action. This screen answers the
+three questions in order: what happened, who is stuck, and what do I press.</p>
+<div class="frame">
+  <p class="back">← Automations</p>
+  <div class="head">
+    <div><h3 class="pt">Bill outstanding over 7 days</h3>
+      <p class="psub">Paused by the system today at 2:14 PM</p></div>
+    <span class="badge bad">Needs attention</span>
+  </div>
+  <div class="list" style="margin-bottom:16px">
+    <div class="row"><span class="grow"><span class="t">Meta rejected the template <span class="mono">due_reminder_v1</span></span>
+      <span class="s">“Content violates commerce policy” · 12 sends failed in a row before it stopped</span></span></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><b>843</b><span>Waiting mid-run</span></div>
+    <div class="kpi"><b>204</b><span>Failed to send</span></div>
+    <div class="kpi"><b>201</b><span>Skipped meanwhile</span></div>
+  </div>
+  <div class="sec">
+    <p class="seclabel">What happens to them</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">843 are paused where they are</span>
+        <span class="s">They keep their place. Nothing expires while paused.</span></span></div>
+      <div class="row"><span class="grow"><span class="t">204 will retry once the template works</span>
+        <span class="s">Or you can drop them and let the next bill enrol them fresh</span></span></div>
+    </div>
+  </div>
+  <div class="sec">
+    <p class="seclabel">Fix it</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Use a different approved template</span>
+        <span class="s">3 approved utility templates available</span></span><span class="btn sm">Choose</span></div>
+      <div class="row"><span class="grow"><span class="t">Edit and resubmit this one to Meta</span>
+        <span class="s">Approval usually takes a few minutes to a day</span></span><span class="btn sm">Open</span></div>
+      <div class="row"><span class="grow"><span class="t">Stop this automation</span>
+        <span class="s">Cancels all 843 waiting runs</span></span><span class="btn sm dan">Stop</span></div>
+    </div>
+  </div>
+  <div class="foot split"><span class="link">View the 204 failures</span>
+    <span class="btn pri">Resume — 843 will continue</span></div>
+</div>
+<p class="note">A campaign that keeps firing into a rejected template burns the WhatsApp number's
+quality rating for <b>every</b> message the centre sends, report-ready included. That is why the
+system pauses on its own rather than waiting to be noticed, and why the count of who is stuck is on
+the screen instead of a support question.</p>
+
+<h2><span class="n">17</span>Pause and Stop are not the same button</h2>
+<p class="lead">Pausing because the message reads badly means "stop everything, including the 1,842
+people mid-sequence". Pausing because the campaign worked means "stop enrolling, let the rest
+finish". Same word, opposite consequences — so Stop asks.</p>
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>Stop this automation?</h4>
+      <p>1,842 patients are part-way through it.</p></div>
+    <div class="db">
+      <div class="list">
+        <div class="row"><span class="radio on"></span><span class="grow"><span class="t">Pause — stop enrolling, let the 1,842 finish</span>
+          <span class="s">They keep their waits and their checks. Nobody new joins.</span></span></div>
+        <div class="row"><span class="radio"></span><span class="grow"><span class="t">Stop — end the 1,842 runs too</span>
+          <span class="s">The 1,842 are cancelled where they stand. 906 of them were waiting for a reminder they will now never get.</span></span></div>
+      </div>
+    </div>
+    <div class="df"><span></span><span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn dan">Stop automation</span></span></div>
+  </div>
+</div>
+
+<h2><span class="n">18</span>On the patient's own record</h2>
+<p class="lead">Staff never go to Activity and search — the patient is on the phone or at the counter
+and they are already on this page. So the automation goes where its subject already lives: a run is
+anchored to a visit, and it renders <b>on that visit's row</b>. The page structure does not change;
+the timeline row and the inspector each grow one section.</p>
+<div class="frame">
+  <p class="crumb">Patient 360</p>
+  <div class="p360">
+    <span class="btn sm">&larr; Back</span>
+    <div style="flex:1">
+      <div class="nm"><h4>Lakshmi Narasimha</h4><span class="pn">P-01847</span></div>
+      <p class="meta">54y · Female · 98765 44471 · 2 branches</p>
+      <p class="wa2">WhatsApp
+        <span class="badge run good">Reports on</span>
+        <span class="badge run">Offers off</span>
+        <span class="link">change</span></p>
+    </div>
+    <span class="btn sm">Edit</span>
+  </div>
+
+  <div class="glance">
+    <div class="c"><p class="lb2">Outstanding due</p><p class="big">₹0</p><p class="sm2">all settled</p></div>
+    <div class="c"><p class="lb2">Last visit</p><p class="big" style="font-size:14px;font-weight:600">13 Sep 2026</p>
+      <p class="sm2">Diagnostics · Kukatpally</p></div>
+    <div class="c"><p class="lb2">Reports</p><p class="big" style="font-size:14px;font-weight:600">6 ✓ · 1 pending</p>
+      <p class="sm2">7 visits</p></div>
+    <div class="c"><p class="lb2">Actions</p><span class="btn sm pri" style="margin-top:2px">+ New visit</span></div>
+  </div>
+
+  <div class="inline" style="margin-bottom:14px">
+    <span class="inp sel" style="width:150px">All domains</span>
+    <span class="inp sel" style="width:150px">All branches</span>
+    <span class="inp sel" style="width:140px">Any status</span>
+    <span class="inp sel" style="width:150px">Any date</span>
+  </div>
+
+  <div class="cols">
+    <div class="tl">
+      <div class="v">
+        <div class="r1"><b>13 Sep 2026</b><span>Diagnostics · Kukatpally</span></div>
+        <div class="r2">₹2,400 · Paid · Report finalized · Lipid Profile, HbA1c</div>
+        <div class="auto"><span class="badge out">Came in</span>
+          <span>Followed the <span class="nm2">clinic recovery</span> message sent on 13 Sep</span></div>
+      </div>
+      <div class="v sel">
+        <div class="r1"><b>11 Sep 2026</b><span>Clinic · Chintal</span></div>
+        <div class="r2">₹450 · Paid · Dr Suresh Kumar · OP</div>
+        <div class="auto"><span class="badge out">Came in</span>
+          <span><span class="nm2">Clinic → diagnostics recovery</span> · 1 message · stopped 13 Sep</span>
+          <span style="flex:1"></span><span class="chev">›</span></div>
+      </div>
+      <div class="v">
+        <div class="r1"><b>4 Jul 2026</b><span>Diagnostics · Chintal</span></div>
+        <div class="r2">₹1,150 · Paid · Report finalized · CBP, Thyroid Profile</div>
+      </div>
+      <div class="v">
+        <div class="r1"><b>2 Mar 2026</b><span>Clinic · Chintal</span></div>
+        <div class="r2">₹400 · Paid · Dr Suresh Kumar · OP</div>
+        <div class="auto"><span class="badge run">No message</span>
+          <span>The recovery journey did not exist yet</span></div>
+      </div>
+    </div>
+
+    <div class="insp">
+      <div class="ih"><b>Clinic visit · 11 Sep 2026</b><span>Chintal · Dr Suresh Kumar · OP · ₹450</span></div>
+      <div class="sec2"><p class="lb2">Bill</p>
+        <div style="font-size:12.5px;color:var(--mut)">Consultation ₹450 · paid in cash · nothing due</div></div>
+      <div class="sec2"><p class="lb2">Automation</p>
+        <div style="font-size:13px;font-weight:500;margin-bottom:2px">Clinic → diagnostics recovery</div>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:9px">Version 1 · enrolled 11 Sep, 4:30 PM</div>
+        <div class="list">
+          <div class="row" style="padding:7px 11px"><span class="when" style="width:58px">13 Sep</span>
+            <span style="flex:1;font-size:12.5px">Message sent · read at 5:58 PM</span></div>
+          <div class="row" style="padding:7px 11px"><span class="when" style="width:58px">13 Sep</span>
+            <span style="flex:1;font-size:12.5px">Tests done at Kukatpally — journey stopped</span></div>
+        </div>
+        <p style="font-size:11.5px;color:var(--mut);margin:8px 0 0">The Day 10 reminder and the 15%
+          offer were never sent.</p>
+        <span class="btn sm" style="margin-top:9px">See every step</span></div>
+      <div class="sec2"><p class="lb2">Actions</p>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <span class="btn sm">Print bill</span><span class="btn sm">Send again</span>
+          <span class="btn sm dan">Cancel / refund</span></div></div>
+    </div>
+  </div>
+</div>
+<p class="note">A run's subject is the visit that triggered it, so the visit row is where it belongs —
+not a separate "Automations" panel competing with the timeline for the same space. The 2 Mar row shows
+the other case worth rendering: <b>no message, and why</b>. "Did we chase this one?" gets an answer on
+the rows where nothing happened, which is the half most products leave blank.</p>
+
+<h2><span class="n">19</span>A journey that is still running</h2>
+<p class="lead">The finished case is the easy one. The live one is where staff need controls — the
+patient is on the phone saying "stop sending me these" or "send it again, I deleted it", and the
+answer has to be on this page.</p>
+<div class="frame">
+  <p class="crumb">Patient 360 · Lakshmi Narasimha</p>
+  <div class="cols">
+    <div class="tl">
+      <div class="v sel">
+        <div class="r1"><b>20 Sep 2026</b><span>Clinic · Chintal</span></div>
+        <div class="r2">₹450 · Paid · Dr Suresh Kumar · OP</div>
+        <div class="auto"><span class="badge run wait">Running</span>
+          <span><span class="nm2">Clinic → diagnostics recovery</span> · next message 30 Sep</span>
+          <span style="flex:1"></span><span class="chev">›</span></div>
+      </div>
+      <div class="v">
+        <div class="r1"><b>18 Sep 2026</b><span>Diagnostics · Chintal</span></div>
+        <div class="r2">₹800 · <b style="color:var(--dest)">₹800 due</b> · Report finalized</div>
+        <div class="auto"><span class="badge run wait">Running</span>
+          <span><span class="nm2">Bill outstanding</span> · first reminder 25 Sep</span>
+          <span style="flex:1"></span><span class="chev">›</span></div>
+      </div>
+      <div class="v">
+        <div class="r1"><b>13 Sep 2026</b><span>Diagnostics · Kukatpally</span></div>
+        <div class="r2">₹2,400 · Paid · Report finalized</div>
+        <div class="auto"><span class="badge out">Came in</span>
+          <span>Followed the <span class="nm2">clinic recovery</span> message</span></div>
+      </div>
+    </div>
+    <div class="insp">
+      <div class="ih"><b>Clinic visit · 20 Sep 2026</b><span>Chintal · Dr Suresh Kumar · OP · ₹450</span></div>
+      <div class="sec2"><p class="lb2">Automation</p>
+        <div style="font-size:13px;font-weight:500">Clinic → diagnostics recovery</div>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:9px">Version 2 · enrolled 20 Sep, 11:04 AM</div>
+        <div class="list">
+          <div class="row" style="padding:7px 11px"><span class="when" style="width:58px">22 Sep</span>
+            <span style="flex:1;font-size:12.5px">Message sent · delivered, not read</span><span class="badge run">Sent</span></div>
+          <div class="row" style="padding:7px 11px"><span class="when" style="width:58px">30 Sep</span>
+            <span style="flex:1;font-size:12.5px">Reminder + 15% offer</span><span class="badge run wait">Next</span></div>
+          <div class="row" style="padding:7px 11px"><span class="when" style="width:58px">5 Oct</span>
+            <span style="flex:1;font-size:12.5px">Final message, then ends</span><span class="badge run">Planned</span></div>
+        </div>
+        <p style="font-size:11.5px;color:var(--mut);margin:9px 0 0">Before the 30 Sep message it will
+          check again whether she has had the tests. If she has, nothing more is sent.</p>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+          <span class="btn sm">Send it now</span><span class="btn sm">Skip the next one</span>
+          <span class="btn sm dan">Stop for her</span></div>
+        <p style="font-size:11.5px;color:var(--mut);margin:9px 0 0"><b>Stop for her</b> ends this one
+          patient's journey. The automation keeps running for everyone else.</p>
+      </div>
+      <div class="sec2"><p class="lb2">Why is she in this?</p>
+        <div style="font-size:12.5px;color:var(--mut);line-height:1.7">
+          Clinic visit completed ✓<br>Age 54, at least 18 ✓<br>Visit ₹450, at least ₹300 ✓<br>
+          No tests since this visit ✓<br>Agreed to offers ✓</div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">"Stop for her" and "Pause the automation" are one careless click apart and 3,000
+patients different, so they never appear on the same screen — the patient-level action lives here and
+says who it affects in the sentence underneath; the automation-level one lives in Automations and asks
+before it touches anything in flight.</p>
+
+<h2><span class="n">20</span>What the patient is holding</h2>
+<p class="lead">A coupon an automation issued is money the patient is carrying, and the front desk
+usually finds out only if the patient remembers to mention it. It belongs above the timeline, where
+it is seen before the patient speaks — and only when there is one.</p>
+<div class="frame">
+  <p class="crumb">Patient 360 · Lakshmi Narasimha</p>
+  <div class="hold">
+    <span class="code">RCVR-4K9X2</span>
+    <span style="flex:1">
+      <span style="font-size:13px;font-weight:500;display:block">15% off tests, up to ₹1,000</span>
+      <span style="font-size:11.5px;color:var(--mut)">Issued 30 Sep by the recovery journey · expires
+        30 Oct, in 12 days · not used yet</span></span>
+    <span class="btn sm">Send again</span><span class="btn sm">Apply to a bill</span>
+    <span class="btn sm dan">Cancel</span>
+  </div>
+  <div class="tl">
+    <div class="v">
+      <div class="r1"><b>12 Oct 2026</b><span>Diagnostics · Chintal</span></div>
+      <div class="r2">₹2,000 · <span style="color:var(--ok)">₹1,700 paid</span> · Report finalized</div>
+      <div class="auto"><span class="badge out">Offer used</span>
+        <span><span class="nm2">RCVR-4K9X2</span> · −₹300 · staff concession of ₹200 was not applied, the offer was larger</span></div>
+    </div>
+    <div class="v">
+      <div class="r1"><b>30 Sep 2026</b><span>Clinic · Chintal</span></div>
+      <div class="r2">₹450 · Paid · Dr Suresh Kumar · OP</div>
+      <div class="auto"><span class="badge run">Offer issued</span>
+        <span><span class="nm2">RCVR-4K9X2</span> sent with the Day 10 reminder</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">The coupon appears twice on the timeline and that is deliberate: once on the visit
+whose journey <b>issued</b> it, once on the visit that <b>used</b> it. Those are the two ends of the
+attribution chain — visit → run → coupon → bill → revenue — and the Results screen is summing exactly
+this. An offer with nothing live simply does not render the card.</p>
+
+<h2><span class="n">21</span>Every message she has had</h2>
+<p class="lead">"Why did I get this?" asked from the patient's side, not the campaign's. One list,
+every message, and what caused it — a journey, a staff member, or the system.</p>
+<div class="frame">
+  <p class="crumb">Patient 360 · Lakshmi Narasimha · Messages</p>
+  <div class="inline" style="margin-bottom:14px">
+    <span class="inp sel" style="width:180px">Everything</span>
+    <span class="inp sel" style="width:160px">Any time</span>
+    <span style="flex:1"></span>
+    <span class="btn sm">Open conversation</span>
+  </div>
+  <div class="list">
+    <div class="row"><span class="when">22 Sep 11:06 AM</span><span style="flex:1">
+      <span class="t">Follow-up after your clinic visit</span>
+      <span class="s"><span class="mono">clinic_followup_v1</span> · Clinic → diagnostics recovery, Day 2</span></span>
+      <span class="badge run">Delivered</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">18 Sep 7:40 PM</span><span style="flex:1">
+      <span class="t">Your report is ready</span>
+      <span class="s"><span class="mono">lab_report_ready</span> · sent automatically when the report was finalized</span></span>
+      <span class="badge run good">Read</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">18 Sep 7:12 PM</span><span style="flex:1">
+      <span class="t">Your bill</span>
+      <span class="s"><span class="mono">bill_receipt</span> · sent by Priya from the billing screen</span></span>
+      <span class="badge run good">Read</span><span class="chev">›</span></div>
+    <div class="row"><span class="when">13 Sep 5:58 PM</span><span style="flex:1">
+      <span class="t">Follow-up after your clinic visit</span>
+      <span class="s"><span class="mono">clinic_followup_v1</span> · Clinic → diagnostics recovery, Day 2</span></span>
+      <span class="badge run good">Read</span><span class="chev">›</span></div>
+    <div class="row" style="opacity:.62"><span class="when">30 Sep</span><span style="flex:1">
+      <span class="t">Reminder and 15% offer — not sent</span>
+      <span class="s">She had already had the tests, so the journey stopped first</span></span>
+      <span class="badge run">Never sent</span><span class="chev">›</span></div>
+  </div>
+</div>
+<p class="note">The last row is the one worth building. A message that was <b>not</b> sent, and the
+reason, sitting in the same list as the ones that were — that is the difference between a log and an
+explanation, and it is free because the run already wrote the step.</p>
+
+<h2><span class="n">22</span>Consent, in every state it can be in</h2>
+<p class="lead">One boolean cannot carry both purposes. Staff sending a report has always implied
+consent for reports; it has never implied consent to be sold to. Consent is a property of the number,
+so it lives on the line that shows the number — and it has five states, not two.</p>
+<div class="frame" style="position:relative;padding-bottom:190px">
+  <p class="crumb">Normal · offers never asked for</p>
+  <div class="p360" style="border-bottom:0;margin-bottom:0">
+    <span class="btn sm">&larr; Back</span>
+    <div style="flex:1">
+      <div class="nm"><h4>Lakshmi Narasimha</h4><span class="pn">P-01847</span></div>
+      <p class="meta">54y · Female · 98765 44471 · 2 branches</p>
+      <p class="wa2">WhatsApp <span class="badge run good">Reports on</span>
+        <span class="badge run">Offers off</span><span class="link">change</span></p>
+    </div><span class="btn sm">Edit</span>
+  </div>
+  <div class="pop" style="left:150px;top:150px">
+    <p class="ph2">WhatsApp · 98765 44471</p>
+    <div class="row" style="padding:11px 14px"><span style="flex:1"><span class="t">Reports, bills and OTP</span>
+      <span class="s">On since 4 Jul 2026 — when staff first sent her a report</span></span><span class="sw"></span></div>
+    <div class="row" style="padding:11px 14px"><span style="flex:1"><span class="t">Offers and campaigns</span>
+      <span class="s">Never asked. No journey may message her with an offer.</span></span><span class="sw off"></span></div>
+  </div>
+</div>
+
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>Turn off offers for Lakshmi?</h4>
+      <p>She will still get reports, bills and OTP.</p></div>
+    <div class="db">
+      <p class="lbl">Why? — recorded against her record</p>
+      <div class="list" style="margin-bottom:10px">
+        <div class="row" style="padding:9px 12px"><span class="radio on"></span><span style="flex:1"><span class="t">She asked us to stop</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="radio"></span><span style="flex:1"><span class="t">Wrong number</span></span></div>
+        <div class="row" style="padding:9px 12px"><span class="radio"></span><span style="flex:1"><span class="t">Staff judgement</span>
+          <span class="s">Bereavement, a complaint, an ongoing dispute</span></span></div>
+      </div>
+      <div class="safe"><span class="badge run wait">Note</span>
+        <span>She is part-way through <b>1 journey</b>. It will stop for her now.</span></div>
+    </div>
+    <div class="df"><span></span><span style="display:flex;gap:8px"><span class="btn">Cancel</span>
+      <span class="btn pri">Turn off offers</span></span></div>
+  </div>
+</div>
+
+<div class="frame" style="position:relative;padding-bottom:200px">
+  <p class="crumb">She replied STOP herself</p>
+  <div class="p360" style="border-bottom:0;margin-bottom:0">
+    <span class="btn sm">&larr; Back</span>
+    <div style="flex:1">
+      <div class="nm"><h4>Kavitha Prasad</h4><span class="pn">P-01120</span></div>
+      <p class="meta">38y · Female · 99887 21140 · 1 branch</p>
+      <p class="wa2">WhatsApp <span class="badge run good">Reports on</span>
+        <span class="badge run fail">Offers stopped</span><span class="link">change</span></p>
+    </div><span class="btn sm">Edit</span>
+  </div>
+  <div class="pop" style="left:150px;top:150px">
+    <p class="ph2">WhatsApp · 99887 21140</p>
+    <div class="row" style="padding:11px 14px"><span style="flex:1"><span class="t">Reports, bills and OTP</span>
+      <span class="s">On since 2 Feb 2026 · her reports still reach her normally</span></span><span class="sw"></span></div>
+    <div class="row" style="padding:11px 14px"><span style="flex:1"><span class="t">Offers and campaigns</span>
+      <span class="s">She replied <b>STOP</b> on 11 Sep 2026. Staff cannot switch this back on —
+      she can, by replying START.</span></span><span class="lock">Locked</span></div>
+  </div>
+</div>
+
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>Turn off reports, bills and OTP?</h4>
+      <p>This is not the marketing switch.</p></div>
+    <div class="db">
+      <div class="banner" style="margin-bottom:0"><span class="badge bad">Careful</span>
+        <span><b>She will stop receiving her report links and bill links</b>, and will not be able to
+        sign in to the patient app, because the sign-in code is sent here. Reports finalized from now on
+        will have to be handed over or printed at the counter.</span></div>
+    </div>
+    <div class="df"><span class="link">Keep it on</span><span class="btn dan">Turn it off anyway</span></div>
+  </div>
+</div>
+<p class="note">STOP is written straight from the inbound webhook, honoured by every journey, and needs
+no staff action. It is deliberately <b>not staff-reversible</b>: a switch a staff member can flip is
+not an opt-out, it is a suggestion. The staff-initiated switch-off is reversible and carries a reason,
+because it is a different act — someone at the counter acting on the patient's behalf, which is worth
+recording who did and why.</p>
+
+<h2><span class="n">23</span>One phone, two patients</h2>
+<p class="lead">Your own schema says it out loud: <span class="mono">PatientIdentifier</span> notes
+that family members share a number. That makes consent and opt-out two different shapes, and getting
+it wrong sends a mother's opt-out straight past her son's offer.</p>
+<div class="frame">
+  <p class="crumb">Patient 360 · Ramesh Narasimha</p>
+  <div class="p360" style="border-bottom:0;margin-bottom:14px">
+    <span class="btn sm">&larr; Back</span>
+    <div style="flex:1">
+      <div class="nm"><h4>Ramesh Narasimha</h4><span class="pn">P-01848</span></div>
+      <p class="meta">29y · Male · 98765 44471 · <span class="link">shared with 1 other patient</span></p>
+      <p class="wa2">WhatsApp <span class="badge run good">Reports on</span>
+        <span class="badge run fail">Offers blocked</span><span class="link">change</span></p>
+    </div><span class="btn sm">Edit</span>
+  </div>
+  <div class="banner"><span class="badge bad">Blocked</span>
+    <span><b>He agreed to offers, but this number did not.</b> Lakshmi Narasimha (P-01847) replied
+    STOP on 98765 44471 on 11 Sep. No offer will send to this number for anyone.</span></div>
+  <div class="list">
+    <div class="row"><span class="grow" style="flex:1"><span class="t">Lakshmi Narasimha · P-01847</span>
+      <span class="s">54y · Female · replied STOP on 11 Sep</span></span>
+      <span class="badge run good">Reports on</span><span class="badge run fail">Offers stopped</span><span class="chev">›</span></div>
+    <div class="row"><span class="grow" style="flex:1"><span class="t">Ramesh Narasimha · P-01848</span>
+      <span class="s">29y · Male · agreed to offers 2 Aug</span></span>
+      <span class="badge run good">Reports on</span><span class="badge run fail">Offers blocked</span><span class="chev">›</span></div>
+  </div>
+</div>
+<p class="note"><b>Opt-out is per number. Opt-in is per patient.</b> Deliberately asymmetric, and safe
+in both directions: the person who typed STOP owns that handset and should not keep receiving offers
+because a relative shares it, while nobody's consent can be inferred from a relative's. Reports and
+bills are unaffected — they carry a tokenised link, not a finding, and each one is addressed to the
+patient it belongs to.</p>
+
+<h2><span class="n">24</span>Never contact</h2>
+<p class="lead">The worst message this system can send is a screening offer to someone who has died.
+There is no <span class="mono">deceasedAt</span> column today — one nullable field and one line in the
+send path, and it is the cheapest catastrophic-failure insurance in the whole project.</p>
+<div class="frame">
+  <p class="crumb">Patient 360</p>
+  <div class="banner"><span class="badge bad">Deceased</span>
+    <span><b>Recorded 3 Sep 2026 by Priya.</b> No automated message of any kind will be sent — not
+    offers, not reports, not bills. Pending reports can still be printed and handed to the family at
+    the counter.</span></div>
+  <div class="p360" style="border-bottom:0;margin-bottom:14px">
+    <span class="btn sm">&larr; Back</span>
+    <div style="flex:1">
+      <div class="nm"><h4>Venkat Rao</h4><span class="pn">P-00914</span></div>
+      <p class="meta">78y · Male · 90000 11223 · 1 branch</p>
+      <p class="wa2">WhatsApp <span class="badge run fail">All messages stopped</span></p>
+    </div><span class="btn sm">Edit</span>
+  </div>
+  <div class="tl">
+    <div class="v">
+      <div class="r1"><b>1 Sep 2026</b><span>Diagnostics · Chintal</span></div>
+      <div class="r2">₹3,200 · Paid · Report finalized</div>
+      <div class="auto"><span class="badge run">Stopped</span>
+        <span>2 journeys ended on 3 Sep · 1 message was due on 8 Sep and was never sent</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">Recorded from the Edit dialog, beside the identity fields, because that is where staff
+already go when a family tells them. It stops every automated send rather than only marketing —
+a bill reminder to a widow is the same failure as an offer. Everything stays printable at the
+counter, which is how the family actually collects it.</p>
+
+<h2><span class="n">25</span>Offers — list, and creating one</h2>
+<p class="lead">An offer is a resource an automation reaches for. Creating one is short on purpose:
+code, discount, what it applies to, how it is given out, and the budget.</p>
+<div class="frame">
+  <div class="subtabs"><span>Automations</span><span>Templates</span><span class="on">Offers</span><span>Activity</span></div>
+  <div class="head"><div><h3 class="pt">Offers</h3><p class="psub">Discounts an automation can issue, or staff can hand out.</p></div>
+    <span class="btn pri">New offer</span></div>
+  <div class="list">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t mono">RECOVERY15</span>
+      <span class="s">15% off tests · unique per patient · 412 issued, 186 used</span></span>
+      <span class="state">₹73,400 of ₹2,00,000</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t mono">BLOOD_DONATION_2026</span>
+      <span class="s">50% off tests · unique per patient · 88 issued, 61 used</span></span>
+      <span class="state">₹41,200 of ₹1,00,000</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot bad"></span><span class="grow"><span class="t mono">RETEST_2026</span>
+      <span class="s">Budget used up 9 Sep — the automation stopped issuing</span></span>
+      <span class="badge bad">Exhausted</span><span class="chev">›</span></div>
+  </div>
+</div>
+<div class="frame overlay">
+  <div class="dlg sm">
+    <div class="dh"><h4>New offer</h4></div>
+    <div class="db">
+      <div class="inline" style="margin-bottom:12px">
+        <div><span class="lbl">Code</span><span class="inp" style="width:180px">RECOVERY15</span></div>
+        <div><span class="lbl">Discount</span><span class="inp" style="width:70px">15%</span></div>
+      </div>
+      <div class="inline" style="margin-bottom:12px">
+        <div><span class="lbl">Applies to</span><span class="inp sel" style="width:160px">Tests only</span></div>
+        <div><span class="lbl">Expires after</span><span class="inp" style="width:100px">30 days</span></div>
+      </div>
+      <p class="lbl">How it is given out</p>
+      <div class="list" style="margin-bottom:12px">
+        <div class="row" style="padding:8px 12px"><span class="radio on"></span><span class="grow"><span class="t">A different code for each patient</span>
+          <span class="s">Issued by an automation · one use each</span></span></div>
+        <div class="row" style="padding:8px 12px"><span class="radio"></span><span class="grow"><span class="t">One code everyone uses</span>
+          <span class="s">For a poster or a one-off broadcast</span></span></div>
+      </div>
+      <div class="inline">
+        <div><span class="lbl">Total budget</span><span class="inp" style="width:130px">₹2,00,000</span></div>
+        <div><span class="lbl">Most per bill</span><span class="inp" style="width:110px">₹1,000</span></div>
+      </div>
+    </div>
+    <div class="df"><span></span><span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Create</span></span></div>
+  </div>
+</div>
+
+<h2><span class="n">26</span>An offer, and who pays for it</h2>
+<p class="lead">The switch you asked for, as one number the offer carries. The sentence under each
+option is worked from a real referred bill, because "who absorbs the discount" should not require
+reading the payout code.</p>
+<div class="frame">
+  <p class="back">← Offers</p>
+  <div class="head">
+    <div><h3 class="pt mono">RECOVERY15</h3><p class="psub">15% off tests · 30 days · used by 1 automation</p></div>
+    <div style="display:flex;align-items:center;gap:9px"><span class="state">Active</span><span class="sw"></span></div>
+  </div>
+  <div class="kpis four">
+    <div class="kpi"><b>412</b><span>Issued</span></div>
+    <div class="kpi"><b>186</b><span>Used</span></div>
+    <div class="kpi"><b>45%</b><span>Of those issued</span></div>
+    <div class="kpi"><b>₹73,400</b><span>of ₹2,00,000 budget</span></div>
+  </div>
+  <div class="sec">
+    <p class="seclabel">On a referred patient, who pays for the discount</p>
+    <div class="money">
+      <div class="on"><p class="m1"><span class="radio on"></span>We absorb it</p>
+        <p class="m2">Doctor is paid <b>₹400</b> on the full ₹2,000.<br>You keep ₹1,300.<br>The discount costs you all ₹300.</p></div>
+      <div><p class="m1"><span class="radio"></span>Split it</p>
+        <p class="m2">Doctor is paid <b>₹370</b>.<br>You keep ₹1,330.<br>Costs you ₹270, the doctor ₹30.</p></div>
+      <div><p class="m1"><span class="radio"></span>Doctor shares it</p>
+        <p class="m2">Doctor is paid <b>₹340</b> on the ₹1,700 collected.<br>You keep ₹1,360.<br>Costs you ₹240, the doctor ₹60.</p></div>
+    </div>
+    <p class="hint" style="padding:8px 0 0">Worked on a ₹2,000 bill from a doctor at 20%. The payout
+      statement uses the same number.</p>
+  </div>
+  <div class="sec">
+    <p class="seclabel">Limits</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Total budget</span>
+        <span class="s">₹73,400 used · issuing stops when it runs out</span></span><span class="inp" style="width:120px">₹2,00,000</span></div>
+      <div class="row"><span class="grow"><span class="t">Most one bill can be discounted</span></span><span class="inp" style="width:120px">₹1,000</span></div>
+      <div class="row"><span class="grow"><span class="t">Total times it can be used</span></span><span class="inp" style="width:120px">1,000</span></div>
+      <div class="row"><span class="grow"><span class="t">Only the patient it was issued to may use it</span>
+        <span class="s">Off — families share a phone, and someone collecting for a relative is normal here</span></span><span class="sw off"></span></div>
+      <div class="locked-row"><span class="grow"><span class="t">If staff also give a concession, the larger one applies</span>
+        <span class="s">Compared in rupees. The bill shows which was used.</span></span><span class="lock">Fixed</span></div>
+    </div>
+  </div>
+  <div class="foot"><span class="btn pri">Save changes</span></div>
+</div>
+<p class="note">Budget is counted when a coupon is <b>used</b>, not when it is issued — an issued
+coupon is a promise, a used one is money. The per-bill cap is the one that prevents a surprise: 15%
+of a ₹40,000 bill is ₹6,000 unless something says otherwise.</p>
+
+<h2><span class="n">27</span>Templates — list, then one</h2>
+<p class="lead">Meta owns approval; this screen owns knowing. The detail view matters most at the
+moment a template fails, which is why "used by" is on it — that is the list of automations that just
+stopped working.</p>
+<div class="frame">
+  <div class="subtabs"><span>Automations</span><span class="on">Templates</span><span>Offers</span><span>Activity</span></div>
+  <div class="head"><div><h3 class="pt">Templates</h3><p class="psub">What an automation is allowed to say.</p></div>
+    <span class="btn sec">Refresh from Meta</span></div>
+  <div class="list">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t mono">clinic_followup_v1</span>
+      <span class="s">1,204 sent · 0 failed · used by 1 automation</span></span>
+      <span class="badge">Utility</span><span class="badge run good">Approved</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t mono">clinic_followup_reminder_v1</span>
+      <span class="s">412 sent · 3 failed · used by 1 automation</span></span>
+      <span class="badge warn">Marketing</span><span class="badge run good">Approved</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot bad"></span><span class="grow"><span class="t mono">due_reminder_v1</span>
+      <span class="s">Rejected today · 1 automation paused</span></span>
+      <span class="badge warn">Marketing</span><span class="badge run fail">Rejected</span><span class="chev">›</span></div>
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t mono">owner_day_sheet_v2</span>
+      <span class="s">124 sent · 0 failed · used by 2 automations</span></span>
+      <span class="badge">Utility</span><span class="badge run good">Approved</span><span class="chev">›</span></div>
+  </div>
+</div>
+<div class="frame">
+  <p class="back">← Templates</p>
+  <div class="head">
+    <div><h3 class="pt mono">clinic_followup_v1</h3>
+      <p class="psub">Utility · English · synced 13 Sep, 9:02 AM</p></div>
+    <span class="badge run good">Approved</span>
+  </div>
+  <div class="pair" style="grid-template-columns:1fr 320px;gap:18px">
+    <div>
+      <p class="seclabel">Fill the blanks</p>
+      <div class="list" style="margin-bottom:16px">
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{1}}</span><span class="grow"><span class="t">Patient first name</span></span></div>
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{2}}</span><span class="grow"><span class="t">Branch of the visit</span></span></div>
+        <div class="row" style="padding:8px 12px"><span class="mono" style="width:36px">{{3}}</span><span class="grow"><span class="t">Test booking link</span></span></div>
+      </div>
+      <p class="seclabel">Used by</p>
+      <div class="list" style="margin-bottom:16px">
+        <div class="row" style="padding:8px 12px"><span class="dot on"></span><span class="grow"><span class="t">Clinic → diagnostics recovery</span>
+          <span class="s">Step 5 of the sequence</span></span><span class="chev">›</span></div>
+      </div>
+      <p class="seclabel">Health</p>
+      <div class="list">
+        <div class="row" style="padding:8px 12px"><span class="grow"><span class="t">1,204 sent · 1,187 delivered · 0 failed</span>
+          <span class="s">Last 30 days</span></span></div>
+      </div>
+    </div>
+    <div>
+      <p class="seclabel">Preview</p>
+      <div class="wa">
+        <div class="bub">Hi <span class="v">{{1}}</span>,<br><br>
+          Thank you for visiting Sobhana Polyclinic, <span class="v">{{2}}</span>. Your doctor has
+          advised tests that are still pending.<br><br>
+          You can see what was advised and book a time here:<br><span class="v">{{3}}</span>
+          <div class="tm">4:32 PM</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="btn sec">Refresh status</span></div>
+</div>
+<p class="note">No test name and no finding anywhere in the body — a phone is shared, and this message
+must be safe if a son reads his mother's. That rule belongs to the template, not to the campaign, so
+no automation can opt out of it.</p>
+
+<h2><span class="n">28</span>A conversation</h2>
+<p class="lead">A menu, not a chat. Buttons carry the run they belong to, which is the only exact way
+to know who replied on a phone three people share. Free text that matches nothing is not a failure —
+it is the handoff.</p>
+<div class="frame">
+  <p class="back">← Automations</p>
+  <div class="head">
+    <div><h3 class="pt">Retest booking reply</h3><p class="psub">Conversation · WhatsApp</p></div>
+    <div style="display:flex;align-items:center;gap:9px"><span class="btn sm">Pause</span><span class="btn sm dan">Stop</span></div>
+  </div>
+  <div class="list">
+    <div class="row step"><span class="verb">When</span><span class="grow"><span class="t">A retest offer is sent and the patient replies</span>
+      <span class="s">Holds this phone for 24 hours — no other automation may message it</span></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Do</span><span class="grow"><span class="t">Send <span class="mono">retest_offer_v2</span> with three buttons</span></span>
+      <span class="badge warn">Marketing</span><span class="chev">›</span></div>
+    <div class="row sub"><span class="grow"><span class="t">Book a slot</span><span class="s">→ issue the offer and reply with the code</span></span><span class="chev">›</span></div>
+    <div class="row sub"><span class="grow"><span class="t">Not now</span><span class="s">→ stop</span></span><span class="chev">›</span></div>
+    <div class="row sub"><span class="grow"><span class="t">Stop messages</span><span class="s">→ turn off offers, confirm, stop</span></span><span class="chev">›</span></div>
+    <div class="row sub"><span class="grow"><span class="t">Anything else they type</span><span class="s">→ hand to staff</span></span><span class="chev">›</span></div>
+    <div class="row step"><span class="verb">Stop</span><span class="grow"><span class="t">5 days after the code is issued, used or not</span></span><span class="chev">›</span></div>
+  </div>
+</div>
+<p class="note">Typing a free-text answer is only ever allowed as a direct reply in the same moment —
+the patient's message is what opens the window. Anything behind a wait is a template. When the window
+is shut and no template fits, the step hands off to a person rather than dropping silently.</p>
+
+<h2><span class="n">29</span>When a person takes over</h2>
+<p class="lead">Handoff is not "stop everything". A patient mid-conversation with staff must still get
+their report. Offers pause; service messages do not.</p>
+<div class="frame">
+  <p class="crumb">Messages · +91 98xxxx4471</p>
+  <div class="list" style="margin-bottom:14px">
+    <div class="row"><span class="dot on"></span><span class="grow"><span class="t">Priya has this conversation</span>
+      <span class="s">Since 8:31 PM · handed over by “Retest booking reply”</span></span><span class="btn sm">Release</span></div>
+    <div class="locked-row"><span class="grow"><span class="t">Offers paused on this thread</span></span><span class="lock">While held</span></div>
+    <div class="locked-row"><span class="grow"><span class="t">Reports, bills and OTP still sending</span></span><span class="lock">Always</span></div>
+  </div>
+  <div class="list">
+    <div class="row"><span class="when">8:29 PM</span><span class="grow"><span class="t">Automation asked: retest offer, 3 buttons</span></span><span class="badge run">Sent</span></div>
+    <div class="row"><span class="when">8:31 PM</span><span class="grow"><span class="t">“what is the price for the full panel”</span>
+      <span class="s">No button matched</span></span><span class="badge">Handed over</span></div>
+    <div class="row"><span class="when">8:34 PM</span><span class="grow"><span class="t">Priya replied</span></span><span class="badge">Staff</span></div>
+    <div class="row"><span class="when">9:02 PM</span><span class="grow"><span class="t">Report ready for another visit — sent</span></span><span class="badge ok">Sent</span></div>
+  </div>
+</div>
+<p class="note">The run ends at handoff rather than waiting. Releasing the thread does not resume it —
+a stale automation waking up three days into a human conversation is worse than no automation.</p>
+
+<h2><span class="n">30</span>A condition on a result</h2>
+<p class="lead">Not V1, but worth wireframing now because it is the test of whether the engine stayed
+generic. The automation never decides what abnormal means — ranges, age and sex bands and critical
+bounds already live in Clinical Definitions. It does one clinical thing: compare a number to a
+number, and refuse if the unit changed.</p>
+<div class="frame">
+  <div class="sec">
+    <p class="seclabel">Who qualifies</p>
+    <div class="grp">
+      <div class="gh"><span>All of these</span><span class="link">+ Add</span></div>
+      <div class="row"><span class="inp sel" style="width:150px">HbA1c</span>
+        <span class="inp sel" style="width:110px">is above</span>
+        <span class="inp" style="width:66px">7.0</span>
+        <span class="inp sel" style="width:88px">%</span><span class="grow"></span><span class="chev">×</span></div>
+      <div class="row"><span class="inp sel" style="width:150px">Repeat HbA1c</span>
+        <span class="inp sel" style="width:200px">not done since</span><span class="grow"></span><span class="chev">×</span></div>
+    </div>
+    <p class="hint" style="padding:4px 0 0">Normal range 4.0–5.6 % · critical above 10.0 % · for a
+      54-year-old woman. Set in Clinical Definitions.</p>
+  </div>
+  <div class="sec">
+    <p class="seclabel">Reading results</p>
+    <div class="list">
+      <div class="row"><span class="grow"><span class="t">Wait after the report is finalized</span>
+        <span class="s">Gives the lab time to correct a typed value before anyone is messaged</span></span>
+        <span class="inp" style="width:100px">24 hours</span></div>
+      <div class="locked-row"><span class="grow"><span class="t">A critical result leaves the automation</span>
+        <span class="s">The lab is alerted instead</span></span><span class="lock">Always on</span></div>
+      <div class="locked-row"><span class="grow"><span class="t">The unit must still match</span>
+        <span class="s">If HbA1c is ever reported differently, this automation stops instead of comparing the wrong number</span></span><span class="lock">Always on</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">7 is diabetic in % and meaningless in mmol/mol, and nothing in the number says which.
+Storing the unit on the condition turns a catalog change into a loud stop instead of a silent
+inversion of every threshold in every campaign. <span class="mono">TestDefinitionRange</span> and
+<span class="mono">resolveByTestDefinition()</span> already supply all of this — Smart Reports has
+used them for months.</p>
+
+<h2><span class="n">31</span>A one-off broadcast</h2>
+<p class="lead">Every other automation is forward-only and never touches history. A broadcast is the
+opposite: the back-fill is the audience. Your abnormal-result recall sent 527 messages from a script
+because the product had nowhere to put it. This is the one place history is included, so it is the
+one place the confirmation is typed.</p>
+<div class="frame overlay">
+  <div class="dlg">
+    <div class="dh"><h4>Send once, to everyone who matches</h4>
+      <p>This includes patients from the last 18 months, not only new ones.</p></div>
+    <div class="db">
+      <div class="list" style="margin-bottom:12px">
+        <div class="row"><span class="grow"><span class="t">1,847 patients match</span>
+          <span class="s">Counted at 7:42 PM · last visit 90–540 days ago · agreed to offers · has a phone</span></span><span class="btn sm">Review</span></div>
+        <div class="row"><span class="grow"><span class="t">312 will be skipped</span>
+          <span class="s">188 no consent · 71 no phone · 41 messaged this week · 12 opted out</span></span></div>
+        <div class="row"><span class="grow"><span class="t">Sends over about 3 hours</span>
+          <span class="s">Same pace as every other automation, not a burst</span></span></div>
+      </div>
+      <p class="lbl" style="margin-bottom:6px">Type 1,535 to confirm</p>
+      <span class="inp dim" style="width:150px">&nbsp;</span>
+      <div class="summary" style="margin-top:12px">There is no control group on a one-off send, so
+        afterwards this will show a <b>count, not a lift</b>.</div>
+    </div>
+    <div class="df"><span class="link">Save as draft</span>
+      <span style="display:flex;gap:8px"><span class="btn">Cancel</span><span class="btn pri">Send to 1,535</span></span></div>
+  </div>
+</div>
+
+<h2><span class="n">32</span>At the counter</h2>
+<p class="lead">Where the stacking rule is actually met. Today the system blocks the combination and
+the only way out is voiding one — discovered at the counter, with the patient standing there.</p>
+<div class="frame">
+  <p class="crumb">Billing · Lakshmi N.</p>
+  <div class="list" style="max-width:400px;padding:14px 16px">
+    <div class="bline"><span>Tests (4)</span><span>₹2,000</span></div>
+    <div class="bline"><span>Offer <span class="mono">RECOVERY15</span> · 15%</span><span>− ₹300</span></div>
+    <div class="bline strike"><span>Counter concession · ₹200</span><span>− ₹200</span></div>
+    <div class="bline"><span style="color:var(--mut);font-size:12px">The offer is larger, so the concession was not applied.</span><span></span></div>
+    <div class="bline"><span><b>To pay</b></span><span><b>₹1,700</b></span></div>
+  </div>
+</div>
+<p class="note">Both numbers are kept — the smaller is stored as not-applied with its reason — so the
+payout statement and the audit log can each explain the bill later. Nothing is voided, and the staff
+member has a sentence they can say out loud.</p>
+
+<h2><span class="n">33</span>What these screens still do not show</h2>
+<p class="lead">Absent on purpose, each one argued rather than forgotten: a flow canvas · branch nodes ·
+a segment builder · a clinical rule editor · A/B test arms · an intent classifier · message merging ·
+an approval workflow while only the owner has access · anything that would give the centre a second
+definition of "revenue today" beside Pulse's. Ten automations from now, if a branch node is genuinely
+needed three times over, it will be obvious and cheap — steps are an array, and every run carries its
+own frozen copy of the definition.</p>
+
+</div></body></html>

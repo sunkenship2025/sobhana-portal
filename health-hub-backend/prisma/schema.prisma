@@ -277,10 +277,22 @@ model Patient {
   weightKg      Float?
   createdAt     DateTime  @default(now())
 
-  // WhatsApp notification consent
+  // WhatsApp consent — SERVICE messages only (reports, bills, OTP). Staff sending a
+  // report may grant this; it has never implied consent to be marketed to.
   whatsappOptIn       Boolean   @default(false)
   whatsappOptInAt     DateTime?
   whatsappOptInSource String? // PATIENT_REGISTRATION_FORM, STAFF_MANUAL_SEND, POST_FINALIZE_AUTO
+
+  /// MARKETING consent — offers and campaigns. Never granted implicitly. Opt-IN is per
+  /// patient; opt-OUT is per phone number (see PhoneOptOut) because families share handsets.
+  marketingOptIn       Boolean   @default(false)
+  marketingOptInAt     DateTime?
+  marketingOptInSource String? // COUNTER | INBOUND_START | IMPORT
+
+  /// Set when the centre learns a patient has died. Suppresses EVERY automated send —
+  /// not only marketing. A bill reminder to a widow is the same failure as an offer.
+  deceasedAt       DateTime?
+  deceasedByUserId String?
 
   /// Extensible identifiers (phone, email, Aadhar, etc.)
   identifiers PatientIdentifier[]
@@ -642,6 +654,10 @@ model AppSetting {
 /// Visit: Single anchor for all medical data
 /// All tests, results, bills, clinic data references this.
 /// branchId + billNumber is unique per branch (auto-generated sequence).
+/// NOTE: Visit.sourceVisitId is the clinic-visit → diagnostics link. Before it existed,
+/// "did this consultation lead to tests?" was only answerable by a time window, which
+/// counts unrelated walk-ins. See automations/predicates.ts for the asymmetric rule:
+/// suppression stays generous (window), attribution is strict (this column, or a coupon).
 model Visit {
   id                 String      @id @default(cuid())
   branchId           String
@@ -660,6 +676,12 @@ model Visit {
   // finalize; Patient.heightCm survives only as a prefill convenience.
   heightCm Float?
   weightKg Float?
+
+  /// The visit this one came out of. Set at diagnostics registration when the patient
+  /// arrives from a consultation, so "did this consultation lead to tests?" stops being a
+  /// guess. Scalar, not an FK: the automation module stays isolated from core visit FKs,
+  /// and null means "we do not know", never "no".
+  sourceVisitId String?
 
   // Set when the bill / finalized report is printed from the Finalized page.
   // Drives the green "Printed · time" affordance so staff can see at a glance
@@ -716,6 +738,7 @@ model Visit {
   @@index([status])
   @@index([createdAt])
   @@index([patientId, createdAt])
+  @@index([sourceVisitId])
 }
 
 /// Referral: Explicit doctor access control
@@ -752,30 +775,35 @@ model ReferralDoctor_Visit {
 
 /// Bill: Single bill per visit (financial anchor)
 model Bill {
-  id                    String            @id @default(cuid())
-  visitId               String            @unique
-  billNumber            String // Duplicated for direct queries; should match Visit.billNumber
-  branchId              String
-  totalAmountInPaise    Int
-  discountType          BillDiscountType?
-  discountPercentage    Float?
-  discountAmountInPaise Int               @default(0)
-  discountReason        String?
-  discountedByUserId    String? // User who authorized the discount (set when discountAmountInPaise > 0)
+  id                      String            @id @default(cuid())
+  visitId                 String            @unique
+  billNumber              String // Duplicated for direct queries; should match Visit.billNumber
+  branchId                String
+  totalAmountInPaise      Int
+  discountType            BillDiscountType?
+  discountPercentage      Float?
+  discountAmountInPaise   Int               @default(0)
+  discountReason          String?
+  discountedByUserId      String? // User who authorized the discount (set when discountAmountInPaise > 0)
   // Campaign coupon redeemed on this bill — a SEPARATE line from the manual discount above.
-  couponId              String? // Coupon.id redeemed here (scalar link; module kept isolated from core billing FKs)
-  couponCode            String? // snapshot of the code for the printed / WhatsApp bill line
-  couponDiscountInPaise Int               @default(0) // net = total - discountAmountInPaise - couponDiscountInPaise
-  paidAmountInPaise     Int               @default(0)
-  billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
-  paymentStatus         PaymentStatus     @default(PENDING)
-  refundReason          String? // Latest refund reason (bill-level rollup; per-order reasons live on OrderRefund)
-  refundedAt            DateTime? // When the most recent refund was processed; null until a refund exists
-  refundedAmountInPaise Int               @default(0) // Sum of MONEY returned to the patient (drives refund status + stats)
-  reversedChargeInPaise Int               @default(0) // Sum of CHARGE voided off orders (reduces net owed; gross stays intact)
-  refundedByUserId      String? // User who processed the most recent refund (audit; mirrors discountedByUserId)
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  couponId                String? // Coupon.id redeemed here (scalar link; module kept isolated from core billing FKs)
+  couponCode              String? // snapshot of the code for the printed / WhatsApp bill line
+  couponDiscountInPaise   Int               @default(0) // net = total - discountAmountInPaise - couponDiscountInPaise
+  /// When a coupon and a counter concession both applied, the LARGER in rupees wins and
+  /// the loser is recorded here rather than silently dropped — so the payout statement
+  /// and the audit feed can both explain this bill later.
+  rejectedDiscountInPaise Int               @default(0)
+  rejectedDiscountReason  String?
+  paidAmountInPaise       Int               @default(0)
+  billedAt                DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
+  paymentStatus           PaymentStatus     @default(PENDING)
+  refundReason            String? // Latest refund reason (bill-level rollup; per-order reasons live on OrderRefund)
+  refundedAt              DateTime? // When the most recent refund was processed; null until a refund exists
+  refundedAmountInPaise   Int               @default(0) // Sum of MONEY returned to the patient (drives refund status + stats)
+  reversedChargeInPaise   Int               @default(0) // Sum of CHARGE voided off orders (reduces net owed; gross stays intact)
+  refundedByUserId        String? // User who processed the most recent refund (audit; mirrors discountedByUserId)
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
 
   visit            Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
   branch           Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
@@ -809,8 +837,32 @@ model CouponCampaign {
   whatsappTemplate   String // approved template sent on issue, e.g. "blood_donor_reward"
   landingTheme       String           @default("blood_donation") // selects the /c/:token page theme
   isActive           Boolean          @default(true)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+
+  /// How much of this coupon the REFERRING DOCTOR shares, 0-100.
+  ///   0   = the centre absorbs it (commission on the pre-coupon bill)
+  ///  50   = split
+  /// 100   = the doctor shares fully (commission on what was collected)
+  /// One number, three behaviours; read by payoutService so the decision is explicit
+  /// rather than an accident of which column the allocator happened to read.
+  referrerSharePct Int @default(0)
+
+  /// UNIQUE_PER_PATIENT mints at issue. SHARED_CODE (V2) mints at redemption.
+  distribution String @default("UNIQUE_PER_PATIENT")
+
+  /// Only the patient it was issued to may redeem it. Default OFF: families share a
+  /// phone here and someone collecting for a relative is normal.
+  bindToPatient Boolean @default(false)
+
+  /// Liability caps. Budget is counted at REDEMPTION (committed) plus everything live
+  /// and unexpired (reserved) — counting only redemptions lets you issue 3x the budget
+  /// and discover it when redemption catches up.
+  maxRedemptions            Int?
+  maxDiscountBudgetInPaise  Int?
+  maxDiscountPerBillInPaise Int?
+  reservedInPaise           Int      @default(0)
+  committedInPaise          Int      @default(0)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   products BillableProduct[]
   coupons  Coupon[]
@@ -839,6 +891,11 @@ model Coupon {
   redeemedByUserId  String?
   note              String? // free-text staff comment / audit note
   allowedProductIds String[]     @default([]) // BillableProduct ids this coupon discounts; [] = all in-scope tests (campaign scope)
+  /// Automation attribution. (automationRunId, automationStep) carries a partial UNIQUE
+  /// index so a replayed step returns this coupon instead of minting a second one
+  /// against the same budget.
+  automationRunId   String?
+  automationStep    Int?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -849,13 +906,19 @@ model Coupon {
   @@index([patientId])
   @@index([phone])
   @@index([expiresAt])
+  @@index([automationRunId])
 }
 
 enum CouponStatus {
+  /// Minted, budget reserved, message not yet confirmed sent. Swept back to VOID if the
+  /// send fails, so a failed send never leaves a live code behind.
+  PENDING
   ISSUED
   REDEEMED
   EXPIRED
   VOID
+  /// The redeeming order was cancelled or refunded — the discount came back with it.
+  REFUNDED
 }
 
 enum CouponScope {
@@ -1345,24 +1408,35 @@ enum PatientChangeType {
 /// MessageLog: Track all outbound messages (WhatsApp, SMS)
 /// Generic enough for reports, bills, reminders, campaigns — contextType + contextId
 model MessageLog {
-  id             String             @id @default(cuid())
-  patientId      String? // null for non-patient recipients (e.g. payout statements to doctors/labs)
-  phone          String
-  channel        MessageChannel // WHATSAPP | SMS
-  templateName   String // e.g., lab_report_ready, bill_receipt
-  templateParams Json? // Template variable values
-  waMessageId    String? // WhatsApp Cloud API message ID
-  status         MessageStatus      @default(PENDING)
-  failureReason  String?
-  errorCode      String? // Meta WhatsApp error code (e.g. "131026") on FAILED rows; null otherwise
-  sentAt         DateTime?
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  contextType    MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
-  contextId      String // visitId, billId, etc.
-  branchId       String? // Branch the message belongs to, derived from the visit at send time; null for historical rows
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  id               String             @id @default(cuid())
+  patientId        String? // null for non-patient recipients (e.g. payout statements to doctors/labs)
+  phone            String
+  channel          MessageChannel // WHATSAPP | SMS
+  templateName     String // e.g., lab_report_ready, bill_receipt
+  templateParams   Json? // Template variable values
+  waMessageId      String? // WhatsApp Cloud API message ID
+  status           MessageStatus      @default(PENDING)
+  failureReason    String?
+  errorCode        String? // Meta WhatsApp error code (e.g. "131026") on FAILED rows; null otherwise
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  contextType      MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
+  contextId        String // visitId, billId, etc.
+  /// Automation attribution. Together with stepIndex this is the send-idempotency key —
+  /// a partial UNIQUE index (WHERE "automationRunId" IS NOT NULL) makes a replayed tick
+  /// find this row instead of sending twice.
+  automationRunId  String?
+  automationStep   Int?
+  /// Meta's classification AT SEND TIME. Known by whatsappCloudService for template
+  /// management and previously thrown away; without it the consent split is unenforceable.
+  templateCategory String? // UTILITY | MARKETING | AUTHENTICATION
+  /// Snapshot of the template body as it read when sent. Meta edits templates in place
+  /// with no version id, so without this the message a patient received is unrecoverable.
+  templateBody     String?
+  branchId         String? // Branch the message belongs to, derived from the visit at send time; null for historical rows
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   patient Patient? @relation(fields: [patientId], references: [id], onDelete: Restrict)
   branch  Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -1373,6 +1447,8 @@ model MessageLog {
   @@index([status])
   @@index([createdAt])
   @@index([branchId])
+  @@index([patientId, templateCategory, createdAt])
+  @@index([automationRunId])
 }
 
 // ============================================================================
@@ -1851,6 +1927,9 @@ model DiagnosticCenter_Visit {
 /// TestDefinition: Versioned clinical test definition (replaces LabTest for new data)
 /// Uses clone-on-edit semantics: active version is isLatest=true.
 /// Status lifecycle: ACTIVE → LOCKED → DEPRECATED → ARCHIVED
+/// NOTE: retestIntervalDays lives here, beside the reference ranges, because "how often
+/// should this be repeated" is a clinical decision belonging to the clinicians who set the
+/// ranges — not hard-coded in an automation as "thyroid = 90 days".
 model TestDefinition {
   id                String               @id @default(cuid())
   rootDefinitionId  String // Points to first version's ID (groups versions)
@@ -1864,6 +1943,9 @@ model TestDefinition {
   sampleType    String? // e.g., "Blood", "Serum", "Urine"
   method        String? // e.g., "ECLIA", "GOD-POD"
   referenceUnit String? // e.g., "g/dL", "mg/dL"
+  /// How often this test should be repeated, in days. Null = no schedule. Read by the
+  /// automation engine so "due in 7 days" is generic instead of "thyroid = 90" hard-coded.
+  retestIntervalDays Int?
   departmentId  String?
 
   // Default reference range (fallback if no age/gender-specific range matches)
@@ -2436,4 +2518,142 @@ model DaySheetAccessToken {
 
   @@index([branchId, sheetDate])
   @@index([expiresAt])
+}
+
+// ============================================================================
+// AUTOMATIONS ENGINE
+//
+// Generalises ScheduledMessageRun. The safety property is the one the day sheet
+// already relies on: a UNIQUE key claimed BEFORE the side effect, so a redeploy,
+// a restart, a slow tick or a second instance cannot act twice.
+//
+// Deliberately absent: a DAG, branch nodes, a rule DSL, a segment entity and an
+// AutomationVersion table. Steps are an array with stepIndex on the run, and the
+// run carries a FROZEN copy of the definition — which is the whole versioning
+// story, with no joins and no lifecycle.
+// ============================================================================
+
+/// One automation. `definition` is the EDITABLE copy; a run freezes it at enrolment.
+model Automation {
+  id    String @id @default(cuid())
+  key   String @unique // CLINIC_TO_DX_RECOVERY, DAY_SHEET_DIAGNOSTICS
+  name  String
+  group String // Patient journeys | Conversations | Reports to your team
+  /// trigger + reentry + audience + goal + steps. Shape in services/automations/types.ts.
+  definition Json
+  /// Bumped on each activation and copied to the run, so Results can group by it and an
+  /// in-flight run is never silently moved onto new rules.
+  version    Int       @default(1)
+  enabled    Boolean   @default(false)
+  /// The watermark. Runs enrol only subjects created AFTER this instant — the alternative
+  /// is a first save that silently messages six months of history. Null = never activated.
+  activatedAt DateTime?
+  /// 0-20. Frozen at activation; changing it later does not re-bucket anyone.
+  holdoutPct Int      @default(0)
+  /// 1-5. Breaks contention when two proactive journeys want the same patient today.
+  priority   Int      @default(3)
+  branchIds  String[] @default([])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  runs AutomationRun[]
+
+  @@index([enabled])
+}
+
+/// One patient's journey through one automation, anchored to ONE triggering entity.
+/// Three clinic visits are three runs; conditions read the run's own subject, so
+/// "diagnostics for THIS visit" cannot silently become "diagnostics ever".
+model AutomationRun {
+  id           String @id @default(cuid())
+  automationId String
+  /// Copied at enrolment. The run keeps its rules even when the automation is edited.
+  version      Int
+  subjectType  String // PATIENT | VISIT | TEST_ORDER | REPORT_VERSION | COUPON
+  subjectId    String
+  /// Re-entry, idempotency and dedup in one string: visitId | '2026-09' | 'once'.
+  cycleKey     String
+  /// PINNED at enrolment. Never re-derived from a phone number — that is the live
+  /// misattribution bug in webhooks.ts:345, and this column is how it stops.
+  patientId    String?
+  branchId     String?
+  /// FROZEN copy of Automation.definition.
+  definition   Json
+  stepIndex    Int      @default(0)
+  state        String   @default("PENDING") // PENDING | RUNNING | DONE | STOPPED | FAILED
+  stopReason   String?
+  /// hash(automationId + patientId) — keyed on the PATIENT, never the subject, or the same
+  /// person lands in different arms on different visits and both are contaminated.
+  holdout      Boolean  @default(false)
+  attempts     Int      @default(0)
+  /// The instant the trigger fired. Every anchored wait and the conversion window are
+  /// measured from HERE, never from the send — the held-back arm has no send to measure from.
+  triggeredAt           DateTime
+  nextActionAt          DateTime?
+  /// Set when the goal is met. A claim the reconciliation sweep can revoke: visit completion
+  /// is not monotonic here (reopenVisitForEntry) and orders get refunded.
+  convertedAt           DateTime?
+  convertedBranchId     String?
+  convertedValueInPaise Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  automation Automation          @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  steps      AutomationStepLog[]
+
+  /// The whole re-entry section, as one index.
+  @@unique([automationId, subjectId, cycleKey])
+  /// The ticker's only query.
+  @@index([state, nextActionAt])
+  @@index([automationId, state])
+  @@index([patientId])
+  @@index([convertedAt])
+}
+
+/// Append-only. This IS the Activity screen and the "why was she not messaged" answer —
+/// nothing is reconstructed at read time, including the steps that chose to do nothing.
+model AutomationStepLog {
+  id        String @id @default(cuid())
+  runId     String
+  stepIndex Int
+  kind      String // ENROLLED | WAIT | CHECK | SEND | SUPPRESSED | DEFERRED | COUPON | HANDOFF | STOPPED | REVERSED | FAILED
+  /// The reason code. Always present, never null — an empty outcome is a bug.
+  outcome      String
+  /// The VALUES read at the moment of the decision, so "why" survives a later data change.
+  detail       Json?
+  messageLogId String?
+  at           DateTime @default(now())
+
+  run AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, at])
+  @@index([at])
+}
+
+/// At most one automation may hold a phone line at a time. The single-column primary key
+/// IS the feature: correlation without heuristics, and a second automation wanting the line
+/// is refused by the database rather than by a convention.
+model AwaitingReply {
+  phone           String @id // normalized "919876543210"
+  automationRunId String @unique
+  /// PINNED when the question was asked, so the reply is attributed to whoever was actually
+  /// asked — not to whoever the newest outbound message happened to name.
+  patientId String
+  expiresAt DateTime
+  /// { buttons: { "<payload>": stepIndex }, keywords: [{ match, stepIndex }] }
+  match     Json
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+/// STOP is per NUMBER, not per patient. PatientIdentifier documents that families share a
+/// handset, so a per-patient column cannot express "this phone said stop".
+/// Opt-OUT is broad, opt-IN is narrow — asymmetric on purpose, and safe in both directions.
+model PhoneOptOut {
+  phone      String   @id // normalized "919876543210"
+  optedOutAt DateTime @default(now())
+  source     String // INBOUND_STOP | STAFF | IMPORT
+  byUserId   String? // staff-initiated only
+  reason     String?
 }

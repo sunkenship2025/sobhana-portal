@@ -141,6 +141,121 @@ router.post('/:id/simulate', async (req: AuthRequest, res) => {
   } catch (e) { return fail(res, e); }
 });
 
+router.post('/', async (req: AuthRequest, res) => {
+  try {
+    const { key, name, group, definition } = req.body ?? {};
+    if (!key || !name || !definition) return res.status(400).json({ error: 'KEY_NAME_DEFINITION_REQUIRED' });
+    // Created DISABLED with no watermark. An automation that could message anyone the
+    // moment it is saved is one slip away from a campaign nobody approved.
+    const a = await prisma.automation.create({
+      data: {
+        key, name, group: group ?? 'Patient journeys',
+        definition: definition as object,
+        enabled: false, activatedAt: null,
+        holdoutPct: req.body.holdoutPct ?? 0,
+        priority: req.body.priority ?? 3,
+        branchIds: req.body.branchIds ?? [],
+      },
+    });
+    return res.status(201).json(a);
+  } catch (e) { return fail(res, e); }
+});
+
+/**
+ * Consent, for the Patient 360 header. Two switches, not one: opt-IN is per patient,
+ * opt-OUT is per phone. A patient who replied STOP cannot be switched back on from
+ * here — a switch a staff member can flip is not an opt-out, it is a suggestion.
+ */
+router.get('/consent/:patientId', async (req: AuthRequest, res) => {
+  try {
+    const p = await prisma.patient.findUnique({
+      where: { id: req.params.patientId },
+      select: {
+        id: true, whatsappOptIn: true, whatsappOptInAt: true,
+        marketingOptIn: true, marketingOptInAt: true, marketingOptInSource: true,
+        deceasedAt: true,
+        identifiers: { where: { type: 'PHONE' }, select: { value: true, isPrimary: true } },
+      },
+    });
+    if (!p) return res.status(404).json({ error: 'NOT_FOUND' });
+    const phone = p.identifiers.find((i) => i.isPrimary)?.value ?? p.identifiers[0]?.value ?? null;
+    const optOut = phone
+      ? await prisma.phoneOptOut.findUnique({ where: { phone } })
+      : null;
+    // Everyone else on this handset, because the opt-out applies to all of them.
+    const sharedWith = phone
+      ? await prisma.patientIdentifier.count({ where: { type: 'PHONE', value: phone } })
+      : 0;
+    return res.json({
+      phone,
+      service: { on: p.whatsappOptIn, since: p.whatsappOptInAt },
+      marketing: {
+        on: p.marketingOptIn && !optOut,
+        since: p.marketingOptInAt,
+        source: p.marketingOptInSource,
+        blockedByPhoneOptOut: !!optOut,
+        optedOutAt: optOut?.optedOutAt ?? null,
+        optedOutSource: optOut?.source ?? null,
+        /// Only the patient can lift an inbound STOP, by replying START.
+        staffCanReEnable: optOut?.source !== 'INBOUND_STOP',
+      },
+      deceasedAt: p.deceasedAt,
+      phoneSharedWithPatients: sharedWith,
+    });
+  } catch (e) { return fail(res, e); }
+});
+
+router.put('/consent/:patientId', async (req: AuthRequest, res) => {
+  try {
+    const { marketingOptIn, reason } = req.body ?? {};
+    if (typeof marketingOptIn !== 'boolean') return res.status(400).json({ error: 'MARKETING_OPT_IN_REQUIRED' });
+
+    const p = await prisma.patient.findUnique({
+      where: { id: req.params.patientId },
+      select: { identifiers: { where: { type: 'PHONE' }, select: { value: true, isPrimary: true } } },
+    });
+    if (!p) return res.status(404).json({ error: 'NOT_FOUND' });
+    const phone = p.identifiers.find((i) => i.isPrimary)?.value ?? p.identifiers[0]?.value ?? null;
+
+    if (phone) {
+      const existing = await prisma.phoneOptOut.findUnique({ where: { phone } });
+      if (existing?.source === 'INBOUND_STOP' && marketingOptIn) {
+        return res.status(409).json({ error: 'PATIENT_OPTED_OUT_BY_REPLY' });
+      }
+    }
+
+    await prisma.patient.update({
+      where: { id: req.params.patientId },
+      data: marketingOptIn
+        ? { marketingOptIn: true, marketingOptInAt: new Date(), marketingOptInSource: 'COUNTER' }
+        : { marketingOptIn: false },
+    });
+
+    if (!marketingOptIn && phone) {
+      await prisma.phoneOptOut.upsert({
+        where: { phone },
+        create: { phone, source: 'STAFF', byUserId: req.user?.id ?? null, reason: reason ?? null },
+        update: { source: 'STAFF', byUserId: req.user?.id ?? null, reason: reason ?? null, optedOutAt: new Date() },
+      });
+      // A patient part-way through a journey stops there rather than keeping a place
+      // in something they have just asked to leave.
+      await prisma.automationRun.updateMany({
+        where: { patientId: req.params.patientId, state: { in: ['PENDING', 'RUNNING'] } },
+        data: { state: 'STOPPED', stopReason: 'PHONE_OPTED_OUT', nextActionAt: null },
+      });
+    } else if (marketingOptIn && phone) {
+      await prisma.phoneOptOut.deleteMany({ where: { phone, source: { not: 'INBOUND_STOP' } } });
+    }
+
+    await logAction({
+      branchId: req.branchId!, actionType: 'UPDATE', entityType: 'Patient',
+      entityId: req.params.patientId, userId: req.user?.id,
+      newValues: JSON.stringify({ marketingOptIn, reason: reason ?? null }),
+    });
+    return res.json({ ok: true });
+  } catch (e) { return fail(res, e); }
+});
+
 /** Saving never activates. Activation is its own act, with its own confirmation. */
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
