@@ -484,6 +484,16 @@ const SYNONYMS: Concept[] = [
   { term: 'scans', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders, excluding Laboratory — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
   { term: 'imaging', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
   { term: 'radiology', dimension: 'service_kind', value: 'IMAGING', meaning: 'the imaging orders, same as scans — EXACTLY these payout categories: Ultrasound, Ultrasound Tiffa, 2D Echo, X-Ray, Dental X-Ray, CT / MRI. Filter with the service_kind dimension, or list all six; never a subset', source: 'glossary' },
+  /* WHAT THE ANALYST ACTUALLY ASKED FOR AND WAS TOLD DID NOT EXIST. Replaying the chat logs,
+     resolve() was called on "modality" and "computed tomography" and both came back empty — so
+     the layer denied the existence of one of its own dimensions, and of the words CT stands for,
+     in the middle of a question about a CT scanner. Neither is an exotic term; both were simply
+     never written down. A concept index built from data VALUES cannot discover the name of the
+     dimension those values sit in, or the expansion of an abbreviation nobody stores. */
+  { term: 'computed tomography', dimension: 'modality', value: 'CT / MRI', meaning: 'CT — computed tomography. The CT / MRI modality', source: 'glossary', family: 'IMAGING' },
+  { term: 'ct scan', dimension: 'modality', value: 'CT / MRI', meaning: 'CT imaging — the CT / MRI modality, NOT the CT lab code for Clotting Time', source: 'glossary', family: 'IMAGING' },
+  { term: 'mri', dimension: 'modality', value: 'CT / MRI', meaning: 'MRI — grouped with CT in the CT / MRI modality', source: 'glossary', family: 'IMAGING' },
+  { term: 'modality', dimension: null, value: null, meaning: 'the kind of imaging or lab work an order is: Ultrasound, X-Ray, CT / MRI, ECG / Cardiology or Laboratory. Break down or filter with the "modality" dimension', source: 'glossary' },
   { term: 'ultrasound', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound orders, including Tiffa and 2D Echo (a cardiac ultrasound)', source: 'glossary' },
   { term: 'usg', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound — including Tiffa and 2D Echo', source: 'glossary' },
   { term: 'x-ray', dimension: 'modality', value: 'X-Ray', meaning: 'x-ray orders, including dental x-ray', source: 'glossary' },

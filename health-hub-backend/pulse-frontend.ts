@@ -71,13 +71,19 @@ const check = (name: string, good: boolean, detail = '') => {
   check('a stated window always reaches the spec', badWindow === 0, `${badWindow} dropped`);
 
   // the two collisions that defined this week, asserted directly
+  /* Assert on what a term RESOLVED TO, never on the prose describing it. The first version of
+     this matched /clotting/ against the meaning text — and then failed the moment a concept was
+     added whose meaning helpfully says "NOT the CT lab code for Clotting Time". The resolution
+     was right and the test was reading the explanation. The lab test is dimension=test, value=CT;
+     that pair is the fact, and the sentence around it is not. */
+  const isClottingTime = (t: any) => t.dimension === 'test' && String(t.value).toUpperCase() === 'CT';
   const ctScan = termsIn('do u think the 50 lakhs on ct scan machine will be worth it');
   check('CT in a scanner question is never CLOTTING TIME',
-    !ctScan.some((t: any) => /clotting/i.test(String(t.meaning))),
-    ctScan.map((t: any) => t.meaning).join(' | ').slice(0, 80));
+    !ctScan.some(isClottingTime),
+    ctScan.map((t: any) => `${t.dimension}=${t.value}`).join(' | ').slice(0, 80));
   const ctLab = termsIn('what is the clotting time test volume');
   check('CLOTTING TIME still resolves in a lab question',
-    ctLab.some((t: any) => /clotting/i.test(String(t.meaning))));
+    ctLab.some((t: any) => /clotting/i.test(String(t.meaning)) || isClottingTime(t)));
   const ninety = completeSpec({ goal: '', scope: [] } as any, 'imaging commission last 90 days');
   check('"last 90 days" is 90 days, not 30', ninety?.time?.period === 'last-90-days', String(ninety?.time?.period));
 
