@@ -35,6 +35,8 @@ export type Step =
       kind: 'SEND'; template: string; language?: string; params: ParamBinding[];
       intent: 'REACTIVE' | 'PROACTIVE'; issueOffer?: { campaignId: string };
     }
+  /** The nightly day sheet: owner recipient, generated link, no patient machinery. */
+  | { kind: 'DAY_SHEET'; domain: 'DIAGNOSTICS' | 'CLINIC' }
   | { kind: 'STOP'; reason: string };
 
 export interface AutomationDefinition {
@@ -288,3 +290,18 @@ export const vocabOf = (code: string): Vocab =>
 
 export const rupees = (paise: number | null | undefined) =>
   paise == null ? '—' : `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+// ── Condition vocabulary ────────────────────────────────────────────────────
+
+export interface PredicateMeta {
+  fn: string;
+  label: string;
+  group: 'Diagnostics' | 'Visit' | 'Patient' | 'Money';
+  returns: 'BOOLEAN' | 'NUMBER' | 'TEXT';
+  scope?: string;
+  unit?: 'RUPEES' | 'DAYS' | 'YEARS';
+  help?: string;
+}
+/** Served by the backend so a predicate that does not exist can never be offered. */
+export const listPredicates = () =>
+  apiRequest<{ predicates: PredicateMeta[] }>(`${AUT}/predicates`);

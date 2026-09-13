@@ -15,7 +15,7 @@ import {
   listAutomations, automationResults, activity, runDetail, patientAutomations,
 } from '../services/automations/queries';
 import { dryRun, simulate } from '../services/automations/preview';
-import { unknownPredicates } from '../services/automations/predicates';
+import { unknownPredicates, PREDICATE_CATALOG } from '../services/automations/predicates';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 
@@ -34,6 +34,12 @@ router.get('/', async (_req: AuthRequest, res) => {
 
 router.get('/templates', async (_req: AuthRequest, res) => {
   try { return res.json({ templates: await listMessageTemplates() }); }
+  catch (e) { return fail(res, e); }
+});
+
+/** What the condition builder may offer. Served, never hardcoded in the frontend. */
+router.get('/predicates', async (_req: AuthRequest, res) => {
+  try { return res.json({ predicates: PREDICATE_CATALOG }); }
   catch (e) { return fail(res, e); }
 });
 

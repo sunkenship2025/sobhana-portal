@@ -38,12 +38,12 @@ export const DAY_SHEET = 'DAY_SHEET';
 const TEMPLATE = 'owner_day_sheet_v2';
 
 /** How late a missed night may still be sent, in minutes. */
-const GRACE_MINUTES = 8 * 60;
+export const GRACE_MINUTES = 8 * 60;
 
 // IST is UTC+5:30 with no DST, so a fixed offset is exact — no tz library.
 const IST_OFFSET_MIN = 330;
 
-function istParts(now: Date): { date: string; minutes: number } {
+export function istParts(now: Date): { date: string; minutes: number } {
   const ist = new Date(now.getTime() + IST_OFFSET_MIN * 60_000);
   return {
     date: ist.toISOString().slice(0, 10),
@@ -51,7 +51,7 @@ function istParts(now: Date): { date: string; minutes: number } {
   };
 }
 
-function previousDate(dateKey: string): string {
+export function previousDate(dateKey: string): string {
   const d = new Date(`${dateKey}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);

@@ -25,12 +25,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingState } from '@/components/ui/loading-state';
 import { toast } from 'sonner';
 import { AutomationBuilder } from './AutomationBuilder';
+import { ConditionBuilder } from './ConditionBuilder';
+import { SimulateDialog } from './SimulateDialog';
 import { AutomationResults } from './AutomationResults';
 import { ActivityTab } from './ActivityTab';
 import {
   getAutomation, listTemplates, saveAutomation, activateAutomation, pauseAutomation,
   stopAutomation, previewAutomation, simulateAutomation, reasonLabel,
-  type Automation, type Step,
+  type Automation, type Step, type TemplateSummary,
 } from './api';
 
 export function AutomationDetail({ id, onBack }: { id: string; onBack: () => void }) {
@@ -39,6 +41,8 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
   const [draft, setDraft] = useState<Partial<Automation>>({});
   const [editStep, setEditStep] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showAudience, setShowAudience] = useState(false);
+  const [showSimulate, setShowSimulate] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
 
@@ -129,14 +133,20 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
               <Button variant="outline" size="sm" disabled={pause.isPending} onClick={() => pause.mutate()}>
                 Pause
               </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
               <Button variant="outline" size="sm" className="text-destructive"
                 onClick={() => setConfirmStop(true)}>Stop</Button>
             </>
           ) : (
-            <Button size="sm" onClick={() => setConfirmActivate(true)}>Activate</Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
+              <Button size="sm" onClick={() => setConfirmActivate(true)}>Activate</Button>
+            </>
           )}
         </div>
       </div>
+
+      {tab === 'setup' && <BrokenTemplateNotice automation={automation} templates={templates?.templates ?? []} />}
 
       {tab === 'setup' && (
         <>
@@ -146,6 +156,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
             onChange={(patch) => setDraft({ ...draft, ...patch })}
             onEditStep={setEditStep}
             onPreview={() => setShowPreview(true)}
+            onEditAudience={() => setShowAudience(true)}
           />
           {dirty && (
             <div className="flex justify-end gap-2">
@@ -173,6 +184,18 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
       />
 
       <PreviewDialog id={id} open={showPreview} onClose={() => setShowPreview(false)} />
+
+      <ConditionBuilder
+        open={showAudience}
+        condition={automation.definition.audience}
+        onClose={() => setShowAudience(false)}
+        onSave={(audience) => {
+          setDraft({ ...draft, definition: { ...automation.definition, audience } });
+          setShowAudience(false);
+        }}
+      />
+
+      <SimulateDialog id={id} open={showSimulate} onClose={() => setShowSimulate(false)} />
 
       <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
         <AlertDialogContent>
@@ -202,6 +225,45 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
         onClose={() => setConfirmActivate(false)}
         onConfirm={() => activate.mutate()} pending={activate.isPending}
       />
+    </div>
+  );
+}
+
+/**
+ * "Paused — template rejected" is a diagnosis, not a next action. This answers the
+ * three questions in order: what happened, who is stuck, and what do I press.
+ */
+function BrokenTemplateNotice({ automation, templates }: {
+  automation: Automation;
+  templates: TemplateSummary[];
+}) {
+  const broken = automation.definition.steps
+    .filter((s): s is Extract<Step, { kind: 'SEND' }> => s.kind === 'SEND')
+    .map((s) => ({ step: s, t: templates.find((x) => x.name === s.template) }))
+    .filter(({ t }) => !t || t.status !== 'APPROVED');
+
+  if (broken.length === 0 || templates.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+      <p className="text-sm font-semibold">
+        {broken.length === 1 ? 'A message in this journey cannot be sent' : 'Messages in this journey cannot be sent'}
+      </p>
+      <ul className="mt-1.5 space-y-0.5 text-sm text-muted-foreground">
+        {broken.map(({ step, t }) => (
+          <li key={step.template}>
+            <code className="rounded bg-background px-1 text-xs">{step.template}</code>
+            {' — '}
+            {t ? `Meta says ${t.status.toLowerCase()}` : 'not found in your templates'}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Journeys already running keep their place and nothing expires while this is unresolved.
+        Pick an approved template on the step, or fix it with Meta and refresh — a journey that
+        kept firing into a rejected template would burn the number's quality rating for every
+        message the centre sends, report-ready included.
+      </p>
     </div>
   );
 }

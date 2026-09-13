@@ -228,3 +228,43 @@ export function unknownPredicates(condition: Condition, found: string[] = []): s
 }
 
 export const UNIT_MISMATCH_OUTCOME = Outcome.UNIT_MISMATCH;
+
+/**
+ * What the condition builder is allowed to offer, in the words an operator uses.
+ *
+ * Served to the UI rather than hardcoded there, so a predicate added here appears in
+ * the builder without anyone remembering to edit a TypeScript array in the frontend —
+ * and one that does NOT exist can never be offered.
+ *
+ * `scope` is the half that matters: "since this visit" and "ever" are different
+ * business rules, and which one a condition means is the difference between chasing a
+ * patient who never went and one who went last year.
+ */
+export interface PredicateMeta {
+  fn: string;
+  label: string;
+  group: 'Diagnostics' | 'Visit' | 'Patient' | 'Money';
+  /** BOOLEAN takes no operator; the others are compared. */
+  returns: 'BOOLEAN' | 'NUMBER' | 'TEXT';
+  scope?: string;
+  unit?: 'RUPEES' | 'DAYS' | 'YEARS';
+  help?: string;
+}
+
+export const PREDICATE_CATALOG: PredicateMeta[] = [
+  { fn: 'testDoneSinceThisVisit', label: 'Tests done', group: 'Diagnostics', returns: 'BOOLEAN',
+    scope: 'since this visit',
+    help: 'Any diagnostics after the triggering visit, including a walk-in we did not cause. Generous on purpose — being wrong here costs one unsent message.' },
+  { fn: 'testAttributedToThisVisit', label: 'Tests done and linked to this visit', group: 'Diagnostics',
+    returns: 'BOOLEAN', scope: 'linked at the front desk',
+    help: 'Only diagnostics the front desk connected back to this consultation. Strict on purpose — used for counting what we caused.' },
+  { fn: 'daysSinceLastTest', label: 'Days since their last test', group: 'Diagnostics', returns: 'NUMBER', unit: 'DAYS' },
+  { fn: 'reportOpened', label: 'Report was opened', group: 'Diagnostics', returns: 'BOOLEAN', scope: 'this visit' },
+  { fn: 'visitValueInPaise', label: 'Visit value', group: 'Visit', returns: 'NUMBER', unit: 'RUPEES', scope: 'this visit' },
+  { fn: 'daysSinceLastVisit', label: 'Days since their last visit', group: 'Visit', returns: 'NUMBER', unit: 'DAYS' },
+  { fn: 'patientAgeYears', label: 'Age', group: 'Patient', returns: 'NUMBER', unit: 'YEARS' },
+  { fn: 'patientGender', label: 'Gender', group: 'Patient', returns: 'TEXT' },
+  { fn: 'agreedToOffers', label: 'Agreed to offers', group: 'Patient', returns: 'BOOLEAN',
+    help: 'Consent is also enforced at send time, so a journey cannot message someone who has not agreed even if this is left out.' },
+  { fn: 'outstandingDueInPaise', label: 'Amount still due', group: 'Money', returns: 'NUMBER', unit: 'RUPEES', scope: 'this visit' },
+];

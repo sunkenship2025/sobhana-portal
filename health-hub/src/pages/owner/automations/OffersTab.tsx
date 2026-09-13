@@ -15,10 +15,14 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { LoadingState } from '@/components/ui/loading-state';
 import { toast } from 'sonner';
-import { listOffers, getOffer, saveOffer, rupees, type ReferralExample } from './api';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { listOffers, getOffer, saveOffer, createOffer, rupees, type ReferralExample } from './api';
 
 export function OffersTab() {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ['offers'], queryFn: listOffers });
 
   if (openId) return <OfferDetail id={openId} onBack={() => setOpenId(null)} />;
@@ -28,12 +32,18 @@ export function OffersTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">Offers</h2>
-        <p className="text-sm text-muted-foreground">
-          Discounts a journey can issue, or staff can hand out.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Offers</h2>
+          <p className="text-sm text-muted-foreground">
+            Discounts a journey can issue, or staff can hand out.
+          </p>
+        </div>
+        <Button onClick={() => setCreating(true)}>New offer</Button>
       </div>
+
+      <NewOfferDialog open={creating} onClose={() => setCreating(false)}
+        onCreated={(id) => { setCreating(false); setOpenId(id); }} />
 
       {offers.length === 0 ? (
         <p className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
@@ -234,5 +244,104 @@ function LimitRow({ label, sub, value, onChange }: {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * A new offer. Short on purpose: code, discount, what it applies to, how it is given
+ * out, and the two caps that bound the liability.
+ *
+ * Created INACTIVE. An offer that is live the moment it is saved is one slip away from
+ * money going out the door before anyone agreed the numbers.
+ */
+function NewOfferDialog({ open, onClose, onCreated }: {
+  open: boolean; onClose: () => void; onCreated: (id: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [pct, setPct] = useState('15');
+  const [days, setDays] = useState('30');
+  const [budget, setBudget] = useState('');
+  const [perBill, setPerBill] = useState('');
+
+  const create = useMutation({
+    mutationFn: () => createOffer({
+      code: code.trim().toUpperCase(),
+      name: name.trim() || code.trim().toUpperCase(),
+      discountPercentage: Number(pct) || 0,
+      discountReason: name.trim() || 'Campaign offer',
+      validityDays: Number(days) || 30,
+      scope: 'TESTS_ONLY',
+      maxDiscountBudgetInPaise: budget ? Math.round(Number(budget) * 100) : null,
+      maxDiscountPerBillInPaise: perBill ? Math.round(Number(perBill) * 100) : null,
+    }),
+    onSuccess: (o) => {
+      toast.success('Created, inactive. Turn it on when the numbers are agreed.');
+      qc.invalidateQueries({ queryKey: ['offers'] });
+      setCode(''); setName(''); setBudget(''); setPerBill('');
+      onCreated(o.id);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New offer</DialogTitle>
+          <DialogDescription>
+            It is created switched off. Nothing can issue it until you turn it on.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Label className="text-xs">Code</Label>
+              <Input className="mt-1.5 font-mono" placeholder="RECOVERY15"
+                value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+            </div>
+            <div className="w-28">
+              <Label className="text-xs">Discount</Label>
+              <Input className="mt-1.5" value={pct} onChange={(e) => setPct(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">What to call it</Label>
+            <Input className="mt-1.5" placeholder="Clinic recovery offer"
+              value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Label className="text-xs">Expires after (days)</Label>
+              <Input className="mt-1.5" value={days} onChange={(e) => setDays(e.target.value)} />
+            </div>
+            <div className="flex-1">
+              <Label className="text-xs">Most one bill (₹)</Label>
+              <Input className="mt-1.5" placeholder="No cap"
+                value={perBill} onChange={(e) => setPerBill(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Total budget (₹)</Label>
+            <Input className="mt-1.5" placeholder="No limit"
+              value={budget} onChange={(e) => setBudget(e.target.value)} />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Counted when a coupon is <b>used</b>, plus everything issued and still live —
+              counting only redemptions lets an offer issue far past its budget and find out later.
+              A per-bill cap is what stops 15% of a ₹40,000 bill being a surprise.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!code.trim() || create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? 'Creating…' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

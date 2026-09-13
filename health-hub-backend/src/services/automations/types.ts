@@ -82,6 +82,19 @@ export type Step =
       /** Issued in the SAME step, under the same idempotency key as the send. */
       issueOffer?: { campaignId: string };
     }
+  | {
+      /**
+       * The nightly day sheet. Not a patient message: the recipient is the owner, the
+       * body is a generated link, and the money in it is the whole point.
+       *
+       * It reuses sendDaySheet rather than reimplementing it — and it claims the SAME
+       * ScheduledMessageRun key the old ticker claims, so the two systems interlock
+       * instead of both sending. That is what makes a cutover safe even if both are
+       * briefly live.
+       */
+      kind: 'DAY_SHEET';
+      domain: 'DIAGNOSTICS' | 'CLINIC';
+    }
   | { kind: 'STOP'; reason: string };
 
 export interface AutomationDefinition {
@@ -111,6 +124,8 @@ export const Outcome = {
   CHECK_FALSE: 'CHECK_FALSE',
   SENT: 'SENT',
   ALREADY_SENT: 'ALREADY_SENT',
+  ALREADY_SENT_BY_OLD_TICKER: 'ALREADY_SENT_BY_OLD_TICKER',
+  NO_SCHEDULE_ROW: 'NO_SCHEDULE_ROW',
   COUPON_ISSUED: 'COUPON_ISSUED',
   STOPPED_GOAL_MET: 'STOPPED_GOAL_MET',
   STOPPED_BY_STEP: 'STOPPED_BY_STEP',

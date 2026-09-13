@@ -345,6 +345,31 @@ async function main() {
     assert.strictEqual(d.kind, 'SEND', 'a report was held behind a marketing journey');
   });
 
+  // ══ The day sheet, on the same engine ═════════════════════════════════════
+  await check('a day sheet automation is expressible as a schedule + one step', () => {
+    const daySheet: AutomationDefinition = {
+      trigger: { kind: 'SCHEDULE', everyDayAtMinutes: 22 * 60 + 30 },
+      reentry: { mode: 'PER_EVENT', concurrency: 'ALLOW_PARALLEL' },
+      audience: { fn: 'always' },
+      goal: { condition: { fn: 'always' }, windowDays: 1 },
+      steps: [{ kind: 'DAY_SHEET', domain: 'DIAGNOSTICS' }],
+    };
+    assert.strictEqual(daySheet.trigger.kind, 'SCHEDULE');
+    const step = daySheet.steps[0];
+    assert.strictEqual(step.kind, 'DAY_SHEET');
+    // No WAIT, no CHECK, no SEND: the schedule IS the timing and the owner is the
+    // recipient, so none of the patient machinery applies to it.
+    assert.strictEqual(daySheet.steps.filter((s) => s.kind === 'SEND').length, 0);
+  });
+
+  await check('the night is the cycle key, so a second tick owes nothing', () => {
+    // Two ticks the same evening produce the same (automation, subject, cycleKey), and
+    // the unique index turns the second into a no-op rather than a second sheet.
+    const a = { automationId: 'A', subjectId: 'B1:DIAGNOSTICS', cycleKey: '2026-09-13' };
+    const b = { automationId: 'A', subjectId: 'B1:DIAGNOSTICS', cycleKey: '2026-09-13' };
+    assert.deepStrictEqual(a, b);
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

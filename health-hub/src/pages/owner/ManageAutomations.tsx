@@ -11,6 +11,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingState } from '@/components/ui/loading-state';
 import { AutomationsList } from './automations/AutomationsList';
+import { CreateAutomation } from './automations/CreateAutomation';
 
 const AutomationDetail = lazy(() =>
   import('./automations/AutomationDetail').then((m) => ({ default: m.AutomationDetail })));
@@ -62,13 +63,11 @@ export default function ManageAutomations() {
                 onOpen={(id) => go({ id })}
                 onCreate={() => setCreating(true)}
               />
-              {creating && (
-                <p className="mt-4 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                  Run <code className="rounded bg-background px-1">npx ts-node prisma/seed-automations.ts</code>{' '}
-                  on the backend to create the first journey as a draft, then open it here.
-                  Building one from scratch in the browser comes next.
-                </p>
-              )}
+              <CreateAutomation
+                open={creating}
+                onClose={() => setCreating(false)}
+                onCreated={(id) => { setCreating(false); go({ id }); }}
+              />
             </TabsContent>
 
             <TabsContent value="templates" className="mt-4">

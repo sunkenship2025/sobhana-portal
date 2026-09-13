@@ -229,6 +229,14 @@ export async function simulate(
       continue;
     }
 
+    if (step.kind === 'DAY_SHEET') {
+      // Simulation is about patient journeys; a day sheet has no patient and no
+      // condition to try out. Shown, then done.
+      out.push({ day, at: clock, kind: 'DAY_SHEET', outcome: 'SENT', detail: { domain: step.domain } });
+      stepIndex += 1;
+      continue;
+    }
+
     out.push({ day, at: clock, kind: 'STOP', outcome: step.reason });
     return out;
   }

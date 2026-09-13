@@ -43,6 +43,14 @@ function groupIntoDays(def: AutomationDefinition): { blocks: DayBlock[]; tail: {
       return;
     }
     if (step.kind === 'STOP') { tail.push({ step, index }); return; }
+    if (step.kind === 'DAY_SHEET') {
+      if (!current) {
+        current = { label: 'Every night', sub: 'at the time set above', waitIndex: null, steps: [] };
+        blocks.push(current);
+      }
+      current.steps.push({ step, index });
+      return;
+    }
     if (!current) {
       current = { label: 'Straight away', sub: 'no wait before this', waitIndex: null, steps: [] };
       blocks.push(current);
@@ -55,17 +63,26 @@ function groupIntoDays(def: AutomationDefinition): { blocks: DayBlock[]; tail: {
 
 const VERB = 'w-16 shrink-0 pt-0.5 text-[13px] font-semibold text-foreground/70';
 
+const clockLabel = (m: number) => {
+  const h = Math.floor(m / 60);
+  const ampm = h < 12 ? 'AM' : 'PM';
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m % 60).padStart(2, '0')} ${ampm}`;
+};
+
 export function AutomationBuilder({
-  automation, templates, onChange, onEditStep, onPreview,
+  automation, templates, onChange, onEditStep, onPreview, onEditAudience,
 }: {
   automation: Automation;
   templates: TemplateSummary[];
   onChange: (patch: Partial<Automation>) => void;
   onEditStep: (index: number) => void;
   onPreview: () => void;
+  onEditAudience: () => void;
 }) {
   const def = automation.definition;
   const { blocks, tail } = useMemo(() => groupIntoDays(def), [def]);
+  /** A day sheet has no patient, so audience, stop condition and holdout do not apply. */
+  const isScheduled = def.trigger.kind === 'SCHEDULE';
 
   const templateOf = (name: string) => templates.find((t) => t.name === name);
 
@@ -80,7 +97,7 @@ export function AutomationBuilder({
                 ? `A ${def.trigger.domain === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`
                 : def.trigger.kind === 'REPORT_FINALIZED'
                   ? 'A report is finalized'
-                  : 'On a schedule'}
+                  : `Every day at ${clockLabel(def.trigger.everyDayAtMinutes)}`}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
               {automation.branchIds.length === 0 ? 'All branches' : `${automation.branchIds.length} branches`}
@@ -96,21 +113,21 @@ export function AutomationBuilder({
           </span>
         </div>
 
-        <button
-          onClick={onPreview}
-          className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/50"
-        >
+        <div className={`flex items-start gap-3 px-4 py-3 ${isScheduled ? 'hidden' : ''}`}>
           <span className={VERB}>For</span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">
+          <button onClick={onEditAudience} className="min-w-0 flex-1 text-left">
+            <span className="block text-sm font-medium hover:underline">
               {describeAudience(def)}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              Check who matches right now
+              Click to change who qualifies
             </span>
-          </span>
+          </button>
+          <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={onPreview}>
+            Preview
+          </Button>
           <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+        </div>
       </div>
 
       {blocks.map((b) => (
@@ -153,6 +170,15 @@ export function AutomationBuilder({
                           : ' · not found in your approved templates'}
                       </span>
                     </>
+                  ) : step.kind === 'DAY_SHEET' ? (
+                    <>
+                      <span className="block text-sm font-medium">
+                        Send the {step.domain === 'CLINIC' ? 'OP' : 'diagnostic'} day sheet to the owners
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        One message per branch, each with its own link that expires in 72 hours
+                      </span>
+                    </>
                   ) : (
                     <span className="block text-sm font-medium">Stop</span>
                   )}
@@ -169,7 +195,7 @@ export function AutomationBuilder({
         </div>
       ))}
 
-      <div className="divide-y rounded-lg border">
+      <div className={`divide-y rounded-lg border ${isScheduled ? 'hidden' : ''}`}>
         <div className="flex items-start gap-3 px-4 py-3">
           <span className={VERB}>Stop</span>
           <span className="min-w-0 flex-1">
@@ -185,7 +211,7 @@ export function AutomationBuilder({
         </div>
       </div>
 
-      <section className="space-y-2">
+      <section className={`space-y-2 ${isScheduled ? 'hidden' : ''}`}>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Experiment</p>
         <div className="divide-y rounded-lg border">
           <div className="flex items-center gap-3 px-4 py-3">

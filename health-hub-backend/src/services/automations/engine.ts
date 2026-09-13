@@ -22,6 +22,9 @@ import { evaluate, UnitMismatch, type EvalTrace, type Subject } from './predicat
 import { communicationPolicy } from './policy';
 import { sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon } from './actions';
 import { Outcome, type AutomationDefinition, type Step } from './types';
+import {
+  sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
+} from '../automatedMessageService';
 
 const BATCH = 50;
 const MAX_ATTEMPTS = 4;
@@ -80,6 +83,54 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
 
   for (const a of automations) {
     const def = a.definition as unknown as AutomationDefinition;
+
+    // ── Scheduled: one run per branch per night ──────────────────────────────
+    if (def.trigger.kind === 'SCHEDULE') {
+      const { date, minutes } = istParts(ctx.now);
+      // Which night do we owe? Today's once the clock passes the send time; if the box
+      // was asleep over that moment the next tick still owes YESTERDAY's — late rather
+      // than lost — but only inside the grace, so a long outage cannot replay a week.
+      let runDate: string | null = null;
+      if (minutes >= def.trigger.everyDayAtMinutes) runDate = date;
+      else if (minutes + 1440 - def.trigger.everyDayAtMinutes <= SHEET_GRACE_MINUTES) {
+        runDate = previousDate(date);
+      }
+      if (!runDate) continue;
+
+      const sheetStep = def.steps.find(
+        (s): s is Extract<Step, { kind: 'DAY_SHEET' }> => s.kind === 'DAY_SHEET',
+      );
+      if (!sheetStep) continue;
+
+      for (const branchId of a.branchIds) {
+        const subjectId = `${branchId}:${sheetStep.domain}`;
+        try {
+          const run = await prisma.automationRun.create({
+            data: {
+              automationId: a.id,
+              version: a.version,
+              subjectType: 'BRANCH_DAY',
+              subjectId,
+              // The night IS the cycle key, so a second tick the same evening finds
+              // the row already there rather than owing another sheet.
+              cycleKey: runDate,
+              branchId,
+              definition: a.definition as object,
+              triggeredAt: ctx.now,
+              nextActionAt: ctx.now,
+              holdout: false,
+            },
+            select: { id: true },
+          });
+          await log(run.id, 0, 'ENROLLED', Outcome.ENROLLED, { runDate, domain: sheetStep.domain });
+          created += 1;
+        } catch {
+          // Unique violation: this night is already owned.
+        }
+      }
+      continue;
+    }
+
     if (def.trigger.kind !== 'VISIT_COMPLETED') continue;
 
     const candidates = await prisma.visit.findMany({
@@ -342,6 +393,46 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         runId, run.stepIndex, 'SEND',
         out.alreadySent ? Outcome.ALREADY_SENT : Outcome.SENT,
         { template: step.template, couponCode }, out.messageLogId,
+      );
+      await advance(ctx.now);
+      return;
+    }
+
+    case 'DAY_SHEET': {
+      const [branchId, domain] = run.subjectId.split(':');
+      const runDate = run.cycleKey;
+
+      // THE INTERLOCK. Both this engine and the old automatedMessageService ticker
+      // claim the same (kind, branch, domain, night) key before sending, so whichever
+      // reaches it first owns the night and the other stands down. That is what makes
+      // the two safe to run side by side during a cutover — and it is the same
+      // claim-before-send property the old ticker was already relying on.
+      try {
+        await prisma.scheduledMessageRun.create({
+          data: { kind: DAY_SHEET, branchId, domain, runDate, status: 'SENDING' },
+        });
+      } catch {
+        await log(runId, run.stepIndex, 'SEND', Outcome.ALREADY_SENT_BY_OLD_TICKER, { runDate });
+        await finish(runId, 'DONE', Outcome.ALREADY_SENT_BY_OLD_TICKER, run.stepIndex);
+        return;
+      }
+
+      let outcome: { status: string; detail: string | null };
+      try {
+        outcome = await sendDaySheet({ branchId, domain }, runDate);
+      } catch (e) {
+        outcome = { status: 'FAILED', detail: (e as Error).message?.slice(0, 500) ?? 'unknown' };
+      }
+
+      await prisma.scheduledMessageRun.updateMany({
+        where: { kind: DAY_SHEET, branchId, domain, runDate },
+        data: { status: outcome.status, detail: outcome.detail, sentAt: new Date() },
+      });
+
+      await log(
+        runId, run.stepIndex, 'SEND',
+        outcome.status === 'SENT' ? Outcome.SENT : outcome.status,
+        { runDate, domain, detail: outcome.detail },
       );
       await advance(ctx.now);
       return;
