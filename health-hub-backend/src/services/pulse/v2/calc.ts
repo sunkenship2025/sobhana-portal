@@ -152,7 +152,13 @@ export async function t_compute(a: any, _k: any, prior: any[] = []): Promise<any
   const fromSteps = inputs.map((x) => prior.find((e) => e?.step === x.step)).filter(Boolean) as any[];
   for (let x = 0; x < fromSteps.length; x++)
     for (let y = x + 1; y < fromSteps.length; y++) {
-      const v = comparable(fromSteps[x], fromSteps[y]);
+      /* METRIC IS NOT PART OF THE IDENTITY HERE. comparable() screens two figures being compared
+         AS LIKE FOR LIKE, where a different metric means they are not. Operands of a formula are
+         the opposite case: billed and commission SHOULD be different metrics — that is what makes
+         it arithmetic rather than a comparison. Passing them through unmodified rejected the CT
+         payback calculation for the one property it was required to have. What must match is the
+         population: same period, same scope, same grain. */
+      const v = comparable({ ...fromSteps[x], metric: undefined }, { ...fromSteps[y], metric: undefined });
       if (v.verdict === 'different')
         return { ok: false, error: `steps ${fromSteps[x].step} and ${fromSteps[y].step} are not on the same basis (${v.why}), so combining them answers neither question — measure both over the same scope and period first` };
     }
