@@ -26,6 +26,7 @@ import { PatientHeaderBar } from "@/components/patient360/PatientHeaderBar";
 import { GlanceStrip } from "@/components/patient360/GlanceStrip";
 import { TimelineFilters } from "@/components/patient360/TimelineFilters";
 import { VisitTimeline } from "@/components/patient360/VisitTimeline";
+import { PatientOffersHeld } from "@/components/patient360/PatientAutomations";
 import { VisitInspector } from "@/components/patient360/VisitInspector";
 import { Patient360LoadingSkeleton } from "@/components/patient360/Patient360LoadingSkeleton";
 import { Patient360ErrorState } from "@/components/patient360/Patient360ErrorState";
@@ -194,10 +195,15 @@ export default function Patient360() {
 
         <GlanceStrip glance={glance} patientId={patient.id} patient={patient} />
 
+        {/* What the patient is holding. Money they are carrying, which the front desk
+            otherwise only learns about if the patient remembers to mention it. */}
+        <PatientOffersHeld patientId={patient.id} />
+
         <TimelineFilters value={filters} onChange={setFilters} branches={branches} />
 
         <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:gap-5">
           <VisitTimeline
+            patientId={patient.id}
             pages={timeline.data?.pages}
             isFetchingNextPage={timeline.isFetchingNextPage}
             hasNextPage={!!timeline.hasNextPage}

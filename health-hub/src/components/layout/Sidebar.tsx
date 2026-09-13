@@ -143,10 +143,18 @@ const ownerNavItems: NavItem[] = [
     ],
   },
   {
+    // Two children, because they are different jobs: Config Center is what you set
+    // once, Automations is what you operate. Same subItems pattern Workflows and
+    // Payouts already use — no new nav shape.
     label: 'Admin',
     icon: Building2,
     href: '/owner/config',
     roles: ['owner'],
+    matchPrefixes: ['/owner/config', '/owner/automations'],
+    subItems: [
+      { label: 'Config Center', href: '/owner/config' },
+      { label: 'Automations', href: '/owner/automations' },
+    ],
   },
 ];
 

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft } from "lucide-react";
 import { PatientEditDialog } from "./PatientEditDialog";
+import { PatientConsent } from "./PatientConsent";
 import { formatPatientName } from "@/lib/patientDisplay";
 import type { Patient } from "@/types";
 
@@ -70,6 +71,11 @@ export function PatientHeaderBar({
         <div className="shrink-0">
           <PatientEditDialog patient={patient} onSuccess={onPatientUpdated} />
         </div>
+      </div>
+
+      {/* Consent sits with the number, because that is what it is a property of. */}
+      <div className="mt-1.5 pl-[76px]">
+        <PatientConsent patientId={patient.id} />
       </div>
     </div>
   );

@@ -28,6 +28,7 @@ import OwnerMoneyPage from "./pages/owner/OwnerMoneyPage";
 import OwnerDoctorsPage from "./pages/owner/OwnerDoctorsPage";
 import OwnerOperationsPage from "./pages/owner/OwnerOperationsPage";
 import OwnerAuditPage from "./pages/owner/OwnerAuditPage";
+import ManageAutomations from "./pages/owner/ManageAutomations";
 import MessagesInbox from "./pages/messages/MessagesInbox";
 
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
@@ -213,6 +214,11 @@ function AppRoutes() {
       } />
       <Route path="/owner/doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
       <Route path="/owner/clinic-doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
+      <Route path="/owner/automations" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <ManageAutomations />
+        </ProtectedRoute>
+      } />
       <Route path="/owner/config" element={
         <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge', 'sales']}>
           <AdminConfigCenter />

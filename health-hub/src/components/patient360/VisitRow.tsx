@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { StatusChip } from "./StatusChip";
 import { ReportActions } from "./ReportActions";
+import { VisitAutomationLine } from "./PatientAutomations";
 import { JumpToOriginalVisit } from "./JumpToOriginalVisit";
 import { formatCurrency } from "@/lib/patientDisplay";
 import type { ReportAction } from "@/hooks/patient360/useReportActions";
@@ -41,9 +42,12 @@ interface VisitRowProps {
   onSelect: () => void;
   onViewReport: () => void;
   onJumpToOriginal: (visitId: string) => void;
+  /** Needed to look up any automation run anchored to THIS visit. */
+  patientId: string;
 }
 
 export function VisitRow({
+  patientId,
   item,
   selected,
   reportBusy,
@@ -152,6 +156,12 @@ export function VisitRow({
             onView={onViewReport}
           />
         </div>
+      </div>
+
+      {/* A run's subject IS this visit, so it belongs on this row rather than in a
+          panel of its own competing with the timeline for the same space. */}
+      <div className="px-4 pb-3">
+        <VisitAutomationLine patientId={patientId} visitId={item.visitId} />
       </div>
     </Card>
   );

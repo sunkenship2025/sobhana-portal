@@ -42,6 +42,8 @@ function bucketByMonth(items: VisitTimelineItem[]): MonthBucket[] {
 }
 
 interface VisitTimelineProps {
+  /** Passed down so each visit row can show the journey anchored to it. */
+  patientId: string;
   pages: Patient360TimelinePage[] | undefined;
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
@@ -64,6 +66,7 @@ interface VisitTimelineProps {
 }
 
 export function VisitTimeline({
+  patientId,
   pages,
   isFetchingNextPage,
   hasNextPage,
@@ -122,6 +125,7 @@ export function VisitTimeline({
                   ref={(el) => registerRowRef?.(item.visitId, el)}
                 >
                   <VisitRow
+                    patientId={patientId}
                     item={item}
                     selected={selectedVisitId === item.visitId}
                     reportBusy={reportBusyVisitId === item.visitId}
