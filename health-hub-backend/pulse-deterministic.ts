@@ -112,6 +112,16 @@ const near = (name: string, got: number, want: number, tol: number) => {
   const noSpec: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_30_days' } }, 0, k, { goal: '', scope: [] } as any, {}, [], 'revenue last 30 days');
   ok('no spec period leaves the step alone', noSpec.ok && !noSpec.summary.period.includes(new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)), true, noSpec.summary?.period);
 
+  console.log('\nA RATE QUESTION NAMING NO WINDOW STILL HAS ONE — chosen once, and stated');
+  const { completeSpec } = require('./src/services/pulse/v2/spec');
+  const payback = completeSpec({ goal: '', scope: [] }, 'how many months to pay back a 50 lakh CT scanner at our current CT volume');
+  ok('payback with no period gets one', payback?.time?.period, 'last-90-days', 'otherwise it is a dice roll on a capital decision');
+  ok('  and it is stated, not silent', payback?.time?.phrase, 'the last 90 days');
+  const stated = completeSpec({ goal: '', scope: [] }, 'what is our roi over the last 30 days');
+  ok('an explicit window still wins', stated?.time?.period, 'last-30-days');
+  const plainQ = completeSpec({ goal: '', scope: [] }, 'how much did we collect');
+  ok('a non-rate question is left alone', plainQ?.time?.period ?? 'none', 'none', 'the default must not leak everywhere');
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);

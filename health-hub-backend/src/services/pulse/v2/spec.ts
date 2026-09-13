@@ -274,6 +274,18 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
     if (!time?.period || String(time.period).replace(/[\s_]+/g, '-').toLowerCase() !== want)
       time = { ...(time || {}), period: want, phrase: said[0] } as any;
   }
+  /* A RATE QUESTION THAT NAMES NO WINDOW STILL HAS ONE — SO CHOOSE IT, ONCE, AND SAY SO.
+     "How many months to pay back a scanner at our current CT volume" names no period, and the
+     planner picked a different one each run: 90 days gives 88.8 months, 30 days gives far fewer.
+     Leaving it to whatever the plan happened to say is not neutrality, it is a dice roll on a
+     capital decision — and the owner cannot tell which roll they got.
+     A rate is only as stable as the window under it, so the default is a trailing quarter rather
+     than month-to-date: a partial month makes a run-rate swing hardest exactly when it is
+     youngest. The phrase is set too, so the answer states the window it assumed — an assumption
+     the owner can see is an assumption they can overrule. */
+  if (!time?.period && /\b(payback|pay back|roi|return on|run[- ]?rate|per (scan|test|order|patient|visit)|current (volume|pace|rate)|at this (pace|rate))\b/i.test(String(q || ''))) {
+    time = { ...(time || {}), period: 'last-90-days', phrase: 'the last 90 days' } as any;
+  }
   if (time?.period) {
     try {
       const p = periods(time.period);
