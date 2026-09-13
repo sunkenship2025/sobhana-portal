@@ -16,6 +16,7 @@ import {
 } from '../services/automations/queries';
 import { dryRun, simulate } from '../services/automations/preview';
 import { unknownPredicates, PREDICATE_CATALOG } from '../services/automations/predicates';
+import { listBlueprints, buildFromBlueprint } from '../services/automations/blueprints';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 
@@ -35,6 +36,59 @@ router.get('/', async (_req: AuthRequest, res) => {
 router.get('/templates', async (_req: AuthRequest, res) => {
   try { return res.json({ templates: await listMessageTemplates() }); }
   catch (e) { return fail(res, e); }
+});
+
+/** What an automation can BE. Served, so a new kind is a backend entry, not a React edit. */
+router.get('/blueprints', async (_req: AuthRequest, res) => {
+  try { return res.json({ blueprints: listBlueprints() }); }
+  catch (e) { return fail(res, e); }
+});
+
+/**
+ * Create from a blueprint. The browser sends the ANSWERS; the definition is assembled
+ * here, so the shape of a definition is known in exactly one place.
+ */
+router.post('/from-blueprint', async (req: AuthRequest, res) => {
+  try {
+    const { blueprintId, name, values } = req.body ?? {};
+    if (!blueprintId) return res.status(400).json({ error: 'BLUEPRINT_REQUIRED' });
+
+    const built = buildFromBlueprint(blueprintId, values ?? {});
+    if (!built) return res.status(400).json({ error: `UNKNOWN_BLUEPRINT: ${blueprintId}` });
+
+    const missing = built.blueprint.fields
+      .filter((f) => f.required)
+      .filter((f) => {
+        const v = (values ?? {})[f.key];
+        return v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+      })
+      .map((f) => f.label);
+    if (missing.length) {
+      return res.status(400).json({ error: `MISSING: ${missing.join(', ')}` });
+    }
+
+    const branchIds = Array.isArray(values?.branchIds) ? (values.branchIds as string[]) : [];
+
+    const a = await prisma.automation.create({
+      data: {
+        key: `${blueprintId}_${Date.now().toString(36).toUpperCase()}`,
+        name: (name as string)?.trim() || built.blueprint.title,
+        group: built.blueprint.group,
+        definition: built.definition as object,
+        // Disabled, no watermark. Creating is not activating.
+        enabled: false,
+        activatedAt: null,
+        holdoutPct: built.blueprint.holdoutPct,
+        priority: 3,
+        branchIds,
+      },
+    });
+    await logAction({
+      branchId: req.branchId!, actionType: 'CREATE', entityType: 'Automation',
+      entityId: a.id, userId: req.user?.id, newValues: JSON.stringify({ blueprintId, name: a.name }),
+    });
+    return res.status(201).json(a);
+  } catch (e) { return fail(res, e); }
 });
 
 /**

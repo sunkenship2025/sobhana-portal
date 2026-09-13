@@ -345,3 +345,31 @@ export interface Recipient {
 }
 export const listRecipients = () =>
   apiRequest<{ recipients: Recipient[] }>(`${AUT}/recipients`);
+
+// ── Blueprints: what an automation can BE ───────────────────────────────────
+
+export type FieldType = 'TEXT' | 'TIME' | 'NUMBER' | 'BRANCHES' | 'TEMPLATE' | 'CHOICE';
+
+export interface BlueprintField {
+  key: string; label: string; type: FieldType;
+  required?: boolean; default?: string | number; help?: string;
+  options?: { value: string; label: string }[];
+  approvedOnly?: boolean;
+}
+
+export interface Blueprint {
+  id: string; title: string; sub: string; group: string;
+  scheduled: boolean; holdoutPct: number;
+  fields: BlueprintField[];
+}
+
+/** Served, so a new kind of automation is a backend entry rather than a React edit. */
+export const listBlueprints = () =>
+  apiRequest<{ blueprints: Blueprint[] }>(`${AUT}/blueprints`);
+
+/** The browser sends ANSWERS; the definition is assembled on the server. */
+export const createFromBlueprint = (body: {
+  blueprintId: string; name?: string; values: Record<string, unknown>;
+}) => apiRequest<Automation>(`${AUT}/from-blueprint`, {
+  method: 'POST', body: JSON.stringify(body),
+});
