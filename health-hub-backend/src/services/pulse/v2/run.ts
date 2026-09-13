@@ -434,7 +434,12 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       proposed: (plan.steps || []).map((s: any) => ({ tool: s?.tool, label: s?.label, args: s?.args })) },
     executed: evidence.map((e) => ({ i: e.step, tool: e.tool, label: e.label, ok: e.ok, ms: e.ms ?? null,
       rows: Array.isArray((e.data as any)?.rows) ? (e.data as any).rows.length : null,
-      error: e.error, recovered: e.recovered, sql: e.sql?.slice(0, 600), means: e.means,
+      /* A TRACE YOU CANNOT REPLAY CANNOT SETTLE AN ARGUMENT ABOUT A NUMBER. At 600 characters
+         two thirds of the recorded queries were cut mid-expression — the one artifact that says
+         exactly how a figure was produced, stored in a form that can be read but never re-run.
+         Generated SQL here runs to about 1,500 characters; 4,000 keeps all of it, and the cap
+         stays so a pathological query cannot bloat the audit row. */
+      error: e.error, recovered: e.recovered, sql: e.sql?.slice(0, 4000), means: e.means,
       detail: e.detail?.slice(0, 200) })),
     investigation: inv ? { objective: inv.objective, confidence: inv.confidence,
       complete: inv.complete, stoppingReason: inv.stoppingReason, progress: history,
