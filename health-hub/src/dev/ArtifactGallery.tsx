@@ -69,16 +69,21 @@ const TURNS: any[] = [
 ];
 
 export default function ArtifactGallery() {
+  /* THE REAL PANEL IS 420px COLLAPSED AND 600px EXPANDED, and every card must survive the
+     narrow one — that is the default and the one most owners never change. Rendering the gallery
+     wider than the product is how a table with six columns looks fine in review and unreadable in
+     use. ?w=600 checks the expanded panel. */
+  const w = Number(new URLSearchParams(location.search).get('w')) || 420;
   return (
     <div style={{ padding: 24, background: '#f6f7f9', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Pulse artifacts — every type, real evidence, no model</h1>
+      <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Pulse artifacts — rendered at the real panel width ({w}px)</h1>
       <p style={{ fontSize: 13, color: '#666', margin: '0 0 20px' }}>
         Evidence captured from the registry tools against the live database by <code>pulse-fixtures.ts</code>.
         Look for: a share stated as a number and not only as a bar width, a tail that says how much it carries,
         money never re-formatted, and no &ldquo;— %&rdquo;.
       </p>
       <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Whole answers</h2>
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', marginBottom: 28 }}>
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: `repeat(auto-fill, ${w}px)`, marginBottom: 28 }}>
         {TURNS.map((t, i) => (
           <section key={i} data-turn={i} style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e6e8eb' }}>
             <TurnView t={t as any} onAsk={() => {}} onExpand={() => {}} />
@@ -86,7 +91,7 @@ export default function ArtifactGallery() {
         ))}
       </div>
       <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Every artifact type</h2>
-      <div style={{ display: 'grid', gap: 20, gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))' }}>
+      <div style={{ display: 'grid', gap: 20, gridTemplateColumns: `repeat(auto-fill, ${w}px)` }}>
         {CASES.map((c) => (
           <section key={c.title} data-artifact={c.title} style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e6e8eb' }}>
             <header style={{ marginBottom: 8 }}>

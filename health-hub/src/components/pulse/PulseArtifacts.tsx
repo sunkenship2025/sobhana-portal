@@ -163,7 +163,18 @@ function Chart({ a, ev }: { a: any; ev: Ev }) {
 function Table({ a, ev }: { a: any; ev: Ev }) {
   const rows: any[] = ev.data?.rows || ev.summary?.rows || [];
   if (!rows.length) return null;
-  const cols = Object.keys(rows[0]);
+  /* ROWS WERE CAPPED AND COLUMNS WERE NOT. The dues worklist returns seven — patient, number,
+     phone, bill, branch, date, amount — and the panel is 420px wide by default. Seven columns in
+     420px is 177px of horizontal scrolling on the artifact an owner reaches for most, which is
+     what "not usable" looks like in practice.
+     A table is a label and its figures. Those are kept: the first column, which identifies the
+     row, and every numeric one. The rest fill what is left, and whatever does not fit is STATED
+     — the same rule already applied to the rows it does not show, and for the same reason. */
+  const all = Object.keys(rows[0]);
+  const numeric = all.filter((c) => rows.some((r) => typeof r[c] === 'number' || /^[₹\d][\d,.]*%?$/.test(String(r[c] ?? ''))));
+  const keep = [...new Set([all[0], ...numeric, ...all])].filter(Boolean).slice(0, 5);
+  const cols = all.filter((c) => keep.includes(c));          // original order, not preference order
+  const dropped = all.length - cols.length;
   const shown = rows.slice(0, 15);
   /* The most-used artifact in production, and it stated no period, no scope, no units and no row
      count — 0 of 4 useful fields when measured. It showed fifteen rows of twenty-seven without
@@ -182,8 +193,11 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
         {cols.map((c) => <td key={c} className={`px-4 py-1.5 ${typeof r[c] === 'number' ? 'tabular-nums' : ''}`}>
           {typeof r[c] === 'number' ? fmtValue(r[c], ev.unit, c) : String(r[c] ?? '')}</td>)}</tr>)}</tbody>
     </table>
-    {(rows.length > shown.length || ev.summary?.orderedBy) && <div className="flex flex-wrap justify-between gap-x-4 border-t px-4 py-1.5 text-[11.5px] text-muted-foreground">
+    {/* dropped columns belong in this condition too — a footer that only appears when ROWS are
+        truncated hid the note saying columns were, which is the silence this note exists to break */}
+    {(rows.length > shown.length || dropped > 0 || ev.summary?.orderedBy) && <div className="flex flex-wrap justify-between gap-x-4 border-t px-4 py-1.5 text-[11.5px] text-muted-foreground">
       {rows.length > shown.length && <span>Showing {shown.length} of {rows.length}</span>}
+      {dropped > 0 && <span>{dropped} more column{dropped > 1 ? 's' : ''} not shown</span>}
       {ev.summary?.orderedBy && <span>sorted by {lbl(String(ev.summary.orderedBy).split(' ')[0])} {String(ev.summary.orderedBy).split(' ').slice(1).join(' ')}</span>}
     </div>}
   </Card>;
