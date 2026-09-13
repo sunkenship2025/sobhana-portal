@@ -28,6 +28,11 @@ export type ParamBinding =
   | { from: 'COUPON_CODE' }
   | { from: 'LITERAL'; value: string };
 
+/** Who a message is addressed to. Shared by every sending action — see spec §9.12. */
+export type Recipients =
+  | { kind: 'RUN_PATIENT' }
+  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' };
+
 export type Step =
   | { kind: 'WAIT'; anchor: 'TRIGGER' | 'PREVIOUS'; days?: number; hours?: number }
   | { kind: 'CHECK'; condition: Condition; onTrue: 'STOP' | 'CONTINUE'; stopReason?: string }
@@ -42,17 +47,17 @@ export type Step =
   | {
       kind: 'DAY_SHEET';
       domain: 'DIAGNOSTICS' | 'CLINIC';
+      to?: Recipients;
       template?: string;
-      recipientUserIds?: string[];
       linkExpiryHours?: number;
-      graceHours?: number;
     }
   | { kind: 'STOP'; reason: string };
 
 export interface AutomationDefinition {
   trigger: { kind: 'VISIT_COMPLETED'; domain: 'CLINIC' | 'DIAGNOSTICS' }
     | { kind: 'REPORT_FINALIZED' }
-    | { kind: 'SCHEDULE'; everyDayAtMinutes: number };
+    /** graceHours belongs to the schedule, not to whatever it then does. */
+    | { kind: 'SCHEDULE'; everyDayAtMinutes: number; graceHours?: number };
   reentry: {
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS'; days?: number;
     concurrency: 'ALLOW_PARALLEL' | 'ONE_ACTIVE_PER_PATIENT';

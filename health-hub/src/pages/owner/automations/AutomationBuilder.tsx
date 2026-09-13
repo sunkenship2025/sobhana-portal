@@ -106,15 +106,39 @@ export function AutomationBuilder({
           <span className={VERB}>When</span>
           <span className="min-w-0 flex-1">
             {isScheduled && (
-              <span className="mb-1.5 flex items-center gap-2">
-                <span className="text-sm font-medium">Every day at</span>
-                <Input
-                  type="time"
-                  className="h-8 w-28"
-                  value={toTimeValue((def.trigger as { everyDayAtMinutes: number }).everyDayAtMinutes)}
-                  onChange={(e) => setSendTime(e.target.value)}
-                />
-              </span>
+              <>
+                <span className="mb-1.5 flex items-center gap-2">
+                  <span className="text-sm font-medium">Every day at</span>
+                  <Input
+                    type="time"
+                    className="h-8 w-28"
+                    value={toTimeValue((def.trigger as { everyDayAtMinutes: number }).everyDayAtMinutes)}
+                    onChange={(e) => setSendTime(e.target.value)}
+                  />
+                </span>
+                <span className="mb-1.5 flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Still send up to</span>
+                  <Input
+                    className="h-8 w-16"
+                    placeholder="8"
+                    value={(def.trigger as { graceHours?: number }).graceHours ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      onChange({
+                        definition: {
+                          ...def,
+                          trigger: {
+                            kind: 'SCHEDULE',
+                            everyDayAtMinutes: (def.trigger as { everyDayAtMinutes: number }).everyDayAtMinutes,
+                            graceHours: v === '' ? undefined : Math.max(0, Number(v)),
+                          },
+                        },
+                      });
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">hours late if the server was down</span>
+                </span>
+              </>
             )}
             <span className={`block text-sm font-medium ${isScheduled ? 'hidden' : ''}`}>
               {def.trigger.kind === 'VISIT_COMPLETED'

@@ -619,12 +619,18 @@ function DaySheetStepFields({ step, templates, onChange }: {
 }) {
   const { data } = useRQ({ queryKey: ['recipients'], queryFn: listRecipients });
   const recipients = data?.recipients ?? [];
-  const chosen = step.recipientUserIds ?? [];
+  const to = step.to;
+  const chosen = to?.kind === 'USERS' ? (to.userIds ?? []) : [];
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    const next = chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id];
+    // The shared Recipients shape, not a field of this step's own — see spec §9.12.
     onChange({
-      recipientUserIds: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id],
+      to: next.length === 0
+        ? { kind: 'USERS', role: 'owner' }
+        : { kind: 'USERS', userIds: next },
     });
+  };
 
   return (
     <div className="space-y-4">
@@ -682,34 +688,19 @@ function DaySheetStepFields({ step, templates, onChange }: {
         )}
       </div>
 
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <Label className="text-xs">Link works for</Label>
-          <Input
-            className="mt-1.5" placeholder="72"
-            value={step.linkExpiryHours ?? ''}
-            onChange={(e) => {
-              const v = e.target.value.trim();
-              onChange({ linkExpiryHours: v === '' ? undefined : Math.max(1, Number(v)) });
-            }}
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">Hours. Blank = 72.</p>
-        </div>
-        <div className="flex-1">
-          <Label className="text-xs">Send late up to</Label>
-          <Input
-            className="mt-1.5" placeholder="8"
-            value={step.graceHours ?? ''}
-            onChange={(e) => {
-              const v = e.target.value.trim();
-              onChange({ graceHours: v === '' ? undefined : Math.max(0, Number(v)) });
-            }}
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Hours. If the server was down at the send time, it still goes out inside this
-            window rather than being lost. Blank = 8.
-          </p>
-        </div>
+      <div>
+        <Label className="text-xs">Link works for</Label>
+        <Input
+          className="mt-1.5 w-32" placeholder="72"
+          value={step.linkExpiryHours ?? ''}
+          onChange={(e) => {
+            const v = e.target.value.trim();
+            onChange({ linkExpiryHours: v === '' ? undefined : Math.max(1, Number(v)) });
+          }}
+        />
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Hours. Blank = 72. A day's takings should stop being reachable at some point.
+        </p>
       </div>
     </div>
   );

@@ -609,6 +609,49 @@ surface on the Audit & Anomalies page that already exists: who changed Day 10 to
 v4, who moved an offer from 15% to 10%. Nearly free, and the alternative is a six-month-old question
 nobody can answer.
 
+### 9.12 How a new action type is added — the rule that keeps this generic
+
+The day sheet nearly broke the engine's genericity in a way that would have been hard to
+see. It arrived with four fields of its own — `template`, `recipientUserIds`,
+`linkExpiryHours`, `graceHours` — and each looked local and reasonable. But a monthly
+payout statement would then have grown `doctorId`, a lab alert `departmentId`, an
+appointment reminder its own `remindAtHours`, and the engine would have been generic
+everywhere except the parts that decide **who gets messaged** and **when a missed firing
+still counts**. Both of those are universal.
+
+So they are hoisted, and the rule for every future action is:
+
+**1. Addressee comes from `Recipients`.** One type, one resolver
+(`recipients.ts`), used by `SEND` and `DAY_SHEET` alike:
+
+```
+{ kind: 'RUN_PATIENT' }                                  the run's own patient
+{ kind: 'USERS', userIds?: [...], role?: 'owner' | ... } named people, or a whole role
+```
+
+A new action picks a value. It does **not** invent a new way of naming an addressee.
+Adding "the referring doctor" is one more variant here, and every action gets it at once.
+
+**2. Timing tolerance belongs to the trigger.** `SCHEDULE.graceHours` answers "the box
+was asleep at 22:30, does this still go out?" — a question about when the thing was due,
+whose answer is identical whatever the action then does. It was on the day-sheet step
+first, which would have made every future scheduled action redefine it.
+
+**3. The payload stays particular, on purpose.** A day sheet's body is computed money
+figures plus a tokenised link; a patient follow-up's is template parameters. Forcing
+those into one shape buys nothing and costs clarity. `linkExpiryHours` stays on the day
+sheet because it describes *that* payload's link.
+
+**4. Patient protections key off the resolved addressee, not the run.** `Recipients`
+returns a `patientId` only when the addressee actually is a patient, and
+`communicationPolicy` consumes that. This is what stops consent, opt-out, quiet hours
+and the weekly cap being applied to a message addressed to the centre's own staff — a
+day sheet due at 22:30 must not be held until 8am by a rule written to protect patients.
+
+The test of whether a new action belongs: **it should need a payload and nothing else.**
+If it also wants its own recipient field or its own idea of lateness, that is a signal
+the shared concept is missing a variant, not that the action is special.
+
 ### 9.11 Deferred, deliberately
 
 Permissions beyond owner-only (D5) · approval workflow · collapsible long journeys (worth it past

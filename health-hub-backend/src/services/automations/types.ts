@@ -40,7 +40,36 @@ export type Condition =
 export type Trigger =
   | { kind: 'VISIT_COMPLETED'; domain: 'CLINIC' | 'DIAGNOSTICS' }
   | { kind: 'REPORT_FINALIZED' }
-  | { kind: 'SCHEDULE'; everyDayAtMinutes: number };
+  | {
+      kind: 'SCHEDULE';
+      everyDayAtMinutes: number;
+      /**
+       * How late a missed firing may still run. Belongs to the TRIGGER, not to whatever
+       * the automation then does — "the box was asleep at 22:30" is a question about
+       * when this was due, and the answer is the same whether it sends a day sheet or
+       * anything else. It sat on the day-sheet action first, which would have meant
+       * every future scheduled action re-inventing it. Absent = 8 hours.
+       */
+      graceHours?: number;
+    };
+
+/**
+ * Who a message is addressed to.
+ *
+ * THE ONE CONCEPT EVERY SENDING ACTION SHARES. A patient journey addresses the run's
+ * own patient; a nightly report addresses staff; a monthly statement will address a
+ * referring doctor. Without this they each grow their own recipient field and the
+ * engine quietly stops being generic — which is exactly what `recipientUserIds` on the
+ * day-sheet step was starting to do.
+ *
+ * A new action picks a Recipients value and brings its own PAYLOAD. It never invents a
+ * new way of saying who to send to.
+ */
+export type Recipients =
+  /** The patient this run is about. The default for anything patient-facing. */
+  | { kind: 'RUN_PATIENT' }
+  /** Named people, or everyone holding a role. Staff-facing. */
+  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' };
 
 /** How a message is classified for contention — NOT Meta's billing category. */
 export type Intent =
@@ -75,6 +104,8 @@ export type Step =
     }
   | {
       kind: 'SEND';
+      /** Absent = the run's own patient, which is what a journey almost always means. */
+      to?: Recipients;
       template: string;
       language?: string;
       params: ParamBinding[];
@@ -94,19 +125,17 @@ export type Step =
        */
       kind: 'DAY_SHEET';
       domain: 'DIAGNOSTICS' | 'CLINIC';
-      /**
-       * Everything below was a constant in the source until now. Each one is a thing a
-       * centre might need to change on a Tuesday evening — and each one used to mean a
-       * code edit and a deploy to change it, for a message carrying a day of revenue.
-       */
+      /** Shared with every sending action. Absent = every active owner. */
+      to?: Recipients;
       /** Meta template. Absent = the service default. */
       template?: string;
-      /** Who receives it. Absent or empty = every active owner with a phone. */
-      recipientUserIds?: string[];
-      /** How long the link works. Absent = 72 hours. */
+      /**
+       * The PAYLOAD half, which is genuinely particular to this action and should not be
+       * generalised: this body is computed money figures plus a tokenised link, not
+       * template parameters. How long that link stays alive is part of it.
+       * Absent = 72 hours.
+       */
       linkExpiryHours?: number;
-      /** How late a missed night may still go out. Absent = 8 hours. */
-      graceHours?: number;
     }
   | { kind: 'STOP'; reason: string };
 

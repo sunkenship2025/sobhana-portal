@@ -79,24 +79,26 @@ const rupees = (paise: number): string =>
   Math.round(paise / 100).toLocaleString('en-IN');
 
 /** Owner phones, from the Roles section. No phone = no message, never a guess. */
-async function ownerPhones(recipientUserIds?: string[]): Promise<string[]> {
-  // Named recipients win when an automation supplies them — that is how a practice
-  // manager or an accountant gets the sheet without a code change, and how one owner
-  // is left off without deactivating their account. Falling back to every active owner
-  // keeps the old ticker's behaviour byte for byte.
-  const where = recipientUserIds && recipientUserIds.length > 0
-    ? { id: { in: recipientUserIds }, isActive: true, phone: { not: null } }
-    : { role: 'owner' as const, isActive: true, phone: { not: null } };
-
-  const users = await prisma.user.findMany({ where, select: { phone: true } });
-  return [...new Set(users.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
+/** The old ticker's recipients: every active owner with a phone. Unchanged. */
+async function ownerPhones(): Promise<string[]> {
+  const owners = await prisma.user.findMany({
+    where: { role: 'owner', isActive: true, phone: { not: null } },
+    select: { phone: true },
+  });
+  return [...new Set(owners.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
 }
 
 export interface DaySheetOptions {
   /** Meta template to send. Defaults to DEFAULT_TEMPLATE. */
   template?: string;
-  /** Who receives it. Empty or absent = every active owner with a phone. */
-  recipientUserIds?: string[];
+  /**
+   * Already-resolved phone numbers. WHO to send to is decided by the shared recipients
+   * resolver, not here — this service knows how to build and send a day sheet, and that
+   * is all it should know. Absent = every active owner with a phone, as before.
+   */
+  phones?: string[];
+  /** How the recipients were described, for the log. */
+  recipientLabel?: string;
   /** How long the link stays alive. Defaults to 72 hours. */
   linkExpiryHours?: number;
 }
@@ -106,12 +108,12 @@ export async function sendDaySheet(
   dateKey: string,
   options: DaySheetOptions = {},
 ): Promise<{ status: string; detail: string | null }> {
-  const phones = await ownerPhones(options.recipientUserIds);
+  const phones = options.phones ?? (await ownerPhones());
   if (phones.length === 0) {
     return {
       status: 'SKIPPED',
-      detail: options.recipientUserIds?.length
-        ? 'none of the chosen recipients has a phone number in Roles'
+      detail: options.recipientLabel
+        ? `no phone number in Roles for ${options.recipientLabel}`
         : 'no owner has a phone number in Roles',
     };
   }

@@ -22,6 +22,7 @@ import { evaluate, UnitMismatch, type EvalTrace, type Subject } from './predicat
 import { communicationPolicy } from './policy';
 import { sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon } from './actions';
 import { Outcome, type AutomationDefinition, type Step } from './types';
+import { resolveRecipients } from './recipients';
 import {
   sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
 } from '../automatedMessageService';
@@ -95,7 +96,8 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       );
       if (!sheetStep) continue;
 
-      const graceMinutes = (sheetStep.graceHours ?? SHEET_GRACE_MINUTES / 60) * 60;
+      // Grace is a property of the schedule, not of what it then does.
+      const graceMinutes = (def.trigger.graceHours ?? SHEET_GRACE_MINUTES / 60) * 60;
       let runDate: string | null = null;
       if (minutes >= def.trigger.everyDayAtMinutes) runDate = date;
       else if (minutes + 1440 - def.trigger.everyDayAtMinutes <= graceMinutes) {
@@ -294,8 +296,11 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
     }
 
     case 'SEND': {
-      const patient = run.patientId ? await ctx.patient(run.patientId) : null;
-      const phone = patient?.phone ?? null;
+      // Through the same resolver as every other sending action. A journey defaults to
+      // its own patient, which is what it almost always means — but a step that says
+      // otherwise now works without the engine learning a second way to address people.
+      const to = await resolveRecipients(step.to, run, { kind: 'RUN_PATIENT' });
+      const phone = to.phones[0] ?? null;
 
       // Enrolled, evaluated, never messaged — which is what makes it a control group
       // rather than an exclusion.
@@ -310,8 +315,11 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         select: { priority: true },
       }))?.priority;
 
+      // Consent, opt-out, quiet hours and the weekly cap are PATIENT protections. A
+      // message addressed to the centre's own staff carries no patientId here, so they
+      // do not apply to it — which is why a staff alert is not silently held until 8am.
       const decision = await communicationPolicy(ctx, {
-        patientId: run.patientId,
+        patientId: to.patientId,
         phone,
         intent: step.intent,
         runId,
@@ -420,9 +428,11 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
       let outcome: { status: string; detail: string | null };
       try {
+        const to = await resolveRecipients(step.to, run, { kind: 'USERS', role: 'owner' });
         outcome = await sendDaySheet({ branchId, domain }, runDate, {
           template: step.template,
-          recipientUserIds: step.recipientUserIds,
+          phones: to.phones,
+          recipientLabel: to.describe,
           linkExpiryHours: step.linkExpiryHours,
         });
       } catch (e) {
