@@ -49,7 +49,14 @@ const TOOLBOX = `TOOLS
   trend       {metric, bucket:"day|week|month", buckets}   the series over time
   baseline    {metric, period}                         is this normal, or genuinely unusual?
   anomaly     {metrics:[...], period}                  which headline numbers are off-normal
-  derive      {numerator, denominator, period}         one metric divided by another
+  derive      {numerator, denominator, period, filter}  one metric divided by another, SCOPED
+      The deterministic route for any "X per Y" or "X as a share of Y". The SAME filter is
+      applied to both sides, so the two halves always cover the same rows. Prefer it over a
+      generated query whenever both metrics exist — a registry ratio is the same number every
+      time it is asked, and a generated one is not.
+      Scoped to work (a test, category, modality or service kind), the operands are
+      billed_on_orders and commission_on_orders — never revenue, which is cash and belongs to
+      payments rather than orders.
   compute     {formula, let, unit, means}              ARITHMETIC OVER FIGURES YOU ALREADY HAVE
       The only place a calculation may happen. You may not do arithmetic in the answer, so a
       question whose answer is "these two numbers, subtracted, divided by that one" is answered

@@ -231,13 +231,24 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
   if (!METRICS[num]) return { ok: false, error: `numerator '${num}' is not a known metric` };
   if (!METRICS[den]) return { ok: false, error: `denominator '${den}' is not a known metric` };
   if (U(den) === 'ratio') return { ok: false, error: 'a ratio cannot be a denominator' };
-  const [n, d] = await Promise.all([scalar(num, p.cur.from, p.cur.to), scalar(den, p.cur.from, p.cur.to)]);
+  /* A RATIO THAT CANNOT BE SCOPED IS A RATIO NOBODY CAN USE. derive took no filter, so every
+     question of the form "X per Y for imaging" fell through to generated SQL — and generated SQL
+     is not the same twice. The same question answered 21.4% on one run and 18.4% on the next.
+     BOTH SIDES TAKE THE SAME FILTER, or none: applying a scope to one half of a ratio is the
+     population mismatch this layer keeps finding, and it is not worth reintroducing here. */
+  const bn = buildFilter(num, a.filter), bd = buildFilter(den, a.filter);
+  if ('error' in bn) return { ok: false, error: `numerator: ${bn.error}` };
+  if ('error' in bd) return { ok: false, error: `denominator: ${bd.error}` };
+  const [n, d] = await Promise.all([
+    scalar(num, p.cur.from, p.cur.to, bn.join, null, bn.where),
+    scalar(den, p.cur.from, p.cur.to, bd.join, null, bd.where)]);
   if (n === null || d === null) return { ok: false, error: 'one side is unavailable for that period' };
   if (!d) return { ok: false, error: `denominator '${den}' is zero for that period` };
   const v = n / d;
   const unit = U(num) === 'paise' && U(den) === 'count' ? 'paise' : U(num) === U(den) ? 'ratio' : null;
-  return { ok: true, metric: `${num}_per_${den}`, unit, period: p.cur,
-    summary: { derived: `${num} ÷ ${den}`, value: unit === 'paise' ? fmt(v, 'paise') : unit === 'ratio' ? (v * 100).toFixed(1) + '%' : v.toFixed(2), basis: `${fmt(n, U(num))} ÷ ${fmt(d, U(den))}` }, data: { value: v, numerator: n, denominator: d } };
+  const scopeLabel = Object.entries(a.filter || {}).map(([k2, v2]) => `${k2}=${v2}`).join(', ') || undefined;
+  return { ok: true, metric: `${num}_per_${den}`, unit, period: p.cur, scope: scopeLabel,
+    summary: { derived: `${num} ÷ ${den}`, scope: scopeLabel, value: unit === 'paise' ? fmt(v, 'paise') : unit === 'ratio' ? (v * 100).toFixed(1) + '%' : v.toFixed(2), basis: `${fmt(n, U(num))} ÷ ${fmt(d, U(den))}` }, data: { value: v, numerator: n, denominator: d } };
 }
 const summedOrdersIn = (sql: string) => /SUM\s*\(\s*\w*\.?"?priceInPaise"?/i.test(sql);
 
@@ -803,7 +814,12 @@ export const workScoped = (spec: AnalysisSpec | null | undefined, q?: string): b
   (spec?.scope || []).some((c: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c?.dimension))
   || /\bcommission|referral (fee|rate|amount|payout)|per[- ]scan|margin|payback|roi\b/i.test(String(q || ''));
 
-const FILTERABLE = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'baseline']);
+/* derive belongs here too. It was left out when the set was written because it took no filter —
+   and once it could take one, nothing checked that the filter matched what the owner asked for.
+   "Imaging" then meant service_kind=IMAGING on one run and an enumeration of modalities on the
+   next, so the same question answered 21.4% and 19.1% through the very tool added to make it
+   deterministic. A deterministic tool given a different argument is not deterministic. */
+const FILTERABLE = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'baseline', 'derive']);
 
 export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}, prior: Evidence[] = [], q?: string): Promise<Evidence> {
   const t0 = Date.now();
@@ -820,6 +836,17 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
     args.numerator && `${args.numerator} per ${args.denominator}`, args.hours && `over ${args.hours}h`, args.days && `${args.days} days`,
     args.question && `"${String(args.question).slice(0, 90)}"`,
   ].filter(Boolean).join(', ');
+  /* AND THE PERIOD, WHICH IS HALF OF EVERY FIGURE. The scope guard below made registry steps
+     honour the constraints the owner asked for and never looked at the window, so a step ran
+     "last_30_days" under a spec that said 90 — and the writer, reading the question rather than
+     the step, reported it as "21.4% over the last 90 days". Every filter correct, the number
+     correct for what it measured, and the sentence wrong.
+     The spec's period comes from the owner's own words, so it is not a preference to be weighed
+     against the planner's: it is corrected in place rather than rejected, because a step that
+     merely fails here costs a round and comes back with the same guess. */
+  if (spec?.time?.period && FILTERABLE.has(tool) && args.period && String(args.period).replace(/[\s_]+/g, '-').toLowerCase() !== String(spec.time.period).replace(/[\s_]+/g, '-').toLowerCase()) {
+    args.period = spec.time.period;
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = tool === 'query' ? await t_query(args, k, spec, policy)

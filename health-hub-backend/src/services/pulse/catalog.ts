@@ -59,6 +59,18 @@ export const METRICS: Record<string, Metric> = {
      to be asked: the only commission metric refused every imaging filter, so the analyst answered
      "at least 16.4%, and the true share is higher" against a true 21.4%. Naming them apart is the
      whole fix — each is exact within its own scope, and neither pretends to the other's reach. */
+  /* THE DENOMINATOR A SCOPED RATIO NEEDS. net_billed is Bill-level and cannot be scoped to a
+     test, category or modality — so "commission as a share of imaging revenue" and "revenue per
+     imaging scan" had NO deterministic route and fell through to generated SQL every time. The
+     same question then answered 21.4% on one run and 18.4% on the next, which is not a figure,
+     it is a coin flip. Order-level billing, filterable exactly like test_orders and
+     commission_on_orders, so a ratio over work has an exact expression. */
+  billed_on_orders: { k: 'billed on orders order value work billed per test per category imaging billed gross of orders',
+    sql: 'SUM(o."priceInPaise")',
+    tables: ['TestOrder'], t: 'o."createdAt"', u: 'paise',
+    d: 'What the test orders themselves were BILLED, before collection. USE THIS as the denominator '
+       + 'whenever a per-unit or share figure is scoped to a test, payout category, modality or '
+       + 'service kind — never revenue, which is cash and belongs to payments, not orders.' },
   commission_on_orders: { k: 'commission on orders referral payable attributable per test per category imaging commission',
     sql: COMMISSION_ON_ORDER,
     tables: ['TestOrder'], t: 'o."createdAt"', u: 'paise',
@@ -91,6 +103,7 @@ export const METRIC_DIMS: Record<string, string[]> = {
   refund_total: ['branch'],
   commission: ['referring_doctor', 'branch'],
   commission_on_orders: ['branch', 'test', 'payout_category', 'modality', 'service_kind', 'referring_doctor'],
+  billed_on_orders: ['branch', 'test', 'payout_category', 'modality', 'service_kind', 'referring_doctor'],
 };
 export const DIM_LABEL: Record<string, string> = {
   branch: 'branch wise', payment_type: 'by payment mode', referring_doctor: 'doctor wise',
@@ -112,6 +125,7 @@ export const FROMS: Record<string, [string, string]> = {
   refund_total: ['"OrderRefund" orf JOIN "Visit" v ON v.id=orf."visitId" JOIN "Branch" br ON br.id=orf."branchId"', 'orf."createdAt"'],
   commission: ['"DoctorPayoutLedger" pl JOIN "Branch" br ON br.id=pl."branchId"', 'pl."periodStartDate"'],
   commission_on_orders: ['"TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=o."branchId"', 'o."createdAt"'],
+  billed_on_orders: ['"TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=o."branchId"', 'o."createdAt"'],
   // rate metrics: no Branch join, so no breakdowns — but the formula is still exercised by the self-check
   abnormal_rate: ['"TestResult" r', ''],
   cancellation_rate: ['"TestOrder" o', 'o."createdAt"'],
