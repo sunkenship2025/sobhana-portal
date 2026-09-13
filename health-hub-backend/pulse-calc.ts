@@ -33,6 +33,34 @@ import 'dotenv/config';
 import { ask } from './src/services/pulse/index';
 import { PrismaClient } from '@prisma/client';
 
+/* A BILLING FAILURE IS NOT A QUALITY FAILURE, AND MUST NEVER BE COUNTED AS ONE.
+   When the account ran out of balance mid-suite, twenty of twenty-nine cases threw 402 and this
+   harness printed "8/29 clean" — a number indistinguishable, from the outside, from a
+   catastrophic regression. It cost a measurement and very nearly a wrong conclusion about the
+   build. An unusable account is a fact about the ACCOUNT; reporting it as a score is the same
+   error this whole layer exists to prevent, committed by the instrument. */
+const INFRA = /402|Insufficient Balance|401|invalid_api_key|LLM API key not set|429|rate.?limit|ECONNREFUSED|ENOTFOUND/i;
+/** One cheap call before any case runs. `ask()` catches an unusable account internally and
+ *  returns a polite refusal, so a dead account looks exactly like a build that fails every
+ *  question — which is how twenty 402s were once reported as "8/29 clean". Asked directly, the
+ *  error is visible, and the suite refuses to produce a score it cannot stand behind. */
+async function preflight(): Promise<void> {
+  const { llmJson } = require('./src/services/pulse/llm');
+  try { await llmJson('Return JSON {"ok":true}', 'ping', { maxTokens: 20 }); }
+  catch (e: any) {
+    console.error(`\n  STOPPED BEFORE RUNNING — this is the model account, not the build.\n  ${String(e?.message || e).slice(0, 170)}\n  No score is reported, because nothing was measured.\n`);
+    process.exit(2);
+  }
+}
+
+function bailIfInfra(e: any): void {
+  const m = String(e?.message || e);
+  if (!INFRA.test(m)) return;
+  console.error(`\n  STOPPED — this is the model account, not the build.\n  ${m.slice(0, 160)}\n  No result is reported, because none was measured.\n`);
+  process.exit(2);
+}
+
+
 const db = new PrismaClient({ datasources: { db: { url: process.env.ANALYTICS_DATABASE_URL } } });
 const q1 = async (sql: string) => (await db.$queryRawUnsafe<any[]>(sql))[0];
 const LIVE = `br.code NOT IN ('JGG','IDPL')`;
@@ -164,12 +192,13 @@ function digitsWithUnit(s: string, unit: string): number[] {
 const near = (a: number, b: number, tol = 0.12) => Math.abs(a - b) / Math.max(Math.abs(b), 1) <= tol;
 
 (async () => {
+  await preflight();
   const tally: Record<Klass, number> = { CORRECT:0, CALCULATION:0, OPERAND:0, SCOPE:0, PROVENANCE:0, INVESTIGATION:0, PRESENTATION:0 };
   for (const c of CASES) {
     if (ONLY.length && !ONLY.includes(c.id)) continue;
     const t = await c.truth();
     let a: any; const t0 = Date.now();
-    try { a = await ask(c.q, {}); } catch (e: any) { console.log(`✗ THREW ${c.id}`); continue; }
+    try { a = await ask(c.q, {}); } catch (e: any) { bailIfInfra(e); console.log(`✗ THREW ${c.id}`); continue; }
     const text = String(a.segments?.verdict ? [a.segments.verdict, ...(a.segments.points||[]).map((p:any)=>p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a.text || '');
     const tr = a.trace || {};
     const nums = digitsWithUnit(text, String(t.unit || 'number'));
