@@ -22,10 +22,23 @@ function StatusDot({ status }: { status: AutomationRow['status'] }) {
   return <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${cls}`} />;
 }
 
+const clockLabel = (m: number) => {
+  const h = Math.floor(m / 60);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
 function cadence(a: AutomationRow): string {
+  const plural = a.messageCount === 1 ? 'message' : 'messages';
+
+  // A nightly report is described by its time, not by "Day 2 / Day 10" — it has no
+  // patient journey and every night is the same night.
+  if (a.kind === 'SCHEDULE') {
+    const at = a.everyDayAtMinutes != null ? ` at ${clockLabel(a.everyDayAtMinutes)}` : '';
+    return `Every day${at} · ${a.messageCount} ${plural}, one per branch`;
+  }
+
   if (a.messageCount === 0) return 'No messages yet';
   const days = a.days.filter((d) => d > 0);
-  const plural = a.messageCount === 1 ? 'message' : 'messages';
   return days.length
     ? `${a.messageCount} ${plural} · ${days.map((d) => `Day ${d}`).join(' / ')}`
     : `${a.messageCount} ${plural}`;
@@ -158,8 +171,11 @@ export function AutomationsList({ onOpen, onCreate }: {
                   <span className="block text-sm font-medium">{a.name}</span>
                   <span className="block text-xs text-muted-foreground">
                     {cadence(a)}
-                    {a.runs > 0 && ` · ${a.runs.toLocaleString('en-IN')} runs`}
-                    {a.live > 0 && ` · ${a.live.toLocaleString('en-IN')} running now`}
+                    {a.runs > 0 && (a.kind === 'SCHEDULE'
+                      ? ` · ${a.runs.toLocaleString('en-IN')} sent`
+                      : ` · ${a.runs.toLocaleString('en-IN')} runs`)}
+                    {a.kind !== 'SCHEDULE' && a.live > 0 &&
+                      ` · ${a.live.toLocaleString('en-IN')} running now`}
                   </span>
                 </span>
                 {a.status === 'DRAFT' && (

@@ -101,15 +101,19 @@ export function AutomationBuilder({
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
               {automation.branchIds.length === 0 ? 'All branches' : `${automation.branchIds.length} branches`}
-              {automation.activatedAt
-                ? ` · visits from ${new Date(automation.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} onward`
-                : ' · nothing enrolled until you activate'}
+              {isScheduled
+                ? ' · one message each, every night'
+                : automation.activatedAt
+                  ? ` · visits from ${new Date(automation.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} onward`
+                  : ' · nothing enrolled until you activate'}
             </span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">
-              {def.reentry.concurrency === 'ALLOW_PARALLEL'
-                ? 'Every qualifying visit starts its own journey — a patient can have two running at once'
-                : 'Only one journey per patient at a time'}
-            </span>
+            {!isScheduled && (
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {def.reentry.concurrency === 'ALLOW_PARALLEL'
+                  ? 'Every qualifying visit starts its own journey — a patient can have two running at once'
+                  : 'Only one journey per patient at a time'}
+              </span>
+            )}
           </span>
         </div>
 
@@ -232,7 +236,46 @@ export function AutomationBuilder({
         </div>
       </section>
 
-      <section className="space-y-2">
+      {isScheduled && (
+        <section className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Who gets it
+          </p>
+          <div className="divide-y rounded-lg border">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Every owner with a phone number</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Set in Roles. No phone there means no message — never a guess at who to send to.
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">One message per branch, each with its own link</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  The link opens that branch's takings for that day and stops working after 72 hours —
+                  a day's revenue is not something to leave reachable forever.
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 bg-muted/30 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Sending hours and message caps do not apply</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Those hold back offers to patients. This goes to your own team at the time you set,
+                  which is usually after the quiet hours a patient message would respect.
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <Lock className="h-3 w-3" /> Not a patient message
+              </span>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className={`space-y-2 ${isScheduled ? 'hidden' : ''}`}>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sending rules</p>
         <div className="divide-y rounded-lg border">
           <div className="flex items-center gap-3 px-4 py-3">
@@ -268,7 +311,7 @@ export function AutomationBuilder({
         </div>
       </section>
 
-      <section className="space-y-2">
+      <section className={`space-y-2 ${isScheduled ? 'hidden' : ''}`}>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Always on</p>
         <div className="divide-y rounded-lg border">
           <LockedRow

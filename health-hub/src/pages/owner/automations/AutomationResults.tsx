@@ -9,7 +9,8 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { LoadingState } from '@/components/ui/loading-state';
-import { getResults, reasonLabel, rupees } from './api';
+import { Badge } from '@/components/ui/badge';
+import { getResults, reasonLabel, rupees, type ScheduledResults } from './api';
 
 function Bar({ pct, muted }: { pct: number; muted?: boolean }) {
   return (
@@ -64,6 +65,10 @@ export function AutomationResults({ automationId }: { automationId: string }) {
 
   if (isLoading) return <LoadingState />;
   if (!data) return null;
+
+  // A report to your own team has no funnel. The only questions are whether last night
+  // went out and whether any night has failed.
+  if ('kind' in data && data.kind === 'SCHEDULE') return <Nights data={data} />;
 
   const { counts, converted, rates, skipped, money, branchSplit, windowDays } = data;
   const base = Math.max(1, counts.runs);
@@ -174,6 +179,94 @@ export function AutomationResults({ automationId }: { automationId: string }) {
           <Row title="Same branch as the visit" value={branchSplit.sameBranch.toLocaleString('en-IN')} />
           <Row title="A different branch" sub="Counted — revenue is revenue"
             value={branchSplit.otherBranch.toLocaleString('en-IN')} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Every night this report has been responsible for, newest first. */
+function Nights({ data }: { data: ScheduledResults }) {
+  const { nights, totals } = data;
+
+  if (nights.length === 0) {
+    return (
+      <p className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+        No nights recorded yet. The first one appears after tonight's send.
+      </p>
+    );
+  }
+
+  const tone = (outcome: string) =>
+    outcome === 'SENT' ? 'border-emerald-200 text-emerald-700'
+    : outcome === 'ALREADY_SENT_BY_OLD_TICKER' ? 'text-muted-foreground'
+    : 'border-destructive/30 text-destructive';
+
+  const label = (outcome: string) =>
+    outcome === 'SENT' ? 'Sent'
+    : outcome === 'ALREADY_SENT_BY_OLD_TICKER' ? 'Older sender got there first'
+    : reasonLabel(outcome);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { n: totals.nightsRecorded, label: 'Nights recorded' },
+          { n: totals.sent, label: 'Messages sent' },
+          { n: totals.failed, label: 'Failed' },
+        ].map((k) => (
+          <div key={k.label} className="rounded-lg border p-3.5">
+            <p className={`text-xl font-semibold tabular-nums ${
+              k.label === 'Failed' && k.n > 0 ? 'text-destructive' : ''}`}>{k.n}</p>
+            <p className="text-xs text-muted-foreground">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {totals.handedOver > 0 && (
+        <p className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          <b className="text-foreground">{totals.handedOver}</b> branch-night
+          {totals.handedOver === 1 ? '' : 's'} went out on the older sender instead. That is expected
+          while both are switched on — whichever claims the night first owns it, and exactly one
+          message goes out either way. Once every night here reads “Sent”, the old schedule can be
+          switched off in Config Center.
+        </p>
+      )}
+
+      <section>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Night by night
+        </p>
+        <div className="divide-y rounded-lg border bg-card">
+          {nights.map((n) => (
+            <div key={n.night} className="px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium tabular-nums">{n.night}</span>
+                <span className="flex-1" />
+                {n.failed > 0 && (
+                  <Badge variant="outline" className="border-destructive/30 text-[11px] font-normal text-destructive">
+                    {n.failed} failed
+                  </Badge>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {n.sent} sent{n.handedOver > 0 && ` · ${n.handedOver} on the older sender`}
+                </span>
+              </div>
+              <div className="mt-1.5 space-y-1">
+                {n.branches.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <Badge variant="outline" className={`shrink-0 text-[11px] font-normal ${tone(b.outcome)}`}>
+                      {label(b.outcome)}
+                    </Badge>
+                    <span className="text-muted-foreground">{b.branch}</span>
+                    <span className="text-muted-foreground">
+                      {new Date(b.at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>

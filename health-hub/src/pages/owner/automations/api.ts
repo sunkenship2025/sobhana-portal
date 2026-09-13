@@ -57,6 +57,9 @@ export interface AutomationRow {
   enabled: boolean; version: number; activatedAt: string | null;
   status: 'ACTIVE' | 'PAUSED' | 'DRAFT';
   messageCount: number; days: number[]; runs: number; live: number;
+  /** A scheduled report is a different kind of thing from a patient journey. */
+  kind: 'SCHEDULE' | 'JOURNEY';
+  everyDayAtMinutes: number | null;
 }
 
 export interface Automation {
@@ -103,7 +106,19 @@ export const simulateAutomation = (
   method: 'POST', body: JSON.stringify(body),
 });
 
+/** Nights, for a scheduled report. No audience, no control group, nothing to convert. */
+export interface ScheduledResults {
+  kind: 'SCHEDULE';
+  version: number;
+  nights: {
+    night: string; sent: number; failed: number; handedOver: number;
+    branches: { branch: string; outcome: string; at: string }[];
+  }[];
+  totals: { nightsRecorded: number; sent: number; failed: number; handedOver: number };
+}
+
 export interface Results {
+  kind?: 'JOURNEY';
   version: number; windowDays: number;
   counts: {
     runs: number; uniquePatients: number; treated: number; held: number;
@@ -119,7 +134,8 @@ export interface Results {
   };
   branchSplit: { sameBranch: number; otherBranch: number };
 }
-export const getResults = (id: string) => apiRequest<Results>(`${AUT}/${id}/results`);
+export const getResults = (id: string) =>
+  apiRequest<Results | ScheduledResults>(`${AUT}/${id}/results`);
 
 export interface ActivityRow {
   id: string; at: string; kind: string; outcome: string; stepIndex: number;

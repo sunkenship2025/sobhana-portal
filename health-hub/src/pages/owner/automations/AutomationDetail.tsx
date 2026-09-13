@@ -96,10 +96,15 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
 
   if (isLoading || !automation) return <LoadingState />;
 
+  // A scheduled report has no patient to simulate and no SEND step to count.
+  const isScheduled = automation.definition.trigger.kind === 'SCHEDULE';
   const dayLabels = automation.definition.steps
     .filter((s): s is Extract<Step, { kind: 'WAIT' }> => s.kind === 'WAIT' && s.anchor === 'TRIGGER')
     .map((s) => `Day ${s.days ?? 0}`);
-  const sends = automation.definition.steps.filter((s) => s.kind === 'SEND').length;
+  const sends = isScheduled
+    ? automation.definition.steps.filter((s) => s.kind === 'DAY_SHEET').length *
+      Math.max(1, automation.branchIds.length)
+    : automation.definition.steps.filter((s) => s.kind === 'SEND').length;
 
   return (
     <div className="space-y-5">
@@ -116,8 +121,9 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
             {automation.enabled ? 'Active' : automation.activatedAt ? 'Paused' : 'Draft'} · v{automation.version}
           </p>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {sends} message{sends === 1 ? '' : 's'}
-            {dayLabels.length > 0 && ` on ${dayLabels.join(', ')}`}
+            {isScheduled
+              ? `${sends} message${sends === 1 ? '' : 's'} a night, one per branch`
+              : `${sends} message${sends === 1 ? '' : 's'}${dayLabels.length > 0 ? ` on ${dayLabels.join(', ')}` : ''}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -133,13 +139,17 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
               <Button variant="outline" size="sm" disabled={pause.isPending} onClick={() => pause.mutate()}>
                 Pause
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
+              {!isScheduled && (
+                <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
+              )}
               <Button variant="outline" size="sm" className="text-destructive"
                 onClick={() => setConfirmStop(true)}>Stop</Button>
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
+              {!isScheduled && (
+                <Button variant="outline" size="sm" onClick={() => setShowSimulate(true)}>Try it out</Button>
+              )}
               <Button size="sm" onClick={() => setConfirmActivate(true)}>Activate</Button>
             </>
           )}

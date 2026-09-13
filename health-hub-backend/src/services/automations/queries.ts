@@ -25,6 +25,13 @@ export async function listAutomations() {
     const days = def.steps
       .filter((s) => s.kind === 'WAIT' && s.anchor === 'TRIGGER')
       .map((s) => (s as { days?: number }).days ?? 0);
+    const isScheduled = def.trigger.kind === 'SCHEDULE';
+    // A day sheet has no SEND step — it has a DAY_SHEET step that fans out to one
+    // message per branch per night. Counting SEND alone reported "0 messages" on a
+    // thing that sends every night.
+    const messageCount = isScheduled
+      ? def.steps.filter((s) => s.kind === 'DAY_SHEET').length * Math.max(1, a.branchIds.length)
+      : def.steps.filter((s) => s.kind === 'SEND').length;
     return {
       id: a.id,
       key: a.key,
@@ -34,7 +41,11 @@ export async function listAutomations() {
       version: a.version,
       activatedAt: a.activatedAt,
       status: a.enabled ? 'ACTIVE' : a.activatedAt ? 'PAUSED' : 'DRAFT',
-      messageCount: def.steps.filter((s) => s.kind === 'SEND').length,
+      messageCount,
+      kind: isScheduled ? ('SCHEDULE' as const) : ('JOURNEY' as const),
+      everyDayAtMinutes: isScheduled
+        ? (def.trigger as { everyDayAtMinutes: number }).everyDayAtMinutes
+        : null,
       days,
       runs: total,
       live: mine.filter((c) => c.state === 'PENDING' || c.state === 'RUNNING')
@@ -56,6 +67,11 @@ export async function automationResults(automationId: string) {
   const a = await prisma.automation.findUnique({ where: { id: automationId } });
   if (!a) return null;
   const def = a.definition as unknown as AutomationDefinition;
+
+  // A scheduled report has no audience, no control group and nothing to convert. The
+  // only questions worth answering are "did last night go out" and "has any night
+  // failed" — so it gets its own shape rather than a funnel full of zeroes.
+  if (def.trigger.kind === 'SCHEDULE') return scheduledResults(a.id, a.version);
 
   const runs = await prisma.automationRun.findMany({
     where: { automationId },
@@ -144,6 +160,58 @@ export async function automationResults(automationId: string) {
     branchSplit: {
       sameBranch: runs.filter((r) => within(r) && r.convertedBranchId === r.branchId).length,
       otherBranch: runs.filter((r) => within(r) && r.convertedBranchId && r.convertedBranchId !== r.branchId).length,
+    },
+  };
+}
+
+/** Nights, for a scheduled report. Built from the step log, which is what records them. */
+async function scheduledResults(automationId: string, version: number) {
+  const logs = await prisma.automationStepLog.findMany({
+    where: { run: { automationId }, kind: { in: ['SEND', 'FAILED'] } },
+    orderBy: { at: 'desc' },
+    take: 200,
+    select: {
+      at: true, outcome: true, detail: true,
+      run: { select: { cycleKey: true, branchId: true } },
+    },
+  });
+
+  const branchIds = [...new Set(logs.map((l) => l.run.branchId).filter(Boolean))] as string[];
+  const branches = await prisma.branch.findMany({
+    where: { id: { in: branchIds } },
+    select: { id: true, name: true },
+  });
+  const branchName = new Map(branches.map((b) => [b.id, b.name]));
+
+  const byNight = new Map<string, { night: string; sent: number; failed: number; handedOver: number;
+    branches: { branch: string; outcome: string; at: Date }[] }>();
+  for (const l of logs) {
+    const night = l.run.cycleKey;
+    if (!byNight.has(night)) {
+      byNight.set(night, { night, sent: 0, failed: 0, handedOver: 0, branches: [] });
+    }
+    const row = byNight.get(night)!;
+    if (l.outcome === 'SENT') row.sent += 1;
+    else if (l.outcome === 'ALREADY_SENT_BY_OLD_TICKER') row.handedOver += 1;
+    else row.failed += 1;
+    row.branches.push({
+      branch: branchName.get(l.run.branchId ?? '') ?? 'Unknown branch',
+      outcome: l.outcome,
+      at: l.at,
+    });
+  }
+
+  const nights = [...byNight.values()].sort((x, y) => (x.night < y.night ? 1 : -1)).slice(0, 14);
+  return {
+    kind: 'SCHEDULE' as const,
+    version,
+    nights,
+    totals: {
+      nightsRecorded: byNight.size,
+      sent: nights.reduce((n, x) => n + x.sent, 0),
+      failed: nights.reduce((n, x) => n + x.failed, 0),
+      /// Nights the older sender got to first. Expected while both are live.
+      handedOver: nights.reduce((n, x) => n + x.handedOver, 0),
     },
   };
 }
