@@ -576,9 +576,27 @@ async function t_quiet_doctors(a: any): Promise<Partial<Evidence>> {
       AND NOT EXISTS (SELECT 1 FROM "ReferralDoctor_Visit" r2 WHERE r2."referralDoctorId"=rd.id AND r2."deletedAt" IS NULL AND (r2."createdAt" ${IST}) >= '${p.cur.from}')
     GROUP BY 1 ORDER BY 2 DESC LIMIT 10`);
   if (r.err) return { ok: false, error: r.err };
+  /* "NOBODY LAPSED" AND "I HAVE NO EARLIER PERIOD" ARE NOT THE SAME CLAIM, and this returned the
+     first when the truth was the second. The centre's order history begins 1 July 2026 — about
+     ten weeks — so a 180-day look-back lands entirely before any data exists. The tool reported
+     stoppedReferring: 0, and the answer built on it asserted "the lapsed-referrer loss is real
+     but cannot be sized" — a loss that cannot exist, stated as fact, because an empty window is
+     indistinguishable from an empty result unless somebody checks.
+     So the prior window is checked for data before its emptiness is allowed to mean anything. */
+  const before = await query(`SELECT count(*)::int n FROM "ReferralDoctor_Visit" r
+    WHERE r."deletedAt" IS NULL AND (r."createdAt" ${IST}) >= '${addDays(p.cur.from, -look)}' AND (r."createdAt" ${IST}) < '${p.cur.from}'`);
+  const priorRows = Number(before.rows?.[0]?.n ?? 0);
+  if (!before.err && priorRows === 0) {
+    const first = await query(`SELECT MIN((r."createdAt" ${IST})::date)::text d FROM "ReferralDoctor_Visit" r WHERE r."deletedAt" IS NULL`);
+    const since = first.rows?.[0]?.d;
+    return { ok: false,
+      error: `there is no prior period to compare against — no referrals exist between ${addDays(p.cur.from, -look)} and ${p.cur.from}`
+        + (since ? `, because the referral history only begins ${since}` : '')
+        + `. Nobody can be shown to have stopped referring, and saying nobody did would be a claim about the doctors rather than about the data.` };
+  }
   const rows = (r.rows || []).map((x: any) => ({ k: String(x.k), v: Number(x.n), last: x.last }));
   return { ok: true, unit: 'count',
-    summary: { stoppedReferring: rows.length, since: p.cur.from, lookedBackDays: look,
+    summary: { stoppedReferring: rows.length, since: p.cur.from, lookedBackDays: look, comparedAgainst: `${priorRows} referrals in the prior window`,
       doctors: rows.map((x) => ({ name: x.k, referralsBefore: x.v, lastReferral: x.last })) },
     data: { rows } };
 }

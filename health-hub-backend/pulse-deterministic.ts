@@ -190,6 +190,14 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('planner DEFAULT ignored — not enforced', verifySpec(planned, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, true);
   ok('a relative window of the right length counts', verifySpec(named, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS} WHERE o."createdAt" >= CURRENT_DATE - 90`).ok, true);
 
+  console.log('\nAN EMPTY WINDOW IS NOT AN EMPTY RESULT');
+  const noPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-90-days', priorDays: 180 } });
+  ok('a prior window predating all data refuses', noPrior.ok, false, 'zero lapsed doctors would be a claim about the doctors');
+  ok('  and names the horizon', /history only begins|no referrals exist between/.test(String(noPrior.error)), true, String(noPrior.error).slice(0, 70));
+  const hasPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-30-days', priorDays: 30 } });
+  ok('a real prior window still answers', hasPrior.ok, true, hasPrior.error);
+  ok('  and says what it compared against', /prior window/.test(String(hasPrior.summary?.comparedAgainst)), true);
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);
