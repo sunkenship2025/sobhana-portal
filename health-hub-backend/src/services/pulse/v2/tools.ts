@@ -94,7 +94,25 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
        nineteen steps in one investigation were this same refusal, and the CT payback question
        ran out of budget without ever measuring CT revenue. The registry cannot express every
        dimension and never will; naming the tool that can turns a wall into a direction. */
-    if (!dimOk(metric, dim)) return { error: `'${metric}' cannot be filtered by '${dim}' — it only filters on ${(METRIC_DIMS[metric] || []).join(', ') || 'nothing'}. Use the "query" tool to express this one; do not ask a registry tool for it again.` };
+    /* NAME THE METRIC THAT CAN, NOT JUST THE ONE THAT CANNOT. Pointing at "query" sent every
+       scoped money question to generated SQL — the one path that is not the same twice — while a
+       registry metric with exactly that dimension sat unused. "What does a CT scanner earn" was
+       answered "CT-scoped revenue has never been measured" with billed_on_orders available the
+       whole time. Computed from METRIC_DIMS rather than listed, so a metric added later is
+       offered without anyone remembering to update a message. */
+    if (!dimOk(metric, dim)) {
+      /* A COST IS NOT A SUBSTITUTE FOR A VALUE. Same unit is not the same quantity: offering
+         commission_on_orders first for a REVENUE question invites exactly the basis error this
+         layer spent the week removing. Cost-shaped metrics are ranked last unless the question
+         was about one. */
+      const costly = (m: string) => /commission|discount|refund|payout/i.test(m);
+      const alt = Object.keys(METRIC_DIMS).filter((m) => m !== metric
+        && (METRIC_DIMS[m] || []).includes(dim) && METRICS[m]?.u === METRICS[metric]?.u)
+        .sort((x, y) => Number(costly(x) !== costly(metric)) - Number(costly(y) !== costly(metric)));
+      return { error: `'${metric}' cannot be filtered by '${dim}' — it only filters on ${(METRIC_DIMS[metric] || []).join(', ') || 'nothing'}. `
+        + (alt.length ? `Use ${alt.map((m) => `"${m}"`).join(' or ')} instead — same unit, and filters on ${dim}.`
+                      : `Use the "query" tool to express this one; do not ask a registry tool for it again.`) };
+    }
     const j = dimJoin(metric, dim); if (j && !join.includes(j)) join += j;
     const vals = filterValues(rawVal).map((v) => v.replace(/'/g, "''"));
     where.push(`${DIMS[dim]} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
@@ -872,6 +890,17 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
          reported as imaging commission: "roughly 16%" against a true 21.4%. It could not even be
          filtered to imaging, so nothing looked wrong; it simply answered a wider question.
          A rule enforced on one path is a rule the next caller walks around. */
+      /* CASH CANNOT BE SCOPED TO WORK, AND SAYING SO IS NOT THE SAME AS ROUTING AROUND IT.
+         revenue is collected cash: it lives on payments and cannot be filtered by test, category
+         or modality at all. Asked what a CT scanner earns, the analyst reached for it, was told
+         it could not be filtered that way, and — having no alternative in hand — answered "the
+         CT-scoped revenue per month has never been measured". The operand existed the whole time
+         under a different name. A guard that only refuses teaches nothing; this one names the
+         metric that can answer, which is the difference between a wall and a direction. */
+      if (r.ok && ['revenue', 'net_billed'].includes(String(args?.metric || '')) && workScoped(spec, q)) {
+        return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
+          error: `'${args.metric}' cannot be scoped to a test, category or modality — revenue is cash on payments and net_billed is bill-level, so neither belongs to orders. Use "billed_on_orders" (what those orders were billed) with the same filter, and "commission_on_orders" beside it if you need contribution.` } as Evidence;
+      }
       if (r.ok && String(args?.metric || '') === 'commission'
           && workScoped(spec, q)) {
         return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,

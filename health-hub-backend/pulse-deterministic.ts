@@ -79,6 +79,17 @@ const near = (name: string, got: number, want: number, tol: number) => {
   const paise = await step({ tool: 'compute', args: { formula: 'x', unit: 'rupees', let: { x: { value: 1, unit: 'paise' } } } });
   ok('refuses money supplied as paise', paise.ok, false, 'a 100x error that looks plausible');
 
+  console.log('\nROUTING — a dead end is retried; a direction is followed');
+  const CT = { payout_category: 'CT / MRI' };
+  const wrong: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days', filter: CT } });
+  ok('revenue refuses a work scope', wrong.ok, false, 'cash lives on payments, not orders');
+  ok('  and names the metric that can', /billed_on_orders/.test(String(wrong.error)), true, String(wrong.error).slice(0, 80));
+  ok('  value metric ranked above cost', String(wrong.error).indexOf('billed_on_orders') < String(wrong.error).indexOf('commission_on_orders'), true);
+  const right: any = await step({ tool: 'metric', args: { metric: 'billed_on_orders', period: 'last_90_days', filter: CT } });
+  ok('the named metric actually answers', right.ok, true, right.error);
+  const plain: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } });
+  ok('unscoped revenue still works', plain.ok, true, 'the guard must not block the common case');
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);
