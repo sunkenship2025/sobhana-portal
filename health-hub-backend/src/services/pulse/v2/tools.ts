@@ -535,11 +535,24 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
      plan that preceded it; where the query has none, neither does the number. */
   const scopeLabel = filtersOf(sql) || undefined;
   const periodLabel = periodOf(sql) || undefined;
-  return { ok: true, sql, recovered, calls: spent,
+  /* SAY THAT THE NUMBER IS PAISE, OR THE NEXT STEP WILL SPEND IT AS RUPEES.
+     t_query knew which columns were money — moneyCols drives the formatting two lines below —
+     and never put it on the evidence. compute normalises paise off `unit`, a generated query set
+     none, and ₹1,32,500 of CT billing was divided into ₹50,00,000 as though it were ₹1,32,50,000:
+     a fifty lakh scanner paying for itself in half a month. The answer even said the operands
+     looked 100x too large and gave the figure anyway.
+     Only when the money columns are the ONLY numeric ones — a mixed row of rupees and counts has
+     no single unit, and claiming one would be the same error pointed the other way. */
+  const money = moneyCols(sql, Object.keys(ex.rows[0] || {}));
+  const numericCols = Object.keys(ex.rows[0] || {}).filter((c) =>
+    ex.rows.some((r: any) => typeof r[c] === 'number' || (typeof r[c] === 'bigint')));
+  const allMoney = numericCols.length > 0 && numericCols.every((c) => money.has(c));
+  return { ok: true, sql, recovered, calls: spent, unit: allMoney ? 'paise' : undefined,
     dimension: dimensionOf(sql), period: periodLabel, scope: scopeLabel,
     summary: { question: q, rowCount: ex.rows.length, period: periodLabel, scope: scopeLabel,
+      money: money.size ? [...money] : undefined,
       orderedBy: (() => { const o = orderedBy(sql); return o ? `${o.column} ${o.desc ? 'high to low' : 'low to high'}` : undefined; })(),
-    rows: writerRows(ex.rows, 12, moneyCols(sql, Object.keys(ex.rows[0] || {}))) }, data: { rows: ex.rows } };
+    rows: writerRows(ex.rows, 12, money) }, data: { rows: ex.rows } };
 }
 
 

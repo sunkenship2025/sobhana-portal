@@ -91,7 +91,11 @@ export function figureOf(e: any, field?: string): { v: number; unit?: string } |
   if (e.ok === false) return `step ${e.step} failed, so it carries no figure`;
   const d = e.data, s = e.summary;
   if (field) {
-    for (const src of [d, s, d?.[0], s?.[0]]) if (src && NUMERIC(src[field])) return { v: src[field], unit: e.unit };
+    for (const src of [d, s, d?.[0], s?.[0]]) if (src && NUMERIC(src[field]))
+      return { v: src[field], unit: e.unit ?? (PAISE_COL.test(field) || (e.summary?.money || []).includes(field) ? 'paise' : undefined) };
+    const row = (d?.rows ?? (Array.isArray(d) ? d : null))?.[0];
+    if (row && NUMERIC(row[field]))
+      return { v: row[field], unit: e.unit ?? (PAISE_COL.test(field) || (e.summary?.money || []).includes(field) ? 'paise' : undefined) };
     return `step ${e.step} has no numeric field "${field}"`;
   }
   for (const c of [d?.value, s?.value, d?.total, s?.total, NUMERIC(d) ? d : undefined]) if (NUMERIC(c)) return { v: c, unit: e.unit };
@@ -99,12 +103,20 @@ export function figureOf(e: any, field?: string): { v: number; unit?: string } |
   const rows = d?.rows ?? (Array.isArray(d) ? d : null);
   if (Array.isArray(rows) && rows.length === 1) {
     const nums = Object.entries(rows[0]).filter(([, v]) => NUMERIC(v));
-    if (nums.length === 1) return { v: nums[0][1] as number, unit: e.unit };
+    if (nums.length === 1) {
+      const [col, v] = nums[0];
+      return { v: v as number, unit: e.unit ?? (PAISE_COL.test(col) || (e.summary?.money || []).includes(col) ? 'paise' : undefined) };
+    }
   }
   return `step ${e.step} carries no single figure to compute with — name a field, or use a step that measures one number`;
 }
 
 const MONEY = (u?: string | null) => u === 'paise' || u === 'rupees' || u === 'money';
+/* A SECOND WAY TO KNOW. The unit on the evidence is the right answer and it is not always there —
+   a generated query that sums "priceInPaise" is unmistakably money whatever the step declared.
+   The column name is the last line of defence against spending paise as rupees, which is a 100x
+   error that reads as a plausible number. */
+const PAISE_COL = /paise$|InPaise$/i;
 /** to rupees. Evidence money is paise; a number the owner supplied is rupees. */
 const toRupees = (v: number, unit?: string | null) => (unit === 'paise' ? v / 100 : v);
 

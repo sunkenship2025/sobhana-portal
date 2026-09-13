@@ -74,6 +74,22 @@ const near = (name: string, got: number, want: number, tol: number) => {
   const pay = await step({ tool: 'compute', args: { formula: 'capital / ((billed - commission) / 3)', unit: 'months',
     let: { capital: { value: 5000000, unit: 'rupees' }, billed: { step: 0 }, commission: { step: 1 } } } }, [{ ...b, step: 0 }, { ...c, step: 1 }]);
   near('CT-style payback, paise normalised', Number(pay.data?.value), 5000000 / ((B - C) / 100 / 3), 0.02);
+  /* A GENERATED QUERY DECLARES NO UNIT, AND ITS COLUMN IS THE ONLY THING THAT SAYS PAISE.
+     ₹1,32,500 of CT billing was divided into ₹50,00,000 as though it were ₹1,32,50,000 — a fifty
+     lakh scanner paying for itself in half a month, from an answer that said out loud the
+     operands looked 100x too large. */
+  const noUnit1: any = { step: 90, ok: true, label: 'CT billed', data: { rows: [{ billed_in_paise: 13250000 }] } };
+  const noUnit2: any = { step: 91, ok: true, label: 'CT commission', data: { rows: [{ commission_in_paise: 3300000 }] } };
+  const pb: any = await step({ tool: 'compute', args: { formula: 'capital / (billed - commission)', unit: 'months',
+    let: { capital: { value: 5000000, unit: 'rupees' }, billed: { step: 90 }, commission: { step: 91 } } } }, [noUnit1, noUnit2]);
+  ok('paise from a query column are not spent as rupees',
+     pb.ok && Math.abs(pb.data.value - 5000000 / (132500 - 33000)) < 0.1, true, pb.ok ? pb.summary.value : pb.error);
+  const counted: any = { step: 92, ok: true, label: 'orders', data: { rows: [{ order_count: 41 }] } };
+  const perUnit: any = await step({ tool: 'compute', args: { formula: 'billed / n', unit: 'rupees',
+    let: { billed: { step: 90 }, n: { step: 92 } } } }, [noUnit1, counted]);
+  ok('  and a count column is never treated as money', perUnit.ok && Math.abs(perUnit.data.value - 132500 / 41) < 1, true,
+     perUnit.ok ? perUnit.summary.value : perUnit.error);
+
   const mixed = await step({ tool: 'compute', args: { formula: 'a / b', unit: 'percent',
     let: { a: { step: 0 }, b: { step: 1 } } } }, [{ ...b, step: 0 }, { ...c, step: 1, scope: 'something else', period: '2020-01-01…2020-02-01' }]);
   ok('refuses operands on different populations', mixed.ok, false, 'a ratio across two scopes is silently wrong');
