@@ -12,7 +12,7 @@
  */
 import type { AutomationDefinition, Step, Trigger } from './types';
 
-export type FieldType = 'TEXT' | 'TIME' | 'NUMBER' | 'BRANCHES' | 'TEMPLATE' | 'CHOICE';
+export type FieldType = 'TEXT' | 'TIME' | 'NUMBER' | 'BRANCHES' | 'TEMPLATE' | 'CHOICE' | 'OFFER';
 
 export interface BlueprintField {
   key: string;
@@ -149,6 +149,93 @@ const RECIPES: Recipe[] = [
       domain: 'DIAGNOSTICS', predicate: 'reportOpened',
       days: num(v, 'days', 2), template: str(v, 'template'), windowDays: 14,
     }),
+  },
+  {
+    id: 'OP_DIAGNOSTIC_RECOVERY',
+    title: 'Win back a consultation that led to no tests',
+    sub: 'Offer a discount, let them claim it, remind them once before it expires',
+    group: 'Patient journeys',
+    scheduled: false,
+    // No control group in v1, by decision.
+    holdoutPct: 0,
+    fields: [
+      { key: 'offerDay', label: 'Send the offer on day', type: 'NUMBER', default: 2, required: true,
+        help: 'Counted from the consultation. Day 2 leaves room for someone who walked straight to the lab.' },
+      { key: 'remindDay', label: 'Remind them on day', type: 'NUMBER', default: 5, required: true },
+      { key: 'expiryDay', label: 'Offer expires end of day', type: 'NUMBER', default: 6, required: true,
+        help: 'Measured from the consultation, so claiming late means less time rather than a fresh window.' },
+      { key: 'campaignId', label: 'Which offer', type: 'OFFER', required: true,
+        help: 'The discount this journey hands out.' },
+      { key: 'offerTemplate', label: 'The offer message', type: 'TEMPLATE', approvedOnly: true, required: true,
+        help: 'Needs a "Get my code" button. It carries no code — the patient claims it.' },
+      { key: 'codeTemplate', label: 'The message carrying the code', type: 'TEMPLATE', approvedOnly: true, required: true },
+      { key: 'remindWithCodeTemplate', label: 'Reminder for someone holding a code', type: 'TEMPLATE', approvedOnly: true, required: true },
+      { key: 'remindToClaimTemplate', label: 'Reminder for someone who never claimed', type: 'TEMPLATE', approvedOnly: true, required: true,
+        help: 'Also needs a "Get my code" button. Same day, two different truths.' },
+    ],
+    assemble: (v) => {
+      const offerDay = num(v, 'offerDay', 2);
+      const remindDay = num(v, 'remindDay', 5);
+      const expiryDay = num(v, 'expiryDay', 6);
+      const campaignId = str(v, 'campaignId');
+      const recovered = { fn: 'testDoneSinceThisVisit' } as const;
+      const expiry = { anchor: 'TRIGGER' as const, days: expiryDay, endOfDayIST: true };
+
+      return {
+        trigger: { kind: 'VISIT_COMPLETED', domain: 'CLINIC' },
+        // One live journey per patient. A second qualifying visit meanwhile is recorded
+        // as suppressed and never reconsidered — skipped, not queued.
+        reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+        policy: { skipMarketingConsent: true, stopScope: 'THIS_JOURNEY' },
+        audience: { fn: 'always' },
+        goal: { condition: recovered, windowDays: expiryDay, stopReason: 'STOPPED_GOAL_MET' },
+        steps: [
+          { kind: 'WAIT', anchor: 'TRIGGER', days: offerDay },
+          { kind: 'CHECK', condition: recovered, onTrue: 'STOP', stopReason: 'STOPPED_GOAL_MET' },
+          {
+            kind: 'ASK', template: str(v, 'offerTemplate'), intent: 'PROACTIVE',
+            params: [{ from: 'PATIENT_FIRST_NAME' }],
+            buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 3 }],
+            keywords: [{ match: 'code', goTo: 3 }],
+            onUnmatched: 'HANDOFF',
+            waitHours: Math.max(24, (remindDay - offerDay) * 24),
+          },
+          {
+            kind: 'SEND', template: str(v, 'codeTemplate'), intent: 'PROACTIVE',
+            params: [{ from: 'COUPON_CODE' }],
+            issueOffer: { campaignId, expiry },
+          },
+          { kind: 'WAIT', anchor: 'TRIGGER', days: remindDay },
+          { kind: 'CHECK', condition: recovered, onTrue: 'STOP', stopReason: 'STOPPED_GOAL_MET' },
+          // One journey, two things to say.
+          {
+            kind: 'CHECK',
+            condition: { fn: 'couponState', op: 'in', value: ['ISSUED', 'PENDING'] },
+            onTrue: 7, onFalse: 8,
+          },
+          {
+            kind: 'SEND', template: str(v, 'remindWithCodeTemplate'), intent: 'PROACTIVE',
+            params: [{ from: 'COUPON_CODE' }],
+          },
+          {
+            kind: 'ASK', template: str(v, 'remindToClaimTemplate'), intent: 'PROACTIVE',
+            params: [{ from: 'PATIENT_FIRST_NAME' }],
+            buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 9 }],
+            keywords: [{ match: 'code', goTo: 9 }],
+            onUnmatched: 'HANDOFF',
+            waitHours: Math.max(6, (expiryDay - remindDay) * 24),
+          },
+          // A late claim gets the SAME expiry — less time, not a fresh window.
+          {
+            kind: 'SEND', template: str(v, 'codeTemplate'), intent: 'PROACTIVE',
+            params: [{ from: 'COUPON_CODE' }],
+            issueOffer: { campaignId, expiry },
+          },
+          { kind: 'WAIT', anchor: 'TRIGGER', days: expiryDay },
+          { kind: 'STOP', reason: 'STOPPED_BY_STEP' },
+        ],
+      };
+    },
   },
   {
     id: 'TEAM_DAY_SHEET',

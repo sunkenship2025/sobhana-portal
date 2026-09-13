@@ -206,7 +206,12 @@ export function AutomationBuilder({
                     <>
                       <span className="block text-sm font-medium">Did this visit lead to diagnostics?</span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Checked live · yes → stop · no → continue
+                        Checked live · yes →{' '}
+                        {typeof step.onTrue === 'number' ? `step ${step.onTrue + 1}` : step.onTrue.toLowerCase()}
+                        {' · no → '}
+                        {typeof step.onFalse === 'number'
+                          ? `step ${step.onFalse + 1}`
+                          : (step.onFalse ?? 'CONTINUE').toLowerCase()}
                       </span>
                     </>
                   ) : step.kind === 'SEND' ? (
@@ -221,6 +226,38 @@ export function AutomationBuilder({
                           ? ` · ${templateOf(step.template)!.status.toLowerCase()}`
                           : ' · not found in your approved templates'}
                       </span>
+                      {step.issueOffer && (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          Issues an offer, one per journey however many steps ask for it
+                          {step.issueOffer.expiry?.anchor === 'TRIGGER' &&
+                            ` · expires end of day ${step.issueOffer.expiry.days} after the trigger, so claiming late means less time`}
+                        </span>
+                      )}
+                    </>
+                  ) : step.kind === 'ASK' ? (
+                    <>
+                      <span className="block text-sm font-medium">
+                        Ask, using <code className="rounded bg-muted px-1 text-xs">{step.template}</code>
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {step.buttons.map((b) => `"${b.label}"`).join(' · ')}
+                        {' — '}
+                        {step.onUnmatched === 'HANDOFF'
+                          ? 'anything else goes to a person'
+                          : step.onUnmatched === 'STOP' ? 'anything else ends the journey'
+                          : 'anything else carries on'}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Holds this phone for {step.waitHours ?? 24} hours. No answer in that time and
+                        the journey moves on.
+                      </span>
+                    </>
+                  ) : step.kind === 'HANDOFF' ? (
+                    <>
+                      <span className="block text-sm font-medium">Hand the conversation to a person</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        The journey ends here — it does not resume when they are done
+                      </span>
                     </>
                   ) : step.kind === 'DAY_SHEET' ? (
                     <>
@@ -231,8 +268,21 @@ export function AutomationBuilder({
                         One message per branch, each with its own link that expires in 72 hours
                       </span>
                     </>
-                  ) : (
+                  ) : step.kind === 'STOP' ? (
                     <span className="block text-sm font-medium">Stop</span>
+                  ) : (
+                    // The engine grew a step this screen has not learned to draw. Say so
+                    // rather than render nothing — a step that silently disappears is
+                    // worse than one that is ugly, because the journey still runs it.
+                    <>
+                      <span className="block text-sm font-medium text-destructive">
+                        A “{(step as { kind: string }).kind}” step
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        This screen does not know how to show this yet, but the journey still
+                        runs it. Update the app to edit it here.
+                      </span>
+                    </>
                   )}
                 </span>
                 {step.kind === 'SEND' && (

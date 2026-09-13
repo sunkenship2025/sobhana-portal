@@ -373,3 +373,18 @@ export const createFromBlueprint = (body: {
 }) => apiRequest<Automation>(`${AUT}/from-blueprint`, {
   method: 'POST', body: JSON.stringify(body),
 });
+
+// ── The engine's grammar ────────────────────────────────────────────────────
+
+export interface StepMeta {
+  kind: string; label: string; summary: string;
+  sends: boolean; branches: boolean; terminal: boolean;
+}
+/** Served so the builder can tell when it has fallen behind the engine. */
+export const listStepKinds = () => apiRequest<{ steps: StepMeta[] }>(`${AUT}/steps`);
+
+export interface DefinitionProblem { where: string; problem: string; blocking: boolean }
+export const validateDefinition = (definition: AutomationDefinition) =>
+  apiRequest<{ problems: DefinitionProblem[] }>(`${AUT}/validate`, {
+    method: 'POST', body: JSON.stringify({ definition }),
+  });

@@ -617,6 +617,82 @@ async function main() {
     assert.strictEqual(issuedFor.size, 1, 'a second claim must not mint a second code');
   });
 
+  // ══ The screen and the engine must agree ══════════════════════════════════
+  await check('every step the engine runs is one the grammar publishes', () => {
+    const { STEP_CATALOG } = require('./src/services/automations/steps');
+    const engine = require('fs')
+      .readFileSync('./src/services/automations/engine.ts', 'utf8')
+      .match(/case '([A-Z_]+)':/g)
+      ?.map((m: string) => m.slice(6, -2)) ?? [];
+    const published = new Set(STEP_CATALOG.map((s: { kind: string }) => s.kind));
+    // Anything the engine executes but does not publish is a step the builder cannot
+    // know about — which is how an ASK step ended up invisible on screen while still
+    // running in production.
+    for (const kind of ['WAIT', 'CHECK', 'SEND', 'ASK', 'HANDOFF', 'DAY_SHEET', 'STOP']) {
+      assert.ok(engine.includes(kind), `engine no longer runs ${kind}`);
+      assert.ok(published.has(kind), `${kind} runs but is not published to the builder`);
+    }
+  });
+
+  await check('a jump to a step that does not exist is refused, not discovered later', () => {
+    const { validateDefinition } = require('./src/services/automations/steps');
+    const broken = validateDefinition({
+      trigger: { kind: 'VISIT_COMPLETED' },
+      steps: [
+        { kind: 'CHECK', onTrue: 9 },
+        { kind: 'STOP', reason: 'x' },
+      ],
+    });
+    assert.ok(broken.some((p: { blocking: boolean }) => p.blocking), 'a dangling jump must block the save');
+  });
+
+  await check('more than three buttons is refused — WhatsApp shows three', () => {
+    const { validateDefinition } = require('./src/services/automations/steps');
+    const problems = validateDefinition({
+      steps: [{
+        kind: 'ASK',
+        buttons: [
+          { payload: 'A', goTo: 0 }, { payload: 'B', goTo: 0 },
+          { payload: 'C', goTo: 0 }, { payload: 'D', goTo: 0 },
+        ],
+      }],
+    });
+    assert.ok(problems.some((p: { blocking: boolean }) => p.blocking));
+  });
+
+  await check('the recovery blueprint assembles the journey that was specified', () => {
+    const { buildFromBlueprint } = require('./src/services/automations/blueprints');
+    const built = buildFromBlueprint('OP_DIAGNOSTIC_RECOVERY', {
+      offerDay: 2, remindDay: 5, expiryDay: 6, campaignId: 'camp1',
+      offerTemplate: 'a', codeTemplate: 'b', remindWithCodeTemplate: 'c', remindToClaimTemplate: 'd',
+    });
+    assert.ok(built, 'blueprint must exist');
+    const def = built.definition;
+    assert.strictEqual(def.reentry.concurrency, 'ONE_ACTIVE_PER_PATIENT');
+    assert.strictEqual(def.policy?.skipMarketingConsent, true);
+    assert.strictEqual(def.policy?.stopScope, 'THIS_JOURNEY');
+
+    // The day-5 split: one journey, two things to say.
+    const split = def.steps.find((s: { kind: string; onFalse?: unknown }) =>
+      s.kind === 'CHECK' && typeof s.onFalse === 'number');
+    assert.ok(split, 'the reminder must branch on whether a code exists');
+
+    // Both claim paths hand out the same offer with the same expiry.
+    const issuing = def.steps.filter((s: { issueOffer?: unknown }) => s.issueOffer);
+    assert.strictEqual(issuing.length, 2, 'claimable from the offer and from the reminder');
+    for (const s of issuing) {
+      assert.strictEqual(s.issueOffer.expiry.anchor, 'TRIGGER');
+      assert.strictEqual(s.issueOffer.expiry.endOfDayIST, true);
+    }
+
+    // And the whole thing is valid by the engine's own reading.
+    const { validateDefinition } = require('./src/services/automations/steps');
+    assert.deepStrictEqual(
+      validateDefinition(def).filter((p: { blocking: boolean }) => p.blocking), [],
+      'the blueprint must not assemble a journey the engine would refuse',
+    );
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

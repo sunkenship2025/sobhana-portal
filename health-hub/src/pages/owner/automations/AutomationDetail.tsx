@@ -33,6 +33,7 @@ import { useQuery as useRQ } from '@tanstack/react-query';
 import {
   getAutomation, listTemplates, saveAutomation, activateAutomation, pauseAutomation,
   stopAutomation, previewAutomation, simulateAutomation, reasonLabel, listRecipients,
+  validateDefinition, listStepKinds,
   type Automation, type AutomationDefinition, type Step, type TemplateSummary,
 } from './api';
 
@@ -51,6 +52,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
     queryKey: ['automation', id], queryFn: () => getAutomation(id),
   });
   const { data: templates } = useQuery({ queryKey: ['templates'], queryFn: listTemplates });
+  const { data: grammar } = useQuery({ queryKey: ['step-kinds'], queryFn: listStepKinds });
 
   const automation = useMemo(
     () => (saved ? { ...saved, ...draft } : null),
@@ -158,6 +160,12 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
       </div>
 
       {tab === 'setup' && <BrokenTemplateNotice automation={automation} templates={templates?.templates ?? []} />}
+      {tab === 'setup' && (
+        <DefinitionProblems
+          definition={automation.definition}
+          knownKinds={(grammar?.steps ?? []).map((s) => s.kind)}
+        />
+      )}
 
       {tab === 'setup' && (
         <>
@@ -236,6 +244,58 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
         onClose={() => setConfirmActivate(false)}
         onConfirm={() => activate.mutate()} pending={activate.isPending}
       />
+    </div>
+  );
+}
+
+/**
+ * What is wrong with this journey, read back by the engine that will run it.
+ *
+ * Branching made this necessary. A jump to a step that does not exist is a run that
+ * stops dead in production, and nothing in the shape of the JSON catches it — so the
+ * engine checks and the screen says so before the save, rather than a patient finding
+ * out mid-journey.
+ */
+function DefinitionProblems({ definition, knownKinds }: {
+  definition: AutomationDefinition; knownKinds: string[];
+}) {
+  const { data } = useRQ({
+    queryKey: ['validate', JSON.stringify(definition)],
+    queryFn: () => validateDefinition(definition),
+  });
+  const problems = data?.problems ?? [];
+
+  // The engine may have grown a step this build cannot draw. Better to say so than to
+  // render a journey that is missing a piece.
+  const unknown = knownKinds.length
+    ? definition.steps.map((s) => s.kind).filter((k) => !knownKinds.includes(k))
+    : [];
+
+  if (problems.length === 0 && unknown.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {unknown.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm">
+          <b>This screen is behind the engine.</b> It cannot show a{' '}
+          {[...new Set(unknown)].map((k) => `"${k}"`).join(', ')} step, but the journey still runs
+          it. Update the app to edit those here.
+        </div>
+      )}
+      {problems.map((p, i) => (
+        <div key={i}
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            p.blocking
+              ? 'border-destructive/30 bg-destructive/5'
+              : 'border-amber-200 bg-amber-50/40'}`}>
+          <b>{p.where}</b> — {p.problem}
+          {p.blocking && (
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Saving is refused while this is true.
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -362,20 +422,135 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 <div className="divide-y rounded-lg border">
                   <div className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <span className="flex-1">If yes</span>
-                    <Select value={current.onTrue}
-                      onValueChange={(v) => setLocal({ ...current, onTrue: v as 'STOP' | 'CONTINUE' })}>
-                      <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                    <Select value={String(current.onTrue)}
+                      onValueChange={(v) => setLocal({
+                        ...current,
+                        onTrue: v === 'STOP' || v === 'CONTINUE' ? v : Number(v),
+                      })}>
+                      <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="STOP">Stop — came in</SelectItem>
-                        <SelectItem value="CONTINUE">Continue anyway</SelectItem>
+                        <SelectItem value="CONTINUE">Continue</SelectItem>
+                        {automation.definition.steps.map((_, j) => (
+                          <SelectItem key={j} value={String(j)}>Jump to step {j + 1}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <span className="flex-1">If no</span>
-                    <span className="text-muted-foreground">Continue</span>
+                    <Select value={String(current.onFalse ?? 'CONTINUE')}
+                      onValueChange={(v) => setLocal({
+                        ...current,
+                        onFalse: v === 'STOP' || v === 'CONTINUE' ? v : Number(v),
+                      })}>
+                      <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CONTINUE">Continue</SelectItem>
+                        <SelectItem value="STOP">Stop</SelectItem>
+                        {automation.definition.steps.map((_, j) => (
+                          <SelectItem key={j} value={String(j)}>Jump to step {j + 1}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {current.kind === 'ASK' && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-xs">Template</Label>
+                  <Select value={current.template}
+                    onValueChange={(v) => setLocal({ ...current, template: v })}>
+                    <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {templates.map((t) => (
+                        <SelectItem key={t.name} value={t.name} disabled={t.status !== 'APPROVED'}>
+                          {t.name}{t.status !== 'APPROVED' ? ` — ${t.status.toLowerCase()}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    The template needs quick-reply buttons for these answers to be tappable.
+                  </p>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Answers</Label>
+                  <div className="mt-1.5 divide-y rounded-lg border">
+                    {current.buttons.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm">
+                        <Input className="h-8 w-36" value={b.label}
+                          onChange={(e) => {
+                            const next = [...current.buttons];
+                            next[i] = { ...b, label: e.target.value };
+                            setLocal({ ...current, buttons: next });
+                          }} />
+                        <span className="text-xs text-muted-foreground">goes to</span>
+                        <Select
+                          value={String(b.goTo)}
+                          onValueChange={(v) => {
+                            const next = [...current.buttons];
+                            next[i] = { ...b, goTo: v === 'STOP' ? 'STOP' : Number(v) };
+                            setLocal({ ...current, buttons: next });
+                          }}>
+                          <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="STOP">End the journey</SelectItem>
+                            {automation.definition.steps.map((_, j) => (
+                              <SelectItem key={j} value={String(j)}>Step {j + 1}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    At most three — WhatsApp shows no more. A decline can end the journey rather
+                    than jump anywhere.
+                  </p>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Anything else they type</Label>
+                  <Select value={current.onUnmatched}
+                    onValueChange={(v) => setLocal({ ...current, onUnmatched: v as 'HANDOFF' | 'STOP' | 'CONTINUE' })}>
+                    <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="HANDOFF">Give the thread to a person</SelectItem>
+                      <SelectItem value="STOP">End the journey</SelectItem>
+                      <SelectItem value="CONTINUE">Carry on regardless</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    A person reads "how much is the full panel" better than any rule would.
+                  </p>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Hold the line for</Label>
+                  <Input className="mt-1.5 w-28" value={current.waitHours ?? ''}
+                    placeholder="24"
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setLocal({ ...current, waitHours: v === '' ? undefined : Math.max(1, Number(v)) });
+                    }} />
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Hours. No other journey may message this number while it waits. Silence is an
+                    outcome — the journey moves on when the window shuts.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {current.kind === 'HANDOFF' && (
+              <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
+                The conversation goes to a person and this journey <b>ends</b>. It does not resume
+                when they are finished — a journey waking up three days into a human conversation is
+                worse than no journey.
               </div>
             )}
 

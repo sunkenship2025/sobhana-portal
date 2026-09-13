@@ -17,6 +17,7 @@ import {
 import { dryRun, simulate } from '../services/automations/preview';
 import { unknownPredicates, PREDICATE_CATALOG } from '../services/automations/predicates';
 import { listBlueprints, buildFromBlueprint } from '../services/automations/blueprints';
+import { STEP_CATALOG, validateDefinition } from '../services/automations/steps';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 
@@ -35,6 +36,21 @@ router.get('/', async (_req: AuthRequest, res) => {
 
 router.get('/templates', async (_req: AuthRequest, res) => {
   try { return res.json({ templates: await listMessageTemplates() }); }
+  catch (e) { return fail(res, e); }
+});
+
+/**
+ * The engine's grammar. Served so the builder can compare what it renders against what
+ * the engine runs, and say so when it falls behind rather than hiding a step.
+ */
+router.get('/steps', async (_req: AuthRequest, res) => {
+  try { return res.json({ steps: STEP_CATALOG }); }
+  catch (e) { return fail(res, e); }
+});
+
+/** Read a definition back and say what is wrong with it, before it can be saved. */
+router.post('/validate', async (req: AuthRequest, res) => {
+  try { return res.json({ problems: validateDefinition(req.body?.definition ?? {}) }); }
   catch (e) { return fail(res, e); }
 });
 
@@ -365,6 +381,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
       ...def.steps.flatMap((s) => (s.kind === 'CHECK' ? unknownPredicates(s.condition) : [])),
     ];
     if (unknown.length) return res.status(400).json({ error: `UNKNOWN_PREDICATE: ${unknown.join(', ')}` });
+
+    // A goTo pointing nowhere is a run that stops dead in production, and nothing in the
+    // shape of the JSON catches it. Refuse at save rather than strand a patient.
+    const blocking = validateDefinition(def as never).filter((p) => p.blocking);
+    if (blocking.length) {
+      return res.status(400).json({ error: `${blocking[0].where}: ${blocking[0].problem}` });
+    }
 
     // Arity is checked HERE, where it is a dialog. Caught at send time it is a failure
     // for every patient in the run.
