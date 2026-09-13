@@ -78,6 +78,8 @@ export type Progress = (text: string, kind?: ProgressKind) => void;
 
 export async function analyse(q: string, state: any = {}, say: Progress = () => {}, policy: SqlPolicy = {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
+  /* every (tool, args) dispatched this turn — see the dedupe below */
+  const ranAlready = new Set<string>();
   const k = await ensureKnowledge();
   const last: LastTurn | null = state?.lastTurn || null;
   const ctx = (last ? artifactContext(last) : '') + (state?.lastQ
@@ -190,6 +192,18 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // with a probe that shares the bug.
     steps = steps.filter((s: any) => s?.tool !== 'query' || String(s?.args?.question || '').trim());
     steps = steps.filter((s: any) => s?.tool !== 'query' || budget-- > 0);
+    /* A STEP THAT ALREADY RAN DOES NOT RUN AGAIN. Chasing a contradiction it had manufactured,
+       one investigation re-ran the identical monthly trend seven times and the same thirty-day CT
+       query eight — thirty-three model calls where six would have done, and the answer was worse
+       at the end of it than at the start. Re-measuring an unchanged query cannot change the
+       number; it can only spend the budget that the unmeasured parts needed.
+       Signature is the tool plus its arguments, so a DIFFERENT window or filter still runs. */
+    steps = steps.filter((s: any) => {
+      const sig = `${s?.tool}|${JSON.stringify(s?.args ?? {})}`;
+      if (ranAlready.has(sig)) { say(`already measured: ${String(s?.label || s?.tool).slice(0, 50)}`, 'step'); return false; }
+      ranAlready.add(sig);
+      return true;
+    });
     for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
     const missingBefore = missingRequirements(inv, evidence);

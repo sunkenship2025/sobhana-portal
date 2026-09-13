@@ -90,6 +90,21 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('  and a count column is never treated as money', perUnit.ok && Math.abs(perUnit.data.value - 132500 / 41) < 1, true,
      perUnit.ok ? perUnit.summary.value : perUnit.error);
 
+  /* THE SHAPE THE MODEL ACTUALLY PRODUCES: one row, three numbers. figureOf refused it with
+     "carries no single figure — name a field", the model did not pass one, five compute steps
+     failed in a single investigation, and the payback was worked out in prose instead: 50 months
+     against a true 76, while the investigation recorded that no division had been run. */
+  const threeCols: any = { step: 95, ok: true, label: 'CT 30d',
+    data: { rows: [{ billed_in_paise: 11520000, commission_in_paise: 3100000, order_count: 36 }] } };
+  const byName: any = await step({ tool: 'compute', args: { formula: 'capital / (billed - commission)', unit: 'months',
+    let: { capital: { value: 5000000, unit: 'rupees' }, billed: { step: 95 }, commission: { step: 95 } } } }, [threeCols]);
+  ok('an operand finds its own column by name', byName.ok && Math.abs(byName.data.value - 5000000 / (115200 - 31000)) < 0.1, true,
+     byName.ok ? byName.summary.value : byName.error);
+  const ambig: any = { step: 96, ok: true, data: { rows: [{ billed_ct: 100, billed_mri: 200 }] } };
+  const refused: any = await step({ tool: 'compute', args: { formula: 'billed', unit: 'number', let: { billed: { step: 96 } } } }, [ambig]);
+  ok('  and two columns matching one operand is refused, not guessed', !refused.ok && /name the field exactly/.test(String(refused.error)), true,
+     String(refused.error).slice(0, 60));
+
   const mixed = await step({ tool: 'compute', args: { formula: 'a / b', unit: 'percent',
     let: { a: { step: 0 }, b: { step: 1 } } } }, [{ ...b, step: 0 }, { ...c, step: 1, scope: 'something else', period: '2020-01-01…2020-02-01' }]);
   ok('refuses operands on different populations', mixed.ok, false, 'a ratio across two scopes is silently wrong');
@@ -215,6 +230,28 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('owner named the window, SQL ignores it', verifySpec(named, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, false);
   ok('planner DEFAULT ignored — not enforced', verifySpec(planned, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS}`).ok, true);
   ok('a relative window of the right length counts', verifySpec(named, `SELECT SUM(o."priceInPaise") ${FROM_ORDERS} WHERE o."createdAt" >= CURRENT_DATE - 90`).ok, true);
+
+  /* A TOOL THAT APPLIED A SCOPE SAYS SO. trend took filter:{modality:'CT / MRI'}, built its own
+     WHERE without it, and returned the CENTRE's months — ₹18,61,499 for August against ₹1,32,500
+     of real CT billing. The guard checked the argument was passed and approved. Nine rounds went
+     into reconciling a fourteenfold contradiction the pipeline invented, and the answer came out
+     50 months where the truth is 76. Every filterable tool is checked here, in both directions. */
+  console.log('\nA SCOPE THE TOOL ACTUALLY APPLIED, NOT ONE IT WAS MERELY HANDED');
+  const ctSpec2: any = { goal: '', scope: [{ term: 'CT scans', dimension: 'modality', value: 'CT / MRI', confidence: 0.66, aliases: [] }], time: null };
+  const CTF = { modality: 'CT / MRI' };
+  for (const [name, st] of [
+    ['trend', { tool: 'trend', args: { metric: 'billed_on_orders', bucket: 'month', buckets: 3, filter: CTF } }],
+    ['breakdown', { tool: 'breakdown', args: { metric: 'billed_on_orders', dimension: 'branch', period: 'last-30-days', filter: CTF } }],
+    ['metric', { tool: 'metric', args: { metric: 'billed_on_orders', period: 'last-30-days', filter: CTF } }],
+  ] as [string, any][]) {
+    const e: any = await runStep(st, 0, k, ctSpec2, {}, [], 'ct roi');
+    ok(`${name} reports the scope it applied`, e.ok && /modality/.test(String(e.scope ?? e.summary?.scope ?? '')), true,
+       e.ok ? String(e.scope ?? e.summary?.scope) : e.error);
+  }
+  const unscopedTrend: any = await runStep({ tool: 'trend', args: { metric: 'billed_on_orders', bucket: 'month', buckets: 3 } }, 0, k, ctSpec2, {}, [], 'ct roi');
+  ok('an unscoped step is refused when a scope was asked', unscopedTrend.ok, false, String(unscopedTrend.error).slice(0, 60));
+  const baseFiltered: any = await runStep({ tool: 'baseline', args: { metric: 'billed_on_orders', period: 'month', filter: CTF } }, 0, k, ctSpec2, {}, [], 'ct roi');
+  ok('baseline refuses a filter it cannot express', baseFiltered.ok, false, String(baseFiltered.error).slice(0, 60));
 
   console.log('\nAN EMPTY WINDOW IS NOT AN EMPTY RESULT');
   const noPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-90-days', priorDays: 180 } });

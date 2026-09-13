@@ -86,7 +86,15 @@ const NUMERIC = (x: any) => typeof x === 'number' && Number.isFinite(x);
 /** The headline figure of a step, and the unit it is in. A step that carries a split rather than
  *  one number has no headline, and says so — picking a row silently would answer a different
  *  question from the one the formula asked. */
-export function figureOf(e: any, field?: string): { v: number; unit?: string } | string {
+/** THE OPERAND IS ALREADY NAMED — USE THE NAME. A query that answers "billed, commission and
+ *  order count for CT over 30 days" returns one row with three numbers, which is the natural
+ *  shape and the useful one. figureOf then refused it: "carries no single figure — name a field".
+ *  The model was told to pass `field` and did not, five times in one investigation, so every
+ *  compute step failed and the answer was worked out in prose instead — 50 months against a true
+ *  76, with the investigation itself recording that "the payback period has never been computed".
+ *  `let: { billed: { step: 1 } }` says which column it wants in the word `billed`. Matching that
+ *  against the row's keys costs nothing and removes the one thing the model kept getting wrong. */
+export function figureOf(e: any, field?: string, operandName?: string): { v: number; unit?: string } | string {
   if (!e) return 'that step does not exist';
   if (e.ok === false) return `step ${e.step} failed, so it carries no figure`;
   const d = e.data, s = e.summary;
@@ -103,6 +111,20 @@ export function figureOf(e: any, field?: string): { v: number; unit?: string } |
   const rows = d?.rows ?? (Array.isArray(d) ? d : null);
   if (Array.isArray(rows) && rows.length === 1) {
     const nums = Object.entries(rows[0]).filter(([, v]) => NUMERIC(v));
+    /* Several numbers and an operand that names one of them: take it. Exact key first, then a
+       key that contains the operand's words — "billed" finds "billed_in_paise", "commission"
+       finds "total_commission". Ambiguity is refused rather than guessed. */
+    if (nums.length > 1 && operandName) {
+      const want = operandName.toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const exact = nums.filter(([k]) => k.toLowerCase().replace(/[^a-z0-9]+/g, '') === want);
+      const loose = nums.filter(([k]) => k.toLowerCase().replace(/[^a-z0-9]+/g, '').includes(want));
+      const pick = exact.length === 1 ? exact[0] : loose.length === 1 ? loose[0] : null;
+      if (pick) {
+        const [col, v] = pick;
+        return { v: v as number, unit: e.unit ?? (PAISE_COL.test(col) || (e.summary?.money || []).includes(col) ? 'paise' : undefined) };
+      }
+      if (loose.length > 1) return `step ${e.step} has ${loose.length} columns matching "${operandName}" (${loose.map(([k]) => k).join(', ')}) — name the field exactly`;
+    }
     if (nums.length === 1) {
       const [col, v] = nums[0];
       return { v: v as number, unit: e.unit ?? (PAISE_COL.test(col) || (e.summary?.money || []).includes(col) ? 'paise' : undefined) };
@@ -143,7 +165,7 @@ export async function t_compute(a: any, _k: any, prior: any[] = []): Promise<any
       where = o.means || 'given in the question';
     } else if (Number.isInteger(o.step)) {
       const e = prior.find((x) => x?.step === o.step);
-      const got = figureOf(e, o.field);
+      const got = figureOf(e, o.field, name);
       if (typeof got === 'string') return { ok: false, error: `operand "${name}": ${got}` };
       v = toRupees(got.v, got.unit);
       unit = MONEY(got.unit) ? 'rupees' : (got.unit || 'number');

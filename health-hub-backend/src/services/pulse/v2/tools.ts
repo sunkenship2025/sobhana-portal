@@ -169,7 +169,8 @@ async function t_compare(a: any): Promise<Partial<Evidence>> {
   const [now, before] = await Promise.all([scalar(m, p.cur.from, p.cur.to, f.join, null, f.where), scalar(m, p.prev.from, p.prev.to, f.join, null, f.where)]);
   if (now === null || before === null) return { ok: false, error: 'metric unavailable for that period' };
   const pct = before ? Number(((now - before) / Math.abs(before) * 100).toFixed(1)) : null;
-  return { ok: true, metric: m, unit: U(m), period: p, summary: { metric: m, now: fmt(now, U(m)), before: fmt(before, U(m)), changePct: pct, comparison: p.note }, data: { now, before, changePct: pct, cur: p.cur, prev: p.prev, note: p.note } };
+  const cmpScope = a.filter && Object.keys(a.filter).length ? Object.entries(a.filter).map(([k, x]) => `${k}=${x}`).join(', ') : undefined;
+  return { ok: true, metric: m, unit: U(m), period: p, scope: cmpScope, summary: { metric: m, scope: cmpScope, now: fmt(now, U(m)), before: fmt(before, U(m)), changePct: pct, comparison: p.note }, data: { now, before, changePct: pct, cur: p.cur, prev: p.prev, note: p.note } };
 }
 /** metric split by a dimension, with each part's share of the change */
 async function t_breakdown(a: any): Promise<Partial<Evidence>> {
@@ -186,8 +187,13 @@ async function t_breakdown(a: any): Promise<Partial<Evidence>> {
   const rows = cur.map((r: any) => ({ k: r.k, v: r.v, prev: pm.get(r.k) ?? 0, delta: r.v - (pm.get(r.k) ?? 0) }));
   for (const [k, v] of pm) if (!cur.find((r: any) => r.k === k)) rows.push({ k, v: 0, prev: v, delta: -v });
   rows.sort((x: any, y: any) => y.v - x.v);
-  return { ok: true, metric: m, unit: U(m), dimension: d, period: p.cur,
-    summary: { metric: m, by: d, total: fmt(total, U(m)), parts: rows.slice(0, 10).map((r: any) => ({ name: r.k, value: fmt(r.v, U(m)), change: fmt(r.delta, U(m)), shareOfChangePct: totalDelta ? Number((r.delta / totalDelta * 100).toFixed(1)) : null })) },
+  /* SAY WHAT WAS APPLIED. breakdown honoured its filter all along and never reported it, so the
+     card carried a scoped total with nothing on it saying which rows it covered — and the guard
+     that checks a tool actually applied its scope had nothing to read. Doing the right thing
+     silently is indistinguishable from not doing it. */
+  const bdScope = a.filter && Object.keys(a.filter).length ? Object.entries(a.filter).map(([k, x]) => `${k}=${x}`).join(', ') : undefined;
+  return { ok: true, metric: m, unit: U(m), dimension: d, period: p.cur, scope: bdScope,
+    summary: { metric: m, by: d, scope: bdScope, total: fmt(total, U(m)), parts: rows.slice(0, 10).map((r: any) => ({ name: r.k, value: fmt(r.v, U(m)), change: fmt(r.delta, U(m)), shareOfChangePct: totalDelta ? Number((r.delta / totalDelta * 100).toFixed(1)) : null })) },
     data: { rows, total, totalDelta } };
 }
 /** top-N members of a dimension by a metric */
@@ -205,8 +211,16 @@ async function t_trend(a: any): Promise<Partial<Evidence>> {
   const back = Math.min(Number(a.buckets) || (bucket === 'month' ? 6 : bucket === 'week' ? 8 : 30), 40);
   const today = todayIST();
   const from = bucket === 'day' ? addDays(today, -back) : bucket === 'week' ? addDays(today, -7 * back) : `${Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) <= back ? 1 : 0)}-${String(((Number(today.slice(5, 7)) - back + 11) % 12) + 1).padStart(2, '0')}-01`;
-  const w = [`(${F[1]} ${IST}) >= '${from}'`]; if (M.filt) w.push(M.filt);
-  const ex = await query(`SELECT to_char(date_trunc('${bucket}', ${F[1]} ${IST}), '${bucket === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD'}') k, ${M.sql} v FROM ${F[0]} WHERE ${w.join(' AND ')} GROUP BY 1 ORDER BY 1`, [], 200);
+  /* TREND ACCEPTED A FILTER AND THREW IT AWAY. Asked for the CT stream month by month it returned
+     the CENTRE's months — ₹18,61,499 for August against ₹1,32,500 of actual CT billing — and the
+     investigation then spent nine rounds and thirty-three calls trying to reconcile a fourteenfold
+     "contradiction" it had manufactured itself, before answering 50 months where the truth is 76.
+     The guard upstream checks that the constraint was PASSED. It cannot see that the tool ignored
+     it. Nothing else here builds its own WHERE clause and skips buildFilter; this did. */
+  const tf = await checkFilter(m, a.filter); if ('error' in tf) return { ok: false, error: tf.error };
+  const w = [`(${F[1]} ${IST}) >= '${from}'`]; if (M.filt) w.push(M.filt); w.push(...tf.where);
+  const trendScope = a.filter && Object.keys(a.filter).length ? Object.entries(a.filter).map(([k, x]) => `${k}=${x}`).join(', ') : undefined;
+  const ex = await query(`SELECT to_char(date_trunc('${bucket}', ${F[1]} ${IST}), '${bucket === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD'}') k, ${M.sql} v FROM ${F[0]}${tf.join} WHERE ${w.join(' AND ')} GROUP BY 1 ORDER BY 1`, [], 200);
   if (ex.err || !ex.rows?.length) return { ok: false, error: ex.err || 'no rows' };
   const rows = ex.rows.map((r: any) => ({ k: String(r.k), v: Number(r.v) }));
   // The current bucket is still filling. Reporting it beside whole periods reads as a collapse —
@@ -223,9 +237,9 @@ async function t_trend(a: any): Promise<Partial<Evidence>> {
      are right there in the summary — and set no `period`, so the card rendered a six-month series
      with nothing saying which six months. breakdown and rank both carry one; this did not, and
      the renderer can only show what the evidence hands it. */
-  return { ok: true, metric: m, unit: U(m),
+  return { ok: true, metric: m, unit: U(m), scope: trendScope,
     period: rows.length ? { from: rows[0]?.k, to: rows[rows.length - 1]?.k } : undefined,
-    summary: { metric: m, bucket, points: rows.length,
+    summary: { metric: m, bucket, points: rows.length, scope: trendScope,
     from: rows[0]?.k, to: rows[rows.length - 1]?.k,
     latestComplete: lastWhole ? `${lastWhole.k}: ${fmt(lastWhole.v, U(m))}` : null,
     currentIncomplete: partial >= 0 ? `${rows[partial].k} is still in progress (${fmt(rows[partial].v, U(m))} so far) — do not compare it with whole ${bucket}s` : null,
@@ -236,6 +250,11 @@ async function t_trend(a: any): Promise<Partial<Evidence>> {
 async function t_baseline(a: any): Promise<Partial<Evidence>> {
   const m = a.metric, p = P(a.period);
   if (!METRICS[m]) return { ok: false, error: `no such metric '${m}'` };
+  /* baselineOf compares a window against the centre's own history and has nowhere to put a
+     filter. Accepting one and ignoring it is how trend produced a fourteenfold phantom
+     contradiction; refusing is the honest half of the same lesson. */
+  if (a.filter && Object.keys(a.filter).length)
+    return { ok: false, error: `baseline compares a figure against the centre's own history and cannot be scoped to ${Object.keys(a.filter).join(', ')} — use "query" to build the comparison, or drop the filter and read it centre-wide.` };
   const b = await baselineOf(m, p.cur, 8, a.period === 'week' ? 7 : (p as any).days || 30);
   if (!b) return { ok: false, error: 'not enough history' };
   return { ok: true, metric: m, unit: U(m), summary: { metric: m, verdict: b.verdict, now: fmt(b.current, U(m)), typical: fmt(b.baselineMean, U(m)), standardDeviations: b.z, trendPctPerPeriod: b.trendPctPerPeriod }, data: b };
@@ -996,6 +1015,22 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
         });
         if (dropped.length) return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
           error: `dropped a constraint the owner asked for — ${tool} cannot express ${dropped.map((c: any) => `${c.dimension} = ${c.value}`).join(' and ')}; use query` } as Evidence;
+
+        /* AND THE ARGUMENT IS NOT THE ANSWER. Everything above checks that the constraint was
+           PASSED to the tool. trend took `filter: {modality: 'CT / MRI'}`, built its own WHERE
+           clause without it, and returned the centre's months — ₹18,61,499 for August against
+           ₹1,32,500 of real CT billing. The guard saw the argument and approved. Nine rounds and
+           thirty-three calls then went into reconciling a fourteenfold contradiction the pipeline
+           had invented, and the answer came out 50 months against a true 76.
+           A tool that applied a scope says so, in the scope it reports back. One that says nothing
+           did nothing, whatever it was handed. This catches the next tool to make the same
+           mistake, which is the only way a class of bug stays fixed. */
+        if (asked.length && Object.keys(applied).length) {
+          const declared = String((r as any).scope ?? (r as any).summary?.scope ?? '').toLowerCase();
+          const silent = declared === '' || declared === 'all';
+          if (silent) return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
+            error: `${tool} was given ${Object.entries(applied).map(([k, v]) => `${k} = ${v}`).join(', ')} and reported no scope back, so the figure it returned is not the scoped one. Use "query" for this.` } as Evidence;
+        }
       }
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
