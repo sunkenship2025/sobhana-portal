@@ -127,5 +127,48 @@ ok('same period and scope are comparable', comparable({ period: 'p', scope: 's',
 ok('different periods are not', comparable({ period: 'jul', scope: 's' } as any, { period: 'aug', scope: 's' } as any).verdict === 'different');
 ok('too little identity is unknown, not a pass', comparable({ period: 'p' } as any, {} as any).verdict === 'unknown');
 
+const { groupedBy, periodOf, filtersOf, orderedBy, exposedIdentifiers } = require('./src/services/pulse/v2/sqlscope');
+const SQL_FROM = `FROM "TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=v."branchId"`;
+
+console.log('\nPERIOD — read off the SQL, because a period is a property of the query that RAN\n');
+ok('an explicit window is read', !!periodOf(`SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= '2026-06-15' AND o."createdAt" < '2026-09-13'`),
+   String(periodOf(`SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= '2026-06-15' AND o."createdAt" < '2026-09-13'`)));
+ok('no time predicate → NO period, not a guess', periodOf(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`) === undefined,
+   String(periodOf(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`)));
+ok('a relative window is a period', !!periodOf(`SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= CURRENT_DATE - 90`),
+   String(periodOf(`SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= CURRENT_DATE - 90`)));
+ok('a date inside an UNREFERENCED CTE is not the period',
+   periodOf(`WITH x AS (SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= '2020-01-01') SELECT SUM(o."priceInPaise") ${SQL_FROM}`) === undefined,
+   String(periodOf(`WITH x AS (SELECT 1 ${SQL_FROM} WHERE o."createdAt" >= '2020-01-01') SELECT SUM(o."priceInPaise") ${SQL_FROM}`)));
+
+console.log('\nGROUPING — what KIND of thing each row is\n');
+const g = groupedBy(`SELECT o."payoutCategorySnapshot" k, SUM(o."priceInPaise") v ${SQL_FROM} GROUP BY 1`);
+ok('a GROUP BY column is found', g.length > 0, JSON.stringify(g));
+ok('no GROUP BY → no keys', groupedBy(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`).length === 0);
+
+console.log('\nFILTERS AND ORDER — what the query actually restricted, and how it ranked\n');
+ok('a WHERE value is reported', /CTBP/i.test(String(filtersOf(`SELECT 1 ${SQL_FROM} WHERE o."testCodeSnapshot" = 'CTBP'`))),
+   String(filtersOf(`SELECT 1 ${SQL_FROM} WHERE o."testCodeSnapshot" = 'CTBP'`)));
+ok('no WHERE → no filter label', filtersOf(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`) === undefined);
+const o1 = orderedBy(`SELECT o."testCodeSnapshot" k, SUM(o."priceInPaise") v ${SQL_FROM} GROUP BY 1 ORDER BY 2 DESC`);
+ok('descending order is seen as descending', o1?.desc === true, JSON.stringify(o1));
+ok('no ORDER BY → null', orderedBy(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`) === null);
+
+console.log('\nEXPOSED IDENTIFIERS — what a row would reveal about a person\n');
+const x = exposedIdentifiers(`SELECT p."patientNumber", p.name ${SQL_FROM} JOIN "Patient" p ON p.id=v."patientId"`);
+ok('patient identifiers are detected', x.parsed && x.exposed.length > 0, JSON.stringify(x));
+const y = exposedIdentifiers(`SELECT SUM(o."priceInPaise") ${SQL_FROM}`);
+ok('an aggregate exposes nobody', y.parsed && y.exposed.length === 0, JSON.stringify(y));
+
+const { identityOf } = require('./src/services/pulse/v2/artifacts');
+console.log('\nROW IDENTITY — what to call a row when the owner says "name him"\n');
+ok('a human-readable key beats a surrogate id',
+   identityOf({ id: 'cmf6q2x9k0001abcd', patientNumber: 'P-000594', name: 'ABDUL SALEEM' })?.value !== 'cmf6q2x9k0001abcd',
+   JSON.stringify(identityOf({ id: 'cmf6q2x9k0001abcd', patientNumber: 'P-000594', name: 'ABDUL SALEEM' })));
+ok('a name row identifies by name',
+   /ABDUL/i.test(String(identityOf({ name: 'ABDUL SALEEM', v: 12 })?.value)),
+   JSON.stringify(identityOf({ name: 'ABDUL SALEEM', v: 12 })));
+ok('a row with nothing identifying returns null', identityOf({ v: 12, n: 3 }) === null, JSON.stringify(identityOf({ v: 12, n: 3 })));
+
 console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);
