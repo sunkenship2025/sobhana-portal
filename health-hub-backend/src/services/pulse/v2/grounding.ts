@@ -120,6 +120,13 @@ function ordinary(text: string, raw: string, n: number): string | null {
   const at = text.indexOf(raw);
   const after = at >= 0 ? text.slice(at + raw.length, at + raw.length + 18) : '';
   if (/^\s*(day|days|week|weeks|month|months|hour|hours|year|years|am|pm|st|nd|rd|th)\b/i.test(after)) return 'a period';
+  /* A DAY OF THE MONTH IS A DATE, NOT A CLAIM. "Chintal's lab collected ₹2,71,520 last week
+     (6–13 Sep)" was flagged for inventing the figure 13 — the 6 escaped only because it is under
+     twelve. The answer was correct and got sent into repair for stating when it applied, which is
+     the one thing every answer here is told to do. Any 1–31 sitting next to a month name is the
+     date it looks like, including the far end of a range. */
+  if (Number.isInteger(n) && n >= 1 && n <= 31
+      && /^[\s–—-]*\d{0,2}(?:st|nd|rd|th)?[\s,]*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(after)) return 'a day of the month';
   return null;
 }
 

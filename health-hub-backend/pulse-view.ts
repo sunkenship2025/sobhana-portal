@@ -114,6 +114,12 @@ ok('unsupported() returns only the invented ones', unsupported(groundNumbers('�
 const both = kinds('₹1,03,400 across 47 scans is ₹2,200 each', EV).join(' ');
 ok('a per-unit figure derived from two steps is not invented', !/2,200:ungrounded/.test(both), both);
 
+/* A day of the month is a date, not a claim. */
+ok('a date range is not an invented figure', unsupported(groundNumbers("collected ₹1,03,400 last week (6–13 Sep).", EV)).length === 0,
+   JSON.stringify(unsupported(groundNumbers("collected ₹1,03,400 last week (6–13 Sep).", EV))));
+ok('  nor is "15–22 September"', unsupported(groundNumbers('billed ₹1,03,400 over 15–22 September.', EV)).length === 0);
+ok('  but a real invented count still is', unsupported(groundNumbers('billed ₹1,03,400 and 41 scans happened.', EV)).some((x: any) => String(x) === '41'));
+
 console.log('\nCONVERGENCE — stop when it stops learning, not when it runs out of rounds\n');
 const R = (gain: number, state: string, req = 0, mat = 0) => ({ gain, state, requirementsSatisfied: req, resolvedMaterial: mat } as any);
 ok('two rounds is never enough to judge', stagnating([R(0, 'a'), R(0, 'a')]) === false);
