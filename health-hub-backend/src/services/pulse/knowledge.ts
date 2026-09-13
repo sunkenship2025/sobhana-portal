@@ -297,11 +297,34 @@ const GRANTED = ['AnomalyEvent', 'AuditLog', 'Bill', 'BillableProduct', 'Billabl
   'ClinicDoctor', 'ClinicVisit', 'Coupon', 'CouponCampaign', 'Department', 'DiagnosticReport', 'DoctorPayoutLedger', 'ExternalReportUpload',
   'MessageLog', 'OrderRefund', 'Patient', 'PatientChangeLog', 'PaymentTransaction', 'ReferralDoctor_Visit', 'ReferralDoctor', 'ReportVersion',
   'SmartReport', 'TestDefinition', 'TestOrder', 'TestResult', 'User', 'Visit'];
-// column-granted tables: only these columns are readable, so only these are shown
-const COLGRANT: Record<string, string[]> = {
-  Patient: ['id', 'gender', 'yearOfBirth', 'ageUnit', 'createdAt', 'patientNumber'],
+/* WHICH COLUMNS ARE READABLE IS THE DATABASE'S ANSWER, NOT A LIST TO MAINTAIN.
+ * This was hand-written and drifted: analytics_ro was granted SELECT on Patient.name and the list
+ * still omitted it, so the schema handed to the SQL generator had no name column on Patient. Asked
+ * to name the most repeat patient it wrote
+ *     SELECT p."patientNumber", p."yearOfBirth", p."gender" ...
+ * four times over, then reported that the centre records no name — for a required String column
+ * holding "ABDUL SALEEM", which the same connection reads without complaint. A model cannot select
+ * a column it has never been shown, and the owner had asked explicitly not to be blocked from
+ * pulling lists of people.
+ * information_schema.column_privileges already knows. Read once at build, fall back to the old
+ * list only if the query fails, so a grant added in SQL shows up here without anyone remembering. */
+const COLGRANT_FALLBACK: Record<string, string[]> = {
+  Patient: ['id', 'gender', 'yearOfBirth', 'ageUnit', 'createdAt', 'patientNumber', 'name'],
   User: ['id', 'name', 'role', 'activeBranchId', 'isActive'],
 };
+let COLGRANT: Record<string, string[]> = COLGRANT_FALLBACK;
+async function loadColumnGrants(): Promise<void> {
+  try {
+    const r = await query(`SELECT table_name t, array_agg(column_name::text) cols
+      FROM information_schema.column_privileges
+      WHERE grantee = current_user AND privilege_type = 'SELECT' AND table_schema = 'public'
+      GROUP BY 1`, [], 5000);
+    const got: Record<string, string[]> = {};
+    for (const row of r.rows || []) got[String((row as any).t)] = ((row as any).cols || []).map(String);
+    // Table-level grants produce no per-column rows; an empty result means "everything granted".
+    if (Object.keys(got).length) COLGRANT = got;
+  } catch { /* keep the fallback — a stale allowlist is safer than none */ }
+}
 const DEAD_COLS = new Set(['testId', 'panelId']);
 const TIMECOL: Record<string, string> = { Visit: 'createdAt', Bill: 'billedAt', TestOrder: 'createdAt', PaymentTransaction: 'transactionDate',
   OrderRefund: 'createdAt', ReportVersion: 'finalizedAt', ClinicVisit: 'createdAt', MessageLog: 'createdAt', TestResult: '(via reportVersion)',
@@ -386,6 +409,7 @@ async function build(): Promise<Knowledge> {
   const en = await query(`SELECT t.typname n, string_agg(e.enumlabel,'|' ORDER BY e.enumsortorder) v FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid GROUP BY 1`, [], 100000);
   const enums = (en.rows || []).map((r) => `${r.n}=${r.v}`).join('\n');
   // columns
+  await loadColumnGrants();
   const cols = await query(`SELECT table_name t, column_name c, data_type d FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name, ordinal_position`, [], 100000);
   const byT: Record<string, { c: string; d: string }[]> = {};
   const idents = new Set<string>();

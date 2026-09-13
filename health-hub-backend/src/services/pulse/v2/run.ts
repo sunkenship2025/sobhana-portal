@@ -428,7 +428,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     if (refusedToSee) return false;                       // an explicit no is final, whatever the shape
     if (!askedToSee && (a.type === 'kpi' || a.type === 'compare')) {
       const first = Array.isArray(a.evidence) ? a.evidence[0] : a.evidence;
-      if (shapeOf.get(Number(first))?.cardinality === 'one') return false;
+      /* UNLESS THE ROW IS SOMEBODY. The card is not only a picture, it is what the next question
+         points AT: "who is the most repeating customer" answers with one figure, so this rule
+         dropped its card, and "name him" then had no row to resolve against and came back with
+         nothing. A single row carrying a patient number or a name is the anchor for the follow-up
+         and is useful in its own right — one number with nobody attached is the noise. */
+      const rows = rowsOf(byIdx.get(Number(first)) as any);
+      const namesSomeone = rows.length > 0 && rows.some((r: any) => identityOf(r));
+      if (!namesSomeone && shapeOf.get(Number(first))?.cardinality === 'one') return false;
     }
     // A type the evidence cannot support is dropped, not merely discouraged. Asking for a
     // waterfall over rows with no deltas renders an empty card and calls itself an answer.
