@@ -440,6 +440,16 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
          Generated SQL here runs to about 1,500 characters; 4,000 keeps all of it, and the cap
          stays so a pathological query cannot bloat the audit row. */
       error: e.error, recovered: e.recovered, sql: e.sql?.slice(0, 4000), means: e.means,
+      /* AND THE FIGURES THEMSELVES, OR THE TRACE CANNOT ANSWER THE ONLY QUESTION WORTH ASKING OF
+         IT. The trace recorded the SQL, the tool and the row COUNT, but never the values — so
+         re-judging a recorded answer found no facts to ground it against and reported nineteen of
+         twenty-six as inventing numbers. Every one of those was the absence of the evidence, not
+         the presence of a lie. A trace that says how many rows came back but not what they said
+         cannot settle whether a figure in the prose was real, which is the whole reason anyone
+         opens one. Bounded, because a ranking of two hundred rows does not belong in an audit row. */
+      summary: e.summary === undefined ? undefined : JSON.parse(JSON.stringify(e.summary ?? null, (_k, v) =>
+        typeof v === 'string' && v.length > 300 ? v.slice(0, 300) : v)),
+      period: e.period ?? null, scope: e.scope ?? null, unit: e.unit ?? null,
       detail: e.detail?.slice(0, 200) })),
     investigation: inv ? { objective: inv.objective, confidence: inv.confidence,
       complete: inv.complete, stoppingReason: inv.stoppingReason, progress: history,
