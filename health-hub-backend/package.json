@@ -15,7 +15,14 @@
     "seed:catalog": "tsx prisma/seed-full-catalog.ts",
     "db:studio": "prisma studio",
     "lint": "eslint src --ext .ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "pulse:check": "ts-node --transpile-only pulse-view.ts && ts-node --transpile-only pulse-deterministic.ts && ts-node --transpile-only pulse-frontend.ts && ts-node --transpile-only pulse-steps.ts && ts-node --transpile-only pulse-sql.ts",
+    "pulse:view": "ts-node --transpile-only pulse-view.ts",
+    "pulse:det": "ts-node --transpile-only pulse-deterministic.ts",
+    "pulse:replay": "ts-node --transpile-only pulse-replay.ts",
+    "pulse:bench": "ts-node --transpile-only pulse-adversarial.ts",
+    "pulse:regress": "ts-node --transpile-only pulse-regression.ts",
+    "pulse:calc": "ts-node --transpile-only pulse-calc.ts"
   },
   "keywords": [
     "healthcare",
