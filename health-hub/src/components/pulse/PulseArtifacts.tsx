@@ -2,6 +2,7 @@
  * Pulse — artifact renderers. An answer is TEXT; these attach only when the shape carries
  * something words cannot. Each maps to one artifact type the analyst may request.
  */
+import { useLayoutEffect, useRef, useState } from 'react';
 import { fmtValue, pct, label as lbl } from './format';
 import { deriveView, pctOf, type View } from './deriveView';
 
@@ -160,7 +161,28 @@ function Chart({ a, ev }: { a: any; ev: Ev }) {
     {ev.summary?.currentIncomplete && <div className="mt-1.5 text-[11px] text-muted-foreground">Latest bar is still in progress.</div>}
     {ev.means && <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{ev.means}</div>}</Card>;
 }
+/** HOW MANY COLUMNS ACTUALLY FIT, measured rather than assumed. A fixed cap of five survives the
+ *  420px panel and still overflows the 312px one a phone gets, and the note saying how many were
+ *  held back has to match what is on screen or it is just another wrong number. A zero-height
+ *  sentinel reports the card's content width; the table itself cannot, because it is allowed to
+ *  grow wider than its container and would report its own natural width instead. */
+function useFitWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(420);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width || 420));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w] as const;
+}
+
 function Table({ a, ev }: { a: any; ev: Ev }) {
+  /* ABOVE the early return: a hook after `if (!rows.length) return null` is a conditional hook,
+     which is React #310 and a blank page rather than a missing table. */
+  const [fitRef, cardW] = useFitWidth();
   const rows: any[] = ev.data?.rows || ev.summary?.rows || [];
   if (!rows.length) return null;
   /* ROWS WERE CAPPED AND COLUMNS WERE NOT. The dues worklist returns seven — patient, number,
@@ -172,7 +194,11 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
      — the same rule already applied to the rows it does not show, and for the same reason. */
   const all = Object.keys(rows[0]);
   const numeric = all.filter((c) => rows.some((r) => typeof r[c] === 'number' || /^[₹\d][\d,.]*%?$/.test(String(r[c] ?? ''))));
-  const keep = [...new Set([all[0], ...numeric, ...all])].filter(Boolean).slice(0, 5);
+  /* Thresholds are on the CONTENT width the sentinel reports, not the panel's outer width —
+     the 420px panel gives about 356px of content once the card's padding is taken out, and
+     tuning against the outer number drops a column that would have fitted. */
+  const room = cardW < 300 ? 3 : cardW < 400 ? 4 : cardW < 520 ? 5 : 7;
+  const keep = [...new Set([all[0], ...numeric, ...all])].filter(Boolean).slice(0, room);
   const cols = all.filter((c) => keep.includes(c));          // original order, not preference order
   const dropped = all.length - cols.length;
   const shown = rows.slice(0, 15);
@@ -182,6 +208,7 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
   const v = deriveView(ev, 15);
   const ctx = [...(v?.context ?? []), v?.means].filter(Boolean).join(' · ');
   return <Card className="overflow-x-auto px-0 py-0">
+    <div ref={fitRef} style={{ height: 0 }} aria-hidden />
     {(a.label || ctx) && <div className="border-b px-4 py-2">
       {a.label && <K>{a.label}</K>}
       {ctx && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{ctx}</div>}
