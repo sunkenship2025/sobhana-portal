@@ -50,6 +50,7 @@ const near = (name: string, got: number, want: number, tol: number) => {
   console.log(`\ntruth (imaging, 90d, live): ${N} orders  billed ₹${Math.round(B/100).toLocaleString('en-IN')}  commission ₹${Math.round(C/100).toLocaleString('en-IN')}\n`);
 
   const IMGF = { service_kind: 'IMAGING' };
+  const CT = { payout_category: 'CT / MRI' };
   console.log('SCOPED METRICS — a filter the registry could not express is how every CT figure came back 0');
   const b = await step({ tool: 'metric', args: { metric: 'billed_on_orders', period: 'last_90_days', filter: IMGF } });
   const c = await step({ tool: 'metric', args: { metric: 'commission_on_orders', period: 'last_90_days', filter: IMGF } });
@@ -80,7 +81,6 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('refuses money supplied as paise', paise.ok, false, 'a 100x error that looks plausible');
 
   console.log('\nROUTING — a dead end is retried; a direction is followed');
-  const CT = { payout_category: 'CT / MRI' };
   const wrong: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days', filter: CT } });
   ok('revenue refuses a work scope', wrong.ok, false, 'cash lives on payments, not orders');
   ok('  and names the metric that can', /billed_on_orders/.test(String(wrong.error)), true, String(wrong.error).slice(0, 80));
@@ -121,6 +121,28 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('an explicit window still wins', stated?.time?.period, 'last-30-days');
   const plainQ = completeSpec({ goal: '', scope: [] }, 'how much did we collect');
   ok('a non-rate question is left alone', plainQ?.time?.period ?? 'none', 'none', 'the default must not leak everywhere');
+
+  /* THE WHOLE CT PAYBACK PATH, END TO END, WITH NO MODEL CALL. This is the question that could
+     not be answered at all — "CT" resolved to CLOTTING TIME, every CT figure came back 0, and the
+     answer was "I could not establish it". Every link in the chain is now deterministic: the
+     question fixes its own window, the operands exist as scoped metrics, and the arithmetic runs
+     in TypeScript. What a model still chooses is which steps to emit — not what any of them mean. */
+  console.log('\nCT PAYBACK, WHOLE PATH — the question that could not be answered at all');
+  const q0 = 'how many months would it take to pay back a 50 lakh CT scanner at our current CT volume';
+  const sp: any = completeSpec({ goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI' }] } as any, q0);
+  ok('the question fixes its own window', sp?.time?.period, 'last-90-days');
+  const ctB: any = await runStep({ tool: 'metric', args: { metric: 'billed_on_orders', period: sp.time.period, filter: CT } }, 0, k, sp, {}, [], q0);
+  const ctC: any = await runStep({ tool: 'metric', args: { metric: 'commission_on_orders', period: sp.time.period, filter: CT } }, 1, k, sp, {}, [], q0);
+  ok('CT billed is measurable', ctB.ok && Number(ctB.data?.value) > 0, true, ctB.error);
+  ok('CT commission is measurable', ctC.ok && Number(ctC.data?.value) > 0, true, ctC.error);
+  const months: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const r: any = await runStep({ tool: 'compute', args: { formula: 'capital / ((billed - commission) / 3)', unit: 'months',
+      let: { capital: { value: 5000000, unit: 'rupees' }, billed: { step: 0 }, commission: { step: 1 } } } }, 2, k, sp, {}, [{ ...ctB, step: 0 }, { ...ctC, step: 1 }], q0);
+    months.push(r.ok ? r.summary.value : `ERR ${r.error}`);
+  }
+  ok('payback computes, same every time', new Set(months).size === 1 && !months[0].startsWith('ERR'), true, months.join(' / '));
+  console.log(`     → ${months[0]} from ₹${Math.round(Number(ctB.data.value)/100).toLocaleString('en-IN')} billed less ₹${Math.round(Number(ctC.data.value)/100).toLocaleString('en-IN')} commission over 90 days`);
 
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
