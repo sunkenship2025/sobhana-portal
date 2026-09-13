@@ -1,5 +1,5 @@
 /**
- * THE ARTIFACT DERIVATION, TESTED — no model calls, no browser.
+ * EVERYTHING BETWEEN THE EVIDENCE AND THE OWNER'S EYES — no model calls, no browser, no database.
  *
  * deriveView is what decides whether a card is useful or, in the owner's words, "genuinely bad
  * and not usable". It is a pure function of the evidence, and it was the one part of the artifact
@@ -12,6 +12,12 @@
  * null, so no renderer ever prints "— %".
  *
  * It compiles the frontend file to CommonJS on the way in, which is why this needs no bundler.
+ *
+ * Alongside it, the three other pure layers that decide what is shown and what is said:
+ * describeEvidence (what SHAPE this evidence is, read from the values and never from a whitelist
+ * of column names), rankRenderers (which artifact types this evidence can TRUTHFULLY carry), and
+ * the bindings (an assumption may be carried, but only a fact may be STATED — printing an
+ * advisory period as "ASSUMED PERIOD" once turned ₹1,03,400 into ₹17,600).
  */
 import { execFileSync } from 'child_process';
 import { mkdtempSync } from 'fs';
@@ -63,5 +69,30 @@ ok('negative magnitudes use absolute value', deriveView(neg)!.rows[1].n === 20);
 ok('pctOf floors a tiny share to "<1%"', pctOf(0.004) === '<1%');
 ok('toNum survives junk', toNum('—') === 0 && toNum('₹1,234') === 1234);
 
-console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser\n`);
+const { describeEvidence, rankRenderers } = require('./src/services/pulse/v2/capability');
+const { timeAuthority, compileBindings, formatBindings } = require('./src/services/pulse/v2/binding');
+const ev = (o: any) => ({ step: 0, tool: 'x', label: 'x', ok: true, summary: {}, ...o });
+
+console.log('\nevidence structure — read from the VALUES, never a column-name whitelist\n');
+const split = describeEvidence(ev({ data: { rows: [{ k: 'CNT', v: 700 }, { k: 'BLN', v: 300 }] } }));
+ok('a two-part split has one dimension and one measure', split.dimensions === 1 && split.measures === 1);
+ok('a single figure has cardinality one', describeEvidence(ev({ data: { value: 5 }, summary: { value: '₹5' } })).cardinality === 'one');
+const SERIES = ev({ data: { rows: [{ bucket: '2026-07', v: 1 }, { bucket: '2026-08', v: 2 }, { bucket: '2026-09', v: 3 }] } });
+ok('a monthly series is a time series', describeEvidence(SERIES).isTimeSeries === true);
+ok('many distinct values read as continuous', describeEvidence(ev({ data: { rows: Array.from({ length: 30 }, (_, i) => ({ k: `p${i}`, v: 100 + i * 7 })) } })).continuous === true);
+ok('a per-category count does not', describeEvidence(ev({ data: { rows: Array.from({ length: 30 }, (_, i) => ({ k: `p${i}`, v: 1 })) } })).continuous === false);
+
+console.log('\nwhich artifacts this evidence can TRUTHFULLY carry\n');
+const SPLIT = ev({ data: { rows: [{ k: 'CNT', v: 700 }, { k: 'BLN', v: 300 }] } });
+ok('a split can be a breakdown', rankRenderers(SPLIT, 'composition').map((c: any) => c.type).includes('breakdown'));
+ok('one figure cannot be a breakdown', !rankRenderers(ev({ data: { value: 5 }, summary: { value: '₹5' } }), 'magnitude').map((c: any) => c.type).includes('breakdown'));
+ok('a series can be a chart', rankRenderers(SERIES, 'trend').map((c: any) => c.type).includes('chart'));
+
+console.log('\nbindings — an assumption may be CARRIED, but only a fact may be STATED\n');
+ok('a period the owner named is authoritative', timeAuthority({ period: 'last-90-days', phrase: 'last 90 days', from: '2026-06-15', to: '2026-09-13' }) === 'authoritative');
+ok('a planner default is advisory', timeAuthority({ period: 'month', from: '2026-09-01', to: '2026-09-13' }) === 'advisory');
+ok('an advisory binding is never printed', !/ASSUMED|2026-09/.test(formatBindings(compileBindings({ goal: '', scope: [], time: { period: 'month', from: '2026-09-01', to: '2026-09-13' } }))));
+ok('an authoritative binding IS printed', /2026-06-15|last 90 days/.test(formatBindings(compileBindings({ goal: '', scope: [], time: { period: 'last-90-days', phrase: 'last 90 days', from: '2026-06-15', to: '2026-09-13' } }))));
+
+console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);
