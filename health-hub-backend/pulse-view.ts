@@ -208,5 +208,30 @@ for (const [n, p] of [['plan', PLAN], ['investigate', INV], ['respond', RESP]] a
 ok('the metric block lists every metric', Object.keys(METRICS).every((m) => METRIC_BLOCK.includes(m)),
    Object.keys(METRICS).filter((m) => !METRIC_BLOCK.includes(m)).join(','));
 
+/* THE OWNER ASKED NOT TO BE BLOCKED FROM PULLING LISTS, AND THAT IS AN AUTHORIZATION DECISION
+   RATHER THAN A PROPERTY OF THE QUERY. It is made at the route, where the asker is known, and
+   passed down as policy — the route is requireRole('owner'), so row-level detail about their own
+   patients is theirs to see. Pinned in both directions, because this is the one guard where
+   being wrong in one direction exposes a patient and being wrong in the other silently refuses
+   the owner their own data, which is what prompted the instruction. */
+const { validate } = require('./src/services/pulse/validator');
+/* No aggregate across the one-to-many join: a plain list of rows, which is what "pull me a
+   list" means and what the fan-out guard — a different rule entirely — would otherwise catch
+   first, masking whether the row-level policy said yes. */
+const NAMES_SQL = `SELECT p.name, p."patientNumber", b."totalAmountInPaise" AS due
+  FROM "Bill" b JOIN "Visit" v ON v.id=b."visitId" JOIN "Patient" p ON p.id=v."patientId"
+  ORDER BY b."totalAmountInPaise" DESC LIMIT 20`;
+const COUNT_SQL = `SELECT COUNT(DISTINCT p.id) n FROM "Patient" p`;
+
+console.log('\nwho may see a patient by name\n');
+ok('the owner may pull a list of names', validate(NAMES_SQL, { rowLevel: true }) === null,
+   String(validate(NAMES_SQL, { rowLevel: true })));
+ok('a surface without that right may not', typeof validate(NAMES_SQL, { rowLevel: false }) === 'string');
+ok('  and the refusal names the columns', /identifying columns/.test(String(validate(NAMES_SQL, { rowLevel: false }))),
+   String(validate(NAMES_SQL, { rowLevel: false })).slice(0, 70));
+ok('counting patients is a measurement, not a disclosure', validate(COUNT_SQL, { rowLevel: false }) === null,
+   String(validate(COUNT_SQL, { rowLevel: false })));
+ok('default policy does not block the owner', validate(NAMES_SQL, {}) === null, String(validate(NAMES_SQL, {})));
+
 console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);
