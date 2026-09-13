@@ -237,6 +237,18 @@ export async function simulate(
       continue;
     }
 
+    if (step.kind === 'ASK') {
+      out.push({ day, at: clock, kind: 'ASK', outcome: 'ASKED',
+        detail: { template: step.template, buttons: step.buttons.map((b) => b.label) } });
+      // A simulation cannot know what someone would tap, so it shows the question and
+      // stops rather than inventing an answer.
+      return out;
+    }
+    if (step.kind === 'HANDOFF') {
+      out.push({ day, at: clock, kind: 'HANDOFF', outcome: 'HANDED_TO_STAFF' });
+      return out;
+    }
+
     out.push({ day, at: clock, kind: 'STOP', outcome: step.reason });
     return out;
   }

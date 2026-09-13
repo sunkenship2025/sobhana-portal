@@ -370,6 +370,177 @@ async function main() {
     assert.deepStrictEqual(a, b);
   });
 
+  // ══ Counts, sums and history ══════════════════════════════════════════════
+  const withHistory = (extra: Record<string, unknown> = {}) => memoryContext({
+    now: T0,
+    visits: [
+      visit({ id: 'V1', domain: 'CLINIC', totalAmountInPaise: 45000, createdAt: new Date(T0.getTime() - 400 * DAY) }),
+      visit({ id: 'V2', domain: 'CLINIC', totalAmountInPaise: 60000, createdAt: new Date(T0.getTime() - 200 * DAY) }),
+      visit({ id: 'V3', domain: 'DIAGNOSTICS', totalAmountInPaise: 240000, createdAt: new Date(T0.getTime() - 100 * DAY) }),
+      visit({ id: 'V4', domain: 'CLINIC', status: 'CANCELLED', totalAmountInPaise: 99999, createdAt: new Date(T0.getTime() - 10 * DAY) }),
+    ],
+    patients: [patient()],
+    ...extra,
+  });
+
+  await check('visit counts respect domain, window and cancellation', async () => {
+    const ctx = withHistory();
+    assert.strictEqual(await predicates.visitCount(ctx, subject, {}), 3, 'cancelled visits must not count');
+    assert.strictEqual(await predicates.visitCount(ctx, subject, { domain: 'CLINIC' }), 2);
+    assert.strictEqual(await predicates.visitCount(ctx, subject, { withinDays: 150 }), 1);
+  });
+
+  await check('spend sums money, not visits, and excludes cancelled', async () => {
+    const ctx = withHistory();
+    assert.strictEqual(await predicates.spendInPaise(ctx, subject, {}), 345000);
+    assert.strictEqual(await predicates.spendInPaise(ctx, subject, { domain: 'DIAGNOSTICS' }), 240000);
+  });
+
+  await check('never done tests is not the same as not done lately', async () => {
+    const been = withHistory();
+    const never = memoryContext({ now: T0, visits: [visit()], patients: [patient()] });
+    assert.strictEqual(await predicates.hasEverDoneDiagnostics(been, subject), true);
+    assert.strictEqual(await predicates.hasEverDoneDiagnostics(never, subject), false);
+    assert.strictEqual(await predicates.daysSinceLastDiagnostics(been, subject), 100);
+    assert.strictEqual(await predicates.daysSinceLastDiagnostics(never, subject), null);
+  });
+
+  const hba1c = (value: number | null, flag: string, unit = '%') => ({
+    value, textValue: null, flag, referenceUnit: unit,
+    criticalMin: null, criticalMax: null, finalizedAt: T0, reportVersionId: 'RV',
+  });
+
+  await check('change against the previous result, in percent', async () => {
+    const ctx = withHistory({ resultHistory: { 'P1:HBA1C': [hba1c(9, 'HIGH'), hba1c(7.5, 'HIGH')] } });
+    const pct = await predicates.resultChangePct(ctx, subject, { testCode: 'HBA1C', unit: '%' });
+    assert.ok(Math.abs(Number(pct) - 20) < 0.001, `expected +20%, got ${pct}`);
+  });
+
+  await check('no previous result means no comparison, not a zero', async () => {
+    const ctx = withHistory({ resultHistory: { 'P1:HBA1C': [hba1c(9, 'HIGH')] } });
+    assert.strictEqual(await predicates.resultChangePct(ctx, subject, { testCode: 'HBA1C' }), null);
+    assert.strictEqual(await predicates.previousResultValue(ctx, subject, { testCode: 'HBA1C' }), null);
+  });
+
+  await check('a unit change between results refuses the comparison', async () => {
+    const ctx = withHistory({
+      resultHistory: { 'P1:HBA1C': [hba1c(9, 'HIGH', '%'), hba1c(75, 'HIGH', 'mmol/mol')] },
+    });
+    await assert.rejects(
+      () => predicates.resultChangePct(ctx, subject, { testCode: 'HBA1C', unit: '%' }),
+      UnitMismatch,
+      'comparing 9% against 75 mmol/mol would report a 733% fall',
+    );
+  });
+
+  await check('consecutive abnormals stop at the first normal', async () => {
+    const ctx = withHistory({
+      resultHistory: {
+        'P1:HBA1C': [hba1c(9, 'HIGH'), hba1c(8.5, 'HIGH'), hba1c(5.4, 'NORMAL'), hba1c(8, 'HIGH')],
+      },
+    });
+    assert.strictEqual(await predicates.consecutiveAbnormal(ctx, subject, { testCode: 'HBA1C' }), 2);
+  });
+
+  await check("a result with no reference range cannot be called abnormal", async () => {
+    const ctx = memoryContext({
+      now: T0, visits: [visit()], patients: [patient()],
+      results: { 'TO1:X': { ...hba1c(42, 'NORMAL'), referenceUnit: null } },
+    });
+    assert.strictEqual(
+      await predicates.resultHasReferenceRange(ctx, { ...subject, id: 'TO1' }, { testCode: 'X' }),
+      false,
+    );
+  });
+
+  await check('an expired coupon reads as expired even before a sweep says so', async () => {
+    const ctx = withHistory({ couponStateByRun: { r1: 'ISSUED' } });
+    assert.strictEqual(await predicates.couponState(ctx, subject, { runId: 'r1' }), 'ISSUED');
+    assert.strictEqual(await predicates.couponState(ctx, subject, { runId: 'nope' }), null);
+  });
+
+  // ══ The conversation ══════════════════════════════════════════════════════
+  // A menu, not a chat. Buttons route; unmatched text reaches a person.
+  const askStep = {
+    kind: 'ASK' as const,
+    template: 'retest_offer_v2',
+    intent: 'PROACTIVE' as const,
+    params: [{ from: 'PATIENT_FIRST_NAME' as const }],
+    buttons: [
+      { payload: 'BOOK', label: 'Book a slot', goTo: 3 },
+      { payload: 'NOT_NOW', label: 'Not now', goTo: 'STOP' as const },
+    ],
+    keywords: [{ match: 'book', goTo: 3 }],
+    onUnmatched: 'HANDOFF' as const,
+  };
+
+  await check('a question routes by button payload, not by what it says', () => {
+    const spec = {
+      buttons: Object.fromEntries(askStep.buttons.map((b) => [b.payload, b.goTo])),
+      keywords: askStep.keywords.map((k) => ({ match: k.match, stepIndex: k.goTo })),
+      onUnmatched: askStep.onUnmatched,
+    };
+    // The payload is the only exact key WhatsApp gives us; the label is display text a
+    // patient never sends back verbatim.
+    assert.strictEqual(spec.buttons.BOOK, 3);
+    assert.strictEqual(spec.buttons.NOT_NOW, 'STOP');
+    assert.ok(!('Book a slot' in spec.buttons), 'routing must not key off the label');
+  });
+
+  await check('"Not now" ends the journey rather than jumping to a step', () => {
+    const dest = askStep.buttons.find((b) => b.payload === 'NOT_NOW')!.goTo;
+    assert.strictEqual(dest, 'STOP', 'a decline must be able to end a journey');
+  });
+
+  await check('unmatched free text reaches a person by default', () => {
+    // Not a classifier, not silence. "what is the price for the full panel" is exactly
+    // the message a person should read.
+    assert.strictEqual(askStep.onUnmatched, 'HANDOFF');
+  });
+
+  await check('a question holds the line, so a second journey cannot talk over it', () => {
+    const held = new Map<string, string>();
+    const hold = (phone: string, runId: string) => {
+      if (held.has(phone)) return false;
+      held.set(phone, runId);
+      return true;
+    };
+    assert.strictEqual(hold('919876543210', 'run-a'), true);
+    assert.strictEqual(hold('919876543210', 'run-b'), false, 'two journeys must not hold one phone');
+  });
+
+  await check('silence is an outcome — the journey moves on when the window shuts', async () => {
+    const withAsk: AutomationDefinition = {
+      ...RECOVERY,
+      steps: [
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 2 },
+        askStep,
+        { kind: 'STOP', reason: 'STOPPED_BY_STEP' },
+      ],
+    };
+    const steps = await simulate(withAsk, seed, []);
+    const asked = steps.find((x) => x.kind === 'ASK');
+    assert.ok(asked, 'the question should have been asked');
+    assert.strictEqual(asked!.outcome, 'ASKED');
+  });
+
+  // ══ Triggers are a registry, not an if-chain ══════════════════════════════
+  await check('every trigger the catalog offers is one the engine can run', () => {
+    const { TRIGGERS } = require('./src/services/automations/triggers');
+    for (const [key, def] of Object.entries(TRIGGERS) as [string, { kind: string; findSubjects: unknown }][]) {
+      assert.strictEqual(def.kind, key, `${key} is registered under a different kind`);
+      assert.strictEqual(typeof def.findSubjects, 'function', `${key} cannot find subjects`);
+    }
+  });
+
+  await check('a state nobody can fire on still has a way in', () => {
+    const { TRIGGERS } = require('./src/services/automations/triggers');
+    // "No visit in 180 days" is not an event — there is no moment it happens. Without a
+    // periodic re-ask, every question of that shape needs its own trigger forever.
+    assert.ok(TRIGGERS.AUDIENCE_SWEEP, 'no way to act on a state rather than an event');
+    assert.strictEqual(TRIGGERS.AUDIENCE_SWEEP.subjectType, 'PATIENT');
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

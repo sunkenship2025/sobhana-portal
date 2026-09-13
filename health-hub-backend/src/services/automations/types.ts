@@ -137,6 +137,38 @@ export type Step =
        */
       linkExpiryHours?: number;
     }
+  | {
+      /**
+       * Ask a question and wait for the answer.
+       *
+       * A MENU, NOT A CONVERSATION. Buttons carry the run id, which is the only exact
+       * correlation key WhatsApp offers and the only thing that survives a phone three
+       * people share. Free text that matches nothing is not a failure — it is the
+       * handoff, and a person is better at it than a classifier would be.
+       *
+       * While this waits it holds the phone line, so no other journey may message the
+       * number. Nobody answering is an outcome too: the run continues to the next step
+       * when the window closes.
+       */
+      kind: 'ASK';
+      template: string;
+      language?: string;
+      params: ParamBinding[];
+      intent: Intent;
+      /** Payload -> where to go. The payload is what the button actually carries. */
+      buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
+      /** Best-effort fallback for people who type instead of tapping. */
+      keywords?: { match: string; goTo: number | 'STOP'; stopReason?: string }[];
+      /** Anything that matches neither. */
+      onUnmatched: 'HANDOFF' | 'STOP' | 'CONTINUE';
+      /** How long to hold the line. Absent = 24 hours, the provider's own window. */
+      waitHours?: number;
+    }
+  | {
+      /** Give the thread to a person and end the run. */
+      kind: 'HANDOFF';
+      note?: string;
+    }
   | { kind: 'STOP'; reason: string };
 
 export interface AutomationDefinition {
@@ -191,5 +223,10 @@ export const Outcome = {
   WAITING_ANOTHER_AUTOMATION: 'WAITING_ANOTHER_AUTOMATION',
   UNIT_MISMATCH: 'UNIT_MISMATCH',
   SEND_FAILED: 'SEND_FAILED',
+  ASKED: 'ASKED',
+  NO_REPLY: 'NO_REPLY',
+  REPLIED: 'REPLIED',
+  HANDED_TO_STAFF: 'HANDED_TO_STAFF',
+  LINE_BUSY: 'LINE_BUSY',
 } as const;
 export type OutcomeCode = (typeof Outcome)[keyof typeof Outcome];

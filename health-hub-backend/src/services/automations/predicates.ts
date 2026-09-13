@@ -140,6 +140,128 @@ export const predicates: Record<string, Predicate> = {
     return flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW';
   },
 
+  // ── Counts and sums ───────────────────────────────────────────────────────
+  // "Three or more visits", "spent over ₹25,000", "nothing in 180 days" are the same
+  // question with different arguments. One predicate each rather than one per campaign.
+
+  async visitCount(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    return ctx.aggregate({
+      patientId: subject.patientId,
+      of: 'VISITS',
+      domain: args.domain as 'CLINIC' | 'DIAGNOSTICS' | undefined,
+      withinDays: args.withinDays ? Number(args.withinDays) : undefined,
+    });
+  },
+
+  async spendInPaise(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    return ctx.aggregate({
+      patientId: subject.patientId,
+      of: 'SPEND',
+      domain: args.domain as 'CLINIC' | 'DIAGNOSTICS' | undefined,
+      withinDays: args.withinDays ? Number(args.withinDays) : undefined,
+    });
+  },
+
+  /** Distinguishes "never been" from "not been lately" — different campaigns entirely. */
+  async hasEverDoneDiagnostics(ctx, subject) {
+    if (!subject.patientId) return false;
+    const n = await ctx.aggregate({ patientId: subject.patientId, of: 'VISITS', domain: 'DIAGNOSTICS' });
+    return n > 0;
+  },
+
+  async daysSinceLastDiagnostics(ctx, subject) {
+    if (!subject.patientId) return null;
+    const all = await ctx.diagnosticsAfter(subject.patientId, new Date(0));
+    if (all.length === 0) return null;
+    const latest = all[all.length - 1];
+    return Math.floor((ctx.now.getTime() - latest.createdAt.getTime()) / DAY_MS);
+  },
+
+  // ── Result history ────────────────────────────────────────────────────────
+
+  /** The value before the current one, for "worse than last time" questions. */
+  async previousResultValue(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    const history = await ctx.resultHistory(subject.patientId, String(args.testCode ?? ''), 2);
+    if (history.length < 2) return null;
+    if (args.unit && history[1].referenceUnit !== args.unit) {
+      throw new UnitMismatch(String(args.unit), history[1].referenceUnit);
+    }
+    return history[1].value;
+  },
+
+  /** Percent change against the previous result. Positive means it went up. */
+  async resultChangePct(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    const history = await ctx.resultHistory(subject.patientId, String(args.testCode ?? ''), 2);
+    if (history.length < 2) return null;
+    const [now_, before] = history;
+    if (args.unit && (now_.referenceUnit !== args.unit || before.referenceUnit !== args.unit)) {
+      throw new UnitMismatch(String(args.unit), now_.referenceUnit);
+    }
+    if (now_.value === null || before.value === null || before.value === 0) return null;
+    return ((now_.value - before.value) / Math.abs(before.value)) * 100;
+  },
+
+  /** How many of the most recent results in a row were flagged abnormal. */
+  async consecutiveAbnormal(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    const history = await ctx.resultHistory(
+      subject.patientId, String(args.testCode ?? ''), Number(args.limit ?? 5),
+    );
+    let run = 0;
+    for (const r of history) {
+      if (r.flag && r.flag !== 'NORMAL') run += 1;
+      else break;
+    }
+    return run;
+  },
+
+  /**
+   * A result with no reference range is one nobody can call abnormal. Used to refuse a
+   * clinical decision rather than guess at one.
+   */
+  async resultHasReferenceRange(ctx, subject, args) {
+    const r = await ctx.resultOf(String(args.testOrderId ?? subject.id), String(args.testCode ?? ''));
+    return !!r && r.referenceUnit !== null;
+  },
+
+  /** "Done this test three times" and "never done it at all" are the same question. */
+  async testCodeCount(ctx, subject, args) {
+    if (!subject.patientId) return null;
+    return ctx.testCodeCount(
+      subject.patientId, String(args.testCode ?? ''),
+      args.withinDays ? Number(args.withinDays) : undefined,
+    );
+  },
+
+  /**
+   * Diagnostics AT A PARTICULAR BRANCH after this visit.
+   *
+   * The default conversion question is patient-level and any-branch, by decision D3 —
+   * revenue is revenue. This exists for the narrower question a branch manager asks,
+   * and it is a separate predicate rather than an argument on the first so that nobody
+   * silently changes what "converted" means for everyone.
+   */
+  async testDoneSinceThisVisitAtBranch(ctx, subject, args) {
+    if (subject.type !== 'VISIT' || !subject.patientId) return false;
+    const visit = await ctx.visit(subject.id);
+    if (!visit) return false;
+    const branchId = String(args.branchId ?? visit.branchId);
+    const after = await ctx.diagnosticsAfter(subject.patientId, visit.createdAt);
+    return after.some((v) => v.branchId === branchId);
+  },
+
+  // ── Offers ────────────────────────────────────────────────────────────────
+
+  /** ISSUED | REDEEMED | EXPIRED | VOID | PENDING | null, for this run's own coupon. */
+  async couponState(ctx, subject, args) {
+    const runId = String(args.runId ?? subject.id);
+    return ctx.couponState(runId);
+  },
+
   async always() {
     return true;
   },
@@ -252,6 +374,27 @@ export interface PredicateMeta {
 }
 
 export const PREDICATE_CATALOG: PredicateMeta[] = [
+  { fn: 'visitCount', label: 'Number of visits', group: 'Visit', returns: 'NUMBER',
+    scope: 'ever, or within a window',
+    help: 'Add domain (CLINIC or DIAGNOSTICS) and withinDays to narrow it.' },
+  { fn: 'spendInPaise', label: 'Amount spent', group: 'Money', returns: 'NUMBER', unit: 'RUPEES',
+    scope: 'ever, or within a window' },
+  { fn: 'hasEverDoneDiagnostics', label: 'Has ever done tests', group: 'Diagnostics', returns: 'BOOLEAN',
+    help: 'Never been is a different campaign from not been lately.' },
+  { fn: 'daysSinceLastDiagnostics', label: 'Days since their last test', group: 'Diagnostics', returns: 'NUMBER', unit: 'DAYS' },
+  { fn: 'previousResultValue', label: 'Previous result value', group: 'Diagnostics', returns: 'NUMBER' },
+  { fn: 'resultChangePct', label: 'Change since the previous result', group: 'Diagnostics', returns: 'NUMBER',
+    help: 'Percent. Positive means it went up.' },
+  { fn: 'consecutiveAbnormal', label: 'Abnormal results in a row', group: 'Diagnostics', returns: 'NUMBER' },
+  { fn: 'resultHasReferenceRange', label: 'Result has a reference range', group: 'Diagnostics', returns: 'BOOLEAN',
+    help: 'A result with no range is one nobody can call abnormal.' },
+  { fn: 'testCodeCount', label: 'Times a particular test was done', group: 'Diagnostics', returns: 'NUMBER',
+    help: 'Give it a testCode. Zero means never — a different campaign from "not lately".' },
+  { fn: 'testDoneSinceThisVisitAtBranch', label: 'Tests done at this branch', group: 'Diagnostics',
+    returns: 'BOOLEAN', scope: 'since this visit, same branch',
+    help: 'The default conversion question counts any branch, because revenue is revenue. This is the narrower one.' },
+  { fn: 'couponState', label: 'State of the offer this journey issued', group: 'Money', returns: 'TEXT',
+    help: 'ISSUED, REDEEMED, EXPIRED or VOID.' },
   { fn: 'testDoneSinceThisVisit', label: 'Tests done', group: 'Diagnostics', returns: 'BOOLEAN',
     scope: 'since this visit',
     help: 'Any diagnostics after the triggering visit, including a walk-in we did not cause. Generous on purpose — being wrong here costs one unsent message.' },

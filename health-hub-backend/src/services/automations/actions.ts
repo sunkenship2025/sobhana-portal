@@ -29,6 +29,8 @@ export interface SendInput {
   patientId: string | null;
   branchId: string | null;
   phone: string;
+  /** Every resolved recipient. A staff alert has several; a patient has one. */
+  phones?: string[];
   template: string;
   language: string;
   params: ParamBinding[];
@@ -130,18 +132,33 @@ export async function sendForStep(input: SendInput): Promise<SendOutcome> {
     return { messageLogId: log.id, waMessageId: null, alreadySent: false, failed: 'WHATSAPP_DISABLED' };
   }
 
+  const targets = input.phones && input.phones.length > 0 ? input.phones : [input.phone];
   try {
-    const result = await sendTemplate(
-      formatPhoneForWhatsApp(input.phone),
-      input.template,
-      components,
-      input.language,
-    );
+    let first: string | null = null;
+    const failures: string[] = [];
+    for (const target of targets) {
+      try {
+        const r = await sendTemplate(
+          formatPhoneForWhatsApp(target), input.template, components, input.language,
+        );
+        if (!first) first = r.waMessageId;
+      } catch (e) {
+        // One unreachable number must not cost the others their message.
+        failures.push((e as Error).message);
+      }
+    }
+    if (!first) throw new Error(failures[0] ?? 'every recipient failed');
+
     await prisma.messageLog.update({
       where: { id: log.id },
-      data: { status: 'SENT', sentAt: new Date(), waMessageId: result.waMessageId },
+      data: {
+        status: 'SENT', sentAt: new Date(), waMessageId: first,
+        ...(failures.length
+          ? { failureReason: `${failures.length} of ${targets.length} recipients failed` }
+          : {}),
+      },
     });
-    return { messageLogId: log.id, waMessageId: result.waMessageId, alreadySent: false };
+    return { messageLogId: log.id, waMessageId: first, alreadySent: false };
   } catch (e) {
     const err = e as Error & { errorCode?: string };
     await prisma.messageLog.update({

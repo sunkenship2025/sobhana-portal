@@ -77,6 +77,23 @@ export interface AutomationContext {
    * neither has sent yet. Without it "Importance" is a control with nothing behind it.
    */
   higherPriorityRunDue(patientId: string, priority: number, runId: string): Promise<string | null>;
+  /**
+   * Counts and sums over a window. One shape for all of them, because "three or more
+   * visits", "spent over ₹25,000" and "no test in 180 days" are the same question with
+   * different arguments — and answering them one bespoke predicate at a time is how the
+   * vocabulary stops being a vocabulary.
+   */
+  aggregate(args: {
+    patientId: string;
+    of: 'VISITS' | 'SPEND';
+    domain?: 'CLINIC' | 'DIAGNOSTICS';
+    withinDays?: number;
+  }): Promise<number>;
+  /** Results for one test, newest first, across finalized reports. */
+  resultHistory(patientId: string, testCode: string, limit: number): Promise<ResultFacts[]>;
+  /** How many times one particular test has been done, ever or within a window. */
+  testCodeCount(patientId: string, testCode: string, withinDays?: number): Promise<number>;
+  couponState(runId: string): Promise<string | null>;
   resultOf(testOrderId: string, testCode: string): Promise<ResultFacts | null>;
 }
 
@@ -206,6 +223,68 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       return slot.automationRunId !== runId;
     },
 
+    async aggregate({ patientId, of, domain, withinDays }) {
+      const where = {
+        patientId,
+        status: { not: 'CANCELLED' as const },
+        ...(domain ? { domain } : {}),
+        ...(withinDays ? { createdAt: { gte: new Date(now.getTime() - withinDays * DAY_MS) } } : {}),
+      };
+      if (of === 'VISITS') return prisma.visit.count({ where });
+      const sum = await prisma.visit.aggregate({ where, _sum: { totalAmountInPaise: true } });
+      return sum._sum.totalAmountInPaise ?? 0;
+    },
+
+    async resultHistory(patientId, testCode, limit) {
+      const rows = await prisma.testResult.findMany({
+        where: {
+          reportVersion: { status: 'FINALIZED', report: { visit: { patientId } } },
+          OR: [{ testDefinition: { code: testCode } }, { test: { code: testCode } }],
+        },
+        orderBy: { reportVersion: { finalizedAt: 'desc' } },
+        take: limit,
+        select: {
+          value: true, textValue: true, flag: true,
+          testDefinition: { select: { referenceUnit: true } },
+          reportVersion: { select: { id: true, finalizedAt: true } },
+        },
+      });
+      return rows.map((r) => ({
+        value: r.value, textValue: r.textValue, flag: r.flag,
+        referenceUnit: r.testDefinition?.referenceUnit ?? null,
+        criticalMin: null, criticalMax: null,
+        finalizedAt: r.reportVersion.finalizedAt,
+        reportVersionId: r.reportVersion.id,
+      }));
+    },
+
+    async testCodeCount(patientId, testCode, withinDays) {
+      return prisma.testResult.count({
+        where: {
+          reportVersion: {
+            status: 'FINALIZED',
+            report: { visit: { patientId } },
+            ...(withinDays
+              ? { finalizedAt: { gte: new Date(now.getTime() - withinDays * DAY_MS) } }
+              : {}),
+          },
+          OR: [{ testDefinition: { code: testCode } }, { test: { code: testCode } }],
+        },
+      });
+    },
+
+    async couponState(runId) {
+      const c = await prisma.coupon.findFirst({
+        where: { automationRunId: runId },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, expiresAt: true },
+      });
+      if (!c) return null;
+      // An issued coupon past its date is expired whether or not a sweep has said so.
+      if (c.status === 'ISSUED' && c.expiresAt <= now) return 'EXPIRED';
+      return c.status;
+    },
+
     async higherPriorityRunDue(patientId, priority, runId) {
       const rival = await prisma.automationRun.findFirst({
         where: {
@@ -283,6 +362,9 @@ export interface FactSet {
   results?: Record<string, ResultFacts>;
   /** patientId -> the name of a more important journey also due right now. */
   higherPriorityDueFor?: Record<string, string>;
+  /** "patientId:TESTCODE" -> results newest first. */
+  resultHistory?: Record<string, ResultFacts[]>;
+  couponStateByRun?: Record<string, string>;
 }
 
 /**
@@ -329,6 +411,23 @@ export function memoryContext(facts: FactSet): AutomationContext {
     },
     async higherPriorityRunDue(patientId) {
       return facts.higherPriorityDueFor?.[patientId] ?? null;
+    },
+    async aggregate({ patientId, of, domain, withinDays }) {
+      const cutoff = withinDays ? new Date(facts.now.getTime() - withinDays * DAY_MS) : null;
+      const mine = visits.filter(
+        (v) => v.patientId === patientId && v.status !== 'CANCELLED' &&
+               (!domain || v.domain === domain) && (!cutoff || v.createdAt >= cutoff),
+      );
+      return of === 'VISITS' ? mine.length : mine.reduce((n, v) => n + v.totalAmountInPaise, 0);
+    },
+    async resultHistory(patientId, testCode, limit) {
+      return (facts.resultHistory?.[`${patientId}:${testCode}`] ?? []).slice(0, limit);
+    },
+    async testCodeCount(patientId, testCode) {
+      return (facts.resultHistory?.[`${patientId}:${testCode}`] ?? []).length;
+    },
+    async couponState(runId) {
+      return facts.couponStateByRun?.[runId] ?? null;
     },
     async resultOf(testOrderId, testCode) {
       return facts.results?.[`${testOrderId}:${testCode}`] ?? null;

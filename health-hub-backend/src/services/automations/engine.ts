@@ -23,6 +23,8 @@ import { communicationPolicy } from './policy';
 import { sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon } from './actions';
 import { Outcome, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
+import { TRIGGERS } from './triggers';
+import { holdLine } from './inbound';
 import {
   sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
 } from '../automatedMessageService';
@@ -134,46 +136,56 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       continue;
     }
 
-    if (def.trigger.kind !== 'VISIT_COMPLETED') continue;
+    // Everything else goes through the registry. The engine does not know what any
+    // trigger means — only that it can be asked for subjects that became eligible.
+    const trigger = TRIGGERS[def.trigger.kind];
+    if (!trigger) {
+      logger.warn(`[automations] ${a.key} names an unknown trigger "${def.trigger.kind}"`);
+      continue;
+    }
 
-    const candidates = await prisma.visit.findMany({
-      where: {
-        domain: def.trigger.domain,
-        status: 'COMPLETED',
-        // The watermark. Never the last six months of history on first activation.
-        updatedAt: { gte: a.activatedAt! },
-        ...(a.branchIds.length > 0 ? { branchId: { in: a.branchIds } } : {}),
-      },
-      select: { id: true, patientId: true, branchId: true, createdAt: true, updatedAt: true },
-      orderBy: { updatedAt: 'asc' },
-      take: BATCH,
-    });
+    let candidates: Awaited<ReturnType<typeof trigger.findSubjects>>;
+    try {
+      candidates = await trigger.findSubjects({
+        now: ctx.now,
+        since: a.activatedAt!,
+        branchIds: a.branchIds,
+        config: def.trigger as unknown as Record<string, unknown>,
+        limit: BATCH,
+      });
+    } catch (e) {
+      logger.warn(`[automations] ${a.key} trigger failed: ${(e as Error).message}`);
+      continue;
+    }
 
-    for (const v of candidates) {
-      const cycleKey = cycleKeyFor(def, v.id, ctx.now);
+    for (const c of candidates) {
+      const cycleKey = c.cycleKey ?? cycleKeyFor(def, c.subjectId, ctx.now);
       const already = await prisma.automationRun.findUnique({
-        where: { automationId_subjectId_cycleKey: { automationId: a.id, subjectId: v.id, cycleKey } },
+        where: { automationId_subjectId_cycleKey: { automationId: a.id, subjectId: c.subjectId, cycleKey } },
         select: { id: true },
       });
       if (already) continue;
 
-      if (def.reentry.concurrency === 'ONE_ACTIVE_PER_PATIENT') {
+      if (def.reentry.concurrency === 'ONE_ACTIVE_PER_PATIENT' && c.patientId) {
         const live = await prisma.automationRun.count({
-          where: { automationId: a.id, patientId: v.patientId, state: { in: ['PENDING', 'RUNNING'] } },
+          where: { automationId: a.id, patientId: c.patientId, state: { in: ['PENDING', 'RUNNING'] } },
         });
         if (live > 0) continue;
       }
 
       const subject: Subject = {
-        type: 'VISIT', id: v.id, patientId: v.patientId, branchId: v.branchId,
-        triggeredAt: v.updatedAt,
+        type: trigger.subjectType,
+        id: c.subjectId,
+        patientId: c.patientId,
+        branchId: c.branchId,
+        triggeredAt: c.triggeredAt,
       };
       const trace: EvalTrace[] = [];
       let qualifies = false;
       try {
         qualifies = await evaluate(def.audience, ctx, subject, trace);
       } catch (e) {
-        logger.warn(`[automations] audience failed for ${a.key}/${v.id}: ${(e as Error).message}`);
+        logger.warn(`[automations] audience failed for ${a.key}/${c.subjectId}: ${(e as Error).message}`);
         continue;
       }
       if (!qualifies) continue;
@@ -183,22 +195,22 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
           data: {
             automationId: a.id,
             version: a.version,
-            subjectType: 'VISIT',
-            subjectId: v.id,
+            subjectType: trigger.subjectType,
+            subjectId: c.subjectId,
             cycleKey,
-            patientId: v.patientId,
-            branchId: v.branchId,
+            patientId: c.patientId,
+            branchId: c.branchId,
             definition: a.definition as object,
-            triggeredAt: v.updatedAt,
+            triggeredAt: c.triggeredAt,
             nextActionAt: ctx.now,
-            holdout: isHeldOut(a.id, v.patientId, a.holdoutPct),
+            holdout: c.patientId ? isHeldOut(a.id, c.patientId, a.holdoutPct) : false,
           },
           select: { id: true, holdout: true },
         });
         await log(run.id, 0, 'ENROLLED', Outcome.ENROLLED, { trace, holdout: run.holdout });
         created += 1;
       } catch {
-        // Unique violation: another tick got there first. Exactly the intended outcome.
+        // Unique violation: another tick got there first. The intended outcome.
       }
     }
   }
@@ -365,10 +377,13 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         ? await prisma.patient.findUnique({ where: { id: run.patientId }, select: { name: true } })
         : null;
 
+      // Every resolved number, not just the first. A patient is one phone; a staff
+      // alert is "tell the three people who need to know", and sending to one of them
+      // is the failure that looks like success.
       const out = await sendForStep({
         runId, stepIndex: run.stepIndex,
-        patientId: run.patientId, branchId: run.branchId,
-        phone: phone!, template: step.template, language: step.language ?? 'en',
+        patientId: to.patientId, branchId: run.branchId,
+        phone: phone!, phones: to.phones, template: step.template, language: step.language ?? 'en',
         params: step.params, couponCode,
         patientFirstName: patientRow?.name ?? null,
         branchName: branch?.name ?? null,
@@ -468,6 +483,135 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         { runDate, domain, detail: outcome.detail },
       );
       await advance(ctx.now);
+      return;
+    }
+
+    case 'ASK': {
+      const to = await resolveRecipients(undefined, run, { kind: 'RUN_PATIENT' });
+      const phone = to.phones[0] ?? null;
+
+      // Coming BACK to this step means the window closed with no answer — the reply
+      // path moves stepIndex itself, so we only ever return here unanswered.
+      const slot = phone
+        ? await prisma.awaitingReply.findUnique({ where: { phone }, select: { automationRunId: true, expiresAt: true } })
+        : null;
+      const asked = await prisma.automationStepLog.findFirst({
+        where: { runId, stepIndex: run.stepIndex, outcome: Outcome.ASKED },
+        select: { id: true },
+      });
+      if (asked) {
+        if (slot?.automationRunId === runId) {
+          await prisma.awaitingReply.delete({ where: { phone: phone! } }).catch(() => {});
+        }
+        await log(runId, run.stepIndex, 'ASK', Outcome.NO_REPLY);
+        if (step.onUnmatched === 'STOP') {
+          await finish(runId, 'DONE', Outcome.NO_REPLY, run.stepIndex);
+          return;
+        }
+        await advance(ctx.now);
+        return;
+      }
+
+      if (run.holdout) {
+        await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.HELD_OUT);
+        await advance(ctx.now);
+        return;
+      }
+
+      const priorityA = (await prisma.automation.findUnique({
+        where: { id: run.automationId }, select: { priority: true },
+      }))?.priority;
+
+      const decision = await communicationPolicy(ctx, {
+        patientId: to.patientId, phone, intent: step.intent, runId,
+        visitId: run.subjectType === 'VISIT' ? run.subjectId : null, priority: priorityA,
+      });
+      if (decision.kind === 'DROP') {
+        await log(runId, run.stepIndex, 'SUPPRESSED', decision.reason);
+        await advance(ctx.now);
+        return;
+      }
+      if (decision.kind === 'DEFER') {
+        await log(runId, run.stepIndex, 'DEFERRED', decision.reason, { until: decision.until });
+        await prisma.automationRun.update({
+          where: { id: runId }, data: { state: 'PENDING', nextActionAt: decision.until },
+        });
+        return;
+      }
+
+      // Claim the line BEFORE asking. One automation may hold a phone; a second wanting
+      // it waits rather than both talking over each other.
+      const waitHours = step.waitHours ?? 24;
+      const held = await holdLine(
+        phone!, runId, to.patientId ?? '',
+        {
+          buttons: Object.fromEntries(step.buttons.map((b) => [b.payload, b.goTo])),
+          keywords: (step.keywords ?? []).map((k) => ({ match: k.match, stepIndex: k.goTo })),
+          onUnmatched: step.onUnmatched,
+        },
+        waitHours,
+      );
+      if (!held) {
+        await log(runId, run.stepIndex, 'DEFERRED', Outcome.LINE_BUSY);
+        await prisma.automationRun.update({
+          where: { id: runId },
+          data: { state: 'PENDING', nextActionAt: new Date(ctx.now.getTime() + 60 * 60 * 1000) },
+        });
+        return;
+      }
+
+      const branchA = run.branchId
+        ? await prisma.branch.findUnique({ where: { id: run.branchId }, select: { name: true } })
+        : null;
+      const patientA = run.patientId
+        ? await prisma.patient.findUnique({ where: { id: run.patientId }, select: { name: true } })
+        : null;
+
+      const sent = await sendForStep({
+        runId, stepIndex: run.stepIndex, patientId: to.patientId, branchId: run.branchId,
+        phone: phone!, template: step.template, language: step.language ?? 'en',
+        params: step.params, couponCode: null,
+        patientFirstName: patientA?.name ?? null, branchName: branchA?.name ?? null,
+        contextId: run.subjectId,
+      });
+
+      if (sent.failed) {
+        await prisma.awaitingReply.deleteMany({ where: { automationRunId: runId } });
+        await log(runId, run.stepIndex, 'FAILED', Outcome.SEND_FAILED, { error: sent.failed });
+        await finish(runId, 'FAILED', Outcome.SEND_FAILED, run.stepIndex);
+        return;
+      }
+
+      await log(runId, run.stepIndex, 'ASK', Outcome.ASKED,
+        { template: step.template, buttons: step.buttons.map((b) => b.label) }, sent.messageLogId);
+      // Wake when the window closes, so silence is an outcome rather than a run that
+      // sits forever.
+      await prisma.automationRun.update({
+        where: { id: runId },
+        data: {
+          state: 'PENDING',
+          nextActionAt: new Date(ctx.now.getTime() + waitHours * 60 * 60 * 1000),
+        },
+      });
+      return;
+    }
+
+    case 'HANDOFF': {
+      const toH = await resolveRecipients(undefined, run, { kind: 'RUN_PATIENT' });
+      const phoneH = toH.phones[0] ?? null;
+      if (phoneH) {
+        // Mark the thread as needing a person. Marketing then stays off it while they
+        // are there — a report still reaches the patient.
+        await prisma.conversation.updateMany({
+          where: { phone: phoneH },
+          data: { status: 'OPEN', unreadCount: { increment: 1 } },
+        });
+        await prisma.awaitingReply.deleteMany({ where: { phone: phoneH } });
+      }
+      await log(runId, run.stepIndex, 'HANDOFF', Outcome.HANDED_TO_STAFF, { note: step.note ?? null });
+      // The run ENDS here. A journey that wakes up three days into a human conversation
+      // is worse than no journey at all.
+      await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, run.stepIndex);
       return;
     }
 
