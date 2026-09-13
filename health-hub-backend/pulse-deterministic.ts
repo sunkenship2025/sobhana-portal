@@ -147,6 +147,28 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('payback computes, same every time', new Set(months).size === 1 && !months[0].startsWith('ERR'), true, months.join(' / '));
   console.log(`     → ${months[0]} from ₹${Math.round(Number(ctB.data.value)/100).toLocaleString('en-IN')} billed less ₹${Math.round(Number(ctC.data.value)/100).toLocaleString('en-IN')} commission over 90 days`);
 
+  /* THE CONTRACT CHECKS, BOTH DIRECTIONS. These are the last line before an answer reaches the
+     owner, and they are pure functions — so there is no excuse for them being the only thing here
+     that was never tested. Each is asserted to FIRE on the sentence it exists to catch and to
+     stay SILENT on the one it must not, because a contract check that rejects a correct answer
+     sends the pipeline into a repair loop and spends the budget getting further from the truth. */
+  console.log('\nCONTRACT CHECKS — must fire on the bad sentence, and stay silent on the good one');
+  const { checkAnswer } = require('./src/services/pulse/v2/contract');
+  const CONTRACT: any = { job: 'magnitude', prose: '', artifact: '', needsArtifact: false, maxNumbers: 9, rowsInProse: true, canShow: [] };
+  const fired = (v: string[], re: RegExp) => v.some((x: string) => re.test(x));
+  const PER = /no step restricted a time column/, SCO = /no step restricted the rows/;
+  const noPeriod = [{ step: 0, ok: true, summary: { value: '₹1,03,400' } }];
+  const hasPeriod = [{ step: 0, ok: true, period: '2026-09-01…2026-09-13', summary: { value: '₹1,03,400' } }];
+  ok('period: a month claimed with no step period', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 for the period September 2026.', [], undefined, noPeriod).violations, PER), true);
+  ok('period: "in total" is not a period claim', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 in total.', [], undefined, noPeriod).violations, PER), false);
+  ok('period: a real step period passes', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 for September 2026.', [], undefined, hasPeriod).violations, PER), false);
+  const ctSpec: any = { goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI' }] };
+  const unscoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', summary: { value: '₹18,93,725' } }];
+  const scoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', scope: 'payout_category=CT / MRI', summary: { value: '₹2,38,000' } }];
+  ok('scope: a figure called CT with no CT step', fired(checkAnswer(CONTRACT, 'the current CT run-rate is ₹18,93,725 a month.', [], undefined, unscoped, undefined, ctSpec).violations, SCO), true);
+  ok('scope: a scoped step passes', fired(checkAnswer(CONTRACT, 'the current CT run-rate is ₹2,38,000 a quarter.', [], undefined, scoped, undefined, ctSpec).violations, SCO), false);
+  ok('scope: never naming the scope passes', fired(checkAnswer(CONTRACT, 'total collection was ₹18,93,725 last month.', [], undefined, unscoped, undefined, ctSpec).violations, SCO), false);
+
   console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls\n`);
   await db.$disconnect();
   process.exit(fail ? 1 : 0);
