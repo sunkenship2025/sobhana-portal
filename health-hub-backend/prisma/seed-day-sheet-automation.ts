@@ -13,9 +13,14 @@ import prisma from '../src/lib/prisma';
 import type { AutomationDefinition } from '../src/services/automations/types';
 
 async function main() {
-  const existing = await prisma.scheduledMessage.findMany({ where: { kind: 'DAY_SHEET' } });
+  // ONLY the enabled ones. A row exists for every (branch, domain) pair whether or not
+  // the centre wants that sheet, and most are deliberately off — mirroring all of them
+  // would quietly switch day sheets on for branches someone had switched off.
+  const existing = await prisma.scheduledMessage.findMany({
+    where: { kind: 'DAY_SHEET', enabled: true },
+  });
   if (existing.length === 0) {
-    console.log('No day-sheet schedules configured yet — nothing to mirror.');
+    console.log('No day-sheet schedules are enabled — nothing to mirror.');
     await prisma.$disconnect();
     return;
   }
@@ -58,9 +63,8 @@ async function main() {
     );
   }
 
-  const stillOn = existing.filter((s) => s.enabled).length;
   console.log(
-    `\nOld ticker still owns ${stillOn} enabled schedule(s). Nothing changed there.\n` +
+    `\nOld ticker still owns ${existing.length} enabled schedule(s). Nothing changed there.\n` +
     `Both paths claim the same night key, so activating the new one cannot double-send.`,
   );
   await prisma.$disconnect();
