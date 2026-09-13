@@ -62,13 +62,13 @@
       "total": "₹8,74,585",
       "parts": [
         {
-          "name": "A. KUMAR",
+          "name": "CNT",
           "value": "₹5,10,935",
           "change": "₹1,45,445",
           "shareOfChangePct": 76.7
         },
         {
-          "name": "S. REDDY",
+          "name": "BLN",
           "value": "₹3,63,650",
           "change": "₹44,230",
           "shareOfChangePct": 23.3
@@ -112,51 +112,51 @@
       "by": "referring_doctor",
       "top": [
         {
-          "name": "M. IYER",
+          "name": "A. KUMAR",
           "value": "2,097"
         },
         {
-          "name": "R. KHAN",
+          "name": "S. REDDY",
           "value": "1,790"
         },
         {
-          "name": "P. NAIR",
+          "name": "M. IYER",
           "value": "734"
         },
         {
-          "name": "V. RAO",
+          "name": "R. KHAN",
           "value": "540"
         },
         {
-          "name": "T. SHETTY",
+          "name": "P. NAIR",
           "value": "498"
         },
         {
-          "name": "N. BOSE",
+          "name": "V. RAO",
           "value": "404"
         },
         {
-          "name": "A. KUMAR",
+          "name": "T. SHETTY",
           "value": "401"
         },
         {
-          "name": "S. REDDY",
+          "name": "N. BOSE",
           "value": "389"
         },
         {
-          "name": "M. IYER",
+          "name": "A. KUMAR",
           "value": "325"
         },
         {
-          "name": "R. KHAN",
+          "name": "S. REDDY",
           "value": "288"
         },
         {
-          "name": "P. NAIR",
+          "name": "M. IYER",
           "value": "275"
         },
         {
-          "name": "V. RAO",
+          "name": "R. KHAN",
           "value": "265"
         }
       ]
@@ -304,8 +304,8 @@
     "data": {
       "rows": [
         {
-          "patient": "T. SHETTY",
-          "patient_no": "P-100015",
+          "patient": "P. NAIR",
+          "patient_no": "P-100013",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "CNT",
@@ -313,8 +313,8 @@
           "due_paise": 155000
         },
         {
-          "patient": "N. BOSE",
-          "patient_no": "P-100016",
+          "patient": "V. RAO",
+          "patient_no": "P-100014",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "BLN",
@@ -322,8 +322,8 @@
           "due_paise": 150000
         },
         {
-          "patient": "A. KUMAR",
-          "patient_no": "P-100017",
+          "patient": "T. SHETTY",
+          "patient_no": "P-100015",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "CNT",
@@ -331,8 +331,8 @@
           "due_paise": 120000
         },
         {
-          "patient": "S. REDDY",
-          "patient_no": "P-100018",
+          "patient": "N. BOSE",
+          "patient_no": "P-100016",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "BLN",
@@ -340,8 +340,8 @@
           "due_paise": 100000
         },
         {
-          "patient": "M. IYER",
-          "patient_no": "P-100019",
+          "patient": "SAMEER",
+          "patient_no": "P-100016",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "BLN",
@@ -349,8 +349,8 @@
           "due_paise": 80000
         },
         {
-          "patient": "R. KHAN",
-          "patient_no": "P-100020",
+          "patient": "A. KUMAR",
+          "patient_no": "P-100017",
           "phone": "90000 00000",
           "bill": "D-XXX-000000",
           "branch": "CNT",

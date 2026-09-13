@@ -163,7 +163,11 @@ export function Thinking({ steps }: { steps?: Step[] }) {
     </div>);
 }
 
-function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void }) {
+/* Exported for /dev/artifacts, which renders a whole answer — verdict, incomplete banner,
+   opportunities, chips, the evidence drawer — against real evidence and no backend. The artifact
+   gallery found a 100x total and an "undefined to undefined" the moment anyone looked at it; the
+   prose half of the card had never been looked at either. */
+export function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void }) {
   const a = t.answer;
   if (t.collapsed && a) return (
     <button type="button" onClick={onExpand}

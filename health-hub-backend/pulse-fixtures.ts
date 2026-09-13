@@ -34,6 +34,11 @@ import { runStep } from './src/services/pulse/v2/tools';
   const redact = (v: any, key: string): any => {
     if (typeof v !== 'string' || !IDENT.test(key)) return v;
     if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v;                  // a date is not an identifier
+    /* NOR IS A CODE. `name` is the key a breakdown uses for its PARTS, so redacting on the key
+       alone turned the branches CNT and BLN into "A. KUMAR" — a card about two branches
+       presented as a card about two people. A person's name has a lowercase letter or a space;
+       a short all-caps token is a code and stays. */
+    if (/^[A-Z0-9][A-Z0-9_\-\/]{0,5}$/.test(v)) return v;
     if (/^\d[\d\s-]{7,}$/.test(v)) return '90000 00000';
     if (/^[A-Z]-[A-Z]{3}-\d+$/i.test(v)) return 'D-XXX-000000';
     if (/^P-\d+$/i.test(v)) return `P-${String(100000 + (seq % 900)).slice(0, 6)}`;

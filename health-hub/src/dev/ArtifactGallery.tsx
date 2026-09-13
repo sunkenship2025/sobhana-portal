@@ -14,6 +14,7 @@
  * Hand-written fixtures are how you file bugs against your own imagination.
  */
 import { Artifact } from '../components/pulse/PulseArtifacts';
+import { TurnView } from '../components/pulse/PulsePanel';
 import '../components/pulse/pulse.css';
 import EV from './fixtures.json';
 
@@ -29,6 +30,44 @@ const CASES: { title: string; note: string; a: any }[] = [
   { title: 'distribution', note: 'spread, not a per-category count', a: { type: 'distribution', label: 'Spread', evidence: 2 } },
 ];
 
+/* A WHOLE ANSWER, not only its cards. The prose half — verdict, the incomplete banner, sized
+   opportunities, the chips, the "how this was worked out" drawer — is what the owner reads first
+   and was never rendered outside a live session. */
+const TURNS: any[] = [
+  { id: 1, q: 'how is collection doing this month', steps: [], answer: {
+      kind: 'analysis',
+      segments: { verdict: 'Collection is ₹8,74,585 month-to-date, 27.7% ahead of the same stretch of August.',
+        points: [{ label: 'Where', text: 'CNT carries ₹5,10,935 of it — 58% — and grew ₹1,45,445.' },
+                 { label: 'Pace', text: 'The first 12 days are running ahead; the month is not complete.' }],
+        caveat: 'September is still in progress, so it cannot be compared with a whole month.' },
+      artifacts: [{ type: 'kpi', label: 'Collection this month', evidence: 0 },
+                  { type: 'breakdown', label: 'By branch', evidence: 1 }],
+      evidence: EV,
+      chips: [{ label: 'by doctor', q: 'show me that again by doctor' }, { label: 'just diagnostics', q: 'what about just diagnostics' }] } },
+  { id: 2, q: 'what should we fix to make more money', steps: [], answer: {
+      kind: 'analysis',
+      incomplete: { what: 'whether the report backlog costs anything', why: 'no measured link between delay and lost revenue' },
+      segments: { verdict: 'Discounting is the only lever I could size: ₹1,05,035 given away month-to-date.',
+        points: [{ label: 'Size', text: 'That is 4.9% of billing, and fifteen times the next idea on the list.' }],
+        action: 'Start with the discount approvals at CNT.' },
+      /* The real Opportunity shape: the SIZE travels in `impact`, written by honestImpact(), and
+         `causality` decides whether it reads as observed or as a scenario. My first version
+         invented a `rupeeValue` field the renderer never reads, and the cards rendered sized
+         levers with no sizes — a bug in the fixture that looked exactly like a bug in the UI. */
+      opportunities: [
+        { title: 'Discount given away', impact: '₹1,05,035 over the month to date', causality: 'observed',
+          confidence: 'high', weight: 10503500, lever: 'approvals at CNT account for most of it' },
+        { title: 'Uncollected dues', impact: 'up to ₹7,002, and only if the whole observed effect is causal — it is a scenario, not incremental revenue',
+          causality: 'modeled', confidence: 'medium', weight: 700200 }],
+      consideredNotSized: ['report backlog — no measured link to revenue'],
+      evidence: EV,
+      chips: [{ label: 'who approved them', q: 'who approved the discounts' }] } },
+  { id: 3, q: 'how much did we spend on salaries', steps: [], answer: {
+      kind: 'refuse',
+      text: 'The centre does not record payroll anywhere I can see, so I cannot answer that. Billing, collection and commission are all here — salaries are not.',
+      evidence: [], chips: [{ label: 'what IS recorded', q: 'what billing categories exist' }] } },
+];
+
 export default function ArtifactGallery() {
   return (
     <div style={{ padding: 24, background: '#f6f7f9', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
@@ -38,6 +77,15 @@ export default function ArtifactGallery() {
         Look for: a share stated as a number and not only as a bar width, a tail that says how much it carries,
         money never re-formatted, and no &ldquo;— %&rdquo;.
       </p>
+      <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Whole answers</h2>
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', marginBottom: 28 }}>
+        {TURNS.map((t, i) => (
+          <section key={i} data-turn={i} style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e6e8eb' }}>
+            <TurnView t={t as any} onAsk={() => {}} onExpand={() => {}} />
+          </section>
+        ))}
+      </div>
+      <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Every artifact type</h2>
       <div style={{ display: 'grid', gap: 20, gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))' }}>
         {CASES.map((c) => (
           <section key={c.title} data-artifact={c.title} style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e6e8eb' }}>
