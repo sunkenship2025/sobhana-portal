@@ -14,6 +14,7 @@ import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import { logAction } from '../services/auditService';
 import prisma from '../lib/prisma';
+import { couponLedger, couponFunnel, couponJourney } from '../services/automations/couponLedger';
 
 const router = Router();
 router.use(authMiddleware);
@@ -221,6 +222,30 @@ router.get('/:id/coupons', async (req: AuthRequest, res) => {
       coupons: rows.slice(0, take),
       nextCursor: hasMore ? rows[take - 1].id : null,
     });
+  } catch (e) { return fail(res, e); }
+});
+
+/**
+ * The ledger: one row per coupon with the visit, run, bill, branch and money joined.
+ *
+ * Every field existed already; nothing joined them, so the question this answers could
+ * previously only be asked in raw SQL.
+ */
+router.get('/:id/ledger', async (req: AuthRequest, res) => {
+  try {
+    const [rows, funnel] = await Promise.all([
+      couponLedger(req.params.id, req.query.limit ? Number(req.query.limit) : 200),
+      couponFunnel(req.params.id),
+    ]);
+    return res.json({ funnel, rows });
+  } catch (e) { return fail(res, e); }
+});
+
+/** One coupon, end to end: what the journey did and what happened to the code. */
+router.get('/coupons/:couponId/journey', async (req: AuthRequest, res) => {
+  try {
+    const j = await couponJourney(req.params.couponId);
+    return j ? res.json(j) : res.status(404).json({ error: 'NOT_FOUND' });
   } catch (e) { return fail(res, e); }
 });
 

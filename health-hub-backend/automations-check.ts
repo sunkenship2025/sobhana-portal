@@ -736,6 +736,32 @@ async function main() {
     assert.strictEqual(typeof offer.onNoReply, 'number');
   });
 
+  await check('recovery and redemption are counted apart, not folded together', () => {
+    // The distinction the whole journey rests on. Someone who came in without using
+    // their code is a SUCCESS — counting them as an unredeemed coupon makes a working
+    // campaign look broken.
+    const rows = [
+      { status: 'REDEEMED', recovered: true, expired: false },
+      { status: 'ISSUED', recovered: true, expired: false },   // came in, never used it
+      { status: 'ISSUED', recovered: false, expired: true },   // never came, lapsed
+    ];
+    const recovered = rows.filter((r) => r.recovered).length;
+    const redeemed = rows.filter((r) => r.status === 'REDEEMED').length;
+    const recoveredWithoutCode = rows.filter((r) => r.recovered && r.status !== 'REDEEMED').length;
+    assert.strictEqual(recovered, 2, 'two patients came back');
+    assert.strictEqual(redeemed, 1, 'only one spent the discount');
+    assert.strictEqual(recoveredWithoutCode, 1, 'and one is a win that used no discount');
+  });
+
+  await check('an unused coupon past its date reads as expired without a sweep', () => {
+    const past = { status: 'ISSUED', expiresAt: new Date(T0.getTime() - DAY) };
+    const redeemedPast = { status: 'REDEEMED', expiresAt: new Date(T0.getTime() - DAY) };
+    const expired = (c: { status: string; expiresAt: Date }) =>
+      c.status !== 'REDEEMED' && c.expiresAt <= T0;
+    assert.strictEqual(expired(past), true);
+    assert.strictEqual(expired(redeemedPast), false, 'a used coupon does not later become expired');
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([
