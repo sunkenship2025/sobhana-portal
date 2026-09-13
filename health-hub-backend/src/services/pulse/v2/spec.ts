@@ -266,13 +266,32 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
      verifySpec checks the SQL against the SPEC, and the spec itself carried the wrong window, so
      the query honoured it perfectly. The same correction as naming the wrong column for a value —
      when the question states a window in plain words, that is the window. */
-  const said = String(q || '').match(/\b(?:last|past|previous|trailing|rolling)\s+(\d+)\s*(day|week|month|year)s?\b/i);
-  if (said) {
-    const n = Number(said[1]), unit = said[2].toLowerCase();
+  const norm = (x: any) => String(x ?? '').replace(/[\s_]+/g, '-').toLowerCase();
+  const bind = (want: string, phrase: string) => {
+    if (!time?.period || norm(time.period) !== want) time = { ...(time || {}), period: want, phrase } as any;
+  };
+  const counted = String(q || '').match(/\b(?:last|past|previous|trailing|rolling)\s+(\d+)\s*(day|week|month|year)s?\b/i);
+  /* THE WORDS PEOPLE ACTUALLY USE. Only the numeric forms were honoured, so "last 90 days" was
+     safe and "last month" was not — and "last month" is what an owner says. Seven of the
+     twenty-nine adversarial questions state a window this way. Nothing corrected the plan if it
+     came back with "month" (month-TO-DATE) for a question asking about the month that ENDED:
+     thirteen days against thirty-one, reported under the owner's own words. */
+  const WORDED: [RegExp, string][] = [
+    [/\byesterday\b/i, 'yesterday'], [/\btoday\b/i, 'today'],
+    [/\blast\s+month\b|\bprevious\s+month\b/i, 'last-month'],
+    [/\bthis\s+month\b|\bmonth[- ]to[- ]date\b|\bmtd\b/i, 'this-month'],
+    [/\blast\s+week\b|\bpast\s+week\b/i, 'last-week'],
+    [/\bthis\s+week\b|\bweek[- ]to[- ]date\b/i, 'this-week'],
+  ];
+  if (counted) {
+    const n = Number(counted[1]), unit = counted[2].toLowerCase();
     const asDays = unit === 'day' ? n : unit === 'week' ? n * 7 : null;   // months/years keep calendar shape
-    const want = asDays != null ? `last-${asDays}-days` : `last-${n}-${unit}s`;
-    if (!time?.period || String(time.period).replace(/[\s_]+/g, '-').toLowerCase() !== want)
-      time = { ...(time || {}), period: want, phrase: said[0] } as any;
+    bind(asDays != null ? `last-${asDays}-days` : `last-${n}-${unit}s`, counted[0]);
+  } else {
+    for (const [re, want] of WORDED) {
+      const m = String(q || '').match(re);
+      if (m) { bind(want, m[0]); break; }
+    }
   }
   /* A RATE QUESTION THAT NAMES NO WINDOW STILL HAS ONE — SO CHOOSE IT, ONCE, AND SAY SO.
      "How many months to pay back a scanner at our current CT volume" names no period, and the
