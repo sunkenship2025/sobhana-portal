@@ -66,6 +66,26 @@ const TURNS: any[] = [
       kind: 'refuse',
       text: 'The centre does not record payroll anywhere I can see, so I cannot answer that. Billing, collection and commission are all here — salaries are not.',
       evidence: [], chips: [{ label: 'what IS recorded', q: 'what billing categories exist' }] } },
+  /* THE VIEW AN OWNER ACTUALLY STARES AT. A question takes a median of seven model calls, so
+     the pending state is on screen longer than the answer is being read, and it had never been
+     looked at outside a live session either. */
+  { id: 4, q: 'why did collection dip at Bolarum last week', pending: true, steps: [
+      { kind: 'objective', text: 'Find what moved Bolarum collection last week, and whether it is volume or value' },
+      { kind: 'step', text: 'Collection by branch, last week against the week before' },
+      { kind: 'confirmed', text: 'The fall is Bolarum alone — Chintal rose over the same days' },
+      { kind: 'step', text: 'Splitting Bolarum into volume and value per case' },
+      { kind: 'rejected', text: 'Not a price change: the average per case is flat' },
+      { kind: 'step', text: 'Checking whether a referrer stopped sending work' },
+    ] },
+  /* LONG PROSE AND A LONG LABEL, which is where a layout gives way if it is going to. */
+  { id: 5, q: 'give me the full picture on discounting', answer: {
+      kind: 'analysis',
+      segments: { verdict: 'Discounting ran to ₹1,05,035 month-to-date, 4.9% of everything billed — concentrated at Chintal, approved by three people, and rising against a month that was already above the trailing average.',
+        points: [{ label: 'Concentration', text: 'Chintal accounts for ₹76,410 of it, which is 73% of the total against a 58% share of billing — so it is discounting harder, not merely billing more.' },
+                 { label: 'Who', text: 'Dr.SAI CHANDRA MALLADI MBBS DNB ORTHO referred the largest discounted cohort.' }],
+        caveat: 'Approval reasons are free text, so the WHY behind each one cannot be aggregated — only counted.' },
+      artifacts: [{ type: 'ranking', label: 'Referrers by volume, twelve of them, with the tail stated', evidence: 2 }],
+      evidence: EV, chips: [] } },
 ];
 
 export default function ArtifactGallery() {
