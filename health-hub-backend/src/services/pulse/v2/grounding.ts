@@ -110,6 +110,26 @@ function derive(n: number, facts: Fact[]): Provenance | null {
       if (near(a.value + b.value)) return { kind: 'derived', how: `${a.label} plus ${b.label}`, from: [a, b] };
     }
   }
+  /* CONTRIBUTION IS NOT A PAIR. "Last month's contribution — revenue minus commission, discounts
+     and refunds — was ₹10,38,874" is four figures, every one of them on the table, and the
+     pairwise check above could not see it: it tried a-b and gave up, so a correct number read as
+     invented and a true answer was sent into repair.
+     A figure netted down by several costs is the shape this layer exists to produce — payback,
+     margin, contribution are all one measure less a handful of deductions. Two and three
+     deductions are tried, from a fact list that is a dozen long at worst. */
+  for (let i = 0; i < facts.length; i++) {
+    const a = facts[i];
+    const rest = facts.filter((_, k) => k !== i);
+    for (let j = 0; j < rest.length; j++)
+      for (let k = j + 1; k < rest.length; k++) {
+        if (near(a.value - rest[j].value - rest[k].value))
+          return { kind: 'derived', how: `${a.label} less ${rest[j].label} and ${rest[k].label}`, from: [a, rest[j], rest[k]] };
+        for (let m = k + 1; m < rest.length; m++)
+          if (near(a.value - rest[j].value - rest[k].value - rest[m].value))
+            return { kind: 'derived', how: `${a.label} less ${rest[j].label}, ${rest[k].label} and ${rest[m].label}`,
+              from: [a, rest[j], rest[k], rest[m]] };
+      }
+  }
   return null;
 }
 

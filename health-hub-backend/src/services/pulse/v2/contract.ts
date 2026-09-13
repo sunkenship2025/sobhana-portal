@@ -255,6 +255,31 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
     }
   }
 
+  /* A DISCOUNT CANNOT EXCEED WHAT WAS BILLED. From the logs:
+       "POST LUNCH URINE SUGAR is discounted at 1250% of what it bills, and FASTING URINE SUGAR
+        at 839%"
+     Both impossible, both stated as fact. The cause is a basis error with a specific shape:
+     discountAmountInPaise lives on BILL, not on TestOrder, so a whole bill's discount divided by
+     one test's price gives a number with no upper bound. The arithmetic is right and the two
+     figures are not about the same thing.
+     A part cannot exceed its whole, and no reader can tell a 1250% share from a typo. Growth and
+     multiples legitimately pass 100% — "up 150%", "3x last year" — so only the share-shaped
+     phrasings are checked: a discount rate, and an explicit "N% of <the thing it is part of>". */
+  /* Matching exact phrasings loses to the next sentence the writer chooses: "discounted at 1250%"
+     was caught and "showing discounts of 708.48%" was not. So the test is on the SHAPE — a
+     percentage over 100 anywhere near the word discount — because a discount over 100% is
+     impossible however it is worded. */
+  const impossible = [...t.matchAll(/(\d{3,}(?:\.\d+)?)\s*%/g)]
+    .map((m) => ({ m, near: t.slice(Math.max(0, m.index! - 60), m.index! + 30) }))
+    .find(({ near }) => /\bdiscount/i.test(near))?.m
+    || t.match(/\b(\d{3,}(?:\.\d+)?)\s*%\s+of\s+(?:what|its|their|the)\b[^.]{0,24}\b(bill|bills|billing|price|revenue|total|collection)\b/i);
+  if (impossible) {
+    v.push(`"${impossible[0].trim()}" cannot be true — a part cannot exceed its whole. `
+      + `That shape comes from dividing two figures that are not about the same thing: bill-level `
+      + `discount is on "Bill", so attributing it to a single test needs the bill's tests shared out, `
+      + `not one test's price as the denominator. State it per bill, or apportion it.`);
+  }
+
   // Not "does this number appear somewhere in the pile" — does it come from a step, or follow
   // from two of them by arithmetic an analyst would actually write.
   // An investigation that could not settle a material claim has to say so. This was a rule in

@@ -70,6 +70,24 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgre
   const pasted = q.length > 180 || (q.match(/₹/g) || []).length >= 3 || /\t|\n.*\n/.test(rawQ || '');
   // FOLLOW-UP: a short fragment ("and kompally?", "branch wise", "vs july") inherits the last
   // question — the model sees both, the card family stays, one field changes.
+  /* A PRONOUN WITH NOTHING TO POINT AT IS A QUESTION, NOT A SEARCH. Asked "name him" straight
+     after "how much did we collect yesterday" — an answer that named nobody — Pulse went and
+     found the largest referring doctor of the day and presented him as the answer. It is grounded
+     and it is not what was asked: there is no "him" in a collection total, and picking the most
+     likely person is the same failure comparable() already refuses to make when identity is too
+     thin. It also has a specific cost — the owner reads a name and believes it was the one they
+     had in mind. Ask which. */
+  const PRONOUN_ONLY = /^\s*(?:and\s+|so\s+|ok\s+)?(?:name|who\s+is|who\s+was|which\s+one\s+is|tell\s+me)?\s*(him|her|them|he|she|they|it|his|hers|their)\s*\??\s*$/i;
+  /* Tested on what the owner TYPED. Three lines below, a fragment inherits the previous
+     question — "name him" becomes "how much did we collect yesterday — name him" — and by then
+     the pronoun is no longer alone on the line and this never fires. */
+  if (!refersToArtifact && PRONOUN_ONLY.test(String(rawQ || q))) {
+    return { kind: 'refuse', reason: 'no_referent',
+      text: 'I am not sure who you mean — the last answer did not name anyone. Ask for a list or a ranking first, then point at a row in it.',
+      chips: [{ label: 'top referrers', q: 'who are my top referring doctors this month' },
+              { label: 'patients with dues', q: 'give me a table of patients who still owe money' }],
+      state: { ...state, lastQ: q } } as any;
+  }
   let followUp = false;
   const rawFollowUp = String(rawQ || '').trim().slice(0, 500);   // what the owner actually typed
   if (!refersToArtifact && state.lastQ && isFragment(q, mentionsKnown(k, q))) {

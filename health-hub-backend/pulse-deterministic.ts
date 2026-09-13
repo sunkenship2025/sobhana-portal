@@ -166,6 +166,12 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('period: "may" the modal verb is not May the month', fired(checkAnswer(CONTRACT, 'these are not concepts that may appear.', [], undefined, noPeriod).violations, PER), false);
   ok('period: "May 2026" is', fired(checkAnswer(CONTRACT, 'collection was ₹5 in May 2026.', [], undefined, noPeriod).violations, PER), true);
   ok('period: "12 May" is', fired(checkAnswer(CONTRACT, 'collection was ₹5 on 12 May.', [], undefined, noPeriod).violations, PER), true);
+  /* A part cannot exceed its whole — from the logs, "discounted at 1250% of what it bills". */
+  const IMP = /cannot be true/;
+  ok('an impossible discount rate is caught', fired(checkAnswer(CONTRACT, 'POST LUNCH URINE SUGAR is discounted at 1250% of what it bills.', [], undefined, noPeriod).violations, IMP), true);
+  ok('  and 839% likewise', fired(checkAnswer(CONTRACT, 'FASTING URINE SUGAR is discounted at 839%.', [], undefined, noPeriod).violations, IMP), true);
+  ok('  but 4.9% of billing is fine', fired(checkAnswer(CONTRACT, 'discounting ran at 4.9% of billing.', [], undefined, noPeriod).violations, IMP), false);
+  ok('  and growth of 150% is not a share', fired(checkAnswer(CONTRACT, 'revenue is up 150% on last year.', [], undefined, noPeriod).violations, IMP), false);
   const ctSpec: any = { goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI' }] };
   const unscoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', summary: { value: '₹18,93,725' } }];
   const scoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', scope: 'payout_category=CT / MRI', summary: { value: '₹2,38,000' } }];

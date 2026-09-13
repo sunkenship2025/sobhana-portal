@@ -72,6 +72,32 @@ const prose = (a: any) => String(a?.segments?.verdict
   ok('  with at least one step actually scoped to CT', ctScoped,
      steps.filter((e) => e.ok).map((e) => `${e.tool}[${e.scope || '—'}]`).join(' ').slice(0, 140));
 
+  /* ── 4. THE DISCOUNT THREAD, FROM THE LOGS ────────────────────────────────────────────────
+     What shipped:
+       "POST LUNCH URINE SUGAR is discounted at 1250% of what it bills, and FASTING URINE SUGAR
+        at 839%"
+     Impossible, and stated as fact. discountAmountInPaise is on BILL, not on TestOrder, so a
+     whole bill's discount over one test's price has no upper bound. The arithmetic was right and
+     the two figures were not about the same thing.
+     The turn after it asked for a table by name and got no artifact at all, while the validator
+     complained the prose carried eight numbers — the detail had nowhere to go. */
+  console.log('\nthe discount question, from the logs\n');
+  const d1: any = await ask('which test is heavily discounted', {});
+  const dt = prose(d1);
+  const overHundred = (dt.match(/\b(\d{3,}(?:\.\d+)?)\s*%/g) || [])
+    .filter((x) => Number(x.replace('%', '')) > 100 && /discount/i.test(dt));
+  ok('no discount rate above 100% — a part cannot exceed its whole', overHundred.length === 0,
+     `${overHundred.join(', ')} · "${dt.slice(0, 120)}"`);
+  ok('  and the answer is not silently empty', dt.length > 30, dt.slice(0, 90));
+
+  const d2: any = await ask('give me table with test name not code', d1.state || {});
+  const tbl = (d2.artifacts || []).map((x: any) => String(x.type));
+  ok('"give me table" produces a table', tbl.some((x: string) => /table|ranking|breakdown/.test(x)),
+     `artifacts=[${tbl.join(',') || 'none'}] · "${prose(d2).slice(0, 90)}"`);
+  ok('  and the prose does not carry the whole list instead',
+     (prose(d2).match(/\d[\d,]*/g) || []).length <= 10,
+     `${(prose(d2).match(/\d[\d,]*/g) || []).length} numbers in the sentences`);
+
   console.log(`\n${'═'.repeat(66)}\n  ${pass} passed, ${fail} failed — end to end, through the real pipeline\n`);
   process.exit(fail ? 1 : 0);
 })();

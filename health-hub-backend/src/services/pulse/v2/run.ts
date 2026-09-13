@@ -14,7 +14,7 @@ import { askPlan, askInvestigate, askResponse } from './analyst';
 import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage, screenContradictions,
   missingRequirements, type Investigation, type RoundProgress } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
-import { renderOptions, describeEvidence, JOBS } from './capability';
+import { renderOptions, describeEvidence, rowsOf, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
@@ -398,7 +398,20 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // waterfall over rows with no deltas renders an empty card and calls itself an answer.
     if (allowed.length && !allowed.includes(String(a.type))) return false;
     const idx = Array.isArray(a.evidence) ? a.evidence : a.evidence != null ? [a.evidence] : [];
-    return idx.length > 0 && idx.every((i: any) => byIdx.get(Number(i))?.ok);   // never render a failed step
+    if (!idx.length || !idx.every((i: any) => byIdx.get(Number(i))?.ok)) return false;   // never render a failed step
+    /* NOR AN EMPTY ONE. A step can succeed and return nothing — "what is our biggest expense"
+       finds no expenses, because the centre records none — and the card then renders a heading
+       over blank space and calls itself an answer. The sentence saying there are none is the
+       whole answer; the frame around it is worse than nothing, because an empty card reads as a
+       loading failure rather than as a fact.
+       Single-figure types are exempt: a kpi has a value, not rows. */
+    /* USING THE SAME rowsOf THE JUDGE USES. My first version wrote its own row-detection and the
+       two disagreed: the product shipped a card it believed had rows and the benchmark flagged it
+       as drawing nothing. Two definitions of "has rows" is one definition too many — the same
+       mistake as a grader that scores a figure the product would never produce. */
+    if (!['kpi', 'compare', 'funnel'].includes(String(a.type))
+        && idx.every((i: any) => rowsOf(byIdx.get(Number(i)) as any).length === 0)) return false;
+    return true;
   }).slice(0, 4);
 
   say('Writing it up', 'phase');
