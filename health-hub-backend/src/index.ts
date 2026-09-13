@@ -419,23 +419,29 @@ app.use('/api/offers', offerRoutes); // Admin > Automations > Offers
 app.use('/api/pulse', pulseRoutes); // Pulse: owner AI analytics over the analytics_ro role
 // Pulse knowledge (schema shape, coverage, value index) takes ~30s to build; do it at boot,
 // not on the owner's first question. Fire-and-forget; a failure only means a slow first ask.
+// Pulse's knowledge index genuinely needs the analytics role, so it stays gated.
 if (process.env.ANALYTICS_DATABASE_URL) {
-  // Scheduled sends (nightly day sheet). Every 5 minutes is plenty for a
-  // time-of-day trigger, and correctness lives in the run row's unique key, not
-  // in this interval — see automatedMessageService.
-  import('./services/automatedMessageService').then((m) => {
-    const tick = () => m.runDueAutomatedMessages().catch((e) => console.warn('[automated-messages]', e?.message));
-    tick();
-    setInterval(tick, 5 * 60 * 1000).unref();
-  });
   import('./services/pulse/knowledge').then((m) => { m.ensureKnowledge().catch((e) => console.warn('[pulse] warm-up failed:', e?.message)); setInterval(() => m.ensureKnowledge().catch(() => {}), 6 * 3600 * 1000).unref(); });
 }
 
-// Automations. Deliberately OUTSIDE the ANALYTICS_DATABASE_URL gate above: patient
-// journeys have nothing to do with whether Pulse's read-only analytics role is
-// configured, and a centre without Pulse still needs its automations to run.
-// (The day-sheet ticker sitting inside that gate looks like an accident of the two
-// being added together — worth untangling, but not by changing it here.)
+// Scheduled sends (nightly day sheet). Every 5 minutes is plenty for a time-of-day
+// trigger, and correctness lives in the run row's unique key, not in this interval.
+//
+// MOVED OUT of the ANALYTICS_DATABASE_URL gate above, where it had been sitting since
+// Pulse and this were added in the same change. That variable is Pulse's read-only
+// analytics connection string and has nothing to do with sending an owner the day's
+// takings — but with the ticker inside the gate, unsetting it stopped the day sheets
+// with no error and no log line. You would find out when an owner mentioned they had
+// not been getting them, possibly days later. It also meant a centre that never bought
+// Pulse could never have day sheets at all.
+import('./services/automatedMessageService').then((m) => {
+  const tick = () => m.runDueAutomatedMessages().catch((e) => console.warn('[automated-messages]', e?.message));
+  tick();
+  setInterval(tick, 5 * 60 * 1000).unref();
+});
+
+// Automations. Also outside that gate, for the same reason: patient journeys have
+// nothing to do with whether Pulse is configured.
 //
 // One connection per tick, 50 runs at a time. That LIMIT is both the queue and the
 // throttle: a 2,000-patient campaign drains over about three hours instead of
