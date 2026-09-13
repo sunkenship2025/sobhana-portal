@@ -693,6 +693,49 @@ async function main() {
     );
   });
 
+  await check('ignoring the offer never hands out the code', () => {
+    const { buildFromBlueprint } = require('./src/services/automations/blueprints');
+    const def = buildFromBlueprint('OP_DIAGNOSTIC_RECOVERY', {
+      offerDay: 2, remindDay: 5, expiryDay: 6, campaignId: 'c',
+      offerTemplate: 'a', codeTemplate: 'b', remindWithCodeTemplate: 'c', remindToClaimTemplate: 'd',
+    }).definition;
+
+    const offer = def.steps[2];
+    assert.strictEqual(offer.kind, 'ASK');
+    // The step immediately after the offer is the one that issues the discount. Silence
+    // must skip it — otherwise a patient who ignored the message is sent a code they
+    // never asked for, which is the whole point of making them claim it.
+    assert.ok(def.steps[3].issueOffer, 'step 3 should be the one that issues');
+    assert.notStrictEqual(offer.onNoReply, 'CONTINUE');
+    assert.notStrictEqual(offer.onNoReply, 3);
+    assert.strictEqual(offer.onNoReply, 4, 'no reply should wait for the reminder instead');
+  });
+
+  await check('never claiming, never replying, simply lets the offer lapse', () => {
+    const { buildFromBlueprint } = require('./src/services/automations/blueprints');
+    const def = buildFromBlueprint('OP_DIAGNOSTIC_RECOVERY', {
+      offerDay: 2, remindDay: 5, expiryDay: 6, campaignId: 'c',
+      offerTemplate: 'a', codeTemplate: 'b', remindWithCodeTemplate: 'c', remindToClaimTemplate: 'd',
+    }).definition;
+    const reminder = def.steps[8];
+    assert.strictEqual(reminder.kind, 'ASK');
+    assert.ok(def.steps[9].issueOffer, 'step 9 should be the one that issues');
+    assert.strictEqual(reminder.onNoReply, 10, 'silence must not issue a code either');
+  });
+
+  await check('silence and an answer nobody understood are different questions', () => {
+    const { buildFromBlueprint } = require('./src/services/automations/blueprints');
+    const def = buildFromBlueprint('OP_DIAGNOSTIC_RECOVERY', {
+      offerDay: 2, remindDay: 5, expiryDay: 6, campaignId: 'c',
+      offerTemplate: 'a', codeTemplate: 'b', remindWithCodeTemplate: 'c', remindToClaimTemplate: 'd',
+    }).definition;
+    const offer = def.steps[2];
+    // Replying "how much is a full panel" reaches a person. Saying nothing at all does
+    // not — it waits. Treating both the same is how the bug happened.
+    assert.strictEqual(offer.onUnmatched, 'HANDOFF');
+    assert.strictEqual(typeof offer.onNoReply, 'number');
+  });
+
   // ══ Money ═════════════════════════════════════════════════════════════════
   await check('the larger discount wins, in rupees', () => {
     const r = resolveDiscounts([

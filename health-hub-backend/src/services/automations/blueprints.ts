@@ -198,6 +198,9 @@ const RECIPES: Recipe[] = [
             buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 3 }],
             keywords: [{ match: 'code', goTo: 3 }],
             onUnmatched: 'HANDOFF',
+            // Ignoring the offer must NOT hand out the code. Skip step 3 entirely and
+            // wait for the reminder — they can still claim there.
+            onNoReply: 4,
             waitHours: Math.max(24, (remindDay - offerDay) * 24),
           },
           {
@@ -223,6 +226,8 @@ const RECIPES: Recipe[] = [
             buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 9 }],
             keywords: [{ match: 'code', goTo: 9 }],
             onUnmatched: 'HANDOFF',
+            // Never claimed, never replied: the offer simply lapses.
+            onNoReply: 10,
             waitHours: Math.max(6, (expiryDay - remindDay) * 24),
           },
           // A late claim gets the SAME expiry — less time, not a fresh window.

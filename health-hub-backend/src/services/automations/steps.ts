@@ -84,6 +84,7 @@ export function validateDefinition(def: {
     if (step.kind === 'ASK') {
       for (const b of (step.buttons as { goTo?: unknown }[] | undefined) ?? []) jumps.push(b.goTo);
       for (const k of (step.keywords as { goTo?: unknown }[] | undefined) ?? []) jumps.push(k.goTo);
+      jumps.push(step.onNoReply);
     }
     for (const j of jumps) {
       if (typeof j !== 'number') continue;

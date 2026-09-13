@@ -549,8 +549,20 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
           await prisma.awaitingReply.delete({ where: { phone: phone! } }).catch(() => {});
         }
         await log(runId, run.stepIndex, 'ASK', Outcome.NO_REPLY);
-        if (step.onUnmatched === 'STOP') {
+
+        // Silence is NOT the same as an answer nobody understood. Falling through to the
+        // next step is right for some questions and catastrophic for others — here the
+        // next step hands out a discount, so ignoring the offer would have granted it.
+        const onSilence = step.onNoReply ?? 'CONTINUE';
+        if (onSilence === 'STOP') {
           await finish(runId, 'DONE', Outcome.NO_REPLY, run.stepIndex);
+          return;
+        }
+        if (typeof onSilence === 'number') {
+          await prisma.automationRun.update({
+            where: { id: runId },
+            data: { stepIndex: onSilence, state: 'PENDING', nextActionAt: ctx.now },
+          });
           return;
         }
         await advance(ctx.now);

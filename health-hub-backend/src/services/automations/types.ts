@@ -184,8 +184,18 @@ export type Step =
       buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
       /** Best-effort fallback for people who type instead of tapping. */
       keywords?: { match: string; goTo: number | 'STOP'; stopReason?: string }[];
-      /** Anything that matches neither. */
+      /** They replied, and it matched no button and no keyword. */
       onUnmatched: 'HANDOFF' | 'STOP' | 'CONTINUE';
+      /**
+       * They never replied at all.
+       *
+       * A DIFFERENT QUESTION from onUnmatched, and conflating the two is how someone who
+       * ignored an offer gets sent the code anyway: silence fell through to the next
+       * step, and the next step was the one that hands out the discount. Silence usually
+       * means skipping whatever the answer would have unlocked, so this points at the
+       * step that comes after it. Absent = carry on to the next step.
+       */
+      onNoReply?: 'STOP' | 'CONTINUE' | number;
       /** How long to hold the line. Absent = 24 hours, the provider's own window. */
       waitHours?: number;
     }

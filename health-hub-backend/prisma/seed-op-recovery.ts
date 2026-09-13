@@ -59,6 +59,9 @@ function definition(campaignId: string): AutomationDefinition {
         buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 3 }],
         keywords: [{ match: 'code', goTo: 3 }],
         onUnmatched: 'HANDOFF',
+        // Ignoring the offer must NOT hand out the code. Skip step 3 entirely and wait
+        // for the reminder — they can still claim there.
+        onNoReply: 4,
         // Hold the line to the end of the offer, not the usual day.
         waitHours: 96,
       },
@@ -106,6 +109,8 @@ function definition(campaignId: string): AutomationDefinition {
         buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 9 }],
         keywords: [{ match: 'code', goTo: 9 }],
         onUnmatched: 'HANDOFF',
+        // Never claimed, never replied: the offer simply lapses.
+        onNoReply: 10,
         waitHours: 30,
       },
 
