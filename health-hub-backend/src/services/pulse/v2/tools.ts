@@ -88,7 +88,13 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
   const where: string[] = []; let join = '';
   for (const [dim, rawVal] of Object.entries(f)) {
     if (rawVal == null || rawVal === '') continue;
-    if (!DIMS[dim]) return { error: `cannot filter by '${dim}' — filterable dimensions are ${Object.keys(DIMS).join(', ')}` };
+    /* A DIMENSION THE REGISTRY DOES NOT HAVE IS NOT A DIMENSION THE DATA DOES NOT HAVE.
+       "how much am i making from external reports" resolved correctly — EXTERNAL_UPLOAD, a
+       workflowMode on TestOrder, 1,400 orders of it — and then died here, because workflowMode is
+       not one of the eight the registry can filter on. The analyst read the refusal as absence
+       and told the owner the figure could not be established. The registry filters on eight
+       columns; the database has hundreds, and "query" reaches all of them. */
+    if (!DIMS[dim]) return { error: `the registry tools filter only on ${Object.keys(DIMS).join(', ')} — '${dim}' is not one of them. That says nothing about whether the data exists: use the "query" tool, which can express any column in the schema.` };
     /* SAY WHERE TO GO NEXT. A dead-end error is retried: the planner asked for revenue filtered
        by modality, was told it cannot be, and asked again the next round, and the next — ten of
        nineteen steps in one investigation were this same refusal, and the CT payback question
@@ -792,8 +798,23 @@ async function t_anomalies(a: any): Promise<Partial<Evidence>> {
 async function t_resolve(a: any, _k?: any, q?: string): Promise<Partial<Evidence>> {
   const terms = (Array.isArray(a.terms) ? a.terms : [a.term ?? a.terms]).filter(Boolean).map(String).slice(0, 6);
   if (!terms.length) return { ok: false, error: 'no terms given' };
-  const one = (c: any) => ({ filter: c.dimension ? { [c.dimension]: c.value } : null, value: c.value,
-    means: c.meaning, from: c.source, how: c.how, confidence: Number(c.score?.toFixed?.(2) ?? c.score) });
+  /* A NULL FILTER MEANS THE REGISTRY CANNOT SCOPE ON IT. IT DOES NOT MEAN THE DATA IS ABSENT.
+     "external reports" resolved exactly right — EXTERNAL_UPLOAD, a workflowMode on TestOrder,
+     fourteen hundred orders of it — and came back with filter: null, because workflowMode is not
+     one of the eight columns the registry filters on. The analyst read the null, emitted no
+     further step at all, and told the owner the figure could not be established. It resolved the
+     term and then denied the thing it had just found.
+     So when a concept names a real column that the registry cannot reach, say so, and say what
+     does reach it. The meaning already carries the column; this makes the instruction explicit. */
+  const one = (c: any) => {
+    const filter = c.dimension && DIMS[c.dimension] ? { [c.dimension]: c.value } : null;
+    const col = String(c.meaning || '').match(/"?([A-Z]\w+)"?\.\s?"?(\w+)"?/);
+    return { filter, value: c.value, means: c.meaning, from: c.source, how: c.how,
+      confidence: Number(c.score?.toFixed?.(2) ?? c.score),
+      ...(filter ? {} : { queryWith: col
+        ? `no registry tool can filter on this — use "query" and restrict ${col[1]}.${col[2]} = '${c.value}'`
+        : `no registry tool can filter on this — use "query" to express it; the value exists` }) };
+  };
   const found = terms.map((t: string) => {
     const committed = resolveTermIn(t, q).map(one);
     if (committed.length) return { term: t, ...committed[0], alternatives: committed.slice(1, 3) };
@@ -944,7 +965,11 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
           error: 'the "commission" metric reads DoctorPayoutLedger — what a doctor was PAID — which carries no link to a test order and cannot be scoped to a test, category or modality. Use "commission_on_orders", the commission frozen on the orders themselves. Its denominator for a share is net_billed over the same orders, never revenue collected.' } as Evidence;
       }
       if (r.ok && FILTERABLE.has(tool)) {
-        const asked = (spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value);
+        /* Excused, not ignored: a constraint marked unfilterable is one the registry genuinely
+           cannot express, so rejecting every registry step over it would leave nothing able to
+           run. It is still enforced on generated SQL and on the prose. */
+        const asked = (spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value
+          && c.registryFilterable !== false);
         const applied = (args?.filter && typeof args.filter === 'object') ? args.filter : {};
         /* Match on the VALUE, across every filter key — not under the one dimension we inferred.
            `test = CT` is a guess about which column carries "CT"; filtering by modality = CT

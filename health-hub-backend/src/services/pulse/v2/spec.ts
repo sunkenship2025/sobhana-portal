@@ -17,6 +17,13 @@ import { periods } from '../diagnostic';
 import { scopeOf, restrictsBy, verifyConstraint } from './sqlscope';
 
 export interface ScopeConstraint {
+  /** The registry filters on eight columns; the schema has hundreds. A constraint the registry
+   *  cannot express is still a constraint the OWNER asked for — dropping it from the spec meant
+   *  nothing downstream knew about it, so "how much from external reports" answered with the
+   *  centre's entire August revenue and no check could see that the scope had never been applied.
+   *  Registry steps are excused from it, because they genuinely cannot; a generated query is not,
+   *  and neither is the prose. */
+  registryFilterable?: boolean;
   /** what the owner said — "lab", "chintal", "only cash" */
   term: string;
   /** the dimension it resolved to, e.g. domain, branch, payment_type */
@@ -245,6 +252,17 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
     // hard gate every correct query failed. A valid dimension is not a grounded constraint — the
     // VALUE has to exist too, and an ungrounded one is dropped rather than enforced, because
     // enforcing a constraint we cannot verify is how a validator manufactures wrong answers.
+    /* A concept that names a real column the registry cannot filter on is kept, marked, and
+       enforced where it can be: on generated SQL and on the sentence. */
+    if (!c?.dimension && c?.value && c?.term) {
+      const hit2 = rankedIn(c.term, q).find((r) => r.score >= MIN_CONFIDENCE && r.value && !r.dimension);
+      const col = String(hit2?.meaning || '').match(/"?([A-Z]\w+)"?\.\s?"?(\w+)"?/);
+      if (hit2 && col) {
+        scope.push({ term: c.term, dimension: col[2], value: String(hit2.value), how: hit2.how,
+          confidence: hit2.score, registryFilterable: false, aliases: [] });
+        continue;
+      }
+    }
     if (!c?.dimension || !c?.value || !DIMS[c.dimension]) continue;
     const known = valuesFor(c.dimension);
     const values = String(c.value).split(',').map((v) => v.trim()).filter((v) => v && (!known.size || known.has(v)));

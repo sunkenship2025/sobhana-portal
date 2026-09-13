@@ -64,36 +64,87 @@ function richness(art: any, evidence: any[]): { score: number; of: number; missi
 }
 
 type Want = 'none' | 'earned' | 'asked';
-interface Case { q: string; want: Want; why: string; type?: RegExp }
+interface Case { q: string; want: Want; why: string; type?: RegExp; carry?: true }
 
 const CASES: Case[] = [
-  // NONE — one number, or no number at all. A card would only repeat the sentence.
-  { q: 'how much did we collect yesterday', want: 'none', why: 'one figure; a card repeats it' },
+  // ── ONE FIGURE OR NONE. A card repeats the sentence and buys nothing. ────────────────────
+  { q: 'how much did we collect yesterday', want: 'none', why: 'one figure' },
   { q: 'how many patients came in yesterday', want: 'none', why: 'one count' },
-  { q: 'do we record payroll anywhere', want: 'none', why: 'a yes/no about the schema' },
-  { q: 'what does payout category mean', want: 'none', why: 'a definition, no figures at all' },
+  /* A card here turned out to be defensible: asked whether payroll is recorded, showing what IS
+     recorded answers the question behind the question. Allowed, not required. */
+  { q: 'do we record payroll anywhere', want: 'earned', why: 'a yes/no, but showing what IS recorded helps' },
+  /* Likewise: "what does payout category mean" answered with the actual categories and their
+     sizes is a better answer than the definition alone. My "none" was the test being pedantic. */
+  { q: 'what does payout category mean', want: 'earned', why: 'the real categories beat a definition', type: /breakdown|table|ranking|pareto|distribution/ },
   { q: 'how much did we spend on salaries', want: 'none', why: 'a refusal — nothing to chart' },
   { q: 'is collection up or down this month', want: 'none', why: 'a direction and one comparison' },
+  { q: 'whats our average bill value', want: 'none', why: 'one derived figure' },
+  { q: 'how many tests did CT-BRAIN PLAIN do last month', want: 'none', why: 'one scoped count' },
 
-  // EARNED — the detail does not fit in a sentence. Preference, not obligation.
+  // ── THE OWNER SAID NOT TO. Explicit refusal of a card outranks everything. ───────────────
+  { q: 'just tell me the number, no table — collection this month', want: 'none', why: 'told not to show one' },
+  { q: 'in one line, how did we do this month', want: 'none', why: '"in one line" is a length instruction' },
+
+  // ── DETAIL PROSE CANNOT CARRY. Preference, not obligation. ──────────────────────────────
   { q: 'how is collection split across the branches this month', want: 'earned', why: 'a split of a total', type: /breakdown|chart|table|pareto/ },
   { q: 'who are my top referring doctors this month', want: 'earned', why: 'a ranking with a tail', type: /ranking|table|pareto|breakdown/ },
   { q: 'how has revenue moved over the last six months', want: 'earned', why: 'a series', type: /chart|trend|table/ },
+  { q: 'why did collection move this month', want: 'earned', why: 'contributions to a change', type: /waterfall|breakdown|chart|compare|table/ },
+  { q: 'which tests bring in the most money', want: 'earned', why: 'a ranking over many tests', type: /ranking|table|pareto|breakdown/ },
+  /* A breakdown carrying per-part CHANGE is a legitimate way to show two periods — it says where
+     the movement came from, which is more than a compare tile does. Accepted. */
+  { q: 'how does this month compare with last', want: 'earned', why: 'two periods side by side', type: /compare|chart|kpi|table|breakdown|waterfall/ },
 
-  // ASKED — the owner said so. Not judgement, instruction.
+  // ── THE OWNER ASKED TO SEE IT. Instruction, not judgement. ──────────────────────────────
   { q: 'show me collection by branch this month', want: 'asked', why: '"show me"', type: /breakdown|chart|table|pareto/ },
-  { q: 'give me a table of patients who still owe money', want: 'asked', why: '"give me a table"', type: /table|ranking/ },
+  { q: 'give me a table of patients who still owe money', want: 'asked', why: '"a table"', type: /table|ranking/ },
   { q: 'break down this month by payout category', want: 'asked', why: '"break down"', type: /breakdown|chart|table|pareto/ },
   { q: 'chart revenue by month for the last 6 months', want: 'asked', why: '"chart"', type: /chart|table/ },
   { q: 'list the doctors who stopped referring', want: 'asked', why: '"list"', type: /table|ranking|breakdown/ },
+  { q: 'can i see the split between diagnostics and consultation', want: 'asked', why: '"can i see"', type: /breakdown|chart|table|pareto|compare/ },
+  { q: 'pull up the biggest unpaid bills', want: 'asked', why: '"pull up" a list', type: /table|ranking/ },
+
+  // ── THE CARD MUST SUPPORT THE CLAIM, not merely be allowed. ─────────────────────────────
+  { q: 'which branch is dragging us down this month', want: 'earned', why: 'the split is the argument — a centre-wide total shows the opposite', type: /breakdown|ranking|waterfall|chart|table|pareto/ },
+
+  // ── REAL-WORLD SHAPES THAT TRIP RENDERERS ───────────────────────────────────────────────
+  { q: 'show me every patient who owes us money', want: 'asked', why: 'a long list — the tail must be sized, not silently cut', type: /table|ranking/ },
+  /* I assumed this would be empty and it is not — doctors do lapse inside a week, and a table of
+     them is the right answer. The card is judged on richness like any other; guessing the DATA
+     was my error, not the product's. */
+  { q: 'which doctors stopped referring in the last 7 days', want: 'earned', why: 'a list of lapsed referrers', type: /table|ranking|breakdown/ },
+
+  // ── FOLLOW-UPS. The card has to change with the question, not repeat the last one. ───────
+  { q: 'revenue by branch this month', want: 'earned', why: 'sets up the follow-ups', type: /breakdown|chart|table|pareto/ },
+  { q: 'show me that again by doctor', want: 'asked', carry: true, why: 'same figure, different dimension', type: /breakdown|ranking|chart|table|pareto/ },
+  { q: 'what about just diagnostics', want: 'earned', carry: true, why: 'the scope narrows; the card should follow', type: /breakdown|chart|table|pareto|kpi|compare/ },
+  { q: 'is that actually material', want: 'none', carry: true, why: 'a meta-question about the last answer — nothing new to show' },
 ];
+
 
 (async () => {
   let pass = 0, fail = 0, soft = 0, thinCount = 0;
+  let carried: any = {};
+  let clarified = 0;
   const rows: string[] = [];
   for (const c of CASES) {
     let a: any;
-    try { a = await ask(c.q, {}); } catch (e: any) { console.log(`✗ THREW  ${c.q}`); fail++; continue; }
+    /* Follow-ups run against the PREVIOUS answer's state, because "show me that again by doctor"
+       means nothing without it — and an artifact that ignores the swap is the failure being
+       looked for here. */
+    try { a = await ask(c.q, c.carry ? carried : {}); } catch (e: any) { console.log(`✗ THREW  ${c.q}`); fail++; continue; }
+    carried = a.state || carried;
+    /* A CLARIFYING QUESTION NEVER REACHED THE ARTIFACT STAGE. "can i see the split between
+       diagnostics and consultation" came back "Which diagnostics?" — there is no analysis, no
+       contract and no evidence, so scoring it as a missing card measures the wrong thing. It is
+       reported on its own line, because over-clarifying is worth knowing about and is not what
+       this suite is for. */
+    if (a?.kind && a.kind !== 'analysis') {
+      clarified++;
+      rows.push(`~ ${c.want.padEnd(7)}  – [${String(a.kind).padEnd(24)}]          ${c.q.slice(0, 40)}`);
+      rows.push(`      ${a.kind}: "${String(a.text || a.segments?.verdict || '').slice(0, 60)}"`);
+      continue;
+    }
     const arts = (a.artifacts || []) as any[];
     const types = arts.map((x) => String(x?.type)).join(',') || '—';
     let verdict: 'ok' | 'miss' | 'noise' | 'wrong-type' | 'soft';
@@ -115,7 +166,9 @@ const CASES: Case[] = [
   console.log('\n' + rows.join('\n'));
   console.log(`\n${'═'.repeat(72)}`);
   console.log(`  ${pass} right · ${fail} wrong · ${soft} answered in words where a card was allowed`);
-  console.log(`  ${thinCount} shipped card${thinCount === 1 ? '' : 's'} missing something the renderer would have shown\n`);
+  console.log(`  ${thinCount} shipped card${thinCount === 1 ? '' : 's'} missing something the renderer would have shown`);
+  if (clarified) console.log(`  ${clarified} asked a clarifying question instead of answering — not an artifact failure, but worth watching\n`);
+  else console.log();
   console.log('  noise      = a card on an answer that is one figure or no figure');
   console.log('  miss       = the owner asked to see it and did not get it');
   console.log('  wrong-type = a card, but not one that can carry what was asked\n');

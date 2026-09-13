@@ -214,7 +214,16 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       say(`Correcting "${f.term}": ${f.from} → ${f.to}, and dropping what was built on it`, 'phase');
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
-    if (rounds === 1 && evidence.length === 1 && evidence[0].ok) break;
+    /* ONE STEP SUCCEEDED IS NOT THE SAME AS ONE ANSWER FOUND. This shortcut exists so a plain
+       lookup does not pay for a second round, and it was reading `ok` as "we have it". A resolve
+       step succeeds by telling you what a WORD means; it never carries a number. So "how much am
+       i making from external reports" planned a single resolve, got EXTERNAL_UPLOAD back — right,
+       fourteen hundred orders of it — broke out of the loop, and told the owner the figure could
+       not be established. It resolved the term and then denied the thing it had just found.
+       A step that measures nothing cannot end the turn. */
+    const measured = (e: any) => e?.ok && e.tool !== 'resolve'
+      && (e.data != null || e.summary?.value != null || e.summary?.rows != null || Array.isArray(e.summary?.parts));
+    if (rounds === 1 && evidence.length === 1 && measured(evidence[0])) break;
     if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || calls >= MAX_CALLS) { inv = conclude(inv, 'resource_limit'); break; }
     // Reserve enough to write the answer; otherwise keep going while something is open.
     if (Date.now() - t0 > MAX_MS - ROUND_RESERVE) { inv = conclude(inv, 'resource_limit'); break; }
@@ -348,12 +357,24 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   const allowed = options.map((o) => o.type);
   // the structure behind whatever we are most likely to show tunes the contract
   const pIdx = options.length ? usable.findIndex((e) => e.step === options[0].step) : 0;
-  const contract = { ...contractFor(job, structures[pIdx >= 0 ? pIdx : 0]), canShow: allowed };
+  const SHOW = /\b(show|shows?\s+me|see|chart|graph|plot|table|list|break\s?-?\s?down|visuali[sz]e|draw|display|pull up|give me a)\b/i;
+  /* "NO TABLE" IS NOT A REQUEST FOR A TABLE. Matching the bare word turned the strongest signal
+     there is — the owner saying don't — into the opposite instruction: "just tell me the number,
+     no table" shipped a KPI tile. A negation anywhere near the verb outranks it, and an explicit
+     no is final: it does not merely fail to ask, it forbids. */
+  const REFUSED = /\b(no|not|without|don'?t|dont|skip|just)\s+(a\s+|the\s+|me\s+)?(table|chart|graph|card|artifact|visual|breakdown|list|need)\b|\bin one line\b|\bjust (tell|say|give) me\b/i;
+  const askedToSee = SHOW.test(q) && !REFUSED.test(q);
+  const refusedToSee = REFUSED.test(q);
+  /* THE QUESTION OUTRANKS THE JOB. needsArtifact comes from the analytical job, which is right
+     by default and wrong the moment the owner says "can i see". Asking to see it and getting
+     three sentences is a miss whatever the job thought — and an explicit refusal is final in the
+     other direction, whatever the job thought. */
+  const contract = { ...contractFor(job, structures[pIdx >= 0 ? pIdx : 0]), canShow: allowed,
+    needsArtifact: refusedToSee ? false : askedToSee ? true : contractFor(job, structures[pIdx >= 0 ? pIdx : 0]).needsArtifact };
 
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
   /* DID THE OWNER ASK TO SEE SOMETHING? Then it is not a judgement call, it is an instruction,
      and the card ships whatever else is true of it. */
-  const askedToSee = /\b(show|shows?\s+me|chart|graph|plot|table|list|break\s?-?\s?down|visuali[sz]e|draw|display|give me a)\b/i.test(q);
   /* WHAT THE EVIDENCE ACTUALLY IS, by step, so a card can be judged against the thing it renders. */
   const shapeOf = new Map(usable.map((e, i) => [e.step, structures[i]]));
   const keepArtifacts = (list: any[]) => (list || []).filter((a: any) => {
@@ -368,6 +389,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
        six single-figure questions. An invariant described in a prompt is not an invariant.
        Only the single-figure shapes are dropped, and only when nothing was asked to be seen: a
        split, a ranking or a series carries detail no sentence can, and still ships. */
+    if (refusedToSee) return false;                       // an explicit no is final, whatever the shape
     if (!askedToSee && (a.type === 'kpi' || a.type === 'compare')) {
       const first = Array.isArray(a.evidence) ? a.evidence[0] : a.evidence;
       if (shapeOf.get(Number(first))?.cardinality === 'one') return false;
