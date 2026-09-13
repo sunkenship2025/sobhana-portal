@@ -26,8 +26,10 @@ import { join } from 'path';
 
 const out = mkdtempSync(join(tmpdir(), 'pulse-view-'));
 execFileSync('npx', ['tsc', '../health-hub/src/components/pulse/deriveView.ts',
+  '../health-hub/src/components/pulse/format.ts',
   '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--skipLibCheck'], { stdio: 'pipe' });
 const { deriveView, pctOf, toNum } = require(join(out, 'deriveView'));
+const { rupees, fmtValue, pct, label } = require(join(out, 'format'));
 
 let pass = 0, fail = 0;
 const ok = (n: string, good: boolean, d = '') => { console.log(`  ${good ? '✓' : '✗'} ${n}${good || !d ? '' : ` — ${d}`}`); good ? pass++ : fail++; };
@@ -232,6 +234,24 @@ ok('  and the refusal names the columns', /identifying columns/.test(String(vali
 ok('counting patients is a measurement, not a disclosure', validate(COUNT_SQL, { rowLevel: false }) === null,
    String(validate(COUNT_SQL, { rowLevel: false })));
 ok('default policy does not block the owner', validate(NAMES_SQL, {}) === null, String(validate(NAMES_SQL, {})));
+
+/* MONEY STAYS IN PAISE ON THE WIRE AND THE UI FORMATS IT. Every hundred-times error this week
+   passed through here — the waterfall that read ₹8,74,585 as ₹8,74,58,500, the compute operand
+   that would have divided rupees by paise. The conversion is four lines and was never tested. */
+console.log('\npaise in, rupees out\n');
+ok('paise become rupees with Indian grouping', fmtValue(18_93_724_00, 'paise') === '₹18,93,724', fmtValue(18_93_724_00, 'paise'));
+ok('the unit decides, not the magnitude', fmtValue(2200_00, 'paise') === '₹2,200', fmtValue(2200_00, 'paise'));
+ok('a column named *InPaise* is money even with no unit', fmtValue(2200_00, null, 'due_paise') === '₹2,200', fmtValue(2200_00, null, 'due_paise'));
+ok('a count is not money', fmtValue(1960, 'count') === '1,960', fmtValue(1960, 'count'));
+ok('a ratio below 1 is a percentage', fmtValue(0.214, 'ratio') === '21.4%', fmtValue(0.214, 'ratio'));
+ok('a ratio already in percent is not multiplied again', fmtValue(21.4, 'ratio') === '21.4%', fmtValue(21.4, 'ratio'));
+ok('null is absent, not zero', fmtValue(null, 'paise') === '—' && rupees(null) === '—');
+ok('a non-number passes through rather than becoming NaN', fmtValue('n/a', 'paise') === 'n/a', fmtValue('n/a', 'paise'));
+ok('negative money keeps its sign', fmtValue(-2200_00, 'paise') === '-₹2,200' || fmtValue(-2200_00, 'paise') === '₹-2,200', fmtValue(-2200_00, 'paise'));
+ok('lakh compaction rounds sensibly', rupees(18_93_724_00, { compact: true }) === '₹18.9L', rupees(18_93_724_00, { compact: true }));
+ok('pct signs the direction', pct(27.7) === '▲ 27.7%' && pct(-11.5) === '▼ 11.5%', `${pct(27.7)} / ${pct(-11.5)}`);
+ok('label strips the paise suffix it formats away', label('due_paise') === 'Due' && label('totalAmountInPaise') === 'Total Amount',
+   `${label('due_paise')} / ${label('totalAmountInPaise')}`);
 
 console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);
