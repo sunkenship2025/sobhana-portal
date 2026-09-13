@@ -897,7 +897,13 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
          CT-scoped revenue per month has never been measured". The operand existed the whole time
          under a different name. A guard that only refuses teaches nothing; this one names the
          metric that can answer, which is the difference between a wall and a direction. */
-      if (r.ok && ['revenue', 'net_billed'].includes(String(args?.metric || '')) && workScoped(spec, q)) {
+      /* THE SPEC, NOT THE WORDING. workScoped also returns true when the QUESTION merely says
+         "margin" or "roi" — right for choosing between two commission SOURCES, far too broad for
+         refusing a metric outright: "what is our margin" is a centre-level question and revenue
+         is exactly the right answer to it. Only an actual work-scoped CONSTRAINT means revenue
+         cannot serve, because only then is it being asked to do something it cannot do. */
+      if (r.ok && ['revenue', 'net_billed'].includes(String(args?.metric || ''))
+          && (spec?.scope || []).some((c2: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c2?.dimension))) {
         return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
           error: `'${args.metric}' cannot be scoped to a test, category or modality — revenue is cash on payments and net_billed is bill-level, so neither belongs to orders. Use "billed_on_orders" (what those orders were billed) with the same filter, and "commission_on_orders" beside it if you need contribution.` } as Evidence;
       }

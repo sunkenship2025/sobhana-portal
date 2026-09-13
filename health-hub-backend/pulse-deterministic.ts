@@ -89,6 +89,9 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('the named metric actually answers', right.ok, true, right.error);
   const plain: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } });
   ok('unscoped revenue still works', plain.ok, true, 'the guard must not block the common case');
+  const marginQ: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } }, 0, k,
+    { goal: '', scope: [] } as any, {}, [], 'what is our margin and roi this quarter');
+  ok('a question merely SAYING margin/roi is fine', marginQ.ok, true, 'centre-level margin legitimately uses revenue');
 
   /* THE GUARDS MUST NOT OVER-FIRE. Every guard added this week refuses something, and the one
      that refuses correct work is worse than the gap it closes — that has happened twice already
