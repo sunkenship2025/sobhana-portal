@@ -28,6 +28,8 @@ calls, no browser, a few minutes, and it costs nothing:
 pulse-view.ts          81  prompts the model is given, evidence→view derivation,
                            evidence structure, renderer admissibility, bindings,
                            grounding, convergence, SQL reading, row identity
+pulse-judge.ts         12  the BENCHMARK'S OWN judgement, in both directions — it must
+                           flag the bad answer and stay silent on the good one
 pulse-deterministic.ts 50  scoped metrics, scoped ratios, repeatability, compute
                            and its basis gate, routing, contract checks, verifySpec
 pulse-frontend.ts       7  all 29 adversarial questions resolved — terms, families,

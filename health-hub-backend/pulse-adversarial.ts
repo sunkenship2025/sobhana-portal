@@ -56,11 +56,11 @@ function bailIfInfra(e: any): void {
 type Check = 'FINISHED_OPEN' | 'UNSIZED_LEVER' | 'UNGROUNDED' | 'TEST_BRANCH' | 'DENIED'
   | 'FALSE_PREMISE' | 'EMPTY_ARTIFACT' | 'THREW' | 'PHANTOM_CONSTRAINT' | 'WRONG_GRAIN';
 
-interface Case { q: string; why: string; expect?: Check[]; state?: 'carry';
+export interface Case { q: string; why: string; expect?: Check[]; state?: 'carry';
   /** the centre genuinely does not record this — saying so is the RIGHT answer, not a denial */
   absent?: boolean }
 
-const CASES: Case[] = [
+export const CASES: Case[] = [
   // premise the data contradicts — revenue is UP
   { q: 'why did revenue fall last month', why: 'false premise: revenue rose' },
   { q: 'why are we losing so many patients', why: 'false premise, no churn established' },
@@ -123,7 +123,13 @@ const NUM = /₹\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]*(?:\.\d+)?\b/g
    about what the business records, whatever it is about. */
 const DENY = /no field|not record(ed|s)?|does not record|no way to|cannot see|we do not have|there is no data|not a (known|defined|recorded) concept|does not exist|no concept|no such|is not defined|not a concept|naming gap/i;
 
-function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
+/* EXPORTED SO THE JUDGE CAN BE JUDGED. This function decides what the headline benchmark
+   reports, and a bug in it produces a confident wrong number about the product — which has
+   happened repeatedly with the other instruments here: a grader matching scan counts against
+   rupees, a harness scoring billing failures as regressions. pulse-judge.ts feeds it answers
+   whose correct verdict is known, in both directions: it must flag the bad one AND stay silent
+   on the good one. */
+export function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
   const flags: Check[] = []; const notes: string[] = [];
   const text = String(a?.segments?.verdict ? [a.segments.verdict, ...(a.segments.points || []).map((p: any) => p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a?.text || '');
   const ev = (a?.evidence || []).filter((e: any) => e.ok);
@@ -207,7 +213,12 @@ function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
   return { flags, notes };
 }
 
-(async () => {
+/* RUN ONLY WHEN INVOKED DIRECTLY. audit() is imported by pulse-judge.ts to check the judge
+   itself, and a bare top-level IIFE meant importing the function also launched the whole paid
+   suite — which then preflighted, found the account unusable, and called process.exit(2) out
+   from under the importer. A module that cannot be imported without running is a module whose
+   parts cannot be tested. */
+if (require.main === module) (async () => {
   await preflight();
   let state: any = {};
   const results: { c: Case; flags: Check[]; notes: string[]; ms: number; job: string; calls: number }[] = [];

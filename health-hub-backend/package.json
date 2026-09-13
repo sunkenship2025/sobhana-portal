@@ -16,7 +16,7 @@
     "db:studio": "prisma studio",
     "lint": "eslint src --ext .ts",
     "type-check": "tsc --noEmit",
-    "pulse:check": "ts-node --transpile-only pulse-view.ts && ts-node --transpile-only pulse-deterministic.ts && ts-node --transpile-only pulse-frontend.ts && ts-node --transpile-only pulse-steps.ts && ts-node --transpile-only pulse-sql.ts",
+    "pulse:check": "ts-node --transpile-only pulse-view.ts && ts-node --transpile-only pulse-judge.ts && ts-node --transpile-only pulse-deterministic.ts && ts-node --transpile-only pulse-frontend.ts && ts-node --transpile-only pulse-steps.ts && ts-node --transpile-only pulse-sql.ts",
     "pulse:view": "ts-node --transpile-only pulse-view.ts",
     "pulse:det": "ts-node --transpile-only pulse-deterministic.ts",
     "pulse:replay": "ts-node --transpile-only pulse-replay.ts",
