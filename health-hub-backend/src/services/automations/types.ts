@@ -94,6 +94,19 @@ export type Step =
        */
       kind: 'DAY_SHEET';
       domain: 'DIAGNOSTICS' | 'CLINIC';
+      /**
+       * Everything below was a constant in the source until now. Each one is a thing a
+       * centre might need to change on a Tuesday evening — and each one used to mean a
+       * code edit and a deploy to change it, for a message carrying a day of revenue.
+       */
+      /** Meta template. Absent = the service default. */
+      template?: string;
+      /** Who receives it. Absent or empty = every active owner with a phone. */
+      recipientUserIds?: string[];
+      /** How long the link works. Absent = 72 hours. */
+      linkExpiryHours?: number;
+      /** How late a missed night may still go out. Absent = 8 hours. */
+      graceHours?: number;
     }
   | { kind: 'STOP'; reason: string };
 

@@ -29,10 +29,11 @@ import { ConditionBuilder } from './ConditionBuilder';
 import { SimulateDialog } from './SimulateDialog';
 import { AutomationResults } from './AutomationResults';
 import { ActivityTab } from './ActivityTab';
+import { useQuery as useRQ } from '@tanstack/react-query';
 import {
   getAutomation, listTemplates, saveAutomation, activateAutomation, pauseAutomation,
-  stopAutomation, previewAutomation, simulateAutomation, reasonLabel,
-  type Automation, type Step, type TemplateSummary,
+  stopAutomation, previewAutomation, simulateAutomation, reasonLabel, listRecipients,
+  type Automation, type AutomationDefinition, type Step, type TemplateSummary,
 } from './api';
 
 export function AutomationDetail({ id, onBack }: { id: string; onBack: () => void }) {
@@ -304,11 +305,17 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
           <>
             <SheetHeader className="pb-4">
               <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                {current.kind === 'WAIT' ? 'Timing' : current.kind === 'CHECK' ? 'Check before acting' : 'Message'}
+                {current.kind === 'WAIT' ? 'Timing'
+                  : current.kind === 'CHECK' ? 'Check before acting'
+                  : current.kind === 'DAY_SHEET' ? 'The nightly report'
+                  : 'Message'}
               </p>
               <SheetTitle className="text-[15px]">
                 {current.kind === 'WAIT' && current.anchor === 'TRIGGER'
-                  ? `Day ${current.days ?? 0}` : `Step ${(index ?? 0) + 1}`}
+                  ? `Day ${current.days ?? 0}`
+                  : current.kind === 'DAY_SHEET'
+                    ? `${current.domain === 'CLINIC' ? 'OP' : 'Diagnostic'} day sheet`
+                    : `Step ${(index ?? 0) + 1}`}
               </SheetTitle>
             </SheetHeader>
 
@@ -370,6 +377,14 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   </div>
                 </div>
               </div>
+            )}
+
+            {current.kind === 'DAY_SHEET' && (
+              <DaySheetStepFields
+                step={current}
+                templates={templates}
+                onChange={(patch) => setLocal({ ...current, ...patch })}
+              />
             )}
 
             {current.kind === 'SEND' && (
@@ -587,5 +602,115 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The day sheet's settings — all of which were constants in the source until now.
+ *
+ * The template mattered most: with it hardcoded, the day Meta paused or rejected it,
+ * recovering meant editing code and shipping a deploy, for a message carrying a day's
+ * takings. The rest are the same shape of problem, smaller.
+ */
+function DaySheetStepFields({ step, templates, onChange }: {
+  step: Extract<Step, { kind: 'DAY_SHEET' }>;
+  templates: TemplateSummary[];
+  onChange: (patch: Partial<Extract<Step, { kind: 'DAY_SHEET' }>>) => void;
+}) {
+  const { data } = useRQ({ queryKey: ['recipients'], queryFn: listRecipients });
+  const recipients = data?.recipients ?? [];
+  const chosen = step.recipientUserIds ?? [];
+
+  const toggle = (id: string) =>
+    onChange({
+      recipientUserIds: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id],
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label className="text-xs">Template</Label>
+        <Select
+          value={step.template ?? '__default__'}
+          onValueChange={(v) => onChange({ template: v === '__default__' ? undefined : v })}
+        >
+          <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__default__">owner_day_sheet_v2 (default)</SelectItem>
+            {templates.filter((t) => t.status === 'APPROVED').map((t) => (
+              <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          If Meta ever pauses the one you are using, switch it here rather than waiting for
+          a code change.
+        </p>
+      </div>
+
+      <div>
+        <Label className="text-xs">Who gets it</Label>
+        {recipients.length === 0 ? (
+          <p className="mt-1.5 rounded-lg border px-3 py-2.5 text-xs text-muted-foreground">
+            Nobody has a phone number in Roles yet, so nothing can send.
+          </p>
+        ) : (
+          <>
+            <div className="mt-1.5 max-h-48 divide-y overflow-y-auto rounded-lg border">
+              {recipients.map((r) => (
+                <label key={r.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(r.id)}
+                    onChange={() => toggle(r.id)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{r.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {r.role} · {r.phone}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {chosen.length === 0
+                ? 'Nobody chosen — it goes to every active owner with a phone, as it always has.'
+                : `${chosen.length} chosen. Only these people get it.`}
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Label className="text-xs">Link works for</Label>
+          <Input
+            className="mt-1.5" placeholder="72"
+            value={step.linkExpiryHours ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              onChange({ linkExpiryHours: v === '' ? undefined : Math.max(1, Number(v)) });
+            }}
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">Hours. Blank = 72.</p>
+        </div>
+        <div className="flex-1">
+          <Label className="text-xs">Send late up to</Label>
+          <Input
+            className="mt-1.5" placeholder="8"
+            value={step.graceHours ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              onChange({ graceHours: v === '' ? undefined : Math.max(0, Number(v)) });
+            }}
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Hours. If the server was down at the send time, it still goes out inside this
+            window rather than being lost. Blank = 8.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

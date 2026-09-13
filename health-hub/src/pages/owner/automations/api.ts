@@ -35,8 +35,18 @@ export type Step =
       kind: 'SEND'; template: string; language?: string; params: ParamBinding[];
       intent: 'REACTIVE' | 'PROACTIVE'; issueOffer?: { campaignId: string };
     }
-  /** The nightly day sheet: owner recipient, generated link, no patient machinery. */
-  | { kind: 'DAY_SHEET'; domain: 'DIAGNOSTICS' | 'CLINIC' }
+  /**
+   * The nightly day sheet. Everything optional here was a constant in the source until
+   * it turned out each one is a thing a centre needs to change without a deploy.
+   */
+  | {
+      kind: 'DAY_SHEET';
+      domain: 'DIAGNOSTICS' | 'CLINIC';
+      template?: string;
+      recipientUserIds?: string[];
+      linkExpiryHours?: number;
+      graceHours?: number;
+    }
   | { kind: 'STOP'; reason: string };
 
 export interface AutomationDefinition {
@@ -321,3 +331,12 @@ export interface PredicateMeta {
 /** Served by the backend so a predicate that does not exist can never be offered. */
 export const listPredicates = () =>
   apiRequest<{ predicates: PredicateMeta[] }>(`${AUT}/predicates`);
+
+
+export interface Recipient {
+  id: string; name: string; role: string;
+  /** Masked — this list is for choosing from, not for publishing staff numbers. */
+  phone: string | null;
+}
+export const listRecipients = () =>
+  apiRequest<{ recipients: Recipient[] }>(`${AUT}/recipients`);

@@ -35,7 +35,15 @@ import {
 } from './whatsappCloudService';
 
 export const DAY_SHEET = 'DAY_SHEET';
-const TEMPLATE = 'owner_day_sheet_v2';
+/**
+ * The template this falls back to when an automation does not name one.
+ *
+ * It used to be the ONLY way this was decided, which meant the day Meta rejected or
+ * paused it, recovering took a code change and a deploy — for a message that carries a
+ * day's takings. Automations can now name their own; this stays as the default so the
+ * old ticker and any automation that says nothing keep working exactly as before.
+ */
+const DEFAULT_TEMPLATE = 'owner_day_sheet_v2';
 
 /** How late a missed night may still be sent, in minutes. */
 export const GRACE_MINUTES = 8 * 60;
@@ -71,21 +79,41 @@ const rupees = (paise: number): string =>
   Math.round(paise / 100).toLocaleString('en-IN');
 
 /** Owner phones, from the Roles section. No phone = no message, never a guess. */
-async function ownerPhones(): Promise<string[]> {
-  const owners = await prisma.user.findMany({
-    where: { role: 'owner', isActive: true, phone: { not: null } },
-    select: { phone: true },
-  });
-  return [...new Set(owners.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
+async function ownerPhones(recipientUserIds?: string[]): Promise<string[]> {
+  // Named recipients win when an automation supplies them — that is how a practice
+  // manager or an accountant gets the sheet without a code change, and how one owner
+  // is left off without deactivating their account. Falling back to every active owner
+  // keeps the old ticker's behaviour byte for byte.
+  const where = recipientUserIds && recipientUserIds.length > 0
+    ? { id: { in: recipientUserIds }, isActive: true, phone: { not: null } }
+    : { role: 'owner' as const, isActive: true, phone: { not: null } };
+
+  const users = await prisma.user.findMany({ where, select: { phone: true } });
+  return [...new Set(users.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
+}
+
+export interface DaySheetOptions {
+  /** Meta template to send. Defaults to DEFAULT_TEMPLATE. */
+  template?: string;
+  /** Who receives it. Empty or absent = every active owner with a phone. */
+  recipientUserIds?: string[];
+  /** How long the link stays alive. Defaults to 72 hours. */
+  linkExpiryHours?: number;
 }
 
 export async function sendDaySheet(
   schedule: { branchId: string; domain: string },
   dateKey: string,
+  options: DaySheetOptions = {},
 ): Promise<{ status: string; detail: string | null }> {
-  const phones = await ownerPhones();
+  const phones = await ownerPhones(options.recipientUserIds);
   if (phones.length === 0) {
-    return { status: 'SKIPPED', detail: 'no owner has a phone number in Roles' };
+    return {
+      status: 'SKIPPED',
+      detail: options.recipientUserIds?.length
+        ? 'none of the chosen recipients has a phone number in Roles'
+        : 'no owner has a phone number in Roles',
+    };
   }
   if (!isWhatsAppEnabled()) {
     return { status: 'SKIPPED', detail: 'WhatsApp is not configured on this environment' };
@@ -110,6 +138,7 @@ export async function sendDaySheet(
     branchId: schedule.branchId,
     domain: schedule.domain,
     sheetDate: dateKey,
+    ttlHours: options.linkExpiryHours,
   });
 
   const components: TemplateComponent[] = [
@@ -134,7 +163,11 @@ export async function sendDaySheet(
   const failures: string[] = [];
   for (const phone of phones) {
     try {
-      await sendTemplate(formatPhoneForWhatsApp(phone), TEMPLATE, components);
+      await sendTemplate(
+        formatPhoneForWhatsApp(phone),
+        options.template || DEFAULT_TEMPLATE,
+        components,
+      );
     } catch (err) {
       failures.push(`${phone.slice(-4)}: ${(err as Error)?.message ?? 'send failed'}`);
     }

@@ -90,17 +90,18 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       // Which night do we owe? Today's once the clock passes the send time; if the box
       // was asleep over that moment the next tick still owes YESTERDAY's — late rather
       // than lost — but only inside the grace, so a long outage cannot replay a week.
-      let runDate: string | null = null;
-      if (minutes >= def.trigger.everyDayAtMinutes) runDate = date;
-      else if (minutes + 1440 - def.trigger.everyDayAtMinutes <= SHEET_GRACE_MINUTES) {
-        runDate = previousDate(date);
-      }
-      if (!runDate) continue;
-
       const sheetStep = def.steps.find(
         (s): s is Extract<Step, { kind: 'DAY_SHEET' }> => s.kind === 'DAY_SHEET',
       );
       if (!sheetStep) continue;
+
+      const graceMinutes = (sheetStep.graceHours ?? SHEET_GRACE_MINUTES / 60) * 60;
+      let runDate: string | null = null;
+      if (minutes >= def.trigger.everyDayAtMinutes) runDate = date;
+      else if (minutes + 1440 - def.trigger.everyDayAtMinutes <= graceMinutes) {
+        runDate = previousDate(date);
+      }
+      if (!runDate) continue;
 
       for (const branchId of a.branchIds) {
         const subjectId = `${branchId}:${sheetStep.domain}`;
@@ -419,7 +420,11 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
       let outcome: { status: string; detail: string | null };
       try {
-        outcome = await sendDaySheet({ branchId, domain }, runDate);
+        outcome = await sendDaySheet({ branchId, domain }, runDate, {
+          template: step.template,
+          recipientUserIds: step.recipientUserIds,
+          linkExpiryHours: step.linkExpiryHours,
+        });
       } catch (e) {
         outcome = { status: 'FAILED', detail: (e as Error).message?.slice(0, 500) ?? 'unknown' };
       }

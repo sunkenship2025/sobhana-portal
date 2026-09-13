@@ -63,6 +63,9 @@ function groupIntoDays(def: AutomationDefinition): { blocks: DayBlock[]; tail: {
 
 const VERB = 'w-16 shrink-0 pt-0.5 text-[13px] font-semibold text-foreground/70';
 
+const toTimeValue = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
 const clockLabel = (m: number) => {
   const h = Math.floor(m / 60);
   const ampm = h < 12 ? 'AM' : 'PM';
@@ -79,6 +82,16 @@ export function AutomationBuilder({
   onPreview: () => void;
   onEditAudience: () => void;
 }) {
+  const setSendTime = (value: string) => {
+    const [h, m] = value.split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+    onChange({
+      definition: {
+        ...automation.definition,
+        trigger: { kind: 'SCHEDULE', everyDayAtMinutes: h * 60 + m },
+      },
+    });
+  };
   const def = automation.definition;
   const { blocks, tail } = useMemo(() => groupIntoDays(def), [def]);
   /** A day sheet has no patient, so audience, stop condition and holdout do not apply. */
@@ -92,7 +105,18 @@ export function AutomationBuilder({
         <div className="flex items-start gap-3 px-4 py-3">
           <span className={VERB}>When</span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">
+            {isScheduled && (
+              <span className="mb-1.5 flex items-center gap-2">
+                <span className="text-sm font-medium">Every day at</span>
+                <Input
+                  type="time"
+                  className="h-8 w-28"
+                  value={toTimeValue((def.trigger as { everyDayAtMinutes: number }).everyDayAtMinutes)}
+                  onChange={(e) => setSendTime(e.target.value)}
+                />
+              </span>
+            )}
+            <span className={`block text-sm font-medium ${isScheduled ? 'hidden' : ''}`}>
               {def.trigger.kind === 'VISIT_COMPLETED'
                 ? `A ${def.trigger.domain === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`
                 : def.trigger.kind === 'REPORT_FINALIZED'

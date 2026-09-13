@@ -37,6 +37,28 @@ router.get('/templates', async (_req: AuthRequest, res) => {
   catch (e) { return fail(res, e); }
 });
 
+/**
+ * Who could receive a report. Anyone active with a phone number in Roles — not only
+ * owners, because "the practice manager should get the OP sheet too" should not need a
+ * developer.
+ */
+router.get('/recipients', async (_req: AuthRequest, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isActive: true, phone: { not: null } },
+      select: { id: true, name: true, role: true, phone: true },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    });
+    return res.json({
+      recipients: users.map((u) => ({
+        ...u,
+        // Masked: this list exists to choose from, not to publish staff numbers.
+        phone: u.phone ? `${u.phone.slice(0, 2)}xxxxx${u.phone.slice(-3)}` : null,
+      })),
+    });
+  } catch (e) { return fail(res, e); }
+});
+
 /** What the condition builder may offer. Served, never hardcoded in the frontend. */
 router.get('/predicates', async (_req: AuthRequest, res) => {
   try { return res.json({ predicates: PREDICATE_CATALOG }); }
@@ -284,8 +306,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
     if (!def) return res.status(400).json({ error: 'DEFINITION_REQUIRED' });
 
     const unknown = [
-      ...unknownPredicates(def.audience),
-      ...unknownPredicates(def.goal.condition),
+      ...(def.audience ? unknownPredicates(def.audience) : []),
+      ...(def.goal?.condition ? unknownPredicates(def.goal.condition) : []),
       ...def.steps.flatMap((s) => (s.kind === 'CHECK' ? unknownPredicates(s.condition) : [])),
     ];
     if (unknown.length) return res.status(400).json({ error: `UNKNOWN_PREDICATE: ${unknown.join(', ')}` });
