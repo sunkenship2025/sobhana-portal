@@ -22,7 +22,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
-  listBlueprints, createFromBlueprint, listTemplates,
+  listBlueprints, createFromBlueprint, listTemplates, listOffers, rupees,
   type Blueprint, type BlueprintField,
 } from './api';
 
@@ -41,6 +41,9 @@ export function CreateAutomation({ open, onClose, onCreated }: {
   });
   const { data: templateData } = useQuery({
     queryKey: ['templates'], queryFn: listTemplates, enabled: open,
+  });
+  const { data: offerData } = useQuery({
+    queryKey: ['offers'], queryFn: listOffers, enabled: open,
   });
   const branches = useBranchStore((s) => s.branches);
 
@@ -141,6 +144,38 @@ export function CreateAutomation({ open, onClose, onCreated }: {
                 <span className="block font-mono text-sm">{t.name}</span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {t.bodyText.slice(0, 90)}
+                </span>
+              </button>
+            ))}
+          </div>
+        );
+      }
+      case 'OFFER': {
+        const offers = offerData?.offers ?? [];
+        // This asks for a campaign id, which appears nowhere on screen. Rendered as a
+        // text box it was unanswerable: the id would be wrong, save would accept it,
+        // and the engine would send the code message with no code in it.
+        return offers.length === 0 ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2.5 text-xs">
+            No offers exist yet. Create one under Offers first — this journey hands one out,
+            so it cannot be built without one.
+          </p>
+        ) : (
+          <div className="max-h-40 divide-y overflow-y-auto rounded-lg border">
+            {offers.map((o) => (
+              <button key={o.id} type="button" onClick={() => set(f.key, o.id)}
+                className={`flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50 ${
+                  v === o.id ? 'bg-muted' : ''}`}>
+                <span aria-hidden className={`h-3.5 w-3.5 shrink-0 rounded-full border-[3px] ${
+                  v === o.id ? 'border-foreground' : 'border-muted-foreground/40'}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-mono text-sm">{o.code}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {o.discountPercentage}% off {o.scope === 'TESTS_ONLY' ? 'tests' : 'the whole bill'}
+                    {o.budget.maxDiscountPerBillInPaise != null &&
+                      `, up to ${rupees(o.budget.maxDiscountPerBillInPaise)} a bill`}
+                    {!o.isActive && ' · switched off'}
+                  </span>
                 </span>
               </button>
             ))}

@@ -6,16 +6,15 @@
  * the journey stays on screen while you edit one part of it — the question you are
  * answering is almost always "where does this sit relative to the others".
  */
-import { useMemo, useState } from 'react';
-import { ChevronRight, Lock } from 'lucide-react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronRight, Lock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
-import type { Automation, AutomationDefinition, Step, TemplateSummary } from './api';
+import { listPredicates, type Automation, type AutomationDefinition, type Step, type TemplateSummary } from './api';
+import { describeCondition, describeJump } from './describe';
 
 /** Contiguous CHECK/SEND steps that follow a WAIT, shown as one dated block. */
 interface DayBlock {
@@ -73,15 +72,21 @@ const clockLabel = (m: number) => {
 };
 
 export function AutomationBuilder({
-  automation, templates, onChange, onEditStep, onPreview, onEditAudience,
+  automation, templates, onChange, onEditStep, onAddStep, onPreview, onEditAudience,
 }: {
   automation: Automation;
   templates: TemplateSummary[];
   onChange: (patch: Partial<Automation>) => void;
   onEditStep: (index: number) => void;
+  /** Insert a new step at this position. */
+  onAddStep: (at: number) => void;
   onPreview: () => void;
   onEditAudience: () => void;
 }) {
+  // The vocabulary, so nothing on this screen describes a predicate in words the engine
+  // would not recognise.
+  const { data: predicateData } = useQuery({ queryKey: ['predicates'], queryFn: listPredicates });
+  const catalog = predicateData?.predicates ?? [];
   const setSendTime = (value: string) => {
     const [h, m] = value.split(':').map(Number);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return;
@@ -168,8 +173,10 @@ export function AutomationBuilder({
         <div className={`flex items-start gap-3 px-4 py-3 ${isScheduled ? 'hidden' : ''}`}>
           <span className={VERB}>For</span>
           <button onClick={onEditAudience} className="min-w-0 flex-1 text-left">
-            <span className="block text-sm font-medium hover:underline">
-              {describeAudience(def)}
+            <span className="block text-sm font-medium hover:underline first-letter:uppercase">
+              {def.audience && 'fn' in def.audience && def.audience.fn === 'always'
+                ? 'Everyone the trigger catches'
+                : describeCondition(def.audience, catalog)}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
               Click to change who qualifies
@@ -200,18 +207,19 @@ export function AutomationBuilder({
                 onClick={() => onEditStep(index)}
                 className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/50"
               >
+                <span className="w-6 shrink-0 pt-0.5 text-[13px] tabular-nums text-muted-foreground">
+                  {index + 1}
+                </span>
                 <span className={VERB}>{step.kind === 'CHECK' ? 'Check' : 'Do'}</span>
                 <span className="min-w-0 flex-1">
                   {step.kind === 'CHECK' ? (
                     <>
-                      <span className="block text-sm font-medium">Did this visit lead to diagnostics?</span>
+                      <span className="block text-sm font-medium">
+                        {describeCondition(step.condition, catalog)}?
+                      </span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Checked live · yes →{' '}
-                        {typeof step.onTrue === 'number' ? `step ${step.onTrue + 1}` : step.onTrue.toLowerCase()}
-                        {' · no → '}
-                        {typeof step.onFalse === 'number'
-                          ? `step ${step.onFalse + 1}`
-                          : (step.onFalse ?? 'CONTINUE').toLowerCase()}
+                        Checked live · yes → {describeJump(step.onTrue)}
+                        {' · no → '}{describeJump(step.onFalse)}
                       </span>
                     </>
                   ) : step.kind === 'SEND' ? (
@@ -293,21 +301,37 @@ export function AutomationBuilder({
                 <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
             ))}
+            <button
+              onClick={() => onAddStep(
+                (b.steps.length ? b.steps[b.steps.length - 1].index : b.waitIndex ?? -1) + 1,
+              )}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted/50"
+            >
+              <span className="w-6 shrink-0" />
+              <Plus className="h-3.5 w-3.5" /> Add a step here
+            </button>
           </div>
         </div>
       ))}
+
+      <button
+        onClick={() => onAddStep(def.steps.length)}
+        className="flex w-full items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:bg-muted/40"
+      >
+        <Plus className="h-4 w-4" /> Add a step at the end
+      </button>
 
       <div className={`divide-y rounded-lg border ${isScheduled ? 'hidden' : ''}`}>
         <div className="flex items-start gap-3 px-4 py-3">
           <span className={VERB}>Stop</span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">
-              When diagnostics happen for this visit
+              When {describeCondition(def.goal.condition, catalog)}
               {tail.length > 0 && ' — or after the last message'}
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              Counts as converted within {def.goal.windowDays} days of the visit, at any branch.
-              No new step starts after the last day; one already due is still sent.
+              Re-checked before every action, and counted for {def.goal.windowDays} days after the
+              trigger. No new step starts after the last day; one already due is still sent.
             </span>
           </span>
         </div>
@@ -448,18 +472,4 @@ function LockedRow({ title, sub, hard }: { title: string; sub: string; hard?: bo
   );
 }
 
-/** A one-line reading of the audience, so the sentence stays readable. */
-function describeAudience(def: AutomationDefinition): string {
-  const parts: string[] = [];
-  const walk = (c: AutomationDefinition['audience']) => {
-    if ('all' in c) { c.all.forEach(walk); return; }
-    if ('any' in c) { c.any.forEach(walk); return; }
-    if ('not' in c) { walk(c.not); return; }
-    if (c.fn === 'patientAgeYears' && c.op === 'gte') parts.push(`${c.value}+ years old`);
-    else if (c.fn === 'visitValueInPaise' && c.op === 'gte') parts.push(`visits of ₹${Math.round(Number(c.value) / 100)} or more`);
-    else if (c.fn === 'agreedToOffers') parts.push('agreed to offers');
-    else parts.push(c.fn);
-  };
-  walk(def.audience);
-  return parts.length ? parts.join(', ') : 'Everyone the trigger catches';
-}
+

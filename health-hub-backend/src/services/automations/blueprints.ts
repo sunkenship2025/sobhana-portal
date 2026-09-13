@@ -210,24 +210,29 @@ const RECIPES: Recipe[] = [
           },
           { kind: 'WAIT', anchor: 'TRIGGER', days: remindDay },
           { kind: 'CHECK', condition: recovered, onTrue: 'STOP', stopReason: 'STOPPED_GOAL_MET' },
-          // One journey, two things to say.
+          // One journey, two things to say — and they are ALTERNATIVES. The arm that
+          // reminds a code-holder has to END, not fall through into the arm that asks
+          // someone to claim one: a patient who tapped Get my code on day 2 was being
+          // sent her code and then, the same afternoon, invited to claim the code she
+          // was holding. A SEND cannot jump, so the true arm gets its own stop.
           {
             kind: 'CHECK',
             condition: { fn: 'couponState', op: 'in', value: ['ISSUED', 'PENDING'] },
-            onTrue: 7, onFalse: 8,
+            onTrue: 7, onFalse: 9,
           },
           {
             kind: 'SEND', template: str(v, 'remindWithCodeTemplate'), intent: 'PROACTIVE',
             params: [{ from: 'COUPON_CODE' }],
           },
+          { kind: 'STOP', reason: 'STOPPED_BY_STEP' },
           {
             kind: 'ASK', template: str(v, 'remindToClaimTemplate'), intent: 'PROACTIVE',
             params: [{ from: 'PATIENT_FIRST_NAME' }],
-            buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 9 }],
-            keywords: [{ match: 'code', goTo: 9 }],
+            buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 10 }],
+            keywords: [{ match: 'code', goTo: 10 }],
             onUnmatched: 'HANDOFF',
             // Never claimed, never replied: the offer simply lapses.
-            onNoReply: 10,
+            onNoReply: 11,
             waitHours: Math.max(6, (expiryDay - remindDay) * 24),
           },
           // A late claim gets the SAME expiry — less time, not a fresh window.

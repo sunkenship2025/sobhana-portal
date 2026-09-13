@@ -127,7 +127,19 @@ export async function dryRun(automationId: string, limit = 20) {
 export interface SimulatedEvent {
   /** Days after the trigger. */
   onDay: number;
-  kind: 'DIAGNOSTICS_DONE';
+  /**
+   * REPLIED is what makes a branching journey simulable at all.
+   *
+   * Without it the walk stopped at the first ASK — which for the recovery journey is
+   * the Day 2 offer, so the operator could see the question and nothing after it: not
+   * the coupon, not the reminder, not the two different things Day 5 says. The branch
+   * the automation exists for was the one part that could not be previewed.
+   *
+   * `payload` names the button. Absent = they replied with something that matched
+   * nothing, which is the handoff path.
+   */
+  kind: 'DIAGNOSTICS_DONE' | 'REPLIED';
+  payload?: string;
   valueInPaise?: number;
   branchId?: string;
 }
@@ -175,6 +187,15 @@ export async function simulate(
   let clock = new Date(seed.triggeredAt);
   let stepIndex = 0;
   let guard = 0;
+  /**
+   * A coupon this walk has handed out. Without it `couponState` reads null forever and
+   * the Day 5 fork always takes the "she never claimed" arm — so the branch that tells
+   * a holder of a code from someone who ignored the offer could not be previewed even
+   * once the walk got that far.
+   */
+  let issuedState: string | null = null;
+  /** A reply is used up by the question it answers. She replied once, not to each ASK. */
+  const spent = new Set<SimulatedEvent>();
 
   while (stepIndex < definition.steps.length && guard++ < 100) {
     const step = definition.steps[stepIndex];
@@ -183,6 +204,7 @@ export async function simulate(
     const ctx = memoryContext({
       now: clock,
       visits: [triggerVisit, ...injected.filter((v) => v.createdAt <= clock)],
+      ...(issuedState ? { couponStateByRun: { sim: issuedState } } : {}),
       patients: [{
         id: seed.patientId, yearOfBirth: seed.yearOfBirth, gender: seed.gender,
         phone: seed.phone, marketingOptIn: seed.marketingOptIn, deceasedAt: null,
@@ -191,7 +213,7 @@ export async function simulate(
 
     const subject: Subject = {
       type: 'VISIT', id: seed.visitId, patientId: seed.patientId,
-      branchId: seed.branchId, triggeredAt: seed.triggeredAt,
+      branchId: seed.branchId, triggeredAt: seed.triggeredAt, runId: 'sim',
     };
     const day = Math.round((clock.getTime() - seed.triggeredAt.getTime()) / DAY_MS);
 
@@ -208,11 +230,19 @@ export async function simulate(
       const trace: EvalTrace[] = [];
       const hit = await evaluate(step.condition, ctx, subject, trace);
       out.push({ day, at: clock, kind: 'CHECK', outcome: hit ? 'CHECK_TRUE' : 'CHECK_FALSE', detail: trace });
-      if (hit && step.onTrue === 'STOP') {
+
+      // This honoured `onTrue === 'STOP'` and nothing else — no numeric jump, and
+      // `onFalse` not at all. So a journey that forks was walked straight down the
+      // middle: the Day 5 fork appeared to send BOTH the reminder-with-a-code and the
+      // claim-a-code question, which is a sequence that can never actually happen.
+      // The one tool meant to build confidence before activating was showing a path
+      // the engine would never take.
+      const go = hit ? step.onTrue : (step.onFalse ?? 'CONTINUE');
+      if (go === 'STOP') {
         out.push({ day, at: clock, kind: 'STOP', outcome: step.stopReason ?? 'STOPPED_GOAL_MET' });
         return out;
       }
-      stepIndex += 1;
+      stepIndex = typeof go === 'number' ? go : stepIndex + 1;
       continue;
     }
 
@@ -220,10 +250,19 @@ export async function simulate(
       const decision = await communicationPolicy(ctx, {
         patientId: seed.patientId, phone: seed.phone, intent: step.intent, runId: 'sim', visitId: seed.visitId,
       });
+      const sent = decision.kind === 'SEND';
+      // One coupon per RUN however many steps ask for one — the same rule the engine
+      // enforces with a partial unique index.
+      const fresh = sent && step.issueOffer && !issuedState;
+      if (fresh) issuedState = 'ISSUED';
       out.push({
         day, at: clock, kind: 'SEND',
-        outcome: decision.kind === 'SEND' ? 'SENT' : decision.reason,
-        detail: { template: step.template, offer: step.issueOffer?.campaignId ?? null },
+        outcome: sent ? 'SENT' : decision.reason,
+        detail: {
+          template: step.template,
+          offer: fresh ? step.issueOffer!.campaignId : null,
+          reusedExistingCoupon: Boolean(sent && step.issueOffer && !fresh),
+        },
       });
       stepIndex += 1;
       continue;
@@ -238,11 +277,69 @@ export async function simulate(
     }
 
     if (step.kind === 'ASK') {
-      out.push({ day, at: clock, kind: 'ASK', outcome: 'ASKED',
-        detail: { template: step.template, buttons: step.buttons.map((b) => b.label) } });
-      // A simulation cannot know what someone would tap, so it shows the question and
-      // stops rather than inventing an answer.
-      return out;
+      const decision = await communicationPolicy(ctx, {
+        patientId: seed.patientId, phone: seed.phone, intent: step.intent,
+        runId: 'sim', visitId: seed.visitId,
+      });
+      if (decision.kind !== 'SEND') {
+        out.push({ day, at: clock, kind: 'ASK', outcome: decision.reason,
+          detail: { template: step.template } });
+        stepIndex += 1;
+        continue;
+      }
+
+      const waitHours = step.waitHours ?? 24;
+      const deadline = new Date(clock.getTime() + waitHours * 3600_000);
+      // A reply only counts if it lands inside the window the line is held for.
+      const reply = events.find((e) =>
+        e.kind === 'REPLIED' && !spent.has(e) &&
+        new Date(seed.triggeredAt.getTime() + e.onDay * DAY_MS) >= clock &&
+        new Date(seed.triggeredAt.getTime() + e.onDay * DAY_MS) <= deadline);
+      if (reply) spent.add(reply);
+
+      out.push({
+        day, at: clock, kind: 'ASK',
+        outcome: reply ? 'REPLIED' : 'NO_REPLY',
+        detail: {
+          template: step.template,
+          buttons: step.buttons.map((b) => b.label),
+          answered: reply?.payload ?? null,
+          waitHours,
+        },
+      });
+
+      if (!reply) {
+        // Silence. A DIFFERENT question from an unmatched reply, and the reason this
+        // journey does not hand the code to someone who ignored the offer.
+        const go = step.onNoReply;
+        if (go === 'STOP') { out.push({ day, at: clock, kind: 'STOP', outcome: 'STOPPED_BY_STEP' }); return out; }
+        clock = new Date(deadline);
+        stepIndex = typeof go === 'number' ? go : stepIndex + 1;
+        continue;
+      }
+
+      clock = new Date(seed.triggeredAt.getTime() + reply.onDay * DAY_MS);
+      const matched = step.buttons.find((b) => b.payload === reply.payload)
+        ?? step.keywords?.find((k) => k.match === reply.payload);
+      if (matched) {
+        if (matched.goTo === 'STOP') {
+          out.push({ day, at: clock, kind: 'STOP', outcome: matched.stopReason ?? 'STOPPED_BY_STEP' });
+          return out;
+        }
+        stepIndex = matched.goTo;
+        continue;
+      }
+      // They typed something nobody anticipated.
+      if (step.onUnmatched === 'HANDOFF') {
+        out.push({ day, at: clock, kind: 'HANDOFF', outcome: 'HANDED_TO_STAFF' });
+        return out;
+      }
+      if (step.onUnmatched === 'STOP') {
+        out.push({ day, at: clock, kind: 'STOP', outcome: 'STOPPED_BY_STEP' });
+        return out;
+      }
+      stepIndex += 1;
+      continue;
     }
     if (step.kind === 'HANDOFF') {
       out.push({ day, at: clock, kind: 'HANDOFF', outcome: 'HANDED_TO_STAFF' });

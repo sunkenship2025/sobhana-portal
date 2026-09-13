@@ -9,6 +9,8 @@
 import { apiRequest } from '@/lib/utils';
 import { API_BASE } from '@/lib/api';
 
+export { REASON_LABEL, reasonLabel, vocabOf, type Vocab } from './reasons';
+
 const AUT = `${API_BASE}/automations`;
 const OFF = `${API_BASE}/offers`;
 
@@ -33,13 +35,46 @@ export type Recipients =
   | { kind: 'RUN_PATIENT' }
   | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' };
 
+/**
+ * MIRRORS health-hub-backend/src/services/automations/types.ts.
+ *
+ * It did not, and that is how ASK and HANDOFF came to be rendered by screens whose
+ * Step type had never heard of them: every branch narrowed to `never`, the property
+ * accesses were errors, and Vite strips types without checking so it shipped and ran.
+ * A union that is missing a kind the engine runs is worse than no types at all — it
+ * reports success on the exact steps that carry the branching.
+ */
 export type Step =
   | { kind: 'WAIT'; anchor: 'TRIGGER' | 'PREVIOUS'; days?: number; hours?: number }
-  | { kind: 'CHECK'; condition: Condition; onTrue: 'STOP' | 'CONTINUE'; stopReason?: string }
   | {
-      kind: 'SEND'; template: string; language?: string; params: ParamBinding[];
-      intent: 'REACTIVE' | 'PROACTIVE'; issueOffer?: { campaignId: string };
+      kind: 'CHECK'; condition: Condition;
+      /** 'STOP' ends it, 'CONTINUE' falls through, a number jumps to that step. */
+      onTrue: 'STOP' | 'CONTINUE' | number;
+      onFalse?: 'STOP' | 'CONTINUE' | number;
+      stopReason?: string;
     }
+  | {
+      kind: 'SEND'; to?: Recipients; template: string; language?: string;
+      params: ParamBinding[]; intent: 'REACTIVE' | 'PROACTIVE';
+      issueOffer?: {
+        campaignId: string;
+        /** TRIGGER = claiming late means less time, not a fresh window. */
+        expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean };
+      };
+    }
+  | {
+      /** A menu, not a conversation. Buttons carry the run id. */
+      kind: 'ASK'; template: string; language?: string; params: ParamBinding[];
+      intent: 'REACTIVE' | 'PROACTIVE';
+      buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
+      keywords?: { match: string; goTo: number | 'STOP'; stopReason?: string }[];
+      /** They replied and nothing matched. */
+      onUnmatched: 'HANDOFF' | 'STOP' | 'CONTINUE';
+      /** They never replied — a DIFFERENT question from onUnmatched. */
+      onNoReply?: 'STOP' | 'CONTINUE' | number;
+      waitHours?: number;
+    }
+  | { kind: 'HANDOFF'; note?: string }
   /**
    * The nightly day sheet. Everything optional here was a constant in the source until
    * it turned out each one is a thing a centre needs to change without a deploy.
@@ -52,6 +87,9 @@ export type Step =
       linkExpiryHours?: number;
     }
   | { kind: 'STOP'; reason: string };
+
+/** Anywhere a branch can point. */
+export type Jump = 'STOP' | 'CONTINUE' | number;
 
 export interface AutomationDefinition {
   trigger: { kind: 'VISIT_COMPLETED'; domain: 'CLINIC' | 'DIAGNOSTICS' }
@@ -114,9 +152,18 @@ export const previewAutomation = (id: string, limit = 20) =>
 export interface SimulatedStep {
   day: number; at: string; kind: string; outcome: string; detail?: unknown;
 }
+/** What you can make happen on the fake clock. REPLIED is what makes a branch walkable. */
+export interface SimulatedEvent {
+  onDay: number;
+  kind: 'DIAGNOSTICS_DONE' | 'REPLIED';
+  /** For REPLIED: the button payload she tapped. Absent = she typed something else. */
+  payload?: string;
+  valueInPaise?: number;
+}
+
 export const simulateAutomation = (
   id: string,
-  body: { visitId: string; patientId?: string; events: { onDay: number; kind: 'DIAGNOSTICS_DONE'; valueInPaise?: number }[] },
+  body: { visitId: string; patientId?: string; events: SimulatedEvent[] },
 ) => apiRequest<{ steps: SimulatedStep[] }>(`${AUT}/${id}/simulate`, {
   method: 'POST', body: JSON.stringify(body),
 });
@@ -279,45 +326,8 @@ export const createOffer = (body: Record<string, unknown>) =>
  * collapsing them is how someone concludes a paused automation and a skipped patient
  * are the same kind of fact.
  */
-export const REASON_LABEL: Record<string, string> = {
-  ENROLLED: 'Enrolled',
-  WAITING: 'Waiting',
-  CHECK_TRUE: 'Checked — yes',
-  CHECK_FALSE: 'Checked — not yet',
-  SENT: 'Sent',
-  ALREADY_SENT: 'Already sent',
-  COUPON_ISSUED: 'Offer issued',
-  STOPPED_GOAL_MET: 'Came in',
-  STOPPED_BY_STEP: 'Finished',
-  STOPPED_BY_STAFF: 'Stopped by staff',
-  STOPPED_AUTOMATION_STOPPED: 'Automation stopped',
-  CONVERSION_REVERSED: 'No longer counted',
-  MISSED_WINDOW: 'Too late to send',
-  HELD_OUT: 'Control group',
-  DECEASED: 'Patient has died',
-  NO_PHONE: 'No usable phone',
-  PHONE_OPTED_OUT: 'Replied STOP',
-  NOT_OPTED_IN_MARKETING: 'Never agreed to offers',
-  LINK_DISABLED: 'Online access switched off',
-  CRITICAL_VALUE: 'Critical result — lab alerted',
-  HUMAN_HOLDS_THREAD: 'Staff handling the conversation',
-  LINE_HELD_BY_ANOTHER_RUN: 'Another journey is waiting for a reply',
-  TEMPLATE_PAUSED: 'Template unavailable',
-  OFFER_EXHAUSTED: 'Offer budget used up',
-  FREQUENCY_CAP: 'Already messaged this week',
-  QUIET_HOURS: 'Outside sending hours',
-  WAITING_ANOTHER_AUTOMATION: 'Waiting its turn',
-  UNIT_MISMATCH: 'Result unit changed',
-  SEND_FAILED: 'Send failed',
-};
 
-export const reasonLabel = (code: string) => REASON_LABEL[code] ?? code;
 
-/** Which of the three vocabularies a code belongs to. */
-export type Vocab = 'run' | 'outcome';
-export const vocabOf = (code: string): Vocab =>
-  ['STOPPED_GOAL_MET', 'HELD_OUT', 'PHONE_OPTED_OUT', 'CONVERSION_REVERSED', 'STOPPED_BY_STAFF']
-    .includes(code) ? 'outcome' : 'run';
 
 export const rupees = (paise: number | null | undefined) =>
   paise == null ? '—' : `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
@@ -348,7 +358,9 @@ export const listRecipients = () =>
 
 // ── Blueprints: what an automation can BE ───────────────────────────────────
 
-export type FieldType = 'TEXT' | 'TIME' | 'NUMBER' | 'BRANCHES' | 'TEMPLATE' | 'CHOICE';
+/** MIRRORS blueprints.ts. 'OFFER' was missing here too, which is why the field that
+ *  picks a discount campaign fell through to a bare text box. */
+export type FieldType = 'TEXT' | 'TIME' | 'NUMBER' | 'BRANCHES' | 'TEMPLATE' | 'CHOICE' | 'OFFER';
 
 export interface BlueprintField {
   key: string; label: string; type: FieldType;

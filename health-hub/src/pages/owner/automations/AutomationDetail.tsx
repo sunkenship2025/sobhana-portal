@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,9 +33,12 @@ import { useQuery as useRQ } from '@tanstack/react-query';
 import {
   getAutomation, listTemplates, saveAutomation, activateAutomation, pauseAutomation,
   stopAutomation, previewAutomation, simulateAutomation, reasonLabel, listRecipients,
-  validateDefinition, listStepKinds,
+  validateDefinition, listStepKinds, listPredicates, listOffers, rupees,
   type Automation, type AutomationDefinition, type Step, type TemplateSummary,
+  type StepMeta, type Condition,
 } from './api';
+import { insertStep, deleteStep, moveStep, blankStep } from './editSteps';
+import { describeCondition, describeJump, messagingSteps, dayOf } from './describe';
 
 export function AutomationDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const qc = useQueryClient();
@@ -47,6 +50,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
   const [showSimulate, setShowSimulate] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  const [addAt, setAddAt] = useState<number | null>(null);
 
   const { data: saved, isLoading } = useQuery({
     queryKey: ['automation', id], queryFn: () => getAutomation(id),
@@ -101,13 +105,14 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
 
   // A scheduled report has no patient to simulate and no SEND step to count.
   const isScheduled = automation.definition.trigger.kind === 'SCHEDULE';
-  const dayLabels = automation.definition.steps
-    .filter((s): s is Extract<Step, { kind: 'WAIT' }> => s.kind === 'WAIT' && s.anchor === 'TRIGGER')
-    .map((s) => `Day ${s.days ?? 0}`);
+  // Days a message actually goes out on — an anchored WAIT with nothing but a stop after
+  // it is not a message day, and listing it claimed a send that never happens.
+  const messages = messagingSteps(automation.definition.steps);
+  const dayLabels = [...new Set(messages.map(({ index }) => dayOf(automation.definition.steps, index)))];
   const sends = isScheduled
     ? automation.definition.steps.filter((s) => s.kind === 'DAY_SHEET').length *
       Math.max(1, automation.branchIds.length)
-    : automation.definition.steps.filter((s) => s.kind === 'SEND').length;
+    : messages.length;
 
   return (
     <div className="space-y-5">
@@ -126,7 +131,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
           <p className="mt-0.5 text-sm text-muted-foreground">
             {isScheduled
               ? `${sends} message${sends === 1 ? '' : 's'} a night, one per branch`
-              : `${sends} message${sends === 1 ? '' : 's'}${dayLabels.length > 0 ? ` on ${dayLabels.join(', ')}` : ''}`}
+              : `up to ${sends} message${sends === 1 ? '' : 's'}${dayLabels.length > 0 ? ` on ${dayLabels.join(', ')}` : ''}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -174,6 +179,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
             templates={templates?.templates ?? []}
             onChange={(patch) => setDraft({ ...draft, ...patch })}
             onEditStep={setEditStep}
+            onAddStep={setAddAt}
             onPreview={() => setShowPreview(true)}
             onEditAudience={() => setShowAudience(true)}
           />
@@ -202,6 +208,18 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
         }}
       />
 
+      <AddStepDialog
+        at={addAt}
+        kinds={grammar?.steps ?? []}
+        onClose={() => setAddAt(null)}
+        onPick={(kind) => {
+          const steps = insertStep(automation.definition.steps, addAt!, blankStep(kind));
+          setDraft({ ...draft, definition: { ...automation.definition, steps } });
+          setAddAt(null);
+          setEditStep(addAt!);   // straight into editing it — a blank step is never the answer
+        }}
+      />
+
       <PreviewDialog id={id} open={showPreview} onClose={() => setShowPreview(false)} />
 
       <ConditionBuilder
@@ -214,7 +232,7 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
         }}
       />
 
-      <SimulateDialog id={id} open={showSimulate} onClose={() => setShowSimulate(false)} />
+      <SimulateDialog id={id} automation={automation} open={showSimulate} onClose={() => setShowSimulate(false)} />
 
       <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
         <AlertDialogContent>
@@ -343,20 +361,27 @@ function BrokenTemplateNotice({ automation, templates }: {
 
 function StepDrawer({ automation, index, templates, onClose, onChange }: {
   automation: Automation; index: number | null;
-  templates: { name: string; status: string; paramCount: number; bodyText: string; category: string }[];
+  templates: TemplateSummary[];
   onClose: () => void; onChange: (steps: Step[]) => void;
 }) {
   const step = index !== null ? automation.definition.steps[index] : null;
   const [local, setLocal] = useState<Step | null>(null);
+  const [editCondition, setEditCondition] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const current = local ?? step;
+  const all = automation.definition.steps;
 
   const commit = () => {
     if (index === null || !current) return;
-    const steps = [...automation.definition.steps];
+    const steps = [...all];
     steps[index] = current;
     setLocal(null);
     onChange(steps);
   };
+
+  // Every reshaping goes through editSteps, which repoints the branches. Doing it by
+  // hand here is how a jump comes to name the wrong step without anyone noticing.
+  const reshape = (steps: Step[]) => { setLocal(null); onChange(steps); };
 
   return (
     <Sheet open={index !== null} onOpenChange={(o) => { if (!o) { setLocal(null); onClose(); } }}>
@@ -418,6 +443,18 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm">
                   <b>Checked live, the moment this step runs.</b> Never what was true when the
                   patient enrolled.
+                </div>
+                <div>
+                  <Label className="text-xs">What to check</Label>
+                  <button
+                    onClick={() => setEditCondition(true)}
+                    className="mt-1.5 flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left hover:bg-muted/50"
+                  >
+                    <span className="min-w-0 flex-1 text-sm first-letter:uppercase">
+                      <ConditionWords condition={current.condition} />
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">Change</span>
+                  </button>
                 </div>
                 <div className="divide-y rounded-lg border">
                   <div className="flex items-center gap-3 px-3 py-2.5 text-sm">
@@ -531,6 +568,30 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 </div>
 
                 <div>
+                  <Label className="text-xs">If they never reply at all</Label>
+                  <Select
+                    value={String(current.onNoReply ?? 'CONTINUE')}
+                    onValueChange={(v) => setLocal({
+                      ...current,
+                      onNoReply: v === 'STOP' || v === 'CONTINUE' ? v : Number(v),
+                    })}>
+                    <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CONTINUE">Carry on to the next step</SelectItem>
+                      <SelectItem value="STOP">End the journey</SelectItem>
+                      {all.map((_, j) => (
+                        <SelectItem key={j} value={String(j)}>Skip to step {j + 1}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Not the same as the answer above. Silence usually means skipping whatever
+                    the reply would have unlocked — carrying on is what once sent the discount
+                    code to someone who had ignored the offer.
+                  </p>
+                </div>
+
+                <div>
                   <Label className="text-xs">Hold the line for</Label>
                   <Input className="mt-1.5 w-28" value={current.waitHours ?? ''}
                     placeholder="24"
@@ -606,6 +667,11 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   );
                 })()}
 
+                <OfferFields
+                  issueOffer={current.issueOffer}
+                  onChange={(issueOffer) => setLocal({ ...current, issueOffer })}
+                />
+
                 <div>
                   <Label className="text-xs">Kind</Label>
                   <Select value={current.intent}
@@ -624,14 +690,229 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
               </div>
             )}
 
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => { setLocal(null); onClose(); }}>Cancel</Button>
-              <Button size="sm" onClick={commit}>Save</Button>
+            <div className="mt-6 space-y-3 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={index === 0}
+                  onClick={() => reshape(moveStep(all, index!, index! - 1))}>
+                  <ArrowUp className="mr-1.5 h-3.5 w-3.5" /> Move up
+                </Button>
+                <Button variant="outline" size="sm" disabled={index === all.length - 1}
+                  onClick={() => reshape(moveStep(all, index!, index! + 1))}>
+                  <ArrowDown className="mr-1.5 h-3.5 w-3.5" /> Move down
+                </Button>
+                <span className="flex-1" />
+                <Button variant="outline" size="sm" className="text-destructive"
+                  onClick={() => setConfirmDelete(true)}>
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                </Button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setLocal(null); onClose(); }}>Cancel</Button>
+                <Button size="sm" onClick={commit}>Save</Button>
+              </div>
             </div>
+
+            <ConditionBuilder
+              open={editCondition && current.kind === 'CHECK'}
+              condition={current.kind === 'CHECK' ? current.condition : { fn: 'always' }}
+              onClose={() => setEditCondition(false)}
+              onSave={(condition) => {
+                if (current.kind === 'CHECK') setLocal({ ...current, condition });
+                setEditCondition(false);
+              }}
+            />
+
+            <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete step {(index ?? 0) + 1}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {referrersTo(all, index ?? -1).length > 0
+                      ? `Step ${referrersTo(all, index ?? -1).map((i) => i + 1).join(', ')} sends the journey here. Those branches will carry on to the next step instead — check they still make sense.`
+                      : 'Nothing branches to this step, so nothing else changes.'}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => { setConfirmDelete(false); reshape(deleteStep(all, index!)); onClose(); }}>
+                    Delete it
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </>
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Which steps send the journey to `target` — the thing you need to know before deleting it. */
+function referrersTo(steps: Step[], target: number): number[] {
+  return steps
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => {
+      const js = s.kind === 'CHECK' ? [s.onTrue, s.onFalse]
+        : s.kind === 'ASK' ? [s.onNoReply, ...s.buttons.map((b) => b.goTo),
+                              ...(s.keywords ?? []).map((k) => k.goTo)]
+        : [];
+      return js.some((j) => j === target);
+    })
+    .map(({ i }) => i);
+}
+
+/** The condition, in the same words every other screen uses. */
+function ConditionWords({ condition }: { condition: Condition }) {
+  const { data } = useRQ({ queryKey: ['predicates'], queryFn: listPredicates });
+  return <>{describeCondition(condition, data?.predicates ?? [])}</>;
+}
+
+/**
+ * The offer a message hands out.
+ *
+ * The builder described this in detail — which offer, when it expires, that claiming
+ * late means less time — and nothing on any screen could change a word of it. The
+ * expiry anchor is the one that matters: anchored to the trigger, a late claim gets
+ * what is left of the window; anchored to issue, every tap starts a fresh one, which
+ * is not an expiring offer at all.
+ */
+function OfferFields({ issueOffer, onChange }: {
+  issueOffer?: { campaignId: string; expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean } };
+  onChange: (v: OfferValue | undefined) => void;
+}) {
+  const { data } = useRQ({ queryKey: ['offers'], queryFn: listOffers });
+  const offers = data?.offers ?? [];
+
+  if (!issueOffer) {
+    return (
+      <button
+        onClick={() => onChange({ campaignId: '', expiry: { anchor: 'TRIGGER', days: 6, endOfDayIST: true } })}
+        className="w-full rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/40"
+      >
+        + Issue an offer with this message
+      </button>
+    );
+  }
+
+  const expiry = issueOffer.expiry ?? { anchor: 'TRIGGER' as const, days: 6, endOfDayIST: true };
+  const chosen = offers.find((o) => o.id === issueOffer.campaignId);
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">The offer this issues</Label>
+        <button onClick={() => onChange(undefined)}
+          className="text-xs text-muted-foreground hover:text-destructive">Remove</button>
+      </div>
+
+      <Select value={issueOffer.campaignId || undefined}
+        onValueChange={(v) => onChange({ ...issueOffer, campaignId: v })}>
+        <SelectTrigger className="h-9">
+          <SelectValue placeholder="Choose an offer" />
+        </SelectTrigger>
+        <SelectContent>
+          {offers.map((o) => (
+            <SelectItem key={o.id} value={o.id}>
+              {o.code} — {o.discountPercentage}%{o.isActive ? '' : ' (switched off)'}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {offers.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No offers exist yet. Create one under Offers — saving is refused while this is empty,
+          because the message would go out with no code in it.
+        </p>
+      )}
+      {chosen && !chosen.isActive && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs">
+          This offer is switched off, so nothing would be issued and the message would carry
+          an empty code. Turn it on under Offers before activating.
+        </p>
+      )}
+
+      <div>
+        <Label className="text-xs">Expires</Label>
+        <div className="mt-1.5 space-y-2 rounded-lg border p-2.5">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="radio" className="mt-1" checked={expiry.anchor === 'TRIGGER'}
+              onChange={() => onChange({ ...issueOffer, expiry: { ...expiry, anchor: 'TRIGGER' } })} />
+            <span>
+              End of day
+              <Input type="number" className="mx-2 inline-block h-7 w-16" value={expiry.days}
+                onChange={(e) => onChange({
+                  ...issueOffer, expiry: { ...expiry, anchor: 'TRIGGER', days: Number(e.target.value) },
+                })} />
+              after the trigger
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Claiming late means less time, not a fresh window.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="radio" className="mt-1" checked={expiry.anchor === 'ISSUE'}
+              onChange={() => onChange({ ...issueOffer, expiry: { ...expiry, anchor: 'ISSUE' } })} />
+            <span>
+              <Input type="number" className="mr-2 inline-block h-7 w-16" value={expiry.days}
+                onChange={(e) => onChange({
+                  ...issueOffer, expiry: { ...expiry, anchor: 'ISSUE', days: Number(e.target.value) },
+                })} />
+              days from when they claim it
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Every claim starts a fresh window — the deadline stops being a deadline.
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type OfferValue = {
+  campaignId: string;
+  expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean };
+};
+
+/**
+ * Which kind of step to add — the engine's published grammar, not a list kept here.
+ * A kind the engine grows shows up in this dialog without anyone editing it.
+ */
+function AddStepDialog({ at, kinds, onClose, onPick }: {
+  at: number | null; kinds: StepMeta[];
+  onClose: () => void; onPick: (kind: string) => void;
+}) {
+  return (
+    <Dialog open={at !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add a step</DialogTitle>
+          <DialogDescription>
+            It goes in at position {(at ?? 0) + 1}. Anything that jumps past it is repointed
+            so it still lands where it did.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="divide-y rounded-lg border">
+          {kinds.map((k) => (
+            <button key={k.kind} onClick={() => onPick(k.kind)}
+              className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-muted/50">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{k.label}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{k.summary}</span>
+              </span>
+              {k.terminal && (
+                <Badge variant="outline" className="shrink-0 text-[11px] font-normal">Ends the run</Badge>
+              )}
+            </button>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -713,9 +994,20 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
   const { data } = useQuery({
     queryKey: ['preview', id], queryFn: () => previewAutomation(id, 5), enabled: open,
   });
-  const sends = automation.definition.steps
-    .map((s, i) => ({ s, i }))
-    .filter(({ s }) => s.kind === 'SEND');
+  const { data: predicateData } = useRQ({ queryKey: ['predicates'], queryFn: listPredicates });
+  const catalog = predicateData?.predicates ?? [];
+  const def = automation.definition;
+  // Everything a patient is actually sent — an ASK is a message too. Listing SEND only
+  // meant the journey whose first patient contact is a question showed its follow-ups
+  // and hid its opening line.
+  const messages = messagingSteps(def.steps);
+
+  const startsWhen =
+    def.trigger.kind === 'VISIT_COMPLETED'
+      ? `a ${def.trigger.domain === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`
+      : def.trigger.kind === 'REPORT_FINALIZED'
+        ? 'a report is finalized'
+        : 'the scheduled time comes round';
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -731,29 +1023,37 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
           </p>
           <div className="divide-y rounded-lg border text-sm">
             <div className="px-3 py-2.5">
-              <b>Starts</b> when a visit is completed —{' '}
+              <b>Starts</b> when {startsWhen} —{' '}
               <span className="text-muted-foreground">from today onward. Past visits never enrol.</span>
             </div>
-            {sends.map(({ s, i }) => {
-              const wait = automation.definition.steps
-                .slice(0, i).reverse()
-                .find((x): x is Extract<Step, { kind: 'WAIT' }> => x.kind === 'WAIT');
-              return (
-                <div key={i} className="px-3 py-2.5">
-                  <b>{wait?.anchor === 'TRIGGER' ? `Day ${wait.days}` : 'Later'}</b>{' '}
-                  <code className="rounded bg-muted px-1 text-xs">
-                    {s.kind === 'SEND' ? s.template : ''}
-                  </code>
-                  {s.kind === 'SEND' && s.issueOffer && (
-                    <span className="text-muted-foreground"> · issues an offer</span>
-                  )}
-                </div>
-              );
-            })}
+            {messages.map(({ step, index }) => (
+              <div key={index} className="px-3 py-2.5">
+                <b>{dayOf(def.steps, index)}</b>{' '}
+                <span className="text-muted-foreground">
+                  {step.kind === 'ASK' ? 'asks' : 'sends'}
+                </span>{' '}
+                <code className="rounded bg-muted px-1 text-xs">
+                  {step.kind === 'DAY_SHEET' ? 'the day sheet' : step.template}
+                </code>
+                {step.kind === 'SEND' && step.issueOffer && (
+                  <span className="text-muted-foreground"> · issues an offer</span>
+                )}
+                {step.kind === 'ASK' && (
+                  <span className="text-muted-foreground">
+                    {' '}· {step.buttons.map((b) => `"${b.label}"`).join(', ')}
+                  </span>
+                )}
+              </div>
+            ))}
             <div className="bg-muted/40 px-3 py-2.5">
-              <b>Stops</b> the moment diagnostics happen for that visit.
+              <b>Stops</b> when {describeCondition(def.goal.condition, catalog)}, or at the end
+              of the journey.
             </div>
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Not everyone gets all {messages.length} — a check or an unanswered question can end it
+            sooner, and the stop condition is re-read before every one.
+          </p>
         </div>
 
         <div>

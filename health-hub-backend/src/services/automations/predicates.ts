@@ -21,6 +21,12 @@ export interface Subject {
   branchId: string | null;
   /** The instant the trigger fired. Windows and anchors measure from here. */
   triggeredAt: Date;
+  /**
+   * The run doing the asking. Absent while deciding whether to ENROL, because there is
+   * no run yet — which is the honest answer for anything that asks about the run's own
+   * state, and the reason couponState returns null rather than guessing.
+   */
+  runId?: string;
 }
 
 export type Predicate = (
@@ -258,8 +264,19 @@ export const predicates: Record<string, Predicate> = {
 
   /** ISSUED | REDEEMED | EXPIRED | VOID | PENDING | null, for this run's own coupon. */
   async couponState(ctx, subject, args) {
-    const runId = String(args.runId ?? subject.id);
-    return ctx.couponState(runId);
+    /**
+     * The RUN's coupon, and `subject.id` is not the run — it is the visit the run is
+     * about. Looking a coupon up by `automationRunId: <visitId>` matches nothing, ever,
+     * so this read null for every patient and the Day 5 fork always took the "she never
+     * claimed" arm: someone who had tapped Get my code on Day 2 was asked on Day 5 to
+     * claim the code she was already holding.
+     *
+     * No run means no coupon of its own to report, which is null rather than a lookup
+     * that cannot succeed.
+     */
+    const runId = args.runId ?? subject.runId;
+    if (!runId) return null;
+    return ctx.couponState(String(runId));
   },
 
   async always() {

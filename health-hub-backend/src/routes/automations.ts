@@ -48,10 +48,19 @@ router.get('/steps', async (_req: AuthRequest, res) => {
   catch (e) { return fail(res, e); }
 });
 
+/** Every campaign an offer step may legitimately name. */
+async function campaignIds(): Promise<Set<string>> {
+  const rows = await prisma.couponCampaign.findMany({ select: { id: true } });
+  return new Set(rows.map((r) => r.id));
+}
+
 /** Read a definition back and say what is wrong with it, before it can be saved. */
 router.post('/validate', async (req: AuthRequest, res) => {
-  try { return res.json({ problems: validateDefinition(req.body?.definition ?? {}) }); }
-  catch (e) { return fail(res, e); }
+  try {
+    return res.json({
+      problems: validateDefinition(req.body?.definition ?? {}, await campaignIds()),
+    });
+  } catch (e) { return fail(res, e); }
 });
 
 /** What an automation can BE. Served, so a new kind is a backend entry, not a React edit. */
@@ -384,7 +393,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     // A goTo pointing nowhere is a run that stops dead in production, and nothing in the
     // shape of the JSON catches it. Refuse at save rather than strand a patient.
-    const blocking = validateDefinition(def as never).filter((p) => p.blocking);
+    const blocking = validateDefinition(def as never, await campaignIds()).filter((p) => p.blocking);
     if (blocking.length) {
       return res.status(400).json({ error: `${blocking[0].where}: ${blocking[0].problem}` });
     }

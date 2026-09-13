@@ -7,14 +7,14 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, AlertTriangle, Search } from 'lucide-react';
+import { ChevronRight, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
 import { listAutomations, type AutomationRow } from './api';
 
-const GROUP_ORDER = ['Patient journeys', 'Conversations', 'Reports to your team'];
+const GROUP_ORDER = ['Patient journeys', 'Reports to your team'];
 
 function StatusDot({ status }: { status: AutomationRow['status'] }) {
   const cls =

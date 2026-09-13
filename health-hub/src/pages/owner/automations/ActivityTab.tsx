@@ -16,7 +16,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { LoadingState } from '@/components/ui/loading-state';
 import { toast } from 'sonner';
 import {
-  getActivity, getActivityReasons, getRun, stopRun, listAutomations,
+  getActivity, getActivityReasons, getRun, stopRun, listAutomations, listPredicates,
   reasonLabel, vocabOf, rupees, type ActivityRow,
 } from './api';
 
@@ -143,6 +143,11 @@ export function ActivityTab({ automationId }: { automationId?: string }) {
 /** Why she entered · what happened · why it stopped · what is next. One step log. */
 export function RunSheet({ runId, onClose }: { runId: string | null; onClose: () => void }) {
   const qc = useQueryClient();
+  // The same words the builder uses. This listed raw predicate names — an operator
+  // reading why a patient entered got `testDoneSinceThisVisit`.
+  const { data: predicateData } = useQuery({ queryKey: ['predicates'], queryFn: listPredicates });
+  const labelOf = (fn: string) =>
+    (predicateData?.predicates ?? []).find((p) => p.fn === fn)?.label ?? fn;
   const { data: run, isLoading } = useQuery({
     queryKey: ['run', runId],
     queryFn: () => getRun(runId!),
@@ -188,7 +193,7 @@ export function RunSheet({ runId, onClose }: { runId: string | null; onClose: ()
                           t.passed ? 'border-emerald-200 text-emerald-700' : 'border-destructive/30 text-destructive'}`}>
                           {t.passed ? '✓' : '×'}
                         </Badge>
-                        <span className="min-w-0 flex-1 text-sm">{t.fn}</span>
+                        <span className="min-w-0 flex-1 text-sm">{labelOf(t.fn)}</span>
                         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                           {String(t.fact)}
                         </span>

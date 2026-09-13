@@ -271,6 +271,8 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
   const subject: Subject = {
     type: run.subjectType, id: run.subjectId, patientId: run.patientId,
     branchId: run.branchId, triggeredAt: run.triggeredAt,
+    // The run, so a step can ask about the run's OWN coupon. subject.id is the visit.
+    runId: run.id,
   };
 
   if (!step) {

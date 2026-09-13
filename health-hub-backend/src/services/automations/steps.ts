@@ -60,7 +60,7 @@ export function validateDefinition(def: {
   trigger?: { kind?: string };
   steps?: { kind?: string; [k: string]: unknown }[];
   goal?: { windowDays?: number };
-}): DefinitionProblem[] {
+}, knownCampaignIds?: Set<string>): DefinitionProblem[] {
   const problems: DefinitionProblem[] = [];
   const steps = def.steps ?? [];
   const known = new Set(STEP_CATALOG.map((s) => s.kind));
@@ -94,6 +94,29 @@ export function validateDefinition(def: {
           problem: `Sends the journey to step ${j + 1}, which does not exist.`,
           blocking: true,
         });
+      }
+    }
+
+    // An offer the engine cannot find is not a save-time inconvenience: issuing is
+    // refused at runtime and the message goes out ANYWAY, with an empty code in it.
+    // The campaign id is the one field an operator cannot sanity-check by eye.
+    if (step.kind === 'SEND' || step.kind === 'ASK') {
+      const offer = step.issueOffer as { campaignId?: unknown } | undefined;
+      if (offer !== undefined) {
+        const id = offer.campaignId;
+        if (typeof id !== 'string' || id.trim() === '') {
+          problems.push({
+            where: `step ${i + 1}`,
+            problem: 'This step issues an offer but no offer is chosen.',
+            blocking: true,
+          });
+        } else if (knownCampaignIds && !knownCampaignIds.has(id)) {
+          problems.push({
+            where: `step ${i + 1}`,
+            problem: `No offer with id "${id}" exists. The message would still be sent, with no code in it.`,
+            blocking: true,
+          });
+        }
       }
     }
 

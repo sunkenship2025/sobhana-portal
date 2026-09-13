@@ -54,6 +54,7 @@ const OPS: { value: Op; label: string; for: PredicateMeta['returns'][] }[] = [
   { value: 'lt', label: 'is less than', for: ['NUMBER'] },
   { value: 'eq', label: 'is', for: ['NUMBER', 'TEXT'] },
   { value: 'ne', label: 'is not', for: ['NUMBER', 'TEXT'] },
+  { value: 'in', label: 'is one of', for: ['TEXT'] },
 ];
 
 function displayValue(leaf: Leaf, meta?: PredicateMeta): string {
@@ -78,7 +79,12 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
 }) {
   const { data } = useQuery({ queryKey: ['predicates'], queryFn: listPredicates, enabled: open });
   const catalog = data?.predicates ?? [];
+  // Keyed on the condition it was opened with: initialising once meant Cancel did not
+  // discard, and a second CHECK opened showing the first one's conditions.
   const [groups, setGroups] = useState(() => toGroups(condition));
+  const [key, setKey] = useState('');
+  const openedWith = JSON.stringify(condition);
+  if (open && key !== openedWith) { setKey(openedWith); setGroups(toGroups(condition)); }
 
   const metaOf = (fn: string) => catalog.find((p) => p.fn === fn);
 
@@ -101,47 +107,6 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
           : { fn: meta.fn, op: 'gte' as Op, value: 0 },
       ],
     }));
-
-  const Row = ({ which, leaf, i }: { which: 'all' | 'any'; leaf: Leaf; i: number }) => {
-    const meta = metaOf(leaf.fn);
-    const ops = OPS.filter((o) => meta && o.for.includes(meta.returns));
-    return (
-      <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2.5 first:border-t-0">
-        <span className="text-sm font-medium">{meta?.label ?? leaf.fn}</span>
-        {meta?.scope && (
-          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-            {meta.scope}
-          </span>
-        )}
-        {meta && meta.returns !== 'BOOLEAN' && (
-          <>
-            <Select value={leaf.op ?? 'gte'}
-              onValueChange={(v) => update(which, i, { op: v as Op })}>
-              <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ops.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Input
-              className="h-8 w-24"
-              value={displayValue(leaf, meta)}
-              onChange={(e) => update(which, i, { value: parseValue(e.target.value, meta) })}
-            />
-            {meta.unit && (
-              <span className="text-xs text-muted-foreground">
-                {meta.unit === 'RUPEES' ? 'rupees' : meta.unit === 'DAYS' ? 'days' : 'years'}
-              </span>
-            )}
-          </>
-        )}
-        <span className="flex-1" />
-        <button onClick={() => remove(which, i)}
-          className="text-muted-foreground hover:text-destructive" aria-label="Remove">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    );
-  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -168,7 +133,8 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
                 No conditions — everyone the trigger catches qualifies.
               </p>
             ) : groups.all.map((leaf, i) => (
-              <Row key={`all-${i}`} which="all" leaf={leaf} i={i} />
+              <Row key={`all-${i}`} which="all" leaf={leaf} i={i}
+                meta={metaOf(leaf.fn)} update={update} remove={remove} />
             ))}
           </div>
 
@@ -185,7 +151,8 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
                   <FieldPicker catalog={catalog} onPick={(m) => add('any', m)} />
                 </div>
                 {groups.any.map((leaf, i) => (
-                  <Row key={`any-${i}`} which="any" leaf={leaf} i={i} />
+                  <Row key={`any-${i}`} which="any" leaf={leaf} i={i}
+                    meta={metaOf(leaf.fn)} update={update} remove={remove} />
                 ))}
               </div>
             </>
@@ -211,6 +178,57 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
     </Dialog>
   );
 }
+
+/**
+ * Hoisted OUT of ConditionBuilder. Declared inside it, every render produced a new
+ * component type, so React unmounted and remounted this row on each keystroke and the
+ * value input lost focus after every character. tsc and the rules-of-hooks lint both
+ * pass on that — it only shows up if someone types in it.
+ */
+function Row({ which, leaf, i, meta, update, remove }: {
+  which: 'all' | 'any'; leaf: Leaf; i: number;
+  meta?: PredicateMeta;
+  update: (which: 'all' | 'any', i: number, patch: Partial<Leaf>) => void;
+  remove: (which: 'all' | 'any', i: number) => void;
+}) {
+  const ops = OPS.filter((o) => meta && o.for.includes(meta.returns));
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2.5 first:border-t-0">
+      <span className="text-sm font-medium">{meta?.label ?? leaf.fn}</span>
+      {meta?.scope && (
+        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+          {meta.scope}
+        </span>
+      )}
+      {meta && meta.returns !== 'BOOLEAN' && (
+        <>
+          <Select value={leaf.op ?? 'gte'}
+            onValueChange={(v) => update(which, i, { op: v as Op })}>
+            <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ops.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input
+            className="h-8 w-24"
+            value={displayValue(leaf, meta)}
+            onChange={(e) => update(which, i, { value: parseValue(e.target.value, meta) })}
+          />
+          {meta.unit && (
+            <span className="text-xs text-muted-foreground">
+              {meta.unit === 'RUPEES' ? 'rupees' : meta.unit === 'DAYS' ? 'days' : 'years'}
+            </span>
+          )}
+        </>
+      )}
+      <span className="flex-1" />
+      <button onClick={() => remove(which, i)}
+        className="text-muted-foreground hover:text-destructive" aria-label="Remove">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+  }
 
 /** Search-first, because a permanently visible field tree reads like a database. */
 function FieldPicker({ catalog, onPick, trigger }: {

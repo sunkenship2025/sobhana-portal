@@ -18,16 +18,29 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { simulateAutomation, previewAutomation, reasonLabel, type SimulatedStep } from './api';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  simulateAutomation, previewAutomation, reasonLabel,
+  type SimulatedStep, type SimulatedEvent, type Automation,
+} from './api';
 
-interface Ev { onDay: number; kind: 'DIAGNOSTICS_DONE'; valueInPaise?: number }
+/** The buttons this journey actually offers, so the picker is never a guess. */
+function askButtons(automation?: Automation): { payload: string; label: string }[] {
+  const seen = new Map<string, string>();
+  for (const s of automation?.definition.steps ?? []) {
+    if (s.kind !== 'ASK') continue;
+    for (const b of s.buttons) seen.set(b.payload, b.label);
+  }
+  return [...seen].map(([payload, label]) => ({ payload, label }));
+}
 
-export function SimulateDialog({ id, open, onClose }: {
-  id: string; open: boolean; onClose: () => void;
+export function SimulateDialog({ id, open, onClose, automation }: {
+  id: string; open: boolean; onClose: () => void; automation?: Automation;
 }) {
   const [visitId, setVisitId] = useState('');
   const [patientLabel, setPatientLabel] = useState('');
-  const [events, setEvents] = useState<Ev[]>([]);
+  const [events, setEvents] = useState<SimulatedEvent[]>([]);
+  const buttons = askButtons(automation);
   const [steps, setSteps] = useState<SimulatedStep[] | null>(null);
 
   // Seed the picker from whoever actually qualifies, so the run is on a real shape of
@@ -43,11 +56,16 @@ export function SimulateDialog({ id, open, onClose }: {
 
   const reset = () => { setSteps(null); setEvents([]); setVisitId(''); setPatientLabel(''); };
 
-  const sent = (steps ?? []).filter((s) => s.kind === 'SEND' && s.outcome === 'SENT').length;
+  // An ASK is a message too — counting SENDs alone under-reported what she receives.
+  const sent = (steps ?? []).filter(
+    (s) => (s.kind === 'SEND' && s.outcome === 'SENT')
+        || (s.kind === 'ASK' && s.outcome !== 'QUIET_HOURS' && s.outcome !== 'FREQUENCY_CAP'),
+  ).length;
   const stopped = (steps ?? []).find((s) => s.kind === 'STOP');
   const offers = (steps ?? []).filter(
     (s) => s.kind === 'SEND' && s.outcome === 'SENT' && (s.detail as { offer?: string })?.offer,
   ).length;
+  const handed = (steps ?? []).some((s) => s.kind === 'HANDOFF');
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
@@ -96,35 +114,69 @@ export function SimulateDialog({ id, open, onClose }: {
           <div>
             <div className="flex items-center justify-between">
               <Label className="text-xs">What happens along the way</Label>
-              <button
-                onClick={() => { setEvents([...events, { onDay: 6, kind: 'DIAGNOSTICS_DONE', valueInPaise: 240000 }]); setSteps(null); }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                <Plus className="h-3 w-3" /> Add an event
-              </button>
+              <div className="flex items-center gap-3">
+                {buttons.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setEvents([...events, { onDay: 2, kind: 'REPLIED', payload: buttons[0].payload }]);
+                      setSteps(null);
+                    }}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                    <Plus className="h-3 w-3" /> She replies
+                  </button>
+                )}
+                <button
+                  onClick={() => { setEvents([...events, { onDay: 6, kind: 'DIAGNOSTICS_DONE', valueInPaise: 240000 }]); setSteps(null); }}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                  <Plus className="h-3 w-3" /> She comes in
+                </button>
+              </div>
             </div>
             {events.length === 0 ? (
               <p className="mt-1.5 rounded-lg border border-dashed px-3 py-3 text-center text-xs text-muted-foreground">
-                Nothing added — the journey runs as if she never comes in.
+                Nothing added — she never answers and never comes in, which is the path most
+                patients take. Add a reply to see the other half of the journey.
               </p>
             ) : (
               <div className="mt-1.5 divide-y rounded-lg border">
-                {events.map((e, i) => (
-                  <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm">
-                    <span>She does her tests on day</span>
-                    <Input type="number" className="h-8 w-16"
-                      value={e.onDay}
-                      onChange={(ev) => {
-                        const next = [...events];
-                        next[i] = { ...e, onDay: Number(ev.target.value) };
-                        setEvents(next); setSteps(null);
-                      }} />
-                    <span className="flex-1 text-xs text-muted-foreground">not real — only for this run</span>
-                    <button onClick={() => { setEvents(events.filter((_, j) => j !== i)); setSteps(null); }}
-                      className="text-muted-foreground hover:text-destructive">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                {events.map((e, i) => {
+                  const patch = (v: Partial<SimulatedEvent>) => {
+                    const next = [...events];
+                    next[i] = { ...e, ...v };
+                    setEvents(next); setSteps(null);
+                  };
+                  return (
+                    <div key={i} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                      {e.kind === 'REPLIED' ? (
+                        <>
+                          <span>She taps</span>
+                          <Select
+                            value={e.payload ?? '__other__'}
+                            onValueChange={(v) => patch({ payload: v === '__other__' ? undefined : v })}>
+                            <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {buttons.map((b) => (
+                                <SelectItem key={b.payload} value={b.payload}>{b.label}</SelectItem>
+                              ))}
+                              <SelectItem value="__other__">types something else</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <span>on day</span>
+                        </>
+                      ) : (
+                        <span>She does her tests on day</span>
+                      )}
+                      <Input type="number" className="h-8 w-16"
+                        value={e.onDay}
+                        onChange={(ev) => patch({ onDay: Number(ev.target.value) })} />
+                      <span className="flex-1 text-xs text-muted-foreground">not real — only for this run</span>
+                      <button onClick={() => { setEvents(events.filter((_, j) => j !== i)); setSteps(null); }}
+                        className="text-muted-foreground hover:text-destructive">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -144,19 +196,36 @@ export function SimulateDialog({ id, open, onClose }: {
                       <span className="min-w-0 flex-1">
                         {s.kind === 'WAIT' && 'Waits'}
                         {s.kind === 'CHECK' && (s.outcome === 'CHECK_TRUE'
-                          ? 'Checks — she has come in' : 'Checks — no tests yet')}
+                          ? 'Checks — yes' : 'Checks — not yet')}
                         {s.kind === 'SEND' && (
                           <>
                             {s.outcome === 'SENT' ? 'Sends ' : 'Would send '}
                             <code className="rounded bg-muted px-1 text-xs">
                               {(s.detail as { template?: string })?.template}
                             </code>
-                            {(s.detail as { offer?: string })?.offer && s.outcome === 'SENT' && ' and issues an offer'}
+                            {(s.detail as { offer?: string })?.offer && s.outcome === 'SENT' && ' and issues the offer'}
+                            {(s.detail as { reusedExistingCoupon?: boolean })?.reusedExistingCoupon &&
+                              ' with the code she already has'}
                           </>
                         )}
+                        {s.kind === 'ASK' && (
+                          <>
+                            Asks{' '}
+                            <code className="rounded bg-muted px-1 text-xs">
+                              {(s.detail as { template?: string })?.template}
+                            </code>
+                            {(s.detail as { answered?: string })?.answered
+                              ? ` — she taps "${(s.detail as { answered?: string }).answered}"`
+                              : s.outcome === 'NO_REPLY'
+                                ? ` — no answer in ${(s.detail as { waitHours?: number })?.waitHours ?? 24} hours`
+                                : ''}
+                          </>
+                        )}
+                        {s.kind === 'HANDOFF' && <b>Goes to a person — the journey ends here</b>}
+                        {s.kind === 'DAY_SHEET' && 'Sends the day sheet'}
                         {s.kind === 'STOP' && <b>Journey stops — {reasonLabel(s.outcome)}</b>}
                       </span>
-                      {s.kind === 'SEND' && (
+                      {(s.kind === 'SEND' || s.kind === 'ASK') && (
                         <Badge variant="outline" className="shrink-0 text-[11px] font-normal">
                           {s.outcome === 'SENT' ? 'Sent' : reasonLabel(s.outcome)}
                         </Badge>
@@ -168,7 +237,8 @@ export function SimulateDialog({ id, open, onClose }: {
 
               <div className="mt-2 rounded-lg bg-muted px-3 py-2.5 text-sm">
                 <b>{sent} message{sent === 1 ? '' : 's'} sent</b>
-                {offers === 0 && ' · no discount given'}
+                {offers === 0 ? ' · no discount given' : ` · ${offers} offer${offers === 1 ? '' : 's'} issued`}
+                {handed && ' · a person picks it up'}
                 {stopped && ` · ${reasonLabel(stopped.outcome).toLowerCase()}`}
               </div>
             </div>
