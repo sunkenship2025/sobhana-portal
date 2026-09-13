@@ -162,6 +162,10 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('period: a month claimed with no step period', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 for the period September 2026.', [], undefined, noPeriod).violations, PER), true);
   ok('period: "in total" is not a period claim', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 in total.', [], undefined, noPeriod).violations, PER), false);
   ok('period: a real step period passes', fired(checkAnswer(CONTRACT, 'billed ₹1,03,400 for September 2026.', [], undefined, hasPeriod).violations, PER), false);
+  /* May is a month and also the commonest modal verb in English. */
+  ok('period: "may" the modal verb is not May the month', fired(checkAnswer(CONTRACT, 'these are not concepts that may appear.', [], undefined, noPeriod).violations, PER), false);
+  ok('period: "May 2026" is', fired(checkAnswer(CONTRACT, 'collection was ₹5 in May 2026.', [], undefined, noPeriod).violations, PER), true);
+  ok('period: "12 May" is', fired(checkAnswer(CONTRACT, 'collection was ₹5 on 12 May.', [], undefined, noPeriod).violations, PER), true);
   const ctSpec: any = { goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI' }] };
   const unscoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', summary: { value: '₹18,93,725' } }];
   const scoped = [{ step: 0, ok: true, period: '2026-08-01…2026-09-01', scope: 'payout_category=CT / MRI', summary: { value: '₹2,38,000' } }];

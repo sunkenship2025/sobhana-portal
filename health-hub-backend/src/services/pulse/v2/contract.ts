@@ -222,7 +222,17 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
      from the spec — so a relative window still counts as a period and does not trip this. */
   const anyPeriod = (evidence || []).some((e: any) => e?.ok !== false && (e?.period || e?.summary?.period));
   if (!anyPeriod) {
-    const claimed = t.match(/\b(?:for |over |during |in )?(?:the )?(?:period |month of |week of )?(?:\d{1,2}\s*[–-]\s*\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{0,4}\b|\bthis (?:month|week|quarter|year)\b|\blast (?:month|week|quarter|year|\d+ days)\b|\bmonth[- ]to[- ]date\b|\byear[- ]to[- ]date\b/i);
+    /* "MAY" IS A MONTH AND ALSO THE COMMONEST MODAL VERB IN ENGLISH. Matched case-insensitively
+       with the other eleven, it fired on "these are not concepts that may appear" — an answer
+       naming no period at all, sent into repair for a month it never mentioned. Every other month
+       name is unambiguous; May alone needs evidence that it is a date, so it counts only when a
+       year or a day number sits beside it. */
+    const MONTHS = String.raw`January|February|March|April|June|July|August|September|October|November|December`;
+    const claimed = t.match(new RegExp(
+      String.raw`\b(?:for |over |during |in )?(?:the )?(?:period |month of |week of )?(?:\d{1,2}\s*[–-]\s*\d{1,2}\s+)?(?:${MONTHS})\s*\d{0,4}\b`
+      + String.raw`|\b(?:\d{1,2}\s*[–-]\s*\d{1,2}\s+)?May\s+\d{4}\b|\bMay\s+\d{1,2}\b|\b\d{1,2}\s+May\b`
+      + String.raw`|\bthis (?:month|week|quarter|year)\b|\blast (?:month|week|quarter|year|\d+ days)\b`
+      + String.raw`|\bmonth[- ]to[- ]date\b|\byear[- ]to[- ]date\b`, 'i'));
     if (claimed) v.push(`the answer says "${claimed[0].trim()}" but no step restricted a time column — state the figure without a period, or compute it for one`);
   }
 
