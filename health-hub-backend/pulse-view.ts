@@ -94,5 +94,38 @@ ok('a planner default is advisory', timeAuthority({ period: 'month', from: '2026
 ok('an advisory binding is never printed', !/ASSUMED|2026-09/.test(formatBindings(compileBindings({ goal: '', scope: [], time: { period: 'month', from: '2026-09-01', to: '2026-09-13' } }))));
 ok('an authoritative binding IS printed', /2026-06-15|last 90 days/.test(formatBindings(compileBindings({ goal: '', scope: [], time: { period: 'last-90-days', phrase: 'last 90 days', from: '2026-06-15', to: '2026-09-13' } }))));
 
+const { groundNumbers, unsupported } = require('./src/services/pulse/v2/grounding');
+const { stagnating, comparable } = require('./src/services/pulse/v2/investigation');
+const kinds = (t: string, e: any[]) => groundNumbers(t, EV).map((g: any) => `${g.text}:${g.provenance.kind}`);
+
+console.log('\nGROUNDING — every number in prose traced to a step, or named as invented\n');
+const EV = [{ step: 0, ok: true, unit: 'paise', data: { value: 10340000 }, summary: { value: '₹1,03,400' } },
+            { step: 1, ok: true, unit: 'count', data: { value: 47 }, summary: { value: '47' } }];
+ok('a figure straight from a step is exact', kinds('billed ₹1,03,400 in total', EV).some((k) => /exact/.test(k)), kinds('billed ₹1,03,400 in total', EV).join(' '));
+ok('a figure from no step is ungrounded', kinds('billed ₹9,99,999', EV).some((k) => /ungrounded/.test(k)), kinds('billed ₹9,99,999', EV).join(' '));
+ok('Indian grouping is ONE figure, not three', groundNumbers('₹19,26,897', []).length === 1, JSON.stringify(groundNumbers('₹19,26,897', []).map((g: any) => g.text)));
+ok('a year is ordinary, not a claim', kinds('in September 2026', EV).every((k) => /ordinary/.test(k)), kinds('in September 2026', EV).join(' '));
+ok('a small ordinal is ordinary', kinds('the top 5 branches', EV).every((k) => /ordinary/.test(k)), kinds('the top 5 branches', EV).join(' '));
+ok('unsupported() returns only the invented ones', unsupported(groundNumbers('₹1,03,400 and ₹9,99,999', EV)).length === 1,
+   JSON.stringify(unsupported(groundNumbers('₹1,03,400 and ₹9,99,999', EV))));
+// arithmetic over two steps is derivable, not invented
+const both = kinds('₹1,03,400 across 47 scans is ₹2,200 each', EV).join(' ');
+ok('a per-unit figure derived from two steps is not invented', !/2,200:ungrounded/.test(both), both);
+
+console.log('\nCONVERGENCE — stop when it stops learning, not when it runs out of rounds\n');
+const R = (gain: number, state: string, req = 0, mat = 0) => ({ gain, state, requirementsSatisfied: req, resolvedMaterial: mat } as any);
+ok('two rounds is never enough to judge', stagnating([R(0, 'a'), R(0, 'a')]) === false);
+ok('three rounds of no gain is stagnation', stagnating([R(0, 'a'), R(0, 'a'), R(0, 'a')]) === true);
+// NOVELTY IS NOT PROGRESS — deliberate, and justified by five real runs: a query can succeed,
+// return rows nobody asked for, settle nothing, and still score a positive gain.
+ok('gain alone, settling nothing, IS stagnation', stagnating([R(0, 'a'), R(2, 'b'), R(0, 'c')]) === true);
+ok('unchanged belief with nothing resolved is stagnation', stagnating([R(1, 'same'), R(1, 'same'), R(1, 'same')]) === true);
+ok('recovery counts as progress', stagnating([R(0, 'a'), R(0, 'b'), R(0, 'c', 0, 2)]) === false, 'a repaired step advanced the investigation');
+
+console.log('\nCOMPARABILITY — two figures held up as like for like\n');
+ok('same period and scope are comparable', comparable({ period: 'p', scope: 's', metric: 'm' } as any, { period: 'p', scope: 's', metric: 'm' } as any).verdict === 'comparable');
+ok('different periods are not', comparable({ period: 'jul', scope: 's' } as any, { period: 'aug', scope: 's' } as any).verdict === 'different');
+ok('too little identity is unknown, not a pass', comparable({ period: 'p' } as any, {} as any).verdict === 'unknown');
+
 console.log(`\n${'═'.repeat(60)}\n  ${pass} passed, ${fail} failed — no model calls, no browser, no database\n`);
 process.exit(fail ? 1 : 0);

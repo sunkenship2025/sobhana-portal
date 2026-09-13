@@ -297,7 +297,13 @@ export function measure(o: {
 export function stagnating(history: RoundProgress[], window = 3): boolean {
   if (history.length < window) return false;
   const last = history.slice(-window);
-  if (last.every((p) => p.gain <= 0)) return true;
+  /* The no-gain clause that used to sit here fired on gain alone and returned before anything
+     could notice that a round had RECOVERED — a query that failed, was told what it dropped, and
+     came back with the evidence scores no gain and yet has advanced the investigation. That is
+     stated as a property of RoundProgress.recovered and was contradicted three lines below it.
+     It was also redundant: a window where nothing was gained and nothing settled is caught by
+     the requirement clause at the end. Removing it keeps that case and stops calling recovery
+     stagnation. */
   if (last.every((p) => p.state === last[0].state) && last.every((p) => p.resolvedMaterial === 0)) return true;
   // The case the first two signals miss, and it is the common one. A query succeeds, returns rows
   // nobody asked for, satisfies no requirement, settles nothing — and scores POSITIVE, because
