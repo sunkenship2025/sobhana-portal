@@ -756,7 +756,69 @@ export async function reconcileConversions(ctx: AutomationContext): Promise<numb
   return reversed;
 }
 
+/**
+ * The earliest moment this process believes work could exist.
+ *
+ * The tick used to sweep three tables every five minutes — 316 queries a day against 2
+ * enabled automations, 6 runs ever and 0 of them active. Those queries cost 0.01 seconds
+ * of database time between them, and cost real money anyway: each one restarts Neon's
+ * 300-second idle timer, so a compute that should sleep all night never does.
+ *
+ * So the question "is anything due" is answered from this number instead. `null` means
+ * unknown — look. Everything that could create work either lands as an HTTP write (which
+ * clears this through `automationsMayHaveWork`) or has a time we can compute.
+ */
+let nextDueAt: number | null = null;
+
+/**
+ * A write happened that could have created work. Called from the router hook on every
+ * successful mutation, so no individual handler has to remember — the failure mode of
+ * per-route signalling is that the next route added silently forgets.
+ */
+export function automationsMayHaveWork(): void {
+  nextDueAt = null;
+}
+
+/**
+ * Never wait longer than this, whatever the arithmetic says. A trigger kind this
+ * function has not learned to predict then runs LATE rather than never, and a failed
+ * enrolment is retried within the hour instead of at tomorrow's firing.
+ */
+const BLIND_CEILING_MS = 60 * 60 * 1000;
+
+/** The next instant at which IST clock-minutes equals `atMinutes`. Exported for the self-check. */
+export function nextDailyFireMs(now: Date, atMinutes: number): number {
+  const { minutes } = istParts(now);
+  const wait = minutes < atMinutes ? atMinutes - minutes : atMinutes + 1440 - minutes;
+  return now.getTime() + wait * 60_000;
+}
+
+async function computeNextDueAt(now: Date): Promise<number> {
+  const [soonest, activated] = await Promise.all([
+    prisma.automationRun.findFirst({
+      where: { state: 'PENDING' },
+      orderBy: { nextActionAt: 'asc' },
+      select: { nextActionAt: true },
+    }),
+    prisma.automation.findMany({
+      where: { enabled: true, activatedAt: { not: null } },
+      select: { definition: true },
+    }),
+  ]);
+
+  const at: number[] = [now.getTime() + BLIND_CEILING_MS];
+  if (soonest?.nextActionAt) at.push(soonest.nextActionAt.getTime());
+  for (const a of activated) {
+    const trigger = (a.definition as unknown as AutomationDefinition).trigger;
+    if (trigger.kind === 'SCHEDULE') at.push(nextDailyFireMs(now, trigger.everyDayAtMinutes));
+  }
+  return Math.min(...at);
+}
+
 export async function tick(now: Date = new Date()): Promise<void> {
+  // The common case, and the whole point: no connection is opened.
+  if (nextDueAt !== null && now.getTime() < nextDueAt) return;
+
   const ctx = prismaContext(now);
   try {
     const enrolled = await sweepEnrolments(ctx);
@@ -765,7 +827,10 @@ export async function tick(now: Date = new Date()): Promise<void> {
     if (enrolled || advanced || reversed) {
       logger.info(`[automations] enrolled ${enrolled} · advanced ${advanced} · reversed ${reversed}`);
     }
+    nextDueAt = await computeNextDueAt(now);
   } catch (e) {
+    // Never go blind on a failure — the next tick looks again.
+    nextDueAt = null;
     logger.error(`[automations] tick failed: ${(e as Error).message}`);
   }
 }

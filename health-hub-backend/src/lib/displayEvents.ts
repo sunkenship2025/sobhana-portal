@@ -12,6 +12,7 @@
  * Postgres LISTEN/NOTIFY — same two functions, different transport.
  */
 import { EventEmitter } from 'events';
+import { automationsMayHaveWork } from '../services/automations/engine';
 
 const emitter = new EventEmitter();
 // One listener per open display. Keep a generous but FINITE cap (not 0/unlimited)
@@ -96,8 +97,14 @@ export function emitWorklistOnMutation(
 ): void {
   if (req.method !== 'GET' && !req.path.endsWith('/results')) {
     res.on('finish', () => {
-      if (res.statusCode < 400 && req.branchId) {
-        emitCatalogChange(req.branchId, 'worklist');
+      if (res.statusCode < 400) {
+        // A successful mutation is the only thing that can create automation work out
+        // of nowhere, so the engine is told here rather than in each handler — for the
+        // same reason the worklist emit lives here: the next route added would forget.
+        // Without this the engine would have to go on asking Postgres every five
+        // minutes whether anything had happened, which is what kept Neon awake.
+        automationsMayHaveWork();
+        if (req.branchId) emitCatalogChange(req.branchId, 'worklist');
       }
     });
   }

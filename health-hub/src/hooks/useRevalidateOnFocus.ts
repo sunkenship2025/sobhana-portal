@@ -10,6 +10,13 @@ import { useEffect, useRef } from "react";
 export const WORKLIST_EVENT = "worklist-changed";
 
 /**
+ * How close together two triggers have to be to count as the same revalidation.
+ * Sized for the focus/visibilitychange pair, which land ~90ms apart; an SSE frame
+ * swallowed inside this window is already carried by the fetch that just started.
+ */
+const COALESCE_MS = 1000;
+
+/**
  * Re-run `refetch` when the user returns to a stale tab — or when the server
  * says the data changed.
  *
@@ -40,31 +47,41 @@ export function useRevalidateOnFocus(
   useEffect(() => {
     if (!enabled) return;
 
-    // window "focus" fires on alt-tab back to the browser; visibilitychange
-    // fires when the tab itself is switched to. Cover both.
-    const onFocus = () => refetchRef.current();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refetchRef.current();
+    // ONE handler for all four triggers, behind a coalescing window.
+    //
+    // Alt-tabbing back to the browser fires `focus` AND `visibilitychange`. They used to
+    // be two handlers — `focus` calling refetch directly, `visibilitychange` calling it
+    // behind a visibility check — and a visibility check gates each one without
+    // deduplicating BETWEEN them. So every return to the tab fetched the same list
+    // twice. Seen in production: /api/visits/diagnostic?status=DRAFT answered at
+    // 08:00:00.578 and again at .679, 95KB and 52KB, 101ms apart, byte-identical query.
+    //
+    // The visibility check still matters for the other two triggers: a backgrounded tab
+    // keeps its SSE open, and refetching a list nobody is looking at is the load this
+    // whole mechanism exists to avoid. It revalidates on the way back in regardless, and
+    // the poll stays as the backstop for a blocked or dropped stream.
+    let lastAt = 0;
+    const revalidate = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastAt < COALESCE_MS) return;
+      lastAt = now;
+      refetchRef.current();
     };
 
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    // Server push — arrives within ~1s of another device's write. Routed through
-    // the visibility check, not straight to refetch: a backgrounded tab keeps its
-    // SSE open, and refetching a list nobody is looking at is the load this whole
-    // change is meant to remove. It revalidates on the way back in regardless.
-    // The poll below stays as the backstop for a blocked or dropped stream.
-    window.addEventListener(WORKLIST_EVENT, onVisibility);
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener(WORKLIST_EVENT, revalidate);
 
     let interval: ReturnType<typeof setInterval> | undefined;
     if (pollMs && pollMs > 0) {
-      interval = setInterval(onVisibility, pollMs);
+      interval = setInterval(revalidate, pollMs);
     }
 
     return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(WORKLIST_EVENT, onVisibility);
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener(WORKLIST_EVENT, revalidate);
       if (interval) clearInterval(interval);
     };
   }, [enabled, pollMs]);

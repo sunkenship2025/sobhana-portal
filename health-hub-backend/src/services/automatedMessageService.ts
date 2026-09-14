@@ -213,26 +213,100 @@ async function coveredByAutomation(): Promise<Set<string>> {
   return covered;
 }
 
-export async function runDueAutomatedMessages(now: Date = new Date()): Promise<void> {
-  const schedules = await prisma.scheduledMessage.findMany({
-    where: { kind: DAY_SHEET, enabled: true },
-  });
-  if (schedules.length === 0) return;
+/**
+ * The schedule rows, held in this process.
+ *
+ * Reading them from Postgres every five minutes is what stopped the Neon compute from
+ * ever suspending. 284 queries a day, together costing 0.03 seconds of database time,
+ * were enough to restart a 300-second idle timer forever: the compute ran continuously
+ * from 11 Sep 10:33 UTC, and a 0.25-CU instance is billed for every one of those hours
+ * whether or not it does anything.
+ *
+ * Nothing about "is it 22:30 yet" needs Postgres. Render is already running and already
+ * paid for by the month; it can hold eight rows and read its own clock. Postgres stays
+ * the authority for the send itself — ScheduledMessageRun's unique key is still what
+ * prevents a double send across a crash or a second instance.
+ */
+type Schedule = Awaited<ReturnType<typeof prisma.scheduledMessage.findMany>>[number];
+let scheduleCache: { rows: Schedule[]; at: number } | null = null;
+/** Backstop only — saveAutomatedMessage invalidates explicitly. This catches a write this process never saw. */
+const SCHEDULE_CACHE_MS = 6 * 60 * 60 * 1000;
 
-  const covered = await coveredByAutomation();
+/** Call after any write to ScheduledMessage so a changed send time takes effect immediately. */
+export function invalidateScheduleCache(): void {
+  scheduleCache = null;
+}
+
+/**
+ * Nights this process has finished with — sent, failed, or found already claimed.
+ *
+ * Without this the 22:30-to-06:30 grace window would still reach Postgres on all 96 of
+ * its ticks, 95 of them only to be told the night is already taken.
+ *
+ * ponytail: in-process memo, correct at numInstances=1. A second Render instance would
+ * keep its own, costing one extra claim attempt per night per instance — never a double
+ * send, since the unique key still decides. Move it to Redis if this ever scales out.
+ */
+const resolvedNights = new Set<string>();
+
+/**
+ * Which nights are owed at `now`, from the rows and the clock alone.
+ *
+ * Today's once the clock passes the send time. If the box was down over that moment the
+ * next boot still owes YESTERDAY's sheet — send it late rather than lose a night — but
+ * only inside the grace window, so a long outage cannot replay a week of sheets at once.
+ *
+ * Pure on purpose: this is the decision that used to cost a Postgres query every five
+ * minutes, so it is the one that has to be checkable without a database.
+ * See automatedMessageService.check.ts.
+ */
+export function nightsOwed<T extends { branchId: string; domain: string; sendAtMinutes: number }>(
+  rows: T[],
+  now: Date,
+  alreadyResolved: ReadonlySet<string> = new Set<string>(),
+): { s: T; runDate: string; key: string }[] {
   const { date, minutes } = istParts(now);
-
-  for (const s of schedules) {
-    // An automation owns this one now. Stand aside rather than race it.
-    if (covered.has(`${s.branchId}:${s.domain}`)) continue;
-    // Which night do we owe? Today's once the clock passes the send time. If the
-    // box was down over that moment, the next boot still owes YESTERDAY's sheet
-    // — send it late rather than lose a night — but only inside the grace
-    // window, so a long outage doesn't replay a week of sheets at once.
+  const yesterday = previousDate(date);
+  const owed: { s: T; runDate: string; key: string }[] = [];
+  for (const s of rows) {
     let runDate: string | null = null;
     if (minutes >= s.sendAtMinutes) runDate = date;
-    else if (minutes + 1440 - s.sendAtMinutes <= GRACE_MINUTES) runDate = previousDate(date);
+    else if (minutes + 1440 - s.sendAtMinutes <= GRACE_MINUTES) runDate = yesterday;
     if (!runDate) continue;
+    const key = `${s.branchId}:${s.domain}:${runDate}`;
+    if (!alreadyResolved.has(key)) owed.push({ s, runDate, key });
+  }
+  return owed;
+}
+
+export async function runDueAutomatedMessages(now: Date = new Date()): Promise<void> {
+  const { date } = istParts(now);
+  const yesterday = previousDate(date);
+
+  // Only today's and yesterday's nights can ever be owed, so the memo stays bounded.
+  for (const k of resolvedNights) {
+    if (!k.endsWith(`:${date}`) && !k.endsWith(`:${yesterday}`)) resolvedNights.delete(k);
+  }
+
+  if (!scheduleCache || Date.now() - scheduleCache.at >= SCHEDULE_CACHE_MS) {
+    scheduleCache = {
+      rows: await prisma.scheduledMessage.findMany({ where: { kind: DAY_SHEET, enabled: true } }),
+      at: Date.now(),
+    };
+  }
+
+  // On the ~280 ticks a day that owe nothing, this returns without opening a connection.
+  const due = nightsOwed(scheduleCache.rows, now, resolvedNights);
+  if (due.length === 0) return;
+
+  const covered = await coveredByAutomation();
+
+  for (const { s, runDate, key } of due) {
+    // An automation owns this one now. Stand aside rather than race it.
+    if (covered.has(`${s.branchId}:${s.domain}`)) {
+      resolvedNights.add(key);
+      continue;
+    }
 
     // Claim the night before sending. A duplicate key here means another tick
     // (or another instance) already owns it.
@@ -247,6 +321,7 @@ export async function runDueAutomatedMessages(now: Date = new Date()): Promise<v
         },
       });
     } catch {
+      resolvedNights.add(key);
       continue;
     }
 
@@ -261,6 +336,7 @@ export async function runDueAutomatedMessages(now: Date = new Date()): Promise<v
       where: { kind: DAY_SHEET, branchId: s.branchId, domain: s.domain, runDate },
       data: { status: outcome.status, detail: outcome.detail, sentAt: new Date() },
     });
+    resolvedNights.add(key);
     logger.info(
       { branchId: s.branchId, domain: s.domain, runDate, status: outcome.status },
       'automated-message: day sheet',
@@ -361,6 +437,10 @@ export async function saveAutomatedMessage(input: {
       }),
     ),
   );
+
+  // The ticker answers "is it time yet" from memory now, so without this a changed
+  // send time would not take effect until the 6-hour backstop expired.
+  invalidateScheduleCache();
 }
 
 /**

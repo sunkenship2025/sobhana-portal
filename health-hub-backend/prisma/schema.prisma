@@ -1092,7 +1092,8 @@ model DiagnosticReport {
   /// Versions (DRAFT → FINALIZED, immutable after finalized)
   versions ReportVersion[]
 
-  @@index([visitId])
+  // visitId is @unique, which already creates a btree that serves every lookup a plain
+  // index would. Both were being maintained on every write.
   @@index([branchId])
 }
 
@@ -1347,6 +1348,12 @@ model AnomalyEvent {
   @@index([branchId, severity, occurredAt])
   @@index([branchId, category, occurredAt])
   @@index([branchId, actorUserId, occurredAt])
+  // The reversal self-join matches a later event to an earlier one on THREE alternative
+  // key pairs. dedupeKey was already unique; these two were not indexed at all, so each
+  // outer row fell back to scanning branchId_occurredAt end to end — branchId is not
+  // constrained in an all-branches report — and testing the pairs as a post-filter.
+  @@index([entityType, entityId])
+  @@index([sourceKind, sourceId])
 }
 
 /// AnomalyTriage: per-event workqueue state (Acknowledge / Resolve). Kept in a
