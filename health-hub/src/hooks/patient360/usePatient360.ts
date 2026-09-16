@@ -74,7 +74,7 @@ export function normalizeTimelineFilters(
     to: null,
     branchId: null,
     unpaidOnly: false,
-    includeCancelled: false,
+    includeCancelled: true, // cancelled visits are shown unless hidden on purpose
   };
   return {
     domain: f.domain ?? null,
@@ -82,7 +82,7 @@ export function normalizeTimelineFilters(
     to: f.to ?? null,
     branchId: f.branchId ?? null,
     unpaidOnly: f.unpaidOnly ?? false,
-    includeCancelled: f.includeCancelled ?? false,
+    includeCancelled: f.includeCancelled ?? true,
     pageSize: clampPageSize(f.pageSize),
   };
 }

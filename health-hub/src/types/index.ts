@@ -743,6 +743,7 @@ export interface Patient360Glance {
   lastVisit: {
     visitId: string;
     domain: VisitDomain;
+    status: string;
     branchName: string;
     createdAt: Date | string;
   } | null;

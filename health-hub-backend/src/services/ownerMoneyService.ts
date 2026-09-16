@@ -886,10 +886,12 @@ export async function getMoneyDaySheet(
           select: {
             domain: true,
             patient: { select: { name: true, title: true } },
+            // A money row says what was BILLED, so cancelled orders stay and are
+            // labelled — filtering them out left a fully-refunded bill with an
+            // empty "Tests / service" cell, which reads as lost data.
             testOrders: {
-              where: { cancelledAt: null },
               orderBy: { displayOrder: 'asc' },
-              select: { testNameSnapshot: true },
+              select: { testNameSnapshot: true, cancelledAt: true },
             },
             clinicVisit: { select: { clinicDoctor: { select: { name: true } } } },
             // Same shape the bill PDF uses (billPdfService.ts:178) — soft-deleted
@@ -912,7 +914,9 @@ export async function getMoneyDaySheet(
     const testNames =
       b.visit.domain === 'CLINIC'
         ? [`Consultation${b.visit.clinicVisit?.clinicDoctor?.name ? ` — Dr. ${b.visit.clinicVisit.clinicDoctor.name}` : ''}`]
-        : b.visit.testOrders.map((t) => t.testNameSnapshot);
+        : b.visit.testOrders.map((t) =>
+            t.cancelledAt ? `${t.testNameSnapshot} (cancelled)` : t.testNameSnapshot,
+          );
     // Cash/online split NET of refunds, from the transaction ledger. A REFUND
     // row carries a positive amount but returns money, so it subtracts — this
     // matches how paidAmountInPaise is derived (sum PAYMENT − sum REFUND), so
@@ -950,7 +954,12 @@ export async function getMoneyDaySheet(
         (b.visit.domain === 'DIAGNOSTICS' ? 'SELF' : null),
       domain: b.visit.domain as DaySheetRow['domain'],
       tests: testNames.join(', '),
-      testCount: b.visit.domain === 'CLINIC' ? 1 : b.visit.testOrders.length,
+      // Count only live orders — a cancelled test was never performed, so the
+      // volume column must not inflate even though the name is still shown.
+      testCount:
+        b.visit.domain === 'CLINIC'
+          ? 1
+          : b.visit.testOrders.filter((t) => !t.cancelledAt).length,
       grossInPaise: b.totalAmountInPaise,
       discountInPaise: b.discountAmountInPaise,
       paidInPaise,

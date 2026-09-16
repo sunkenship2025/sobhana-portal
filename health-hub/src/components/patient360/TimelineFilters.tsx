@@ -63,7 +63,7 @@ function secondaryActiveCount(v: TimelineFiltersValue): number {
   if (v.from || v.to) n += 1;
   if (v.branchId) n += 1;
   if (v.unpaidOnly) n += 1;
-  if (v.includeCancelled) n += 1;
+  if (!v.includeCancelled) n += 1; // hiding cancelled is the non-default state
   return n;
 }
 
@@ -233,7 +233,7 @@ export function TimelineFilters({ value, onChange, branches }: TimelineFiltersPr
                       to: null,
                       branchId: null,
                       unpaidOnly: false,
-                      includeCancelled: false,
+                      includeCancelled: true,
                     })
                   }
                 >

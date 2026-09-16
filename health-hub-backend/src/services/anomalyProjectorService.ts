@@ -198,6 +198,7 @@ export async function projectWindow(
       take: 5000,
       select: {
         id: true, branchId: true, kind: true, amountInPaise: true, reason: true,
+        chargeReversedInPaise: true, testOrderId: true,
         createdByUserId: true, createdAt: true,
         bill: { select: { billNumber: true, visit: { select: { id: true, patient: { select: { name: true } } } } } },
       },
@@ -336,20 +337,43 @@ export async function projectWindow(
     };
   });
 
-  const refundEvents: ProjRow[] = refunds.map((r) => {
+  // ONE cancel/refund writes one OrderRefund row PER TEST — 40 rows for a
+  // 40-test bill, which used to hit the feed as 40 identical HIGH events and
+  // bury everything else. A transaction stamps them all with the same
+  // createdAt, so collapse (visit, kind, instant) back into the single action
+  // the operator actually took.
+  const refundGroups = new Map<string, typeof refunds>();
+  for (const r of refunds) {
+    const key = `${r.bill?.visit?.id ?? r.id}|${r.kind}|${r.createdAt.getTime()}`;
+    const group = refundGroups.get(key);
+    if (group) group.push(r);
+    else refundGroups.set(key, [r]);
+  }
+
+  const refundEvents: ProjRow[] = [...refundGroups].map(([key, rows]) => {
+    const r = rows[0];
+    const isCancel = r.kind === "CANCEL";
+    const refunded = rows.reduce((sum, x) => sum + x.amountInPaise, 0);
+    const reversed = rows.reduce((sum, x) => sum + x.chargeReversedInPaise, 0);
+    const tests = rows.filter((x) => x.testOrderId).length;
+    // A cancel moves no cash (amountInPaise 0) but voids a charge — show the
+    // charge, otherwise every cancel reads as ₹0 however big the bill was.
+    const money = refunded || reversed;
     let score = 3;
-    if (r.amountInPaise >= LARGE_AMOUNT_PAISE) score += 1;
+    if (money >= LARGE_AMOUNT_PAISE) score += 1;
     const u = r.createdByUserId ? userMap.get(r.createdByUserId) : null;
     const patientName = r.bill?.visit?.patient?.name ?? null;
-    const isCancel = r.kind === "CANCEL";
-    const detail = `${isCancel ? "Cancelled" : `Refund ${rupees(r.amountInPaise)}`} · ${r.reason}${patientName ? ` · ${patientName}` : ""}`;
+    const what = isCancel
+      ? `Cancelled${tests ? ` ${tests} test${tests === 1 ? "" : "s"}` : ""} · ${rupees(reversed)} reversed`
+      : `Refund ${rupees(refunded)}`;
+    const detail = `${what} · ${r.reason}${patientName ? ` · ${patientName}` : ""}`;
     return {
-      id: `refund:${r.id}`, dedupeKey: `refund:${r.id}`, branchId: r.branchId,
+      id: `refund:${key}`, dedupeKey: `refund:${key}`, branchId: r.branchId,
       occurredAt: r.createdAt, severity: "high", category: "money", score,
       event: isCancel ? "Order cancelled" : "Refund issued", detail,
       actorUserId: r.createdByUserId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
       entityType: "OrderRefund", entityId: r.id, patientName,
-      amountInPaise: r.amountInPaise, reason: r.reason,
+      amountInPaise: money, reason: r.reason,
       drillTo: r.bill?.visit ? `/diagnostics/results/${r.bill.visit.id}` : null,
       sourceKind: "refund", sourceId: r.id,
     };
@@ -416,6 +440,17 @@ export async function projectWindow(
   } else {
     inserted = await prisma.anomalyEvent.createMany({ data: pointEvents, skipDuplicates: true });
   }
+
+  // ponytail: one-time purge of the pre-collapse rows (one per test, keyed
+  // `refund:<orderRefundId>` — no "|"). Self-heals per window as it re-projects;
+  // delete this block once prod has caught up. Triage cascades with the row.
+  await prisma.anomalyEvent.deleteMany({
+    where: {
+      sourceKind: "refund",
+      occurredAt: window,
+      NOT: { dedupeKey: { contains: "|" } },
+    },
+  });
 
   // Discounts + refunds can change (a discount edited at collect-time) → upsert.
   const mutable = [...discountEvents, ...refundEvents];

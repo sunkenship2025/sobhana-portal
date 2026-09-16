@@ -76,6 +76,9 @@ export function GlanceStrip({ glance, patientId, patient, enabledDomains }: Glan
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {glance.lastVisit.domain === "DIAGNOSTICS" ? "Diagnostics" : "Clinic"} ·{" "}
               {glance.lastVisit.branchName}
+              {String(glance.lastVisit.status).toUpperCase() === "CANCELLED"
+                ? " · Cancelled"
+                : ""}
             </p>
           </>
         ) : (
@@ -95,7 +98,8 @@ export function GlanceStrip({ glance, patientId, patient, enabledDomains }: Glan
           </span>
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {glance.totalVisits} visit{glance.totalVisits === 1 ? "" : "s"}
+          {glance.totalVisitsIncludingCancelled} visit
+          {glance.totalVisitsIncludingCancelled === 1 ? "" : "s"}
         </p>
       </Cell>
 

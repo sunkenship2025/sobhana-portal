@@ -351,8 +351,17 @@ export default function OwnerAuditPage() {
       const p = new URLSearchParams();
       p.set('branch', branchValue);
       if (q) p.set('q', q);
-      if (fromIso) p.set('from', fromIso);
-      if (toIso) p.set('to', toIso);
+      // A search means "find this", not "find this inside the selected window".
+      // Searching D-CNT-002409 from a Today view used to return nothing and read
+      // as "the record is missing", so a search spans the server's full window
+      // (1 year) — same reasoning as dropping severity/status below.
+      if (q) {
+        p.set('from', new Date(Date.now() - 365 * 864e5).toISOString());
+        p.set('to', new Date().toISOString());
+      } else {
+        if (fromIso) p.set('from', fromIso);
+        if (toIso) p.set('to', toIso);
+      }
       if (catList) p.set('category', catList);
       // While searching, show the FULL timeline for that entity/patient (who
       // billed, who finalized, drafts, access…) — don't hide it behind the
