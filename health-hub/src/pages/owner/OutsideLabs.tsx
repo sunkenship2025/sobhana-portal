@@ -520,7 +520,9 @@ export default function OutsideLabs() {
 
   return (
     <AppLayout context="owner" subContext="payouts">
-      <div style={{ maxWidth: 1100 }}>
+      {/* 1440 + pb-24 is what Pay-Run and Money use — at 1100 this page was
+          visibly narrower than every sibling and left a dead gutter on the right. */}
+      <div style={{ maxWidth: 1440 }} className="pb-24">
         <OwnerPageHeader
           title="Payouts · Outside Labs"
           subtitle="Who we exchange work with, and what we keep. No money is settled here — Pay-Run owns the period."
