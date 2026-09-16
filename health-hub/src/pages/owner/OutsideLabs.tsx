@@ -586,26 +586,22 @@ export default function OutsideLabs() {
             <DialogTitle>{editingId ? "Edit partner" : "Add partner"}</DialogTitle>
           </DialogHeader>
 
-          {/* One scrollable form, not a wizard. Four steps put three fields in a
-              560px dialog with acres of air; the sections below carry the same
-              order without the chrome. Matches every other dialog in the app:
-              space-y-4 body, space-y-2 field groups, DialogFooter. */}
           {/* Tabs for organisation, NOT a wizard: Save works from any of them,
               so there is no Next/Back and no near-empty first step. Identity and
               the patient doors share a tab so none of the three is thin. */}
           <Tabs value={tab} onValueChange={setTab} className="pt-2">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList>
               <TabsTrigger value="partner">Partner</TabsTrigger>
               <TabsTrigger value="deal">Deal</TabsTrigger>
               <TabsTrigger value="rates">Rates</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="partner" className="min-h-[268px] space-y-5 pt-4">
+            <TabsContent value="partner" className="space-y-5 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Name</Label>
                 <Input
-                  autoFocus
+                  autoFocus={!editingId}
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Lalitha Hospital"
@@ -669,7 +665,7 @@ export default function OutsideLabs() {
             </TabsContent>
 
 
-            <TabsContent value="deal" className="min-h-[268px] space-y-3 pt-4">
+            <TabsContent value="deal" className="space-y-3 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
                 <Label className="mb-2 block">What is the arrangement?</Label>
                 {/* Multi-select in substance (a partner can hold several), but each
                     row needs a real indicator — the previous version was clickable
@@ -713,7 +709,7 @@ export default function OutsideLabs() {
 
             </TabsContent>
 
-            <TabsContent value="rates" className="min-h-[268px] space-y-4 pt-4">
+            <TabsContent value="rates" className="space-y-4 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
               {chosen.length === 0 ? (
                 <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
                   Pick an arrangement on the Deal tab first — rates belong to a deal.
@@ -753,7 +749,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-9">
+                              <SelectTrigger className="h-9 text-left">
                                 <SelectValue placeholder="Select test" />
                               </SelectTrigger>
                               <SelectContent>
@@ -774,7 +770,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-9">
+                              <SelectTrigger className="h-9 text-left">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -863,7 +859,7 @@ export default function OutsideLabs() {
                                       value={c.rateBasis}
                                       onValueChange={(v) => patchCat({ rateBasis: v as PartnerRateBasis })}
                                     >
-                                      <SelectTrigger className="h-8">
+                                      <SelectTrigger className="h-8 text-left">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -903,7 +899,7 @@ export default function OutsideLabs() {
                               value={a.rateBasis}
                               onValueChange={(v) => patch(k.kind, { rateBasis: v as PartnerRateBasis })}
                             >
-                              <SelectTrigger className="h-8 w-[150px]">
+                              <SelectTrigger className="h-8 w-[150px] text-left">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -947,7 +943,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { doctorCommissionMode: v as PartnerDoctorCommissionMode })
                               }
                             >
-                              <SelectTrigger className="h-9 w-[240px]">
+                              <SelectTrigger className="h-9 w-[240px] text-left">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
