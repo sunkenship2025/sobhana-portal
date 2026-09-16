@@ -61,22 +61,12 @@ function fail(res: Response, error: any, what: string) {
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { includeInactive, search, month } = req.query;
-    const partners = await partnerService.listPartners(
-      includeInactive === 'true',
-      typeof search === 'string' ? search : undefined,
-    );
-    // Current IST month unless asked otherwise, so the list opens on the period
-    // the owner is actually settling.
-    const anchor = typeof month === 'string' && month ? new Date(`${month}-01T00:00:00+05:30`) : new Date();
-    const start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-    const end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1));
-    const totals = await partnerService.partnerPeriodTotals(req.branchId ?? null, start, end);
+    const { includeInactive, search } = req.query;
     return res.json(
-      partners.map((p) => ({
-        ...p,
-        period: totals.get(p.id) ?? { theyOweUsInPaise: 0, weOweThemInPaise: 0 },
-      })),
+      await partnerService.listPartners(
+        includeInactive === 'true',
+        typeof search === 'string' ? search : undefined,
+      ),
     );
   } catch (e) {
     return fail(res, e, 'fetch partners');

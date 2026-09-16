@@ -167,8 +167,6 @@ export default function OutsideLabs() {
     return { inbound: inb, outbound: out };
   }, [partners]);
 
-  const sumIn = inbound.reduce((s, p) => s + (p.period?.theyOweUsInPaise ?? 0), 0);
-  const sumOut = outbound.reduce((s, p) => s + (p.period?.weOweThemInPaise ?? 0), 0);
 
   const save = useApiMutation<Partner, { editingId: string | null; payload: Record<string, unknown> }>({
     mutationFn: ({ editingId, payload }) =>
@@ -334,7 +332,6 @@ export default function OutsideLabs() {
                   out ? a.kind === "OUTBOUND_VENDOR" : a.kind !== "OUTBOUND_VENDOR",
                 );
                 const rules = deal?.productRules ?? [];
-                const money = out ? (p.period?.weOweThemInPaise ?? 0) : (p.period?.theyOweUsInPaise ?? 0);
                 const rowKey = p.id + (out ? ":o" : ":i");
                 const open = expanded.has(rowKey);
                 return (
@@ -386,12 +383,6 @@ export default function OutsideLabs() {
                           </span>
                         )}
                       </td>
-                      <td
-                        className="py-2 text-right font-medium tabular-nums"
-                        style={{ width: 110, color: out ? TOKENS.caution : TOKENS.healthy }}
-                      >
-                        {money ? formatRupees(money) : <span style={{ color: TOKENS.textTertiary }}>—</span>}
-                      </td>
                       <td className="py-2 pr-3 text-right" style={{ width: 110 }}>
                         <Switch
                           className="mr-2 align-middle"
@@ -408,7 +399,7 @@ export default function OutsideLabs() {
                     </tr>
                     {open && (
                       <tr style={{ background: "#fcfcfb" }}>
-                        <td colSpan={7} className="px-3 py-3">
+                        <td colSpan={6} className="px-3 py-3">
                           <div style={{ fontSize: 12, color: TOKENS.textSecondary, marginBottom: 6 }}>
                             {KINDS.find((k) => k.kind === deal?.kind)?.hint}
                           </div>
@@ -433,13 +424,16 @@ export default function OutsideLabs() {
                               </tbody>
                             </table>
                           )}
+                          {/* Pay-Run's statement route is /owner/payouts/:id
+                              where id is "<payeeType>.<payeeId>" — land on THIS
+                              partner's statement, not the top of the list. */}
                           <button
                             className="mt-2"
                             style={{ color: TOKENS.info, fontSize: 12 }}
-                            onClick={() => navigate("/owner/payouts")}
+                            onClick={() => navigate(`/owner/payouts/PARTNER.${p.id}`)}
                           >
                             <Printer className="mr-1 inline h-3 w-3" />
-                            Statement in Pay-Run →
+                            Open {p.name}'s statement →
                           </button>
                         </td>
                       </tr>
@@ -459,11 +453,14 @@ export default function OutsideLabs() {
       <div style={{ maxWidth: 1100 }}>
         <OwnerPageHeader
           title="Payouts · Outside Labs"
-          subtitle="Who we exchange work with. A rate always means what we keep — settle in Pay-Run."
+          subtitle="Who we exchange work with, and what we keep. No money is settled here — Pay-Run owns the period."
           rightSlot={
             <div className="flex items-center gap-3">
-              <button onClick={() => navigate("/owner/payouts")} style={{ color: TOKENS.info, fontSize: 13 }}>
-                Pay-Run →
+              <button
+                onClick={() => navigate("/owner/payouts?type=PARTNER")}
+                style={{ color: TOKENS.info, fontSize: 13 }}
+              >
+                Partner settlements →
               </button>
               <Button onClick={add}>
                 <Plus className="mr-2 h-4 w-4" /> Add partner
@@ -495,14 +492,6 @@ export default function OutsideLabs() {
               false,
               <>
                 {inbound.length} {inbound.length === 1 ? "partner" : "partners"}
-                {sumIn > 0 && (
-                  <>
-                    {" · they owe us "}
-                    <span className="font-medium" style={{ color: TOKENS.healthy }}>
-                      {formatRupees(sumIn)}
-                    </span>
-                  </>
-                )}
               </>,
             )}
             {renderGroup(
@@ -511,14 +500,6 @@ export default function OutsideLabs() {
               true,
               <>
                 {outbound.length} {outbound.length === 1 ? "partner" : "partners"}
-                {sumOut > 0 && (
-                  <>
-                    {" · we owe "}
-                    <span className="font-medium" style={{ color: TOKENS.caution }}>
-                      {formatRupees(sumOut)}
-                    </span>
-                  </>
-                )}
               </>,
             )}
           </>

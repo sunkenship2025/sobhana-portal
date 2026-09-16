@@ -226,41 +226,6 @@ export async function createPartner(input: CreatePartnerInput) {
   return partner;
 }
 
-/**
- * The list screen shows what each partner is worth this month, so the money is
- * visible without opening anything. Summed off the frozen per-order snapshots —
- * the same numbers Pay-Run derives from, so the two screens cannot disagree.
- */
-export async function partnerPeriodTotals(
-  branchId: string | null,
-  start: Date,
-  end: Date,
-): Promise<Map<string, { theyOweUsInPaise: number; weOweThemInPaise: number }>> {
-  const rows = await prisma.testOrder.groupBy({
-    by: ['partnerId', 'partnerArrangement'],
-    where: {
-      partnerId: { not: null },
-      cancelledAt: null,
-      ...(branchId ? { branchId } : {}),
-      visit: { createdAt: { gte: start, lt: end } },
-    },
-    _sum: { ourShareInPaise: true, partnerCutInPaise: true },
-  });
-  const out = new Map<string, { theyOweUsInPaise: number; weOweThemInPaise: number }>();
-  for (const r of rows) {
-    if (!r.partnerId) continue;
-    const cur = out.get(r.partnerId) ?? { theyOweUsInPaise: 0, weOweThemInPaise: 0 };
-    // Our share is only a RECEIVABLE when they took the patient's money; when we
-    // collected it is simply what we kept, and nothing moves between us.
-    if (r.partnerArrangement === 'INBOUND_BILLED_THERE') {
-      cur.theyOweUsInPaise += r._sum.ourShareInPaise ?? 0;
-    }
-    cur.weOweThemInPaise += r._sum.partnerCutInPaise ?? 0;
-    out.set(r.partnerId, cur);
-  }
-  return out;
-}
-
 export async function listPartners(includeInactive = false, search?: string) {
   return prisma.partner.findMany({
     where: {

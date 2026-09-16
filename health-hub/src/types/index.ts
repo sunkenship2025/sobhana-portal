@@ -1161,8 +1161,6 @@ export interface Partner {
   isActive: boolean;
   arrangements: PartnerArrangement[];
   _count?: { visits: number; testOrders: number; payoutLedger: number };
-  /** What this partner is worth in the listed period, from the frozen snapshots. */
-  period?: { theyOweUsInPaise: number; weOweThemInPaise: number };
 }
 
 
