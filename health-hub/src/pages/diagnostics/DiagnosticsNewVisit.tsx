@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -351,6 +352,34 @@ const DiagnosticsNewVisit = () => {
   const selectedDoctor = referralDoctors.find(
     (doctor) => doctor.id === selectedDoctorId,
   );
+  /**
+   * The chip for a partner's deal. Green = they owe us (they billed), amber =
+   * we owe them, matching the caution/healthy split Pay-Run already uses for
+   * payable vs receivable.
+   */
+  const DEAL_CHIP: Record<string, { text: string; className: string }> = {
+    INBOUND_BILLED_THERE: {
+      text: "They bill",
+      className: "bg-emerald-100 text-emerald-700 border-transparent",
+    },
+    INBOUND_BILLED_HERE: {
+      text: "We bill",
+      className: "bg-blue-100 text-blue-700 border-transparent",
+    },
+    OUTBOUND_VENDOR: {
+      text: "We send",
+      className: "bg-amber-100 text-amber-700 border-transparent",
+    },
+  };
+  const partnerDealBadge = (center: Partner) => {
+    const deals = (center.arrangements ?? []).filter((a) => a.isActive);
+    if (deals.length === 0) return undefined;
+    if (deals.length > 1) {
+      return { text: `${deals.length} deals`, className: "bg-purple-100 text-purple-700 border-transparent" };
+    }
+    return DEAL_CHIP[deals[0].kind];
+  };
+
   const selectedCenter = diagnosticCenters.find(
     (center) => center.id === selectedCenterId,
   );
@@ -2153,6 +2182,9 @@ const DiagnosticsNewVisit = () => {
                     options={diagnosticCenters.map((center) => ({
                       value: center.id,
                       label: center.name,
+                      // Which way the money runs, on the option itself — same
+                      // tinted chip the test search uses for Panel.
+                      badge: partnerDealBadge(center),
                       description: [
                         center.partnerNumber,
                         center.contactPerson,
@@ -2188,6 +2220,13 @@ const DiagnosticsNewVisit = () => {
                       Clear
                     </Button>
                   )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAddCenterDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
 
                 {/* Which deal this visit came in under. "They bill" and "we bill"
@@ -2200,45 +2239,50 @@ const DiagnosticsNewVisit = () => {
                       .filter((a) => a.isActive && a.kind !== "OUTBOUND_VENDOR")
                       .map((a) => {
                         const on = partnerArrangement === a.kind;
-                        const theyBill = a.kind === "INBOUND_BILLED_THERE";
+                        const chip = DEAL_CHIP[a.kind];
                         return (
                           <button
                             key={a.kind}
                             type="button"
                             onClick={() => setPartnerArrangement(a.kind)}
-                            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-                              on
-                                ? "border-transparent bg-foreground text-background"
-                                : "bg-background hover:bg-accent"
-                            }`}
+                            aria-pressed={on}
                           >
-                            {theyBill ? "They bill" : "We bill"}
+                            <Badge
+                              variant="outline"
+                              className={`px-2.5 py-0.5 text-xs ${
+                                on ? chip.className : "bg-background text-muted-foreground"
+                              }`}
+                            >
+                              {chip.text}
+                            </Badge>
                           </button>
                         );
                       })}
+                    {/* Outbound is not chosen here — it is decided per test, by
+                        routing one out below. Shown so the deal is visible, but
+                        deliberately not clickable. */}
                     {(selectedCenter.arrangements ?? []).some(
                       (a) => a.isActive && a.kind === "OUTBOUND_VENDOR",
                     ) && (
-                      <span className="text-sm text-muted-foreground">
-                        · we send them work too — route a test below
-                      </span>
+                      <>
+                        <Badge
+                          variant="outline"
+                          className={`px-2.5 py-0.5 text-xs ${DEAL_CHIP.OUTBOUND_VENDOR.className} opacity-70`}
+                        >
+                          {DEAL_CHIP.OUTBOUND_VENDOR.text}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          route a test below
+                        </span>
+                      </>
                     )}
                     {partnerArrangement === "INBOUND_BILLED_THERE" && (
                       <span className="text-sm text-muted-foreground">
-                        Patient pays them; nothing is collected here.
+                        Patient pays them — nothing is collected here.
                       </span>
                     )}
                   </div>
                 )}
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowAddCenterDialog(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
               </div>
             </CardContent>
           </Card>

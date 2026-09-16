@@ -196,7 +196,8 @@ export async function createPartner(input: CreatePartnerInput) {
   });
   if (duplicate) throw new ConflictError(`Partner "${name}" already exists`);
 
-  const partnerNumber = await generateNextNumber('partner', 'PT');
+  const partnerNumber = await // EP, not PT: patients are P-00001 and PT- reads as one of them.
+  generateNextNumber('partner', 'EP');
 
   const partner = await prisma.$transaction(async (tx) => {
     const created = await tx.partner.create({

@@ -10,12 +10,15 @@ import {
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 export interface SearchableSelectOption {
   value: string;
   label: string;
   description?: string;
   keywords?: string;
+  /** Optional tinted chip beside the label, like the Panel chip in test search. */
+  badge?: { text: string; className?: string };
 }
 
 interface SearchableSelectProps {
@@ -161,7 +164,17 @@ export function SearchableSelect({
                   )}
                 />
                 <div className="min-w-0">
-                  <div className="truncate">{option.label}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="truncate">{option.label}</span>
+                    {option.badge && (
+                      <Badge
+                        variant="outline"
+                        className={cn('shrink-0 px-1.5 py-0 text-[10px]', option.badge.className)}
+                      >
+                        {option.badge.text}
+                      </Badge>
+                    )}
+                  </div>
                   {option.description && (
                     <div className="truncate text-xs text-muted-foreground">
                       {option.description}

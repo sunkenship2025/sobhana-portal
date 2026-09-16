@@ -117,8 +117,8 @@ const buildTestTokens = (
     resultReady?: boolean | null;
     panel?: { id: string; name: string; displayName?: string } | null;
   }>,
-): Array<{ label: string; ready: boolean }> => {
-  const map = new Map<string, { label: string; ready: boolean }>();
+): Array<{ label: string; done: number; total: number }> => {
+  const map = new Map<string, { label: string; done: number; total: number }>();
   for (const order of testOrders) {
     if (order.workflowMode === "BILL_ONLY") continue;
     if (order.cancelledAt) continue; // voided — never performed, so never listed
@@ -140,15 +140,26 @@ const buildTestTokens = (
       label = panel?.displayName || panel?.name || order.testName || order.testCode || "";
     }
     if (!label) continue;
-    const ready = order.resultReady === true;
-    const existing = map.get(key);
-    if (existing) {
-      existing.ready = existing.ready && ready;
-    } else {
-      map.set(key, { label, ready });
-    }
+    const existing = map.get(key) ?? { label, done: 0, total: 0 };
+    existing.total += 1;
+    if (order.resultReady === true) existing.done += 1;
+    map.set(key, existing);
   }
   return [...map.values()];
+};
+
+/**
+ * Grey / amber / green for one collapsed billed product. The old rule was
+ * binary — green once every parameter had a row, amber otherwise — so a panel
+ * nobody had touched looked exactly like one that was 17 of 18 done.
+ *   grey  · nothing entered yet
+ *   amber · started, some parameters still missing
+ *   green · every parameter in
+ */
+const testTokenClass = (done: number, total: number): string => {
+  if (done === 0) return "text-muted-foreground";
+  if (done < total) return "font-medium text-amber-700";
+  return "text-emerald-700";
 };
 
 // Compact "billed at" label, e.g. "9 Jul, 2:05 PM".
@@ -698,10 +709,11 @@ const DiagnosticsPendingResults = () => {
                             {buildTestTokens(testOrders).map((t, i, arr) => (
                               <span key={t.label}>
                                 <span
-                                  className={
-                                    t.ready
-                                      ? "text-emerald-700"
-                                      : "font-medium text-amber-700"
+                                  className={testTokenClass(t.done, t.total)}
+                                  title={
+                                    t.total > 1
+                                      ? `${t.done} of ${t.total} parameters entered`
+                                      : undefined
                                   }
                                 >
                                   {t.label}
