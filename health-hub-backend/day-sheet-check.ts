@@ -87,6 +87,35 @@ async function main() {
     );
   }
 
+  // Gross obeys the same rule: a test sold on a later day was not on the bill
+  // the day the sheet closed, so it must not appear in that day's Gross.
+  const lateOrders = await prisma.$queryRawUnsafe<
+    { billnumber: string; billday: string; later: bigint; total: bigint }[]
+  >(`
+    SELECT b."billNumber" AS billnumber,
+           (b."billedAt" ${IST})::date::text AS billday,
+           SUM(t."priceInPaise")::bigint AS later,
+           MAX(b."totalAmountInPaise")::bigint AS total
+    FROM "TestOrder" t JOIN "Bill" b ON b."visitId" = t."visitId"
+    WHERE (t."createdAt" ${IST})::date > (b."billedAt" ${IST})::date
+    GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 12`);
+
+  for (const r of lateOrders) {
+    const sheet = await getMoneyDaySheet('custom', null, {
+      startKey: r.billday,
+      endKey: r.billday,
+    });
+    const row = sheet.rows.find((x) => x.billNumber === r.billnumber);
+    const expected = Number(r.total) - Number(r.later);
+    const ok = row ? row.grossInPaise === expected : false;
+    if (!ok) failed += 1;
+    console.log(
+      `${ok ? 'ok  ' : 'FAIL'} ${r.billday}  ${r.billnumber}  gross ₹${((row?.grossInPaise ?? 0) / 100).toLocaleString('en-IN')}` +
+        `  expected ₹${(expected / 100).toLocaleString('en-IN')}` +
+        `  (₹${(Number(r.later) / 100).toLocaleString('en-IN')} sold later)`,
+    );
+  }
+
   console.log(failed ? `\n${failed} FAILED` : '\nall clean');
   await prisma.$disconnect();
   process.exit(failed ? 1 : 0);
