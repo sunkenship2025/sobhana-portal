@@ -788,9 +788,11 @@ async function computeCompletedDiagnosticIndex(
   q: string,
   doctorId?: string,
   productId?: string,
+  delivery?: string,
+  rowType?: string,
 ): Promise<{ ids: string[]; total: number }> {
   const qNorm = q.trim().toLowerCase();
-  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${to ?? ""}|${qNorm}|${doctorId ?? ""}|${productId ?? ""}`;
+  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${to ?? ""}|${qNorm}|${doctorId ?? ""}|${productId ?? ""}|${delivery ?? ""}|${rowType ?? ""}`;
   const cached = getWorklistIndex(cacheKey);
   if (cached) return cached;
 
@@ -807,7 +809,8 @@ async function computeCompletedDiagnosticIndex(
 
   // Referring-doctor / test filters run in the DB, so they also narrow the scan
   // cap instead of being trimmed out of an already-capped page.
-  if (doctorId)
+  if (doctorId === "__self__") where.referrals = { none: { deletedAt: null } };
+  else if (doctorId)
     where.referrals = { some: { referralDoctorId: doctorId, deletedAt: null } };
   if (productId) where.testOrders = { some: { productId, cancelledAt: null } };
 
@@ -829,8 +832,14 @@ async function computeCompletedDiagnosticIndex(
       updatedAt: true,
       createdAt: true,
       bill: { select: { billedAt: true, createdAt: true } },
+      billPrintedAt: true,
+      reportPrintedAt: true,
       patient: {
-        select: { name: true, identifiers: { select: { type: true, value: true } } },
+        select: {
+          name: true,
+          patientNumber: true,
+          identifiers: { select: { type: true, value: true } },
+        },
       },
       testOrders: {
         select: {
@@ -899,7 +908,13 @@ async function computeCompletedDiagnosticIndex(
       name: v.patient?.name ?? null,
       phone:
         v.patient?.identifiers?.find((i) => i.type === "PHONE")?.value ?? null,
+      patientNumber: v.patient?.patientNumber ?? null,
       billNumber: v.billNumber ?? null,
+      // A row with a finalized report is a REPORT row; one without is a bill /
+      // no-report row, and each is "printed" off its own stamp — the same rule
+      // the list itself renders by.
+      isBillRow: !comp.hasFinalizedReport,
+      printedAt: comp.hasFinalizedReport ? v.reportPrintedAt : v.billPrintedAt,
       doctorName:
         (v as any).referrals?.[0]?.referralDoctor?.name ?? null,
       testNames: ((v.testOrders ?? []) as any[])
@@ -913,7 +928,11 @@ async function computeCompletedDiagnosticIndex(
     (r) =>
       r.keep &&
       (stableFromMs == null || r.sortMs >= stableFromMs) &&
-      (stableToMs == null || r.sortMs <= stableToMs),
+      (stableToMs == null || r.sortMs <= stableToMs) &&
+      (rowType == null ||
+        (rowType === "billonly" ? r.isBillRow : !r.isBillRow)) &&
+      (delivery == null ||
+        (delivery === "unprinted" ? !r.printedAt : Boolean(r.printedAt))),
   );
   // Finalized-time desc (restores the long-standing client sort). searchWorklist
   // is stable, so applying it after the date sort keeps date-desc within a rank
@@ -923,6 +942,7 @@ async function computeCompletedDiagnosticIndex(
     ordered = searchWorklist(ordered, q, (r) => ({
       name: r.name,
       phone: r.phone,
+      patientNumber: r.patientNumber,
       billNumber: r.billNumber,
       doctorName: r.doctorName,
       testNames: r.testNames,
@@ -937,8 +957,19 @@ async function computeCompletedDiagnosticIndex(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, patientId, from, to, q, page, pageSize, doctorId, productId } =
-      req.query;
+    const {
+      status,
+      patientId,
+      from,
+      to,
+      q,
+      page,
+      pageSize,
+      doctorId,
+      productId,
+      delivery,
+      rowType,
+    } = req.query;
 
     const where: any = {
       domain: "DIAGNOSTICS",
@@ -973,6 +1004,8 @@ router.get("/", async (req: AuthRequest, res) => {
         qStr,
         typeof doctorId === "string" && doctorId ? doctorId : undefined,
         typeof productId === "string" && productId ? productId : undefined,
+        delivery === "printed" || delivery === "unprinted" ? delivery : undefined,
+        rowType === "report" || rowType === "billonly" ? rowType : undefined,
       );
       const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
       const size = Math.min(
