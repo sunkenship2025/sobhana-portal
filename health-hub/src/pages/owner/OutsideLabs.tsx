@@ -17,6 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -167,6 +172,8 @@ export default function OutsideLabs() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The deeper rate rungs stay folded away until asked for.
+  const [ratesOpen, setRatesOpen] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState({ ...EMPTY_FORM, arrangements: blankArrangements() });
 
   const { data: partners = [], isLoading } = useApiQuery<Partner[]>({
@@ -630,12 +637,14 @@ export default function OutsideLabs() {
                         <Checkbox checked={on} className="mt-0.5" tabIndex={-1} />
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-medium">{k.label}</span>
-                          <span className="block text-sm" style={{ color: TOKENS.textTertiary }}>
-                            {k.hint}
-                            {k.example && <em> {k.example}.</em>}
-                          </span>
+                          {/* Only the chosen row explains itself — three hints at
+                              once was three sentences to read before choosing. */}
+                          {on && (
+                            <span className="block text-sm" style={{ color: TOKENS.textTertiary }}>
+                              {k.hint}
+                            </span>
+                          )}
                         </span>
-                        {/* The only thing that truly separates the three. */}
                         <span
                           className="shrink-0 whitespace-nowrap text-xs tabular-nums"
                           style={{ color: TOKENS.textTertiary }}
@@ -646,9 +655,7 @@ export default function OutsideLabs() {
                     );
                   })}
                 </div>
-              <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
-                A partner can have more than one. Most have one.
-              </p>
+
             </div>
 
             {chosen.length > 0 && (
@@ -660,81 +667,23 @@ export default function OutsideLabs() {
                 {chosen.map((k) => {
                   const a = form.arrangements[k.kind];
                   return (
-                    <div key={k.kind} className="mb-4">
-                      <div className="mb-2 font-medium" style={{ fontSize: 12 }}>
-                        {k.label}
-                      </div>
-                      <div
-                        className="mb-2 rounded-r px-3 py-1.5"
-                        style={{ borderLeft: `2px solid ${TOKENS.border}`, background: "#fafaf8", fontSize: 11.5, color: TOKENS.textTertiary }}
-                      >
-                        Most specific wins: <b style={{ color: TOKENS.textSecondary }}>a named test</b> beats{" "}
-                        <b style={{ color: TOKENS.textSecondary }}>its category</b>, which beats{" "}
-                        <b style={{ color: TOKENS.textSecondary }}>the catch-all</b>.
-                      </div>
-
-                      <Label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                        BY CATEGORY
+                    <div key={k.kind} className="space-y-3">
+                      <Label>
+                        What we keep
+                        {chosen.length > 1 && (
+                          <span className="font-normal" style={{ color: TOKENS.textTertiary }}>
+                            {" · "}
+                            {k.label.toLowerCase()}
+                          </span>
+                        )}
                       </Label>
-                      <div className="mb-3">
-                        {categories.map((cat) => {
-                          const c = a.cats[cat] ?? blankCat();
-                          const set = catFilled(c);
-                          const patchCat = (v: Partial<CatRow>) =>
-                            patch(k.kind, { cats: { ...a.cats, [cat]: { ...c, ...v } } });
-                          return (
-                            <div key={cat} className="mb-1 grid grid-cols-12 items-center gap-2">
-                              <div
-                                className="col-span-5"
-                                style={{ fontSize: 12.5, color: set ? TOKENS.textPrimary : TOKENS.textSecondary }}
-                              >
-                                {cat}
-                              </div>
-                              <div className="col-span-4">
-                                <Select
-                                  value={c.rateBasis}
-                                  onValueChange={(v) => patchCat({ rateBasis: v as PartnerRateBasis })}
-                                >
-                                  <SelectTrigger className="h-7" style={{ fontSize: 12 }}>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="PCT_OF_OUR_PRICE">% our price</SelectItem>
-                                    <SelectItem value="PCT_OF_PARTNER_BILLED">% their bill</SelectItem>
-                                    <SelectItem value="FLAT">Flat ₹</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="col-span-3">
-                                <Input
-                                  className="h-7"
-                                  style={{ fontSize: 12 }}
-                                  /* Blank means inherit the catch-all — the placeholder
-                                     shows what it would inherit, so an empty box is
-                                     never mistaken for a zero rate. */
-                                  placeholder={
-                                    a.rateBasis === "FLAT" ? a.rateAmount || "0" : `${a.ratePercent || "0"}%`
-                                  }
-                                  value={c.rateBasis === "FLAT" ? c.rateAmount : c.ratePercent}
-                                  onChange={(e) =>
-                                    patchCat(
-                                      c.rateBasis === "FLAT"
-                                        ? { rateAmount: e.target.value }
-                                        : { ratePercent: e.target.value },
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
 
-                      <Label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                        BY TEST <span style={{ fontWeight: 400, color: TOKENS.textTertiary }}>· overrides its category</span>
-                      </Label>
+                      {/* Per-test first. It is the only rung most partners use and
+                          the only one anyone edits monthly; categories, the
+                          catch-all and the doctor rule sit behind disclosure so the
+                          default form stays short. */}
                       {a.rules.map((r, i) => (
-                        <div key={i} className="mb-1.5 grid grid-cols-12 gap-2">
+                        <div key={i} className="grid grid-cols-12 gap-2">
                           <div className="col-span-6">
                             <Select
                               value={r.productId}
@@ -744,7 +693,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-8">
+                              <SelectTrigger className="h-9">
                                 <SelectValue placeholder="Select test" />
                               </SelectTrigger>
                               <SelectContent>
@@ -765,7 +714,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-8">
+                              <SelectTrigger className="h-9">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -777,7 +726,7 @@ export default function OutsideLabs() {
                           </div>
                           <div className="col-span-2">
                             <Input
-                              className="h-8"
+                              className="h-9 text-right"
                               value={r.rateBasis === "FLAT" ? r.rateAmount : r.ratePercent}
                               onChange={(e) => {
                                 const rules = [...a.rules];
@@ -789,16 +738,20 @@ export default function OutsideLabs() {
                               }}
                             />
                           </div>
-                          <button
-                            className="col-span-1"
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="col-span-1 h-9 w-9"
+                            aria-label="Remove test rate"
                             onClick={() => patch(k.kind, { rules: a.rules.filter((_, x) => x !== i) })}
                           >
-                            <X className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
-                          </button>
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       ))}
-                      <button
-                        style={{ color: TOKENS.info, fontSize: 12 }}
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() =>
                           patch(k.kind, {
                             rules: [
@@ -808,87 +761,149 @@ export default function OutsideLabs() {
                           })
                         }
                       >
-                        + Add test
-                      </button>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        Add test
+                      </Button>
 
-                      {/* A rate always means what WE keep. For an outbound deal the
-                          owner is thinking "I pay Sunrise 60%", so a box labelled
-                          "what we keep" is one keystroke from being entered
-                          backwards. Echo the complement so it cannot be. */}
-                      {k.kind === "OUTBOUND_VENDOR" && a.rateBasis !== "FLAT" && (
-                        <div
-                          className="mt-3 rounded-md border px-3 py-2 text-sm"
-                          style={{ borderColor: "#e0cfa3", background: "#fcfaf5", color: TOKENS.textSecondary }}
-                        >
-                          On a ₹1,000 test we keep{" "}
-                          <b style={{ color: TOKENS.textPrimary }}>
-                            ₹{Math.round((Number(a.ratePercent || 0) * 1000) / 100)}
-                          </b>{" "}
-                          and pay {form.name.trim() || "them"}{" "}
-                          <b style={{ color: TOKENS.caution }}>
-                            ₹{1000 - Math.round((Number(a.ratePercent || 0) * 1000) / 100)}
-                          </b>
-                          . If that is the wrong way round, enter{" "}
-                          <b style={{ color: TOKENS.textPrimary }}>
-                            {100 - Number(a.ratePercent || 0)}
-                          </b>{" "}
-                          instead.
-                        </div>
-                      )}
+                      <Collapsible
+                        open={!!ratesOpen[k.kind]}
+                        onOpenChange={(o) => setRatesOpen((r) => ({ ...r, [k.kind]: o }))}
+                      >
+                        <CollapsibleTrigger asChild>
+                          <Button variant="ghost" size="sm" className="-ml-2 px-2">
+                            <ChevronDown
+                              className="mr-1 h-4 w-4 transition-transform"
+                              style={{ transform: ratesOpen[k.kind] ? "none" : "rotate(-90deg)" }}
+                            />
+                            Rates by category, and everything else
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-4 pt-3">
+                          <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
+                            A named test above beats its category, which beats the catch-all.
+                          </p>
 
-                      <div className="mt-3 flex items-center gap-2 text-sm">
-                        <span style={{ color: TOKENS.textSecondary }}>Anything not listed</span>
-                        <Select
-                          value={a.rateBasis}
-                          onValueChange={(v) => patch(k.kind, { rateBasis: v as PartnerRateBasis })}
-                        >
-                          <SelectTrigger className="h-7 w-[150px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="PCT_OF_OUR_PRICE">% of our price</SelectItem>
-                            <SelectItem value="PCT_OF_PARTNER_BILLED">% of their bill</SelectItem>
-                            <SelectItem value="FLAT">Flat ₹</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          className="h-7 w-[80px]"
-                          value={a.rateBasis === "FLAT" ? a.rateAmount : a.ratePercent}
-                          onChange={(e) =>
-                            patch(
-                              k.kind,
-                              a.rateBasis === "FLAT"
-                                ? { rateAmount: e.target.value }
-                                : { ratePercent: e.target.value },
-                            )
-                          }
-                        />
-                        <span style={{ color: TOKENS.textTertiary }}>to us</span>
-                      </div>
+                          <div className="space-y-1.5">
+                            {categories.map((cat) => {
+                              const c = a.cats[cat] ?? blankCat();
+                              const patchCat = (v: Partial<CatRow>) =>
+                                patch(k.kind, { cats: { ...a.cats, [cat]: { ...c, ...v } } });
+                              return (
+                                <div key={cat} className="grid grid-cols-12 items-center gap-2">
+                                  <div
+                                    className="col-span-6 text-sm"
+                                    style={{
+                                      color: catFilled(c) ? TOKENS.textPrimary : TOKENS.textTertiary,
+                                    }}
+                                  >
+                                    {cat}
+                                  </div>
+                                  <div className="col-span-4">
+                                    <Select
+                                      value={c.rateBasis}
+                                      onValueChange={(v) => patchCat({ rateBasis: v as PartnerRateBasis })}
+                                    >
+                                      <SelectTrigger className="h-8">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="PCT_OF_OUR_PRICE">% our price</SelectItem>
+                                        <SelectItem value="PCT_OF_PARTNER_BILLED">% their bill</SelectItem>
+                                        <SelectItem value="FLAT">Flat ₹</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <Input
+                                      className="h-8 text-right"
+                                      /* Blank inherits the catch-all; the placeholder
+                                         shows what it would inherit, so an empty box
+                                         is never read as a zero rate. */
+                                      placeholder={
+                                        a.rateBasis === "FLAT" ? a.rateAmount || "0" : a.ratePercent || "0"
+                                      }
+                                      value={c.rateBasis === "FLAT" ? c.rateAmount : c.ratePercent}
+                                      onChange={(e) =>
+                                        patchCat(
+                                          c.rateBasis === "FLAT"
+                                            ? { rateAmount: e.target.value }
+                                            : { ratePercent: e.target.value },
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
 
-                      <div className="mt-3" style={{ fontSize: 12 }}>
-                        <span style={{ color: TOKENS.textSecondary }}>Referring doctor is </span>
-                        <Select
-                          value={a.doctorCommissionMode}
-                          onValueChange={(v) =>
-                            patch(k.kind, { doctorCommissionMode: v as PartnerDoctorCommissionMode })
-                          }
-                        >
-                          <SelectTrigger className="mt-1 h-7 w-[220px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DOCTOR_MODES.map((m) => (
-                              <SelectItem key={m.value} value={m.value}>
-                                {m.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <div style={{ color: TOKENS.textTertiary, marginTop: 2 }}>
-                          {DOCTOR_MODES.find((m) => m.value === a.doctorCommissionMode)?.hint}
-                        </div>
-                      </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span style={{ color: TOKENS.textSecondary }}>Anything not listed</span>
+                            <Select
+                              value={a.rateBasis}
+                              onValueChange={(v) => patch(k.kind, { rateBasis: v as PartnerRateBasis })}
+                            >
+                              <SelectTrigger className="h-8 w-[150px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PCT_OF_OUR_PRICE">% of our price</SelectItem>
+                                <SelectItem value="PCT_OF_PARTNER_BILLED">% of their bill</SelectItem>
+                                <SelectItem value="FLAT">Flat ₹</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              className="h-8 w-[80px] text-right"
+                              value={a.rateBasis === "FLAT" ? a.rateAmount : a.ratePercent}
+                              onChange={(e) =>
+                                patch(
+                                  k.kind,
+                                  a.rateBasis === "FLAT"
+                                    ? { rateAmount: e.target.value }
+                                    : { ratePercent: e.target.value },
+                                )
+                              }
+                            />
+                            <span style={{ color: TOKENS.textTertiary }}>to us</span>
+                          </div>
+
+                          {/* A rate always means what WE keep. On an outbound deal
+                              the owner is thinking "I pay them 60%", so echo the
+                              consequence — it is one keystroke from inverted. */}
+                          {k.kind === "OUTBOUND_VENDOR" && a.rateBasis !== "FLAT" && (
+                            <p className="text-sm" style={{ color: TOKENS.caution }}>
+                              On a ₹1,000 test we keep ₹
+                              {Math.round((Number(a.ratePercent || 0) * 1000) / 100)} and pay them ₹
+                              {1000 - Math.round((Number(a.ratePercent || 0) * 1000) / 100)}. If that is
+                              the wrong way round, enter {100 - Number(a.ratePercent || 0)}.
+                            </p>
+                          )}
+
+                          <div className="space-y-2">
+                            <Label>Referring doctor is</Label>
+                            <Select
+                              value={a.doctorCommissionMode}
+                              onValueChange={(v) =>
+                                patch(k.kind, { doctorCommissionMode: v as PartnerDoctorCommissionMode })
+                              }
+                            >
+                              <SelectTrigger className="h-9 w-[240px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DOCTOR_MODES.map((m) => (
+                                  <SelectItem key={m.value} value={m.value}>
+                                    {m.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
+                              {DOCTOR_MODES.find((m) => m.value === a.doctorCommissionMode)?.hint}
+                            </p>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </div>
                   );
                 })}
