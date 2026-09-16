@@ -749,7 +749,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-9 text-left">
+                              <SelectTrigger className="h-9">
                                 <SelectValue placeholder="Select test" />
                               </SelectTrigger>
                               <SelectContent>
@@ -770,7 +770,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { rules });
                               }}
                             >
-                              <SelectTrigger className="h-9 text-left">
+                              <SelectTrigger className="h-9">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -859,7 +859,7 @@ export default function OutsideLabs() {
                                       value={c.rateBasis}
                                       onValueChange={(v) => patchCat({ rateBasis: v as PartnerRateBasis })}
                                     >
-                                      <SelectTrigger className="h-8 text-left">
+                                      <SelectTrigger className="h-8">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -899,7 +899,7 @@ export default function OutsideLabs() {
                               value={a.rateBasis}
                               onValueChange={(v) => patch(k.kind, { rateBasis: v as PartnerRateBasis })}
                             >
-                              <SelectTrigger className="h-8 w-[150px] text-left">
+                              <SelectTrigger className="h-8 w-[150px]">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -943,7 +943,7 @@ export default function OutsideLabs() {
                                 patch(k.kind, { doctorCommissionMode: v as PartnerDoctorCommissionMode })
                               }
                             >
-                              <SelectTrigger className="h-9 w-[240px] text-left">
+                              <SelectTrigger className="h-9 w-[240px]">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
