@@ -3762,6 +3762,7 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
         bill: { include: { transactions: true } },
         testOrders: true,
         patient: { select: { name: true } },
+        report: { include: { versions: { where: { status: "FINALIZED" }, take: 1 } } },
       },
     });
 
@@ -3771,6 +3772,23 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
         message: "Diagnostic visit not found",
       });
     }
+
+    // Removing a test has refused to run after finalization since E3-03, but
+    // cancelling one — the path that actually reverses the CHARGE — had no such
+    // gate. 69 of 89 cancels happened after the report was already finalized,
+    // i.e. after the patient had the result in hand. Blocking that outright
+    // would break legitimate corrections, so it needs an owner instead of a
+    // refusal: the service is delivered, the money is going back, and that is a
+    // decision rather than a counter operation.
+    const reportFinalized = (visit.report?.versions?.length ?? 0) > 0;
+    if (reportFinalized && !preview && req.user!.role !== "owner") {
+      return res.status(403).json({
+        error: "OWNER_REQUIRED",
+        message:
+          "The report for this visit is already finalized. Only an owner can cancel or refund a delivered test.",
+      });
+    }
+
     if (!visit.bill) {
       return res.status(400).json({
         error: "BILL_NOT_FOUND",
@@ -3870,6 +3888,9 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
         nextDueAmountInPaise: finalFinancials.dueAmountInPaise,
         nextPaymentStatus: finalFinancials.paymentStatus,
         cancelsWholeVisit: remainingActiveOrders.length === 0,
+        // Told in the preview rather than as a 403 on submit, so the dialog can
+        // say who has to do this before anyone fills the form in.
+        ownerRequired: reportFinalized && req.user!.role !== "owner",
       });
     }
 

@@ -51,6 +51,8 @@ interface RefundPreview {
   nextNetAmountInPaise: number;
   nextDueAmountInPaise: number;
   cancelsWholeVisit: boolean;
+  /** Report already finalized and the current user is not an owner. */
+  ownerRequired?: boolean;
 }
 
 interface RefundResult {
@@ -288,6 +290,11 @@ export function RefundDialog({ visit, open, onOpenChange, preselectOrderIds }: R
                     This cancels every test — the whole visit will be marked cancelled.
                   </p>
                 )}
+                {preview?.ownerRequired && (
+                  <p className="pt-1 text-xs text-muted-foreground">
+                    The report is already finalized — only an owner can cancel or refund it.
+                  </p>
+                )}
               </div>
             )}
 
@@ -357,7 +364,9 @@ export function RefundDialog({ visit, open, onOpenChange, preselectOrderIds }: R
               </Button>
               <Button
                 variant="destructive"
-                disabled={busy || previewing || selected.size === 0 || !reason}
+                disabled={
+                  busy || previewing || selected.size === 0 || !reason || !!preview?.ownerRequired
+                }
                 onClick={submit}
               >
                 {busy ? (
