@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Collapsible,
   CollapsibleContent,
@@ -174,6 +175,7 @@ export default function OutsideLabs() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The deeper rate rungs stay folded away until asked for.
   const [ratesOpen, setRatesOpen] = useState<Record<string, boolean>>({});
+  const [tab, setTab] = useState("partner");
   const [form, setForm] = useState({ ...EMPTY_FORM, arrangements: blankArrangements() });
 
   const { data: partners = [], isLoading } = useApiQuery<Partner[]>({
@@ -235,6 +237,7 @@ export default function OutsideLabs() {
     setForm({ ...EMPTY_FORM, arrangements: blankArrangements() });
     setDialogOpen(false);
     setEditingId(null);
+    setTab("partner");
   };
   const add = () => {
     reset();
@@ -587,7 +590,17 @@ export default function OutsideLabs() {
               560px dialog with acres of air; the sections below carry the same
               order without the chrome. Matches every other dialog in the app:
               space-y-4 body, space-y-2 field groups, DialogFooter. */}
-          <div className="space-y-5 py-2">
+          {/* Tabs for organisation, NOT a wizard: Save works from any of them,
+              so there is no Next/Back and no near-empty first step. Identity and
+              the patient doors share a tab so none of the three is thin. */}
+          <Tabs value={tab} onValueChange={setTab} className="pt-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="partner">Partner</TabsTrigger>
+              <TabsTrigger value="deal">Deal</TabsTrigger>
+              <TabsTrigger value="rates">Rates</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="partner" className="min-h-[268px] space-y-5 pt-4">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Name</Label>
@@ -613,9 +626,50 @@ export default function OutsideLabs() {
               </div>
             </div>
 
-            <Separator />
+              <Separator />
 
-            <div className="space-y-3">
+              <div className="space-y-1">
+                  <div className="flex items-start gap-3 py-2">
+                    <Switch
+                      className="mt-0.5"
+                      checked={form.sendBill}
+                      onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
+                    />
+                    <div>
+                      <Label className="block">Send our bill to the patient</Label>
+                      <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
+                        Off: the bill WhatsApp, its link and counter print all stay shut.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 py-2">
+                    <Switch
+                      className="mt-0.5"
+                      checked={form.sendReport}
+                      onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
+                    />
+                    <div>
+                      <Label className="block">Send the report to the patient</Label>
+                      <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
+                        On: they still get their result from us.
+                      </p>
+                    </div>
+                  </div>
+                  {form.arrangements.INBOUND_BILLED_THERE.enabled && form.sendBill && (
+                    <div
+                      className="mt-2 rounded-md border px-3 py-2.5 text-sm"
+                      style={{ borderColor: "#e9d9d9", background: "#fdf7f7", color: TOKENS.textSecondary }}
+                    >
+                      They bill the patient themselves. Leaving our bill on hands the patient a second one
+                      for the same test.
+                    </div>
+                  )}
+              </div>
+
+            </TabsContent>
+
+
+            <TabsContent value="deal" className="min-h-[268px] space-y-3 pt-4">
                 <Label className="mb-2 block">What is the arrangement?</Label>
                 {/* Multi-select in substance (a partner can hold several), but each
                     row needs a real indicator — the previous version was clickable
@@ -656,11 +710,17 @@ export default function OutsideLabs() {
                   })}
                 </div>
 
-            </div>
 
-            {chosen.length > 0 && (
+            </TabsContent>
+
+            <TabsContent value="rates" className="min-h-[268px] space-y-4 pt-4">
+              {chosen.length === 0 ? (
+                <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
+                  Pick an arrangement on the Deal tab first — rates belong to a deal.
+                </p>
+              ) : (
               <>
-                <Separator />
+
                 {chosen.length === 0 && (
                   <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>Pick an arrangement first.</div>
                 )}
@@ -917,45 +977,8 @@ export default function OutsideLabs() {
               </>
             )}
 
-            <Separator />
-            <div className="space-y-1">
-                <div className="flex items-start gap-3 py-2">
-                  <Switch
-                    className="mt-0.5"
-                    checked={form.sendBill}
-                    onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
-                  />
-                  <div>
-                    <Label className="block">Send our bill to the patient</Label>
-                    <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                      Off: the bill WhatsApp, its link and counter print all stay shut.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 py-2">
-                  <Switch
-                    className="mt-0.5"
-                    checked={form.sendReport}
-                    onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
-                  />
-                  <div>
-                    <Label className="block">Send the report to the patient</Label>
-                    <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                      On: they still get their result from us.
-                    </p>
-                  </div>
-                </div>
-                {form.arrangements.INBOUND_BILLED_THERE.enabled && form.sendBill && (
-                  <div
-                    className="mt-2 rounded-md border px-3 py-2.5 text-sm"
-                    style={{ borderColor: "#e9d9d9", background: "#fdf7f7", color: TOKENS.textSecondary }}
-                  >
-                    They bill the patient themselves. Leaving our bill on hands the patient a second one
-                    for the same test.
-                  </div>
-                )}
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={reset}>
