@@ -1036,7 +1036,11 @@ export interface PayRunWorklist {
   view: "grouped" | "flat";
   totals: {
     commissionsTotalInPaise: number;
-    labPayablesTotalInPaise: number;
+    /** What we owe partners — vendor rates and their cut on work we billed. */
+    partnerPayableInPaise: number;
+    /** What partners owe US — our share on work they billed. Its own positive
+     *  number, never a negative payable. */
+    partnerReceivableInPaise: number;
     payeeCount: number;
     byType: Record<PayoutDoctorType, PayoutTypeTotals>;
   };
@@ -1157,6 +1161,8 @@ export interface Partner {
   isActive: boolean;
   arrangements: PartnerArrangement[];
   _count?: { visits: number; testOrders: number; payoutLedger: number };
+  /** What this partner is worth in the listed period, from the frozen snapshots. */
+  period?: { theyOweUsInPaise: number; weOweThemInPaise: number };
 }
 
 

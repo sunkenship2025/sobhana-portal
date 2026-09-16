@@ -1,0 +1,428 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Outside Labs — wireframes</title>
+<style>
+  :root{
+    --healthy:#0F6E56; --caution:#854F0B; --cautionLight:#B7793C; --critical:#A32D2D;
+    --info:#185FA5; --t1:#1F1F1E; --t2:#5F5E5A; --t3:#888780;
+    --surface:#fff; --page:#FAFAF8; --border:rgba(0,0,0,.08); --borderStrong:rgba(0,0,0,.15);
+    --inTint:#f6f5f2; --outTint:#fbf7ee; --outRule:#e0cfa3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--t1);
+       font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 24px 80px}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{font-size:12px;color:var(--t2);margin-bottom:26px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);
+     margin:34px 0 10px;display:flex;align-items:center;gap:10px;font-weight:600}
+  h2::after{content:"";flex:1;height:1px;background:var(--border)}
+  .opt{margin:0 0 18px}
+  .optlabel{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+            color:var(--t2);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .pill{font-size:10px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:99px;
+        background:#eef3f9;color:var(--info);text-transform:uppercase}
+  .pill.rec{background:#e7f2ee;color:var(--healthy)}
+  .note{font-size:12px;color:var(--t2);margin:7px 0 0;max-width:78ch}
+  .note b{color:var(--t1);font-weight:600}
+
+  .card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;overflow:hidden}
+  .pad{padding:16px}
+  .hdr{display:flex;align-items:flex-start;gap:12px;padding:0 0 14px}
+  .hdr h3{font-size:16px;margin:0 0 2px}
+  .hdr p{font-size:12px;color:var(--t2);margin:0}
+  .spacer{flex:1}
+  .btn{background:#1F1F1E;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:13px;
+       font-weight:500;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--info);padding:8px 4px}
+  .btn.sm{padding:5px 10px;font-size:12px}
+  .btn.out{background:#fff;color:var(--t1);border:.5px solid var(--borderStrong)}
+
+  .grouphdr{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--inTint);
+            font-size:12px;cursor:pointer}
+  .grouphdr.out{background:var(--outTint)}
+  .chev{color:var(--t3);font-size:10px}
+  .gname{font-weight:500}
+  .gmeta{color:var(--t3)}
+  .gmeta b{color:var(--t1);font-weight:600}
+  .gmeta b.owe{color:var(--caution)}
+  .gmeta b.owed{color:var(--healthy)}
+  .rule{display:flex;align-items:center;gap:10px;margin:14px 0 6px;font-size:11px;font-weight:600;
+        letter-spacing:.05em;text-transform:uppercase;color:var(--caution)}
+  .rule span{flex:1;height:1px;background:var(--outRule)}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;font-weight:600;color:var(--t3);text-align:left;text-transform:uppercase;
+     letter-spacing:.04em;padding:8px 12px;border-bottom:.5px solid var(--border)}
+  td{padding:9px 12px;border-top:.5px solid var(--border);vertical-align:middle;font-size:13px}
+  tr:first-child td{border-top:0}
+  .num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--t2)}
+  .dim{color:var(--t3)}
+  .strike{color:var(--t3);text-decoration:line-through}
+  .name{font-weight:500}
+  .tag{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.03em;padding:1.5px 6px;
+       border-radius:4px;text-transform:uppercase}
+  .tag.in{background:#eef3f9;color:var(--info)}
+  .tag.out{background:#fbf1e2;color:var(--caution)}
+  .tag.off{background:#f2f1ee;color:var(--t3)}
+  .rate{font-size:12px;color:var(--t2)}
+  .rate b{color:var(--t1);font-weight:600;font-variant-numeric:tabular-nums}
+  .icons{display:flex;gap:10px;justify-content:flex-end;color:var(--t3);font-size:13px}
+
+  .sw{width:30px;height:17px;border-radius:99px;background:#1F1F1E;position:relative;display:inline-block}
+  .sw::after{content:"";position:absolute;top:2px;right:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+  .sw.off{background:#dedcd6}
+  .sw.off::after{right:auto;left:2px}
+
+  .kv{display:flex;justify-content:space-between;padding:5px 0;font-size:13px}
+  .kv .k{color:var(--t2)}
+  .kv .v{font-variant-numeric:tabular-nums}
+  .sep{height:1px;background:var(--border);margin:8px 0}
+
+  .seg{display:inline-flex;border:.5px solid var(--borderStrong);border-radius:8px;overflow:hidden}
+  .seg div{padding:6px 12px;font-size:12px;cursor:pointer;border-right:.5px solid var(--border)}
+  .seg div:last-child{border-right:0}
+  .seg div.on{background:#1F1F1E;color:#fff;font-weight:500}
+
+  .field{margin-bottom:10px}
+  .lbl{font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;
+       display:block;margin-bottom:4px}
+  .inp{width:100%;border:.5px solid var(--borderStrong);border-radius:8px;padding:7px 9px;font-size:13px;
+       background:#fff;color:var(--t1)}
+  .inp.sel::after{content:"⌄"}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}
+  .row4{display:grid;grid-template-columns:2.2fr 1.1fr 1fr 28px;gap:8px;align-items:end}
+  .stepbar{display:flex;gap:0;margin-bottom:16px;border-bottom:.5px solid var(--border)}
+  .step{padding:8px 14px;font-size:12px;color:var(--t3);border-bottom:2px solid transparent;cursor:pointer}
+  .step.on{color:var(--t1);font-weight:600;border-bottom-color:#1F1F1E}
+  .step .n{display:inline-block;width:16px;height:16px;border-radius:50%;background:#eceae5;color:var(--t2);
+           font-size:10px;line-height:16px;text-align:center;margin-right:6px;font-weight:600}
+  .step.on .n{background:#1F1F1E;color:#fff}
+  .callout{border-left:2px solid var(--outRule);background:#fcfaf5;padding:8px 12px;font-size:12px;
+           color:var(--t2);border-radius:0 6px 6px 0;margin-top:10px}
+  .bad{border-left-color:#e3b3b3;background:#fdf6f6}
+  .good{border-left-color:#bcdcd0;background:#f6fbf9}
+  .empty{text-align:center;padding:34px 20px}
+  .empty .ico{font-size:22px;color:var(--t3)}
+  .empty h4{margin:8px 0 3px;font-size:14px}
+  .empty p{margin:0 auto;font-size:12px;color:var(--t2);max-width:46ch}
+</style>
+<div class="wrap">
+
+<h1>Outside Labs — screen wireframes</h1>
+<div class="sub">Same vocabulary as Pay-Run: <b>SectionCard</b> (white · .5px border · 12px radius), tinted collapsible group headers, 11–13px type, hairline section rules, inline <span style="color:var(--info)">→</span> links. Inbound is neutral tint, outbound is the caution tint Pay-Run already uses for lab payables.</div>
+
+<!-- ─────────────────────────── STAGE 1 : THE LIST ─────────────────────────── -->
+<h2>Stage 1 · The list</h2>
+
+<div class="opt">
+  <div class="optlabel">Option A — grouped by direction <span class="pill rec">recommended</span></div>
+  <div class="hdr">
+    <div>
+      <h3>Payouts · Outside Labs</h3>
+      <p>Who we exchange work with. A rate always means what <b>we keep</b>.</p>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost">Pay-Run →</button>
+    <button class="btn">+ Add partner</button>
+  </div>
+
+  <div class="grouphdr"><span class="chev">▾</span><span class="gname">They send us patients</span>
+    <span class="gmeta">1 partner · they owe us <b class="owed">₹13,150</b> this month</span></div>
+  <div class="card" style="border-top-left-radius:0;border-top-right-radius:0;border-top:0">
+    <table>
+      <tr>
+        <td style="width:92px"><span class="mono">PT-000001</span></td>
+        <td class="name">LALITHA HOSPITAL</td>
+        <td><span class="tag in">they bill</span></td>
+        <td class="rate">CBP <b>₹60</b> · CRP <b>₹100</b> · UCS <b>₹100</b> <span class="dim">+2</span></td>
+        <td><span class="tag off">bill held</span></td>
+        <td class="num" style="color:var(--healthy);font-weight:600">₹13,150</td>
+        <td style="width:70px"><div class="icons">✎ ✕</div></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="rule"><span></span>We send them work<span></span></div>
+  <div class="card">
+    <div class="empty" style="padding:22px">
+      <p>No outbound arrangements yet. Add one on a partner when you start sending tests out.</p>
+    </div>
+  </div>
+
+  <p class="note"><b>Why this one.</b> It is the Pay-Run pattern verbatim — a partner's direction is the first thing you need and the last thing you should have to read a sentence to find. The money column is the point of the screen and it is right-aligned and tabular like every other money column in the product. Rates are shown as the actual card (<b>CBP ₹60</b>), not prose.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Option B — one flat table, direction as a column</div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Partner</th><th>Direction</th><th>Rate card</th><th>Doors</th><th class="num">This month</th><th></th></tr></thead>
+      <tr>
+        <td><span class="mono">PT-000001</span> <span class="name">LALITHA HOSPITAL</span></td>
+        <td><span class="tag in">inbound · they bill</span></td>
+        <td class="rate">5 tests · CBP <b>₹60</b>…</td>
+        <td><span class="tag off">bill</span> <span class="tag off">report</span></td>
+        <td class="num" style="font-weight:600">₹13,150</td>
+        <td><div class="icons">✎ ✕</div></td>
+      </tr>
+    </table>
+  </div>
+  <p class="note">Denser, and fine at this scale. Loses the running subtotal per direction, which is what you actually settle on — and once a partner has two arrangements it needs two rows or a nested one.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Option C — card per partner</div>
+  <div class="card pad" style="max-width:520px">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <span class="name" style="font-size:14px">LALITHA HOSPITAL</span>
+      <span class="mono">PT-000001</span><div class="spacer"></div>
+      <span style="color:var(--healthy);font-weight:600">₹13,150</span>
+    </div>
+    <div class="sep"></div>
+    <div class="kv"><span class="k">They send patients · they bill</span><span class="v rate">CBP <b>₹60</b> · CRP <b>₹100</b> · UCS <b>₹100</b> · ESR <b>₹50</b> · KETO <b>₹100</b></span></div>
+    <div class="kv"><span class="k">Patient gets</span><span class="v"><span class="tag off">no bill</span> <span class="tag off">no report</span></span></div>
+  </div>
+  <p class="note">Reads well for one partner and badly for twenty — you cannot scan a column of money in a stack of cards. Rejected for the list; the shape is right for the <i>detail</i> panel.</p>
+</div>
+
+<!-- ─────────────────────────── STAGE 2 : EMPTY ─────────────────────────── -->
+<h2>Stage 2 · Empty state</h2>
+<div class="opt">
+  <div class="optlabel">Option A — name the money, not the feature <span class="pill rec">recommended</span></div>
+  <div class="card">
+    <div class="empty">
+      <div class="ico">⚗</div>
+      <h4>No partners yet</h4>
+      <p>When a lab or hospital sends you work, what you keep is often not what the patient was charged. Add one and every bill from then on records your share.</p>
+      <div style="margin-top:12px"><button class="btn">+ Add your first partner</button></div>
+    </div>
+  </div>
+</div>
+<div class="opt">
+  <div class="optlabel">Option B — lead with the known case</div>
+  <div class="card">
+    <div class="empty">
+      <h4>No partners yet</h4>
+      <p>Lalitha bills her patients ₹300 for a CBP and pays you ₹60. Record that here once and every future bill carries it.</p>
+      <div style="margin-top:12px"><button class="btn">+ Add partner</button></div>
+    </div>
+  </div>
+  <p class="note">Concrete, but it hard-codes one partner's story into a permanent screen. Good onboarding copy, poor product copy.</p>
+</div>
+
+<!-- ─────────────────────────── STAGE 3 : ADD / EDIT ─────────────────────────── -->
+<h2>Stage 3 · Add / edit a partner</h2>
+
+<div class="opt">
+  <div class="optlabel">Option A — stepped, one decision at a time <span class="pill rec">recommended</span></div>
+  <div class="card pad" style="max-width:620px">
+    <div class="stepbar">
+      <div class="step on"><span class="n">1</span>Who</div>
+      <div class="step"><span class="n">2</span>The deal</div>
+      <div class="step"><span class="n">3</span>Rates</div>
+      <div class="step"><span class="n">4</span>Patient doors</div>
+    </div>
+    <div class="field"><label class="lbl">Name</label><div class="inp">LALITHA HOSPITAL</div></div>
+    <div class="row2">
+      <div class="field"><label class="lbl">Contact</label><div class="inp dim">optional</div></div>
+      <div class="field"><label class="lbl">Phone</label><div class="inp dim">optional</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px"><div class="spacer"></div>
+      <button class="btn out sm">Cancel</button><button class="btn sm">Next · the deal</button></div>
+  </div>
+  <p class="note"><b>Why this one.</b> The current dialog puts three arrangements, three rate bases, a doctor-commission mode and a rate card on one scroll — that is the screenshot you reacted to. Stepped means each screen asks one question, and step 2 can ask it in plain words instead of enum labels.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Step 2 — the deal, asked in words</div>
+  <div class="card pad" style="max-width:620px">
+    <label class="lbl">What is the arrangement?</label>
+    <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px">
+      <div style="border:.5px solid var(--borderStrong);border-radius:8px;padding:9px 11px;background:#fbfbf9">
+        <div style="font-weight:500">They send patients, <u>they</u> bill</div>
+        <div class="dim" style="font-size:12px">They collect from the patient and owe us our share. <i>Lalitha.</i></div>
+      </div>
+      <div style="border:.5px solid var(--border);border-radius:8px;padding:9px 11px">
+        <div>They send patients, <u>we</u> bill</div>
+        <div class="dim" style="font-size:12px">We collect at the counter and owe them their cut.</div>
+      </div>
+      <div style="border:.5px solid var(--border);border-radius:8px;padding:9px 11px">
+        <div>We send <u>them</u> work</div>
+        <div class="dim" style="font-size:12px">We collect at the counter and owe them a vendor rate.</div>
+      </div>
+    </div>
+    <div class="callout">A partner can have more than one. Add the second after saving — most have one.</div>
+  </div>
+  <p class="note">Three plain sentences beat <span class="mono">INBOUND_BILLED_THERE</span>. The italic example is the tell that the row is the right one.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Step 3 — rates. Option A: the card is the point <span class="pill rec">recommended</span></div>
+  <div class="card pad" style="max-width:620px">
+    <label class="lbl">What we keep, per test</label>
+    <div class="row4" style="margin-top:6px">
+      <div class="inp">COMPLETE BLOOD PICTURE</div><div class="inp">Flat ₹</div><div class="inp">60</div><div class="dim" style="padding-bottom:8px">✕</div>
+    </div>
+    <div class="row4"><div class="inp">C-REACTIVE PROTEIN</div><div class="inp">Flat ₹</div><div class="inp">100</div><div class="dim" style="padding-bottom:8px">✕</div></div>
+    <div class="row4"><div class="inp">URINE FOR CULTURE AND SENS…</div><div class="inp">Flat ₹</div><div class="inp">100</div><div class="dim" style="padding-bottom:8px">✕</div></div>
+    <button class="btn ghost sm" style="margin-top:6px">+ Add test</button>
+    <div class="sep"></div>
+    <div class="kv"><span class="k">Anything not listed</span><span class="v"><span class="rate">100% of our price to us</span></span></div>
+    <div class="callout good">A real lab card is flat per test — a CBP at ₹60 and a culture at ₹100 are not the same percentage. Percentages are there if you need them.</div>
+  </div>
+  <p class="note">Rate rows first, fallback last and small. The fallback is the thing people set once and forget; the card is what they edit monthly.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Step 3 — rates. Option B: paste her sheet</div>
+  <div class="card pad" style="max-width:620px">
+    <label class="lbl">Paste the partner's statement</label>
+    <div class="inp" style="height:76px;color:var(--t3)">CBP&#9;300&#9;60<br>CRP&#9;400&#9;100<br>URINE C/S&#9;600&#9;100</div>
+    <div class="callout">We read 5 tests and matched all 5 to the catalogue. <b>Prices agree to the rupee</b> — review below.</div>
+  </div>
+  <p class="note">Faster for the real workflow — she sends a sheet every month. Worth building <i>after</i> A, because it needs A's editor to show what it parsed.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Step 4 — patient doors</div>
+  <div class="card pad" style="max-width:620px">
+    <div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+      <span class="sw off"></span><div><div>Send our bill to the patient</div>
+      <div class="dim" style="font-size:12px">Off: bill WhatsApp and its link stay shut, counter print greys.</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+      <span class="sw"></span><div><div>Send the report to the patient</div>
+      <div class="dim" style="font-size:12px">On: they still get their result from us.</div></div>
+    </div>
+    <div class="callout">She already billed this patient ₹300. Leaving our bill on would hand them a second one.</div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── STAGE 4 : ROW DETAIL ─────────────────────────── -->
+<h2>Stage 4 · Partner detail / settlement</h2>
+<div class="opt">
+  <div class="optlabel">Option A — expand in place <span class="pill rec">recommended</span></div>
+  <div class="grouphdr"><span class="chev">▾</span><span class="gname">LALITHA HOSPITAL</span>
+    <span class="gmeta">September · they owe us <b class="owed">₹13,150</b></span>
+    <div class="spacer"></div><span style="color:var(--info);font-size:12px">Statement →</span></div>
+  <div class="card" style="border-top-left-radius:0;border-top-right-radius:0;border-top:0">
+    <table>
+      <thead><tr><th>Test</th><th class="num">Qty</th><th class="num">They billed</th><th class="num">Ours</th></tr></thead>
+      <tr><td>COMPLETE BLOOD PICTURE</td><td class="num">84</td><td class="num strike">₹25,200</td><td class="num" style="font-weight:600">₹5,040</td></tr>
+      <tr><td>C-REACTIVE PROTEIN</td><td class="num">27</td><td class="num strike">₹10,800</td><td class="num" style="font-weight:600">₹2,700</td></tr>
+      <tr><td>URINE FOR CULTURE AND SENSITIVITY</td><td class="num">15</td><td class="num strike">₹9,000</td><td class="num" style="font-weight:600">₹1,500</td></tr>
+      <tr><td colspan="2" class="dim">Total</td><td class="num strike">₹64,500</td><td class="num" style="font-weight:700;color:var(--healthy)">₹13,150</td></tr>
+    </table>
+  </div>
+  <p class="note"><b>The struck-through column is the whole feature.</b> What the patient paid stays visible so staff can reconcile against her sheet, and what is ours is the bold one. Same treatment now live in Patient 360.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Option B — separate statement page</div>
+  <div class="card pad" style="max-width:620px">
+    <div class="kv"><span class="k">Period</span><span class="v"><span class="seg"><div class="on">September</div><div>August</div><div>Custom</div></span></span></div>
+    <div class="sep"></div>
+    <div class="kv"><span class="k">They billed patients</span><span class="v strike">₹64,500</span></div>
+    <div class="kv"><span class="k">Our share</span><span class="v" style="font-weight:600">₹13,150</span></div>
+    <div class="kv"><span class="k">We owe them</span><span class="v">₹0</span></div>
+    <div class="sep"></div>
+    <div class="kv"><span class="k" style="font-weight:600">Net — they owe us</span><span class="v" style="font-weight:700;color:var(--healthy)">₹13,150</span></div>
+    <div class="callout bad">Her own sheet says ₹12,480. <b>₹670 short</b> — 3 rows she under-wrote, 4 visits she never listed. <span style="color:var(--info)">See the difference →</span></div>
+  </div>
+  <p class="note"><b>The variance callout is worth building either way.</b> It is the thing hand-reconciliation cannot do, and it found ₹670 in her August sheet on the first run.</p>
+</div>
+
+
+<!-- ─────────────────────────── PAY-RUN ─────────────────────────── -->
+<h2>Pay-Run · what the partner concept changes</h2>
+<p class="note" style="margin-bottom:14px"><b>Outside Labs is configuration.</b> Rates, arrangements, doors. Nothing settles there. <b>Pay-Run is the money</b> — and it now carries a payee that can owe in either direction, which today's header cannot say.</p>
+
+<div class="opt">
+  <div class="optlabel">The bug, as shipped</div>
+  <div class="card pad">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:26px">
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--t3)">COMMISSION PAYOUTS</div>
+        <div style="font-size:26px;font-weight:600;margin:4px 0">₹2,06,989.02</div>
+        <div class="dim" style="font-size:12px">What you owe referrers &amp; clinics</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--caution)">OUTSIDE-LAB PAYABLES</div>
+        <div style="font-size:26px;font-weight:600;margin:4px 0;color:var(--caution)">₹-379.66</div>
+        <div class="dim" style="font-size:12px">What you owe outside labs for outsourced tests</div>
+      </div>
+    </div>
+  </div>
+  <div class="callout bad">A negative payable under “what you owe”. We owe Lalitha nothing — <b>she owes us ₹379.66</b>. The number is right; the frame is wrong. A two-sided payee cannot live in a one-directional KPI.</div>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Option A — three headline numbers, signed by meaning <span class="pill rec">recommended</span></div>
+  <div class="card pad">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px">
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--t3)">COMMISSION PAYOUTS</div>
+        <div style="font-size:24px;font-weight:600;margin:4px 0">₹2,06,989.02</div>
+        <div class="dim" style="font-size:12px">Referrers &amp; consulting doctors</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--caution)">WE OWE PARTNERS</div>
+        <div style="font-size:24px;font-weight:600;margin:4px 0;color:var(--caution)">₹0</div>
+        <div class="dim" style="font-size:12px">Vendor rates &amp; their cut on work we billed</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--healthy)">PARTNERS OWE US</div>
+        <div style="font-size:24px;font-weight:600;margin:4px 0;color:var(--healthy)">₹379.66</div>
+        <div class="dim" style="font-size:12px">Our share on work they billed</div>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="dim" style="font-size:12px">Referral Doctors <b style="color:var(--t1)">₹1,11,289.02</b> (60) · Consulting <b style="color:var(--t1)">₹95,700</b> (6) · Partners <b style="color:var(--healthy)">₹379.66 in</b> (1)</div>
+  </div>
+  <p class="note"><b>Why.</b> Never render money you are owed as a negative of money you owe. Two tiles, two colours, no minus signs — the caution tone Pay-Run already uses for payables, the healthy tone for receivables. A partner who is both directions shows in both tiles and nets on its own row.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Option B — keep two tiles, flip the one label</div>
+  <div class="card pad" style="max-width:420px">
+    <div style="font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--healthy)">PARTNERS — THEY OWE US</div>
+    <div style="font-size:24px;font-weight:600;margin:4px 0;color:var(--healthy)">₹379.66</div>
+    <div class="dim" style="font-size:12px">Flips to “We owe partners” when the net goes the other way</div>
+  </div>
+  <p class="note">Smallest change. But a tile whose <i>meaning</i> flips month to month is a tile you misread once and trust never again.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">The group row</div>
+  <div class="rule" style="color:var(--healthy)"><span style="background:#bcdcd0"></span>Partners<span style="background:#bcdcd0"></span></div>
+  <div class="grouphdr"><span class="chev">▾</span><span class="gname">Partners</span>
+    <span class="gmeta">1 payee · they owe us <b class="owed">₹379.66</b></span>
+    <div class="spacer"></div><span style="color:var(--info);font-size:12px">Manage rates →</span></div>
+  <div class="card" style="border-top-left-radius:0;border-top-right-radius:0;border-top:0">
+    <table>
+      <thead><tr><th>Payee</th><th class="num">Amount</th><th style="width:150px">Actions</th></tr></thead>
+      <tr><td><span class="name">LALITHA HOSPITAL</span> <span class="tag in">they bill</span></td>
+          <td class="num" style="color:var(--healthy);font-weight:600">₹379.66 <span class="dim" style="font-weight:400">in</span></td>
+          <td><span style="color:var(--info)">Statement</span> &nbsp; 🖨</td></tr>
+    </table>
+  </div>
+  <p class="note">Same grouped shell, third section. <b>“Outside Labs” becomes “Partners”</b> — it holds both directions now. The <span class="tag in">they bill</span> tag and the <b>in</b> suffix say which way without a minus sign. The existing <i>Manage rates →</i> link is exactly right: it goes to the configuration screen.</p>
+</div>
+
+<div class="opt">
+  <div class="optlabel">Also changing in Pay-Run</div>
+  <div class="card pad">
+    <div class="kv"><span class="k">Filter chips</span><span class="v dim">All · Ref Dr · Consult · <b style="color:var(--t1)">Partner</b> — already renamed, shipped</span></div>
+    <div class="kv"><span class="k">Register / Excel export</span><span class="v dim">needs a direction column, else in and out sum together</span></div>
+    <div class="kv"><span class="k">Statement (per partner)</span><span class="v dim">gross struck through + our share bold, and the variance callout</span></div>
+    <div class="kv"><span class="k">Mark-paid buttons</span><span class="v dim">gone — the ledger is a book now, not a tracker</span></div>
+  </div>
+</div>
+
+<h2>What I'd build</h2>
+<p class="note">Outside Labs: stage 1 <b>Option A</b>, stage 2 <b>Option A</b>, stage 3 <b>stepped</b> with the plain-words deal picker and the rate-card-first editor, stage 4 <b>Option A</b> expand-in-place with Option B's variance callout folded into it. Paste-the-sheet (3B) after, once the editor it feeds exists. Pay-Run: <b>three tiles</b>, group renamed <b>Partners</b>, direction column in the export.</p>
+
+</div>

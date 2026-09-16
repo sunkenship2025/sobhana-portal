@@ -41,7 +41,7 @@ const TYPE_ORDER: PayoutDoctorType[] = ["REFERRAL", "CLINIC", "PARTNER"];
 const TYPE_LABEL: Record<PayoutDoctorType, string> = {
   REFERRAL: "Referral Doctors",
   CLINIC: "Consulting Doctors",
-  PARTNER: "Outside Labs",
+  PARTNER: "Partners",
 };
 const TYPE_BADGE: Record<PayoutDoctorType, string> = {
   REFERRAL: "REF",
@@ -52,7 +52,7 @@ const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "REFERRAL", label: "Ref Dr" },
   { key: "CLINIC", label: "Consult" },
-  { key: "PARTNER", label: "Partner" },
+  { key: "PARTNER", label: "Partners" },
 ];
 
 // ── date helpers ────────────────────────────────────────────────────────────
@@ -385,7 +385,8 @@ export default function PayoutsList() {
   const totals = worklist?.totals;
   const heroMax = Math.max(
     totals?.commissionsTotalInPaise ?? 0,
-    totals?.labPayablesTotalInPaise ?? 0,
+    totals?.partnerPayableInPaise ?? 0,
+    totals?.partnerReceivableInPaise ?? 0,
     1
   );
 
@@ -488,9 +489,11 @@ export default function PayoutsList() {
           <FullPageSkeleton rows={3} />
         ) : (
           <div className="space-y-4">
-            {/* Two non-netting hero totals */}
+            {/* Three non-netting hero totals. A partner can owe us OR be owed,
+                and money coming IN is never money going out with a minus sign in
+                front of it — so it gets its own tile and its own colour. */}
             <SectionCard>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <div
                     className="mb-1.5 font-medium uppercase"
@@ -513,18 +516,37 @@ export default function PayoutsList() {
                     className="mb-1.5 font-medium uppercase"
                     style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.caution }}
                   >
-                    Outside-lab payables
+                    We owe partners
                   </div>
                   <DisplayNumber size={30}>
                     <span style={{ color: TOKENS.caution }}>
-                      {formatRupees(totals?.labPayablesTotalInPaise ?? 0)}
+                      {formatRupees(totals?.partnerPayableInPaise ?? 0)}
                     </span>
                   </DisplayNumber>
                   <div className="mt-2">
-                    <MiniBar fillRatio={(totals?.labPayablesTotalInPaise ?? 0) / heroMax} color={TOKENS.caution} />
+                    <MiniBar fillRatio={(totals?.partnerPayableInPaise ?? 0) / heroMax} color={TOKENS.caution} />
                   </div>
                   <div className="mt-1" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-                    What you owe outside labs for outsourced tests
+                    Vendor rates &amp; their cut on work we billed
+                  </div>
+                </div>
+                <div className="md:border-l md:pl-4" style={{ borderColor: TOKENS.border }}>
+                  <div
+                    className="mb-1.5 font-medium uppercase"
+                    style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.healthy }}
+                  >
+                    Partners owe us
+                  </div>
+                  <DisplayNumber size={30}>
+                    <span style={{ color: TOKENS.healthy }}>
+                      {formatRupees(totals?.partnerReceivableInPaise ?? 0)}
+                    </span>
+                  </DisplayNumber>
+                  <div className="mt-2">
+                    <MiniBar fillRatio={(totals?.partnerReceivableInPaise ?? 0) / heroMax} color={TOKENS.healthy} />
+                  </div>
+                  <div className="mt-1" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+                    Our share on work they billed
                   </div>
                 </div>
               </div>
@@ -772,6 +794,7 @@ function RowsTable({
       <tbody>
         {rows.map((r) => {
           const outbound = r.payeeType === "PARTNER";
+          const owesUs = outbound && r.amountInPaise < 0;
           return (
             <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
               {selectMode && (
@@ -804,9 +827,17 @@ function RowsTable({
               </td>
               <td
                 className="py-2 text-right font-medium tabular-nums"
-                style={{ color: outbound ? TOKENS.caution : TOKENS.textPrimary }}
+                style={{
+                  color: owesUs ? TOKENS.healthy : outbound ? TOKENS.caution : TOKENS.textPrimary,
+                }}
               >
-                {formatRupees(r.amountInPaise)}
+                {/* A partner nets both directions. Show which way it points with
+                    a word, not a minus sign — "-379.66" under a payables column
+                    reads as a payable you cannot explain. */}
+                {formatRupees(Math.abs(r.amountInPaise))}
+                {owesUs && (
+                  <span className="font-normal" style={{ color: TOKENS.textTertiary }}> in</span>
+                )}
               </td>
               <td className="py-2 pr-3 text-right" style={{ width: 160 }}>
                 <button className="mr-2" style={{ color: TOKENS.info, fontSize: 12 }} onClick={() => onStatement(r.id)}>
@@ -855,11 +886,12 @@ function RegisterPrint({
   const t = idSet
     ? printRows.reduce(
         (acc, r) => {
-          if (r.payeeType === "PARTNER") acc.labPayablesTotalInPaise += r.amountInPaise;
-          else acc.commissionsTotalInPaise += r.amountInPaise;
+          if (r.payeeType !== "PARTNER") acc.commissionsTotalInPaise += r.amountInPaise;
+          else if (r.amountInPaise >= 0) acc.partnerPayableInPaise += r.amountInPaise;
+          else acc.partnerReceivableInPaise += -r.amountInPaise;
           return acc;
         },
-        { commissionsTotalInPaise: 0, labPayablesTotalInPaise: 0 }
+        { commissionsTotalInPaise: 0, partnerPayableInPaise: 0, partnerReceivableInPaise: 0 }
       )
     : worklist.totals;
   return (
@@ -895,7 +927,7 @@ function RegisterPrint({
           </tr>
           <tr style={{ fontWeight: 700 }}>
             <td style={td} colSpan={2}>Outside-lab payables</td>
-            <td style={{ ...td, ...rt }}>{formatRupees(t.labPayablesTotalInPaise)}</td>
+            <td style={{ ...td, ...rt }}>{formatRupees(t.partnerPayableInPaise)}</td>
           </tr>
         </tfoot>
       </table>

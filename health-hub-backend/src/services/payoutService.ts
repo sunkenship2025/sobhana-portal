@@ -1555,7 +1555,12 @@ export interface PayRunWorklist {
   view: 'grouped' | 'flat';
   totals: {
     commissionsTotalInPaise: number;
-    labPayablesTotalInPaise: number;
+    /// What we owe partners: vendor rates, and their cut on work we billed.
+    partnerPayableInPaise: number;
+    /// What partners owe US: our share on work THEY billed and collected.
+    /// Kept as its own positive number rather than a negative payable — money
+    /// coming in is not money going out with a minus sign in front of it.
+    partnerReceivableInPaise: number;
     payeeCount: number;
     byType: Record<PayoutDoctorType, PayoutTypeTotals>;
   };
@@ -1691,13 +1696,21 @@ export async function getPayRunWorklist(
   ) as Record<PayoutDoctorType, PayoutTypeTotals>;
 
   let commissionsTotal = 0;
-  let labTotal = 0;
+  let partnerPayable = 0;
+  let partnerReceivable = 0;
   for (const r of rows) {
     const bt = byType[r.payeeType];
     bt.count += 1;
     bt.amountInPaise += r.amountInPaise;
-    if (r.payeeType === 'PARTNER') labTotal += r.amountInPaise;
-    else commissionsTotal += r.amountInPaise;
+    if (r.payeeType !== 'PARTNER') {
+      commissionsTotal += r.amountInPaise;
+      continue;
+    }
+    // A partner row is netted and signed: positive = we pay them, negative =
+    // they owe us. Split into two positive figures so neither headline ever has
+    // to render a minus sign.
+    if (r.amountInPaise >= 0) partnerPayable += r.amountInPaise;
+    else partnerReceivable += -r.amountInPaise;
   }
 
   const groups: PayRunWorklistGroup[] = PAYOUT_TYPES_ORDER.map((t) => {
@@ -1715,7 +1728,8 @@ export async function getPayRunWorklist(
     view,
     totals: {
       commissionsTotalInPaise: commissionsTotal,
-      labPayablesTotalInPaise: labTotal,
+      partnerPayableInPaise: partnerPayable,
+      partnerReceivableInPaise: partnerReceivable,
       payeeCount: rows.length,
       byType,
     },
