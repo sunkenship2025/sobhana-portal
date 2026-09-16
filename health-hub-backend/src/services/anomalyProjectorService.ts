@@ -531,12 +531,25 @@ export async function ensureProjected(
   from: Date,
   to: Date,
 ): Promise<void> {
-  const key = branchId ?? "__all__";
   const now = Date.now();
-  if (now - (lastProjected.get(key) ?? 0) < THROTTLE_MS) return;
-  lastProjected.set(key, now);
   const capFrom = new Date(Math.max(from.getTime(), now - CAP_DAYS * 864e5));
   if (capFrom.getTime() >= to.getTime()) return;
+  // Keyed on the WINDOW, not just the branch. Keyed on branch alone, opening the
+  // feed on Today and then scrolling back to last week inside the throttle
+  // skipped the older window entirely — so the range actually being looked at
+  // was the one that never re-projected, and its superseded rows (the 40 HIGH
+  // "Order cancelled" rows one cancel used to write) were never purged.
+  // Day granularity: a range is re-scanned at most once per THROTTLE_MS, and
+  // dragging a date picker does not spawn an entry per millisecond.
+  const day = 864e5;
+  const key = `${branchId ?? "__all__"}|${Math.floor(capFrom.getTime() / day)}|${Math.floor(to.getTime() / day)}`;
+  if (now - (lastProjected.get(key) ?? 0) < THROTTLE_MS) return;
+  // Bounded: entries are meaningless once older than the throttle, so drop them
+  // rather than letting one long-lived process accumulate every range ever viewed.
+  if (lastProjected.size > 500) {
+    for (const [k, t] of lastProjected) if (now - t >= THROTTLE_MS) lastProjected.delete(k);
+  }
+  lastProjected.set(key, now);
   try {
     await projectWindow(capFrom, to, branchId);
   } catch (err) {
