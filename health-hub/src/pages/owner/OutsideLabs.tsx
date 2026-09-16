@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -153,8 +153,6 @@ const EMPTY_FORM = {
   arrangements: blankArrangements(),
 };
 
-const STEPS = ["Who", "The deal", "Rates", "Patient doors"] as const;
-
 /** A rate always reads as what WE keep — stated, so it can never be entered inverted. */
 function rateLabel(basis: PartnerRateBasis, pct: number | null, amt: number | null) {
   if (basis === "FLAT") return `${formatRupees(amt ?? 0)} / test`;
@@ -166,7 +164,6 @@ export default function OutsideLabs() {
   const branchId = useBranchId();
   const categories = useReferralCategories();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [step, setStep] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -231,7 +228,6 @@ export default function OutsideLabs() {
     setForm({ ...EMPTY_FORM, arrangements: blankArrangements() });
     setDialogOpen(false);
     setEditingId(null);
-    setStep(0);
   };
   const add = () => {
     reset();
@@ -280,7 +276,6 @@ export default function OutsideLabs() {
       arrangements,
     });
     setEditingId(p.id);
-    setStep(0);
     setDialogOpen(true);
   };
 
@@ -576,59 +571,44 @@ export default function OutsideLabs() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={(o) => (o ? setDialogOpen(true) : reset())}>
-        <DialogContent
-          className="max-h-[86vh] gap-0 overflow-y-auto p-0 sm:max-w-[560px]"
-          style={{ background: TOKENS.surface }}
-        >
-          <DialogHeader className="px-5 pb-0 pt-5">
-            <DialogTitle className="text-base font-semibold">
-              {editingId ? "Edit partner" : "Add partner"}
-            </DialogTitle>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Edit partner" : "Add partner"}</DialogTitle>
           </DialogHeader>
 
-          {/* Stepped: one question per screen. The first version put three
-              arrangements, three bases, a doctor mode and a rate card on one
-              scroll, which is why it read as a wall. */}
-          <div className="px-5 pt-4">
-            <Tabs value={String(step)} onValueChange={(v) => setStep(Number(v))}>
-              <TabsList>
-                {STEPS.map((label, i) => (
-                  <TabsTrigger key={label} value={String(i)}>
-                    {label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
-
-          <div className="px-5 py-4">
-            {step === 0 && (
-              <>
-                <Label className="mb-1.5 block">Name</Label>
+          {/* One scrollable form, not a wizard. Four steps put three fields in a
+              560px dialog with acres of air; the sections below carry the same
+              order without the chrome. Matches every other dialog in the app:
+              space-y-4 body, space-y-2 field groups, DialogFooter. */}
+          <div className="space-y-5 py-2">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Name</Label>
                 <Input
                   autoFocus
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Lalitha Hospital"
                 />
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="mb-1.5 block">Contact person</Label>
-                    <Input
-                      value={form.contactPerson}
-                      onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label className="mb-1.5 block">Phone</Label>
-                    <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                  </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Contact person</Label>
+                  <Input
+                    value={form.contactPerson}
+                    onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+                  />
                 </div>
-              </>
-            )}
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                </div>
+              </div>
+            </div>
 
-            {step === 1 && (
-              <>
+            <Separator />
+
+            <div className="space-y-3">
                 <Label className="mb-2 block">What is the arrangement?</Label>
                 {/* Multi-select in substance (a partner can hold several), but each
                     row needs a real indicator — the previous version was clickable
@@ -666,14 +646,14 @@ export default function OutsideLabs() {
                     );
                   })}
                 </div>
-                <p className="mt-2 text-sm" style={{ color: TOKENS.textTertiary }}>
-                  A partner can have more than one. Most have one.
-                </p>
-              </>
-            )}
+              <p className="text-sm" style={{ color: TOKENS.textTertiary }}>
+                A partner can have more than one. Most have one.
+              </p>
+            </div>
 
-            {step === 2 && (
+            {chosen.length > 0 && (
               <>
+                <Separator />
                 {chosen.length === 0 && (
                   <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>Pick an arrangement first.</div>
                 )}
@@ -922,8 +902,8 @@ export default function OutsideLabs() {
               </>
             )}
 
-            {step === 3 && (
-              <>
+            <Separator />
+            <div className="space-y-1">
                 <div className="flex items-start gap-3 py-2">
                   <Switch
                     className="mt-0.5"
@@ -959,23 +939,16 @@ export default function OutsideLabs() {
                     for the same test.
                   </div>
                 )}
-              </>
-            )}
+            </div>
           </div>
 
           <DialogFooter>
-            {step > 0 && (
-              <Button variant="outline" onClick={() => setStep(step - 1)}>
-                Back
-              </Button>
-            )}
-            {step < STEPS.length - 1 ? (
-              <Button onClick={() => setStep(step + 1)}>Next · {STEPS[step + 1]}</Button>
-            ) : (
-              <Button onClick={submit} disabled={save.isPending}>
-                {editingId ? "Save changes" : "Create partner"}
-              </Button>
-            )}
+            <Button variant="outline" onClick={reset}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={save.isPending}>
+              {editingId ? "Save changes" : "Create partner"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

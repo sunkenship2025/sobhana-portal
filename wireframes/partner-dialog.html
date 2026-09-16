@@ -1,0 +1,126 @@
+<!doctype html><meta charset="utf-8"><title>Add partner — as built</title>
+<style>
+:root{--t1:#1F1F1E;--t2:#5F5E5A;--t3:#888780;--input:#e4e2dd;--muted:#f4f3f0;--border:rgba(0,0,0,.08);
+ --healthy:#0F6E56;--caution:#854F0B}
+*{box-sizing:border-box}
+body{margin:0;background:#2c2c2c;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;
+ padding:40px 20px;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--t1)}
+.dlg{width:600px;background:#fff;border-radius:8px;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.hd{display:flex;align-items:flex-start;margin-bottom:16px}
+.hd h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+.hd .x{margin-left:auto;color:var(--t3);font-size:16px}
+.body>*+*{margin-top:20px}
+.fg>*+*{margin-top:8px}
+.lbl{font-size:14px;font-weight:500;line-height:1;display:block}
+.inp{height:40px;border:1px solid var(--input);border-radius:6px;padding:8px 12px;font-size:14px;background:#fff;
+ display:flex;align-items:center;width:100%}
+.inp.ph{color:var(--t3)}
+.inp.sm{height:36px;font-size:13px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.sep{height:1px;background:var(--border);margin:20px 0}
+.opt{display:flex;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--input);border-radius:6px}
+.opt+.opt{margin-top:8px}
+.opt.on{border-color:var(--t1);background:#fbfbf9}
+.cb{width:16px;height:16px;border:1px solid var(--input);border-radius:4px;margin-top:2px;flex:none}
+.opt.on .cb{background:var(--t1);border-color:var(--t1);position:relative}
+.opt.on .cb::after{content:"";position:absolute;left:5px;top:1.5px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.opt .t{font-size:14px;font-weight:500}
+.opt .h{font-size:14px;color:var(--t3)}
+.flow{margin-left:auto;font-size:12px;color:var(--t3);white-space:nowrap;padding-top:2px}
+.hint{font-size:14px;color:var(--t3)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl td{padding:3px 0}
+.tbl td.n{font-size:14px}
+.rr{display:grid;grid-template-columns:1fr 130px 90px 36px;gap:8px;align-items:center}
+.rr+.rr{margin-top:6px}
+.ft{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
+.btn{height:40px;padding:0 16px;border-radius:6px;font-size:14px;font-weight:500;border:0;background:var(--t1);color:#fff}
+.btn.out{background:#fff;color:var(--t1);border:1px solid var(--input)}
+.btn.sm{height:36px;padding:0 12px;font-size:13px}
+.sw{width:36px;height:20px;border-radius:99px;background:var(--t1);position:relative;display:inline-block;flex:none;margin-top:2px}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.sw.off{background:#dedcd6}.sw.off::after{right:auto;left:2px}
+.warn{border:1px solid #e9d9d9;background:#fdf7f7;border-radius:6px;padding:10px 12px;font-size:14px;color:var(--t2)}
+.note{border:1px solid #e0cfa3;background:#fcfaf5;border-radius:6px;padding:10px 12px;font-size:14px;color:var(--t2)}
+</style>
+<div class="dlg">
+  <div class="hd"><h2>Add partner</h2><span class="x">✕</span></div>
+  <div class="body">
+    <div>
+      <div class="fg"><span class="lbl">Name</span><div class="inp ph">Lalitha Hospital</div></div>
+      <div class="g2" style="margin-top:16px">
+        <div class="fg"><span class="lbl">Contact person</span><div class="inp"></div></div>
+        <div class="fg"><span class="lbl">Phone</span><div class="inp"></div></div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div>
+      <span class="lbl" style="margin-bottom:12px">What is the arrangement?</span>
+      <div class="opt on"><span class="cb"></span>
+        <span><span class="t">They send patients, they bill</span>
+        <span class="h" style="display:block">They collect from the patient and owe us our share. <i>Lalitha.</i></span></span>
+        <span class="flow">patient → them → us</span></div>
+      <div class="opt"><span class="cb"></span>
+        <span><span class="t">They send patients, we bill</span>
+        <span class="h" style="display:block">We collect at the counter and keep our share.</span></span>
+        <span class="flow">patient → us → them</span></div>
+      <div class="opt"><span class="cb"></span>
+        <span><span class="t">We send them work</span>
+        <span class="h" style="display:block">We collect and pay them a vendor rate.</span></span>
+        <span class="flow">patient → us → them</span></div>
+      <p class="hint" style="margin:8px 0 0">A partner can have more than one. Most have one.</p>
+    </div>
+
+    <div class="sep"></div>
+
+    <div>
+      <span class="lbl">What we keep · they send patients, they bill</span>
+      <p class="hint" style="margin:4px 0 12px">A named test beats its category, which beats the catch-all.</p>
+
+      <table class="tbl">
+        <tr><td class="n">Laboratory</td><td style="width:140px"><div class="inp sm">% our price</div></td>
+            <td style="width:96px"><div class="inp sm" style="justify-content:flex-end">20</div></td></tr>
+        <tr><td class="n" style="color:var(--t3)">X-Ray</td><td><div class="inp sm">% our price</div></td>
+            <td><div class="inp sm ph" style="justify-content:flex-end">100</div></td></tr>
+        <tr><td class="n" style="color:var(--t3)">Ultrasound</td><td><div class="inp sm">% our price</div></td>
+            <td><div class="inp sm ph" style="justify-content:flex-end">100</div></td></tr>
+      </table>
+      <p class="hint" style="margin:8px 0 0">Greyed = inherits the catch-all. Type to override.</p>
+
+      <span class="lbl" style="display:block;margin:18px 0 8px">Exceptions, by test</span>
+      <div class="rr"><div class="inp sm">Complete Blood Picture</div><div class="inp sm">Flat ₹</div>
+        <div class="inp sm" style="justify-content:flex-end">60</div><span style="color:var(--t3);text-align:center">✕</span></div>
+      <div class="rr"><div class="inp sm">Urine for Culture</div><div class="inp sm">Flat ₹</div>
+        <div class="inp sm" style="justify-content:flex-end">100</div><span style="color:var(--t3);text-align:center">✕</span></div>
+      <button class="btn out sm" style="margin-top:10px">+ Add test</button>
+
+      <div style="margin-top:16px;display:flex;align-items:center;gap:8px;font-size:14px">
+        <span style="color:var(--t2)">Anything not listed</span>
+        <div class="inp sm" style="width:150px">% of our price</div>
+        <div class="inp sm" style="width:80px;justify-content:flex-end">100</div>
+        <span style="color:var(--t3)">to us</span>
+      </div>
+      <div style="margin-top:14px;font-size:14px">
+        <span style="color:var(--t2)">Referring doctor is</span>
+        <div class="inp sm" style="width:220px;margin-top:6px">Not paid at all</div>
+        <div class="hint" style="margin-top:3px">The partner IS the referrer.</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div>
+      <div style="display:flex;gap:12px;padding:8px 0"><span class="sw off"></span>
+        <span><span class="lbl">Send our bill to the patient</span>
+        <p class="hint" style="margin:2px 0 0">Off: the bill WhatsApp, its link and counter print all stay shut.</p></span></div>
+      <div style="display:flex;gap:12px;padding:8px 0"><span class="sw"></span>
+        <span><span class="lbl">Send the report to the patient</span>
+        <p class="hint" style="margin:2px 0 0">On: they still get their result from us.</p></span></div>
+      <div class="warn" style="margin-top:10px">They bill the patient themselves — leaving our bill on hands them a second one for the same test.</div>
+    </div>
+  </div>
+
+  <div class="ft"><button class="btn out">Cancel</button><button class="btn">Create partner</button></div>
+</div>
