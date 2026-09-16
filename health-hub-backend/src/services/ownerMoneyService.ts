@@ -897,6 +897,9 @@ export async function getMoneyDaySheet(
         OR: [
           { billedAt: { gte: win.start, lt: win.end } },
           { transactions: { some: { transactionDate: { gte: win.start, lt: win.end } } } },
+          // A concession granted here moves the books even when no cash does —
+          // writing off a due is exactly the event that must not be invisible.
+          { discounts: { some: { createdAt: { gte: win.start, lt: win.end } } } },
         ],
       },
       select: {
@@ -950,9 +953,15 @@ export async function getMoneyDaySheet(
             transactionDate: true,
           },
         },
+        // Concession grants, bounded at win.end for the same reason payments are.
+        discounts: {
+          where: { createdAt: { lt: win.end } },
+          orderBy: { createdAt: 'asc' },
+          select: { amountInPaise: true, createdAt: true, stage: true, reason: true },
+        },
         // Unbounded — distinguishes a pre-ledger legacy bill from one whose
         // payments simply all fall outside this window.
-        _count: { select: { transactions: true } },
+        _count: { select: { transactions: true, discounts: true } },
       },
     }),
   ]);
@@ -1022,6 +1031,34 @@ export async function getMoneyDaySheet(
       else if (t.amountInPaise > 0) kinds.add(t.paymentType);
       if (!firstMoneyAt) firstMoneyAt = t.transactionDate;
     }
+    // Concessions, split the same way the cash is: granted INSIDE the window is
+    // this sheet's discount, granted before it only informs what is still owed.
+    // Bill.discountAmountInPaise is a running total that gets rescaled whenever
+    // the subtotal moves, so reading it here is what let a printed sheet's
+    // Discount and Net keep drifting after the fact.
+    const hasGrantLedger = b._count.discounts > 0;
+    let discountInWindow = 0;
+    let discountBeforeWindow = 0;
+    let firstGrantAt: Date | null = null;
+    for (const g of b.discounts) {
+      if (g.createdAt < win.start) {
+        discountBeforeWindow += g.amountInPaise;
+        continue;
+      }
+      discountInWindow += g.amountInPaise;
+      if (!firstGrantAt) firstGrantAt = g.createdAt;
+    }
+    // Pre-ledger bills have no grants to date, so the stored total is the only
+    // thing there is — keyed to the bill's own day, which is where it belongs.
+    const discountAsOfWindow = hasGrantLedger
+      ? discountBeforeWindow + discountInWindow
+      : b.discountAmountInPaise;
+    const discountHere = hasGrantLedger
+      ? discountInWindow
+      : carried
+        ? 0
+        : b.discountAmountInPaise;
+
     // Ledger is the source of truth when transactions exist; fall back to the
     // stored field only for legacy bills backfilled without a ledger. The count
     // is deliberately unbounded — using the windowed list here would send every
@@ -1040,7 +1077,7 @@ export async function getMoneyDaySheet(
     // are blanked for a carried row — the Due column has to stay truthful.
     const chargedNetInPaise = Math.max(
       0,
-      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0),
+      b.totalAmountInPaise - discountAsOfWindow - (b.reversedChargeInPaise ?? 0),
     );
     const due = Math.max(0, chargedNetInPaise - paidToDateInPaise);
     const paymentMethod: DaySheetRow['paymentMethod'] =
@@ -1054,7 +1091,7 @@ export async function getMoneyDaySheet(
       billedAtIso: b.billedAt.toISOString(),
       // The row's own event time: when the bill was raised, or when the due was
       // collected. One clock, so the sheet reads in the order the day happened.
-      entryAtIso: (carried && firstMoneyAt ? firstMoneyAt : b.billedAt).toISOString(),
+      entryAtIso: (carried ? firstMoneyAt ?? firstGrantAt ?? b.billedAt : b.billedAt).toISOString(),
       dueFrom: carried ? b.billedAt.toISOString() : null,
       patientName: b.visit.patient.name,
       patientTitle: b.visit.patient.title,
@@ -1071,7 +1108,7 @@ export async function getMoneyDaySheet(
           ? 1
           : [...billedItems.values()].filter((i) => i.live > 0).length,
       grossInPaise: carried ? 0 : b.totalAmountInPaise,
-      discountInPaise: carried ? 0 : b.discountAmountInPaise,
+      discountInPaise: discountHere,
       reversedInPaise: carried ? 0 : b.reversedChargeInPaise ?? 0,
       netInPaise: carried ? 0 : chargedNetInPaise,
       paidInPaise: collectedInPaise,

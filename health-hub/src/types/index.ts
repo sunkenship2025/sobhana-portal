@@ -378,7 +378,17 @@ export interface PaymentTransaction {
   amountInPaise?: number;
   paymentType: PaymentType;
   transactionDate?: string | Date;
+  transactionType?: "PAYMENT" | "REFUND";
   collectedByUserId?: string;
+}
+
+/** One concession GRANT. Mirrors the backend BillDiscount ledger. */
+export interface BillDiscountGrant {
+  amountInPaise: number;
+  reason: string;
+  /** ON_DUE = granted at collection, after the service was delivered. */
+  stage: "AT_BILLING" | "ON_DUE";
+  createdAt: string | Date;
 }
 export type PaymentStatus = "PAID" | "PENDING";
 export type BillDiscountType = "FLAT_AMOUNT" | "PERCENTAGE";
@@ -552,6 +562,8 @@ export interface ClinicVisitView {
 
 // Visit timeline item for Patient 360 display
 export interface VisitTimelineItem {
+  /** Every concession on this visit's bill, newest first. Empty for pre-ledger bills. */
+  discountGrants?: BillDiscountGrant[];
   visitId: string;
   domain: VisitDomain;
   billNumber?: string | null;

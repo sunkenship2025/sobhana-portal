@@ -2886,6 +2886,26 @@ router.post("/", async (req: AuthRequest, res) => {
             discountAmountInPaise: billFinancials.discountAmountInPaise,
             discountedByUserId:
               billFinancials.discountAmountInPaise > 0 ? req.user!.id : null,
+            // Ledger the grant, not just its running total. Bill.discount* is
+            // rescaled whenever the subtotal moves, so it can never say WHEN a
+            // concession was given — which is what the audit feed and the day
+            // sheet both need in order to file it on the right day.
+            ...(billFinancials.discountAmountInPaise > 0
+              ? {
+                  discounts: {
+                    create: {
+                      visitId: visit.id,
+                      branchId: req.branchId!,
+                      stage: "AT_BILLING" as const,
+                      amountInPaise: billFinancials.discountAmountInPaise,
+                      discountType: billFinancials.discountType!,
+                      percentage: billFinancials.discountPercentage,
+                      reason: billFinancials.discountReason ?? "",
+                      createdByUserId: req.user!.id,
+                    },
+                  },
+                }
+              : {}),
             couponId: couponContext?.couponId ?? null,
             couponCode: couponContext?.code ?? null,
             couponDiscountInPaise: couponContext?.discountInPaise ?? 0,
@@ -3628,10 +3648,34 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
     const normalizedPaymentType =
       paymentType === "ONLINE" ? "ONLINE" : "CASH";
 
+    // The INCREMENT this call granted, not the bill's new running total — the
+    // ledger has to stay additive or a second concession would double-count the
+    // first. This is also the stage that matters most: the report is usually
+    // already out, so the concession buys nothing and must be visible.
+    const grantedNowInPaise = discountData
+      ? discountData.discountAmountInPaise - existingDiscountPaise
+      : 0;
+
     const updated = await prisma.bill.update({
       where: { id: existing.bill.id },
       data: {
         ...(discountData ?? {}),
+        ...(grantedNowInPaise > 0
+          ? {
+              discounts: {
+                create: {
+                  visitId: existing.id,
+                  branchId: req.branchId!,
+                  stage: "ON_DUE" as const,
+                  amountInPaise: grantedNowInPaise,
+                  discountType: discountData!.discountType,
+                  percentage: discountData!.discountPercentage,
+                  reason: discountData!.discountReason,
+                  createdByUserId: req.user!.id,
+                },
+              },
+            }
+          : {}),
         paidAmountInPaise: nextPaidAmountInPaise,
         paymentStatus: nextPaymentStatus,
         ...(addedAmountInPaise > 0

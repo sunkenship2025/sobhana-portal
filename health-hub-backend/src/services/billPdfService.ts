@@ -146,6 +146,12 @@ export interface BillData {
     originalVisitDate?: Date | null;
     paymentStatus?: string | null;
     transactions?: Array<{ paymentType?: string | null }>;
+    discountGrants?: Array<{
+      amountInPaise: number;
+      reason: string;
+      stage: 'AT_BILLING' | 'ON_DUE';
+      percentage?: number | null;
+    }>;
   };
   patient: {
     name: string;
@@ -170,7 +176,15 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
         include: { identifiers: true },
       },
       branch: true,
-      bill: { include: { transactions: true } },
+      bill: {
+        include: {
+          transactions: true,
+          // Each concession as its own line. The stored total wears only the
+          // NEWEST reason, so a twice-discounted bill printed one merged number
+          // under whichever reason happened to be typed last.
+          discounts: { orderBy: { createdAt: 'asc' } },
+        },
+      },
       testOrders: {
         orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
         include: { test: true, product: true },
@@ -245,6 +259,12 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       hasBill: Boolean(visit.bill),
       paymentStatus: visit.bill?.paymentStatus || (visit as any).paymentStatus || null,
       transactions: visit.bill?.transactions || [],
+      discountGrants: (visit.bill?.discounts ?? []).map((g) => ({
+        amountInPaise: g.amountInPaise,
+        reason: g.reason,
+        stage: g.stage as 'AT_BILLING' | 'ON_DUE',
+        percentage: g.percentage,
+      })),
       domain,
       createdAt: visit.createdAt,
       // See routes/bills.ts: subtract reversed (cancelled-order) charge so a
@@ -597,7 +617,20 @@ export function renderBillHtml(
         <div class="total-row"><span>Paid Amount</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(paidAmount)}</span></div>
         ${
           discountAmount > 0
-            ? `<div class="total-row"><span>${discountLabel}</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(discountAmount)}</span></div>`
+            ? (data.visit.discountGrants && data.visit.discountGrants.length > 0
+                ? data.visit.discountGrants
+                    .map((g) => {
+                      const label = g.percentage != null
+                        ? `Disc. Amount (${g.percentage}%)`
+                        : 'Disc. Amount';
+                      // Name the stage: a concession given when the report was
+                      // collected is a different fact from one given at billing.
+                      const when = g.stage === 'ON_DUE' ? ' on due' : '';
+                      const why = g.reason?.trim() ? ` — ${escapeHtml(g.reason.trim())}` : '';
+                      return `<div class="total-row"><span>${label}${when}${why}</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(g.amountInPaise / 100)}</span></div>`;
+                    })
+                    .join('')
+                : `<div class="total-row"><span>${discountLabel}</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(discountAmount)}</span></div>`)
             : ''
         }
         ${
