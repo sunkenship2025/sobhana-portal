@@ -4,12 +4,12 @@ import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { PayoutDoctorType, PaymentType } from '@prisma/client';
 import * as payoutService from '../services/payoutService';
+import * as partnerService from '../services/partnerService';
 import { logAction } from '../services/auditService';
 import {
   buildPayoutAggregateWorkbook,
   buildSinglePayoutWorkbook,
 } from '../services/payoutExportService';
-import * as externalLabService from '../services/externalLabService';
 import * as notificationService from '../services/notificationService';
 import { isWhatsAppEnabled } from '../services/whatsappCloudService';
 
@@ -22,7 +22,7 @@ router.use(branchContextMiddleware);
 // Helpers
 // ----------------------------------------------------------------------------
 
-const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER', 'LAB'];
+const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'PARTNER'];
 const VALID_PAYMENT_METHODS: PaymentType[] = ['CASH', 'ONLINE', 'CHEQUE'];
 
 function parseDate(value: unknown): Date | undefined {
@@ -100,7 +100,6 @@ router.get('/', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (r
     const result = await payoutService.listPayouts(branchId, {
       doctorType: validatedDoctorType,
       doctorId: typeof doctorId === 'string' ? doctorId : undefined,
-      isPaid: isPaid === 'true' ? true : isPaid === 'false' ? false : undefined,
       startDate: parseDate(startDate),
       endDate: parseDate(endDate),
       q: typeof q === 'string' ? q : undefined,
@@ -365,77 +364,6 @@ router.post('/derive/bulk', requireRole('owner', 'staff', 'lab_incharge', 'sales
   }
 });
 
-// ============================================================================
-// POST /api/payouts/mark-paid/bulk — apply ONE payment record to N rows
-// Access: owner + staff
-// Body: { ids: string[], paymentMethod, paymentReferenceId?, notes? }
-// ============================================================================
-router.post('/mark-paid/bulk', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
-  try {
-    const branchId = req.branchId!;
-    const { ids, paymentMethod, paymentReferenceId, notes } = req.body;
-
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'ids must be a non-empty array',
-      });
-    }
-    const cleanIds = ids.filter((x: any) => typeof x === 'string');
-    if (cleanIds.length === 0) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'ids must contain strings' });
-    }
-
-    if (!paymentMethod || !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`,
-      });
-    }
-
-    const paidOn = parseDate(req.body.paidOn);
-    if (req.body.paidOn && !paidOn) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn must be a valid date' });
-    }
-    if (paidOn && paidOn.getTime() > Date.now()) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn cannot be in the future' });
-    }
-
-    const result = await payoutService.markPayoutsPaidBulk(cleanIds, branchId, {
-      paymentMethod: paymentMethod as PaymentType,
-      paymentReferenceId,
-      notes,
-      paidOn,
-    });
-
-    if (result.paidIds.length > 0) {
-      await logAction({
-        branchId,
-        actionType: 'PAYOUT_PAID',
-        entityType: 'Payout',
-        entityId: 'BULK',
-        userId: req.user?.id!,
-        newValues: {
-          mode: 'bulk',
-          paidCount: result.paidIds.length,
-          paidIds: result.paidIds,
-          totalAmount: result.totalPaidInPaise / 100,
-          paymentMethod,
-          paymentReferenceId,
-          conflictIds: result.conflictIds,
-          notFoundIds: result.notFoundIds,
-        },
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
-    }
-
-    return res.json({ data: result });
-  } catch (err: any) {
-    console.error('Bulk mark paid error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to bulk mark paid' });
-  }
-});
 
 // ============================================================================
 // DELETE /api/payouts/bulk — soft-delete many payouts (OWNER ONLY)
@@ -616,7 +544,7 @@ router.get('/doctors/clinic', requireRole('owner', 'staff', 'lab_incharge', 'sal
 router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
-    const centers = await payoutService.getDiagnosticCenters(true, branchScope);
+    const centers = await payoutService.getPartners(true, branchScope);
     return res.json({ data: centers });
   } catch (err: any) {
     console.error('Get diagnostic centers error:', err);
@@ -750,14 +678,15 @@ router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sale
   }
 });
 
-// GET /api/payouts/payees/external-labs — dropdown source (active labs)
+// GET /api/payouts/payees/external-labs — dropdown source. Kept at the old path
+// so existing clients keep working; it now serves the one partner master.
 router.get('/payees/external-labs', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (_req: AuthRequest, res) => {
   try {
-    const labs = await externalLabService.listExternalLabs(false);
-    return res.json({ data: labs });
+    const partners = await partnerService.listPartners(false);
+    return res.json({ data: partners });
   } catch (err: any) {
-    console.error('Get external labs error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get external labs' });
+    console.error('Get partners error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get partners' });
   }
 });
 
@@ -939,80 +868,6 @@ router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales')
   }
 });
 
-// ============================================================================
-// POST /api/payouts/:id/mark-paid — single mark-paid (owner + staff)
-// ============================================================================
-router.post('/:id/mark-paid', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
-  try {
-    const { id } = req.params;
-    const branchId = req.branchId!;
-    const { paymentMethod, paymentReferenceId, notes } = req.body;
-
-    if (!paymentMethod || !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`,
-      });
-    }
-
-    const paidOn = parseDate(req.body.paidOn);
-    if (req.body.paidOn && !paidOn) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn must be a valid date' });
-    }
-    if (paidOn && paidOn.getTime() > Date.now()) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn cannot be in the future' });
-    }
-
-    const existing = await payoutService.getPayoutDetail(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
-    }
-    if (existing.branchId !== branchId) {
-      return res.status(403).json({ error: 'FORBIDDEN', message: 'Wrong branch' });
-    }
-
-    const payout = await payoutService.markPayoutPaid(
-      id,
-      paymentMethod as PaymentType,
-      paymentReferenceId,
-      notes,
-      paidOn
-    );
-
-    await logAction({
-      branchId,
-      actionType: 'PAYOUT_PAID',
-      entityType: 'Payout',
-      entityId: id,
-      userId: req.user?.id!,
-      oldValues: { isPaid: false },
-      newValues: {
-        isPaid: true,
-        paymentMethod,
-        paymentReferenceId,
-        notes,
-        paidAt: new Date().toISOString(),
-        totalAmount: payout.derivedAmountInPaise / 100,
-      },
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-    });
-
-    return res.json({ data: payout, message: 'Payout marked as paid successfully' });
-  } catch (err: any) {
-    console.error('Mark payout paid error:', err);
-    if (err.message?.includes('already marked as paid')) {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        message: 'Payout has already been paid and cannot be modified',
-      });
-    }
-    if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
-    }
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to mark paid' });
-  }
-});
 
 // ============================================================================
 // DELETE /api/payouts/:id — soft-delete single (OWNER ONLY)

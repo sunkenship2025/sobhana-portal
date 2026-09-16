@@ -78,13 +78,13 @@ export interface ExternalFlowSide {
 export interface RecentPayoutRow {
   id: string;
   doctorName: string;
-  doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER' | 'LAB';
+  doctorType: 'REFERRAL' | 'CLINIC' | 'PARTNER';
   periodStart: string;
   periodEnd: string;
   amountInPaise: number;
-  // Payouts are checked here, not settled here — there is no review step to be
-  // mid-way through, so a row is either marked paid or simply accrued.
-  status: 'paid' | 'accrued';
+  // The ledger is a book of what accrued; settlement is not tracked, so there
+  // is only ever one status.
+  status: 'accrued';
   reference: string | null;
 }
 
@@ -284,7 +284,7 @@ export async function getOwnerDoctors(
 
     // all currently-open payouts — used for the payout-aging card
     prisma.doctorPayoutLedger.findMany({
-      where: { deletedAt: null, paidAt: null, ...(branchId ? { branchId } : {}) },
+      where: { deletedAt: null, ...(branchId ? { branchId } : {}) },
       select: {
         derivedAmountInPaise: true,
         derivedAt: true,
@@ -294,7 +294,7 @@ export async function getOwnerDoctors(
     // recent activity — last 20 by latest state change
     prisma.doctorPayoutLedger.findMany({
       where: { deletedAt: null, ...(branchId ? { branchId } : {}) },
-      orderBy: [{ paidAt: 'desc' }, { reviewedAt: 'desc' }, { derivedAt: 'desc' }],
+      orderBy: [{ derivedAt: 'desc' }],
       take: 20,
       select: {
         id: true,
@@ -303,29 +303,29 @@ export async function getOwnerDoctors(
         periodStartDate: true,
         periodEndDate: true,
         derivedAt: true,
-        reviewedAt: true,
-        paidAt: true,
-        paymentReferenceId: true,
         referralDoctor: { select: { name: true } },
         clinicDoctor: { select: { name: true } },
-        diagnosticCenter: { select: { name: true } },
+        partner: { select: { name: true } },
       },
     }),
 
-    // diagnostic center referrals + their test orders for in/out flow
-    prisma.diagnosticCenter_Visit.findMany({
+    // partner-sourced visits + their test orders for in/out flow
+    prisma.partnerVisit.findMany({
       where: {
         createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
       },
       select: {
-        diagnosticCenterId: true,
-        referralType: true,
-        diagnosticCenter: { select: { name: true } },
+        partnerId: true,
+        kind: true,
+        partner: { select: { name: true } },
         visit: {
           select: {
-            // Same guard — outgoing/incoming totals must exclude voided orders.
-            testOrders: { where: { cancelledAt: null }, select: { priceInPaise: true } },
+            // Same guard — in/out totals must exclude voided orders.
+            testOrders: {
+              where: { cancelledAt: null },
+              select: { priceInPaise: true, ourShareInPaise: true },
+            },
           },
         },
       },
@@ -353,7 +353,7 @@ export async function getOwnerDoctors(
         commissionAmountInPaise: true,
       },
     }),
-    prisma.diagnosticReferralCenter.findMany({
+    prisma.partner.findMany({
       select: { id: true, name: true },
     }),
   ]);
@@ -424,28 +424,27 @@ export async function getOwnerDoctors(
   const outgoingByCenter = new Map<string, { name: string; total: number }>();
   const incomingByCenter = new Map<string, { name: string; total: number }>();
   for (const link of externalLinks) {
-    const total = link.visit.testOrders.reduce((s, o) => s + o.priceInPaise, 0);
+    // An internal money surface shows what we GET, so partner orders count at
+    // their frozen share. Orders with no partner snapshot fall back to price.
+    const total = link.visit.testOrders.reduce(
+      (s, o) => s + (o.ourShareInPaise ?? o.priceInPaise),
+      0,
+    );
     const tests = link.visit.testOrders.length;
-    if (link.referralType === 'REFERRED_TO') {
+    // Direction is the arrangement now: we send work out, or they send it in.
+    const outgoing = link.kind === 'OUTBOUND_VENDOR';
+    const bucketTotals = outgoing ? outgoingByCenter : incomingByCenter;
+    const cur = bucketTotals.get(link.partnerId) ?? { name: link.partner.name, total: 0 };
+    cur.total += total;
+    bucketTotals.set(link.partnerId, cur);
+    if (outgoing) {
       outgoingTotal += total;
       outgoingTestCount += tests;
-      outgoingCenters.add(link.diagnosticCenterId);
-      const cur = outgoingByCenter.get(link.diagnosticCenterId) ?? {
-        name: link.diagnosticCenter.name,
-        total: 0,
-      };
-      cur.total += total;
-      outgoingByCenter.set(link.diagnosticCenterId, cur);
-    } else if (link.referralType === 'REFERRED_FROM') {
+      outgoingCenters.add(link.partnerId);
+    } else {
       incomingTotal += total;
       incomingTestCount += tests;
-      incomingCenters.add(link.diagnosticCenterId);
-      const cur = incomingByCenter.get(link.diagnosticCenterId) ?? {
-        name: link.diagnosticCenter.name,
-        total: 0,
-      };
-      cur.total += total;
-      incomingByCenter.set(link.diagnosticCenterId, cur);
+      incomingCenters.add(link.partnerId);
     }
   }
 
@@ -552,16 +551,14 @@ export async function getOwnerDoctors(
 
   // --- recent payouts ------------------------------------------------------
   const recentPayouts: RecentPayoutRow[] = payoutsRecent.map((r) => {
-    const status: RecentPayoutRow['status'] = r.paidAt ? 'paid' : 'accrued';
+    const status: RecentPayoutRow['status'] = 'accrued';
     const doctorName =
       r.referralDoctor?.name ??
       r.clinicDoctor?.name ??
-      r.diagnosticCenter?.name ??
+      r.partner?.name ??
       '—';
-    // Reference is the payment reference. No payment, no reference — it used to
-    // fall back to "needs review", which put a standing to-do in a column that
-    // is meant to hold a cheque number.
-    const reference: string | null = r.paymentReferenceId ?? null;
+    // Settlement is no longer tracked, so there is no cheque number to show.
+    const reference: string | null = null;
     return {
       id: r.id,
       doctorName,

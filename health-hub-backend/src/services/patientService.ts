@@ -972,7 +972,7 @@ const TIMELINE_INCLUDE = {
       reversedChargeInPaise: true,
       productId: true,
       product: { select: { name: true } },
-      externalLabId: true,
+      partnerId: true,
       // "No written report needed" (films only) — surfaced so the inspector can
       // show a trace (who/when/why) instead of the Report section going blank.
       noReportAt: true,
@@ -1185,7 +1185,7 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
               reversedChargeInPaise: order.reversedChargeInPaise,
               productId: order.productId,
               productName: order.product?.name ?? null,
-              isOutsourced: Boolean(order.externalLabId),
+              isOutsourced: Boolean(order.partnerId),
               noReportAt: order.noReportAt,
               noReportReason: order.noReportReason,
               noReportBy: order.noReportByUser?.name ?? null,

@@ -189,8 +189,10 @@ async function resolveEntityLabels(
   const patientIds = idsFor("patient");
   const refDoctorIds = idsFor("referraldoctor");
   const clinicDoctorIds = idsFor("clinicdoctor");
-  const externalLabIds = idsFor("externallab");
-  const centreIds = idsFor("diagnosticreferralcenter");
+  // Audit rows written before the merge still name the old entity types.
+  const partnerIds = [
+    ...new Set([...idsFor("partner"), ...idsFor("externallab"), ...idsFor("diagnosticreferralcenter")]),
+  ];
   const panelIds = idsFor("clinicalpanel");
   const productIds = idsFor("billableproduct");
   const userIds = idsFor("user");
@@ -226,12 +228,10 @@ async function resolveEntityLabels(
     clinicDoctorIds.length
       ? prisma.clinicDoctor.findMany({ where: { id: { in: clinicDoctorIds } }, select: { id: true, name: true } })
       : [],
-    externalLabIds.length
-      ? prisma.externalLab.findMany({ where: { id: { in: externalLabIds } }, select: { id: true, name: true } })
+    partnerIds.length
+      ? prisma.partner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, name: true } })
       : [],
-    centreIds.length
-      ? prisma.diagnosticReferralCenter.findMany({ where: { id: { in: centreIds } }, select: { id: true, name: true } })
-      : [],
+    [] as { id: string; name: string }[],
     panelIds.length
       ? prisma.clinicalPanel.findMany({ where: { id: { in: panelIds } }, select: { id: true, name: true } })
       : [],

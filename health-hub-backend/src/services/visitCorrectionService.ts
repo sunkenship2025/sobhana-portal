@@ -23,12 +23,13 @@ import { logAction } from "./auditService";
 import { deleteCachedMergedPdf } from "./mergedReportPdfCache";
 import {
   distributeFixedAmountInPaise,
-  resolveReducedReferralSnapshot,
 } from "./referralPayoutService";
 import { resolveProducts } from "./productOrderService";
 import { categorize } from "./payoutCategorize";
+import { applyPartnerDoctorMode } from "./partnerRateService";
 import { recomputeBillFinancialsForSubtotal } from "./billFinancialService";
 import { DiagnosticWorkflowMode, Prisma } from "@prisma/client";
+import type { PartnerDoctorCommissionMode } from "@prisma/client";
 
 export class CorrectionError extends Error {
   constructor(
@@ -354,24 +355,18 @@ export async function changeVisitReferral(params: {
     ? await loadCenterCategoryRates(branchId)
     : new Map<string, CommissionRule>();
 
-  // Reduced-referral rules for outsourced orders (lab+product specific).
-  const outsourcedPairs = activeOrders
-    .filter((order) => order.externalLabId && order.productId)
-    .map((order) => ({ labId: order.externalLabId!, productId: order.productId! }));
-  const labRules = outsourcedPairs.length
-    ? await prisma.externalLabProductRule.findMany({
-        where: {
-          isActive: true,
-          OR: outsourcedPairs.map((pair) => ({
-            externalLabId: pair.labId,
-            productId: pair.productId,
-          })),
-        },
-      })
-    : [];
-  const labRuleByKey = new Map(
-    labRules.map((rule) => [`${rule.externalLabId}:${rule.productId}`, rule]),
-  );
+  // How a doctor is paid on partner-sourced work is the partner's setting now,
+  // not a per-product "reduced commission" rule: NONE (the partner IS the
+  // referrer), OUR_SHARE (the default — re-base onto what we kept), or GROSS.
+  const partnerIds = [...new Set(activeOrders.map((o) => o.partnerId).filter(Boolean))] as string[];
+  const partnerModeById = new Map<string, PartnerDoctorCommissionMode>();
+  if (partnerIds.length) {
+    const arrangements = await prisma.partnerArrangement.findMany({
+      where: { partnerId: { in: partnerIds }, isActive: true },
+      select: { partnerId: true, kind: true, doctorCommissionMode: true },
+    });
+    for (const a of arrangements) partnerModeById.set(a.partnerId, a.doctorCommissionMode);
+  }
 
   // Group orders by product so FIXED_AMOUNT rules distribute across the
   // product's constituent orders the same way billing does.
@@ -407,13 +402,14 @@ export async function changeVisitReferral(params: {
         : orders.map(() => ({ ...SELF_SNAPSHOT }));
     orders.forEach((order, index) => {
       let snapshot = snapshots[index];
-      if (newDoctor && order.externalLabId && order.productId) {
-        const labRule = labRuleByKey.get(
-          `${order.externalLabId}:${order.productId}`,
-        );
-        if (labRule?.reducedReferralCommissionType != null) {
-          snapshot = resolveReducedReferralSnapshot(snapshot, labRule);
-        }
+      if (newDoctor && order.partnerId) {
+        const mode = partnerModeById.get(order.partnerId) ?? 'OUR_SHARE';
+        snapshot = applyPartnerDoctorMode(
+          snapshot,
+          mode,
+          order.priceInPaise,
+          order.ourShareInPaise ?? order.priceInPaise,
+        ) as CommissionSnapshot;
       }
       orderSnapshots.set(order.id, snapshot);
     });
@@ -567,11 +563,11 @@ export async function swapVisitProduct(params: {
       "No active billed tests found for that product on this visit",
     );
   }
-  if (targetOrders.some((order) => order.externalLabId)) {
+  if (targetOrders.some((order) => order.partnerId)) {
     throw new CorrectionError(
       409,
-      "OUTSOURCED_ORDER",
-      "That test is outsourced to an outside lab — use cancel/refund + re-bill so the lab payable stays correct.",
+      "PARTNER_ORDER",
+      "That test belongs to a partner arrangement — use cancel/refund + re-bill so the partner's share stays correct.",
     );
   }
 

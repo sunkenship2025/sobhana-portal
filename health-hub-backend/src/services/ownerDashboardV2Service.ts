@@ -96,7 +96,7 @@ export interface PayoutLiability {
   byType: {
     referralInPaise: number;
     clinicInPaise: number;
-    diagnosticCenterInPaise: number;
+    partnerInPaise: number;
   };
 }
 
@@ -252,9 +252,7 @@ function accruedCommissionInPaise(orders: Array<{
   referralCommissionType: string | null;
   referralCommissionPercentage: number | null;
   referralCommissionAmountInPaise: number | null;
-  diagnosticCenterCommissionType: string | null;
-  diagnosticCenterCommissionPercentage: number | null;
-  diagnosticCenterCommissionAmountInPaise: number | null;
+  partnerCutInPaise: number | null;
 }>): number {
   let total = 0;
   for (const o of orders) {
@@ -263,11 +261,9 @@ function accruedCommissionInPaise(orders: Array<{
     } else if (o.referralCommissionType === 'FIXED_AMOUNT') {
       total += o.referralCommissionAmountInPaise ?? 0;
     }
-    if (o.diagnosticCenterCommissionType === 'PERCENTAGE') {
-      total += Math.round((o.priceInPaise * (o.diagnosticCenterCommissionPercentage ?? 0)) / 100);
-    } else if (o.diagnosticCenterCommissionType === 'FIXED_AMOUNT') {
-      total += o.diagnosticCenterCommissionAmountInPaise ?? 0;
-    }
+    // What a partner keeps was never ours, so it reduces net exactly as a
+    // commission does — frozen per order at billing time.
+    total += o.partnerCutInPaise ?? 0;
   }
   return total;
 }
@@ -475,9 +471,7 @@ export async function getOwnerDashboardV2(
         referralCommissionType: true,
         referralCommissionPercentage: true,
         referralCommissionAmountInPaise: true,
-        diagnosticCenterCommissionType: true,
-        diagnosticCenterCommissionPercentage: true,
-        diagnosticCenterCommissionAmountInPaise: true,
+        partnerCutInPaise: true,
         workflowMode: true,
         uploadInsteadAt: true,
       },
@@ -540,9 +534,7 @@ export async function getOwnerDashboardV2(
         referralCommissionType: true,
         referralCommissionPercentage: true,
         referralCommissionAmountInPaise: true,
-        diagnosticCenterCommissionType: true,
-        diagnosticCenterCommissionPercentage: true,
-        diagnosticCenterCommissionAmountInPaise: true,
+        partnerCutInPaise: true,
       },
     }),
     prisma.clinicVisit.findMany({
@@ -569,7 +561,6 @@ export async function getOwnerDashboardV2(
       by: ['doctorType'],
       where: {
         deletedAt: null,
-        paidAt: null,
         ...(branchId ? { branchId } : {}),
       },
       _sum: { derivedAmountInPaise: true },
@@ -724,9 +715,7 @@ export async function getOwnerDashboardV2(
         referralCommissionType: true,
         referralCommissionPercentage: true,
         referralCommissionAmountInPaise: true,
-        diagnosticCenterCommissionType: true,
-        diagnosticCenterCommissionPercentage: true,
-        diagnosticCenterCommissionAmountInPaise: true,
+        partnerCutInPaise: true,
       },
     }),
     prisma.clinicVisit.findMany({
@@ -919,15 +908,14 @@ export async function getOwnerDashboardV2(
   // ----- payout liability -------------------------------------------------
   const liability: PayoutLiability = {
     totalInPaise: 0,
-    byType: { referralInPaise: 0, clinicInPaise: 0, diagnosticCenterInPaise: 0 },
+    byType: { referralInPaise: 0, clinicInPaise: 0, partnerInPaise: 0 },
   };
   for (const row of payoutLiabilityRows) {
     const amt = row._sum.derivedAmountInPaise ?? 0;
     liability.totalInPaise += amt;
     if (row.doctorType === 'REFERRAL') liability.byType.referralInPaise = amt;
     else if (row.doctorType === 'CLINIC') liability.byType.clinicInPaise = amt;
-    else if (row.doctorType === 'DIAGNOSTIC_CENTER')
-      liability.byType.diagnosticCenterInPaise = amt;
+    else if (row.doctorType === 'PARTNER') liability.byType.partnerInPaise = amt;
   }
   // ----- ops pulse -------------------------------------------------------
   const tatDurations = diagFinalizedTodaySamples

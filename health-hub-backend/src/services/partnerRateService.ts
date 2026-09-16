@@ -207,3 +207,60 @@ export function doctorCommissionBaseInPaise(
       return ourShareInPaise;
   }
 }
+
+/**
+ * Apply a partner's doctor-commission mode to an already-resolved referral
+ * commission snapshot.
+ *
+ * Shared by billing and by re-attribution so the two cannot drift — the defect
+ * this whole module exists to stop is two code paths disagreeing about one
+ * rupee figure.
+ *
+ * Whatever the mode, the result is clamped to our share. A rate entered wrong
+ * must not be able to pay a doctor more than the order brought in; that is a
+ * floor under the configuration, not a substitute for setting it right.
+ */
+export function applyPartnerDoctorMode(
+  snapshot: {
+    referralCommissionType: string | null;
+    referralCommissionPercentage: number | null;
+    referralCommissionAmountInPaise: number | null;
+  },
+  mode: PartnerDoctorCommissionMode,
+  chargeInPaise: number,
+  ourShareInPaise: number,
+): {
+  referralCommissionType: string | null;
+  referralCommissionPercentage: number | null;
+  referralCommissionAmountInPaise: number | null;
+} {
+  if (mode === 'NONE') {
+    // The partner IS the referrer — nobody else is paid on their work.
+    return {
+      referralCommissionType: 'PERCENTAGE',
+      referralCommissionPercentage: 0,
+      referralCommissionAmountInPaise: null,
+    };
+  }
+
+  const rawInPaise =
+    snapshot.referralCommissionType === 'FIXED_AMOUNT'
+      ? snapshot.referralCommissionAmountInPaise ?? 0
+      : Math.round((chargeInPaise * (snapshot.referralCommissionPercentage ?? 0)) / 100);
+
+  // GROSS keeps the agreed rate against the full charge; OUR_SHARE re-bases it
+  // onto what we actually kept, so 30% of a ₹300 CBP we keep ₹60 of is ₹18.
+  const basedInPaise =
+    mode === 'GROSS'
+      ? rawInPaise
+      : snapshot.referralCommissionType === 'FIXED_AMOUNT'
+        ? rawInPaise
+        : Math.round((ourShareInPaise * (snapshot.referralCommissionPercentage ?? 0)) / 100);
+
+  const clamped = Math.max(0, Math.min(basedInPaise, Math.max(0, ourShareInPaise)));
+  return {
+    referralCommissionType: 'FIXED_AMOUNT',
+    referralCommissionPercentage: null,
+    referralCommissionAmountInPaise: clamped,
+  };
+}

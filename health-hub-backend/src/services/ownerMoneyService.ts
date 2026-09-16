@@ -223,9 +223,7 @@ function accruedCommissionInPaise(orders: Array<{
   referralCommissionType: string | null;
   referralCommissionPercentage: number | null;
   referralCommissionAmountInPaise: number | null;
-  diagnosticCenterCommissionType: string | null;
-  diagnosticCenterCommissionPercentage: number | null;
-  diagnosticCenterCommissionAmountInPaise: number | null;
+  partnerCutInPaise: number | null;
 }>): number {
   let total = 0;
   for (const o of orders) {
@@ -234,11 +232,9 @@ function accruedCommissionInPaise(orders: Array<{
     } else if (o.referralCommissionType === 'FIXED_AMOUNT') {
       total += o.referralCommissionAmountInPaise ?? 0;
     }
-    if (o.diagnosticCenterCommissionType === 'PERCENTAGE') {
-      total += Math.round((o.priceInPaise * (o.diagnosticCenterCommissionPercentage ?? 0)) / 100);
-    } else if (o.diagnosticCenterCommissionType === 'FIXED_AMOUNT') {
-      total += o.diagnosticCenterCommissionAmountInPaise ?? 0;
-    }
+    // What the partner keeps is money that was never ours, so it reduces net
+    // exactly as a commission does — already frozen per order.
+    total += o.partnerCutInPaise ?? 0;
   }
   return total;
 }
@@ -344,9 +340,7 @@ export async function getOwnerMoney(
         referralCommissionType: true,
         referralCommissionPercentage: true,
         referralCommissionAmountInPaise: true,
-        diagnosticCenterCommissionType: true,
-        diagnosticCenterCommissionPercentage: true,
-        diagnosticCenterCommissionAmountInPaise: true,
+        partnerCutInPaise: true,
       },
     }),
     prisma.clinicVisit.findMany({
@@ -382,9 +376,7 @@ export async function getOwnerMoney(
         referralCommissionType: true,
         referralCommissionPercentage: true,
         referralCommissionAmountInPaise: true,
-        diagnosticCenterCommissionType: true,
-        diagnosticCenterCommissionPercentage: true,
-        diagnosticCenterCommissionAmountInPaise: true,
+        partnerCutInPaise: true,
       },
     }),
     prisma.clinicVisit.findMany({

@@ -138,7 +138,7 @@ export async function buildSinglePayoutWorkbook(payout: PayoutDetail, periodLabe
   wb.creator = 'Sobhana Diagnostics';
   wb.created = new Date();
 
-  const isLab = payout.doctorType === 'LAB';
+  const isLab = payout.doctorType === 'PARTNER';
   const refHeader = isLab ? 'Payable (₹)' : 'Ref (₹)';
 
   // Single statement sheet: one row per bill, matching the printed statement.

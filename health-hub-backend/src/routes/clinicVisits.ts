@@ -1081,22 +1081,6 @@ router.patch("/:id", async (req: AuthRequest, res) => {
               orderBy: { derivedAt: "desc" },
             });
 
-            const coveringPaidLedger = await tx.doctorPayoutLedger.findFirst({
-              where: {
-                branchId: existing.branchId,
-                doctorType: "CLINIC",
-                clinicDoctorId: existing.clinicVisit.clinicDoctorId,
-                paidAt: { not: null },
-                periodStartDate: { lte: startOfDay },
-                periodEndDate: { gte: endOfDay },
-              },
-              orderBy: [
-                { periodStartDate: "desc" },
-                { periodEndDate: "asc" },
-                { paidAt: "desc" },
-              ],
-            });
-
             if (existingDayLedger) {
               await tx.doctorPayoutLedger.update({
                 where: { id: existingDayLedger.id },
@@ -1106,12 +1090,6 @@ router.patch("/:id", async (req: AuthRequest, res) => {
                     commissionAmountInPaise,
                   derivedAt: new Date(),
                   notes: `Clinic consultations - ${startOfDay.toISOString().slice(0, 10)}`,
-                  ...(!existingDayLedger.paidAt &&
-                    coveringPaidLedger?.paidAt && {
-                      paidAt: coveringPaidLedger.paidAt,
-                      paymentMethod: coveringPaidLedger.paymentMethod,
-                      paymentReferenceId: coveringPaidLedger.paymentReferenceId,
-                    }),
                 },
               });
             } else {
@@ -1124,14 +1102,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
                   periodEndDate: endOfDay,
                   derivedAmountInPaise: commissionAmountInPaise,
                   derivedAt: new Date(),
-                  notes:
-                    coveringPaidLedger?.notes ||
-                    `Clinic consultation - ${existing.billNumber}`,
-                  ...(coveringPaidLedger?.paidAt && {
-                    paidAt: coveringPaidLedger.paidAt,
-                    paymentMethod: coveringPaidLedger.paymentMethod,
-                    paymentReferenceId: coveringPaidLedger.paymentReferenceId,
-                  }),
+                  notes: `Clinic consultation - ${existing.billNumber}`,
                 },
               });
             }
@@ -1319,7 +1290,7 @@ router.delete("/:id", async (req: AuthRequest, res) => {
         });
 
         const fee = existing.clinicVisit.consultationFeeInPaise || existing.totalAmountInPaise || 0;
-        if (dayLedger && !dayLedger.paidAt && fee > 0) {
+        if (dayLedger && fee > 0) {
           const nextAmount = Math.max(0, dayLedger.derivedAmountInPaise - fee);
           if (nextAmount === 0) {
             await tx.doctorPayoutLedger.delete({ where: { id: dayLedger.id } });
