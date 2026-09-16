@@ -13,6 +13,8 @@ export interface WorklistFields {
   name?: string | null;
   phone?: string | null;
   billNumber?: string | null;
+  /** Patient number (P-005358) — staff quote it off the bill and the app. */
+  patientNumber?: string | null;
   visitRef?: string | null;
   /** Referring doctor's name — so "ravi" finds every case he referred. */
   doctorName?: string | null;
@@ -46,6 +48,9 @@ export function scoreWorklistMatch(
   const qDigits = digitsOnly(rawSearch);
   const phone = digitsOnly(fields.phone ?? "");
   if (qDigits && phone && phone.includes(qDigits)) return 40;
+
+  const patientNumber = (fields.patientNumber ?? "").toLowerCase();
+  if (patientNumber && patientNumber.includes(q)) return 35;
 
   const bill = (fields.billNumber ?? "").toLowerCase();
   if (bill && bill.includes(q)) return 30;

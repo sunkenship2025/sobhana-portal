@@ -6,8 +6,6 @@ import { PageHeader } from '@/components/ui/page-header';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -19,8 +17,7 @@ import { formatPaymentModes } from '@/lib/paymentDisplay';
 import { cn } from '@/lib/utils';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
-import { DoctorTestFilter, ANY } from '@/components/worklist/DoctorTestFilter';
+import { WorklistFilterBar, ANY } from '@/components/worklist/WorklistFilterBar';
 import {
   type DateRangeState,
   makeDateRange,
@@ -121,6 +118,10 @@ const DiagnosticsFinalizedReports = () => {
   const [search, setSearchState] = useState('');
   const [doctorId, setDoctorIdState] = useState(ANY);
   const [productId, setProductIdState] = useState(ANY);
+  // Chasing undelivered work: which of these have not been handed over yet.
+  const [delivery, setDeliveryState] = useState(ANY);
+  // A completed visit is either a finalized report or a bill / films-only close.
+  const [rowType, setRowTypeState] = useState(ANY);
   const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(1);
   const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
@@ -152,6 +153,14 @@ const DiagnosticsFinalizedReports = () => {
     setProductIdState(value);
     setPage(1);
   };
+  const setDelivery = (value: string) => {
+    setDeliveryState(value);
+    setPage(1);
+  };
+  const setRowType = (value: string) => {
+    setRowTypeState(value);
+    setPage(1);
+  };
 
   // Fetch one page of finalized visits from the server. Search, date-range
   // bounding, the completeness filter (finalized report OR nothing to
@@ -179,6 +188,8 @@ const DiagnosticsFinalizedReports = () => {
         // only ~20 of the matching rows, so filtering it here would lie.
         if (doctorId !== ANY) params.set('doctorId', doctorId);
         if (productId !== ANY) params.set('productId', productId);
+        if (delivery !== ANY) params.set('delivery', delivery);
+        if (rowType !== ANY) params.set('rowType', rowType);
         const response = await fetch(`${API_BASE}/visits/diagnostic?${params.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -199,7 +210,17 @@ const DiagnosticsFinalizedReports = () => {
         setEverLoaded(true);
       }
     },
-    [token, activeBranchId, dateRange, debouncedSearch, doctorId, productId, page],
+    [
+      token,
+      activeBranchId,
+      dateRange,
+      debouncedSearch,
+      doctorId,
+      productId,
+      delivery,
+      rowType,
+      page,
+    ],
   );
 
   useEffect(() => {
@@ -317,31 +338,40 @@ const DiagnosticsFinalizedReports = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <DateRangeFilter
-                value={dateRange}
-                onChange={setDateRange}
-                triggerClassName="w-full sm:w-[180px]"
-              />
-              <DoctorTestFilter
-                doctorId={doctorId}
-                onDoctorChange={setDoctorId}
-                productId={productId}
-                onProductChange={setProductId}
-              />
-              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
-                <Label>Search</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Name / Phone / Bill / Doctor / Test"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-            </div>
+            <WorklistFilterBar
+              dateRange={dateRange}
+              onDateRange={setDateRange}
+              search={search}
+              onSearch={setSearch}
+              doctorId={doctorId}
+              onDoctor={setDoctorId}
+              productId={productId}
+              onProduct={setProductId}
+              extras={[
+                {
+                  key: 'delivery',
+                  label: 'Delivery',
+                  value: delivery,
+                  onChange: setDelivery,
+                  options: [
+                    { value: ANY, label: 'All' },
+                    { value: 'unprinted', label: 'Not printed yet' },
+                    { value: 'printed', label: 'Printed' },
+                  ],
+                },
+                {
+                  key: 'rowType',
+                  label: 'Type',
+                  value: rowType,
+                  onChange: setRowType,
+                  options: [
+                    { value: ANY, label: 'All' },
+                    { value: 'report', label: 'Finalized report' },
+                    { value: 'billonly', label: 'Bill only / no report' },
+                  ],
+                },
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -364,7 +394,9 @@ const DiagnosticsFinalizedReports = () => {
                   Boolean(search.trim()) ||
                   dateRange.preset !== 'today' ||
                   doctorId !== ANY ||
-                  productId !== ANY;
+                  productId !== ANY ||
+                  delivery !== ANY ||
+                  rowType !== ANY;
                 return (
                   <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -395,6 +427,8 @@ const DiagnosticsFinalizedReports = () => {
                           setSearch('');
                           setDoctorId(ANY);
                           setProductId(ANY);
+                          setDelivery(ANY);
+                          setRowType(ANY);
                         }}
                       >
                         Clear filters

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Worklist filter bar — options</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink2:#475569; --ink3:#94a3b8;
+    --line:#e2e8f0; --line2:#cbd5e1; --bg:#f8fafc; --card:#fff;
+    --accent:#1e293b; --accentSoft:#f1f5f9; --amber:#b45309; --green:#047857;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 72px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 28px}
+  .opt{background:var(--card);border:1px solid var(--line);border-radius:12px;
+       padding:18px 18px 20px;margin-bottom:18px}
+  .opt > header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+  .opt h2{font-size:15px;margin:0}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accentSoft);color:var(--ink2)}
+  .tag.rec{background:#ecfdf5;color:var(--green)}
+  .why{color:var(--ink2);font-size:13px;margin:0 0 14px}
+  .demo{border:1px solid var(--line);border-radius:10px;padding:14px;background:#fff}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .ctl{height:38px;border:1px solid var(--line2);border-radius:8px;background:#fff;
+       display:inline-flex;align-items:center;gap:8px;padding:0 12px;color:var(--ink);white-space:nowrap}
+  .ctl.muted{color:var(--ink3)}
+  .ctl.grow{flex:1;min-width:220px}
+  .ctl .chev{color:var(--ink3);margin-left:auto}
+  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;height:38px}
+  .seg span{display:flex;align-items:center;padding:0 14px;border-right:1px solid var(--line);color:var(--ink2)}
+  .seg span:last-child{border-right:0}
+  .seg span.on{background:var(--accent);color:#fff}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border-radius:6px;
+        background:var(--accentSoft);border:1px solid var(--line);font-size:12.5px;color:var(--ink)}
+  .chip b{font-weight:600;color:var(--ink2);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  .chip i{font-style:normal;color:var(--ink3);cursor:pointer}
+  .count{margin-left:6px;background:var(--accent);color:#fff;border-radius:999px;
+         font-size:11px;padding:1px 6px}
+  .pop{margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:#fff;
+       box-shadow:0 8px 24px rgba(15,23,42,.08);padding:6px;max-width:420px}
+  .pop .grp{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);padding:8px 10px 4px}
+  .pop .item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}
+  .pop .item:hover,.pop .item.on{background:var(--accentSoft)}
+  .pop .item small{color:var(--ink3);margin-left:auto}
+  .note{font-size:12.5px;color:var(--ink2);margin:12px 0 0;padding-left:16px}
+  .note li{margin:3px 0}
+  .bad{border-color:#fecaca;background:#fff5f5}
+  code{background:var(--accentSoft);padding:1px 5px;border-radius:4px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Worklist filter bar</h1>
+  <p class="sub">Pending Results &amp; Finalized Reports. Same bar on both; Payment only on Pending.</p>
+
+  <!-- TODAY -->
+  <div class="opt">
+    <header><h2>Today</h2><span class="tag">what you screenshotted</span></header>
+    <p class="why">Four labelled boxes, two of them broken: the label sits <em>beside</em> the control because the
+      picker renders an <code>inline-flex</code> button while the date select is block-level.</p>
+    <div class="demo bad">
+      <div class="row">
+        <div><div style="font-size:12.5px;margin-bottom:6px">Date</div><span class="ctl">Today <span class="chev">⌄</span></span></div>
+        <div style="font-size:12.5px">Referred by <span class="ctl muted">All doctors <span class="chev">⌄</span></span></div>
+        <div style="font-size:12.5px">Test <span class="ctl muted">All tests <span class="chev">⌄</span></span></div>
+        <div style="flex:1"><div style="font-size:12.5px;margin-bottom:6px">Search</div><span class="ctl grow muted">🔍 Name / Phone / Bill / Doctor / Test</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- A -->
+  <div class="opt">
+    <header><h2>A · One bar that understands what you type</h2><span class="tag rec">recommended</span></header>
+    <p class="why">You type; it offers what it can match. Picking a doctor or test drops it in as a token
+      <em>inside</em> the box. No dropdown to open, no label soup — the way GitHub, Linear and Jira search work.</p>
+    <div class="demo">
+      <div class="row">
+        <span class="ctl grow" style="gap:8px">
+          🔍
+          <span class="chip"><b>Dr</b> SHARATH <i>×</i></span>
+          <span class="chip"><b>Test</b> CBP <i>×</i></span>
+          <span class="muted" style="color:var(--ink3)">name, phone, bill…</span>
+        </span>
+        <span class="ctl">Today <span class="chev">⌄</span></span>
+      </div>
+      <div class="pop">
+        <div class="grp">Doctors</div>
+        <div class="item on">Dr. SHARATH REDDY <small>142 cases</small></div>
+        <div class="item">Dr. SHARADA <small>18</small></div>
+        <div class="grp">Tests</div>
+        <div class="item">COMPLETE BLOOD PICTURE <small>CBP</small></div>
+        <div class="grp">Or just search</div>
+        <div class="item">Patients matching “shar” <small>name · phone · bill</small></div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>One control instead of four. Date stays separate — it is the one filter that is always on.</li>
+      <li>Tokens are the filter <em>and</em> the state: you can see what is applied and remove it in one click.</li>
+      <li>Most work: needs a suggestion list (doctors + products are already fetched and cached).</li>
+    </ul>
+  </div>
+
+  <!-- B -->
+  <div class="opt">
+    <header><h2>B · Search + a Filters popover</h2><span class="tag">smallest change</span></header>
+    <p class="why">The bar shows only what is used every time. Everything rarer hides behind one button
+      that carries a count, and applied filters read back as a line of chips.</p>
+    <div class="demo">
+      <div class="row">
+        <div class="seg"><span class="on">Today</span><span>Yesterday</span><span>Week</span><span>All</span></div>
+        <span class="ctl grow muted">🔍 Name, phone, bill, doctor or test…</span>
+        <span class="ctl">⚙ Filters <span class="count">2</span></span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <span class="chip"><b>Dr</b> SHARATH <i>×</i></span>
+        <span class="chip"><b>Test</b> CBP <i>×</i></span>
+        <span style="color:var(--ink3);font-size:12.5px">clear all</span>
+      </div>
+      <div class="pop">
+        <div class="grp">Referred by</div>
+        <div class="item">Dr. SHARATH REDDY ✓</div>
+        <div class="grp">Test</div>
+        <div class="item">COMPLETE BLOOD PICTURE ✓</div>
+        <div class="grp">Payment <small style="margin:0;color:var(--ink3)">pending only</small></div>
+        <div class="item">All · Balance due · Fully paid</div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>Date as segments: one click for the case that is 90% of use, no dropdown.</li>
+      <li>Reuses the pickers already built — they just move inside the popover.</li>
+    </ul>
+  </div>
+
+  <!-- C -->
+  <div class="opt">
+    <header><h2>C · One aligned row, labels dropped</h2><span class="tag">least risk</span></header>
+    <p class="why">Keep every control visible, delete the labels — the placeholder already says what each one is —
+      and put them on one baseline. This is the 10-minute fix if you want the current shape, just not ugly.</p>
+    <div class="demo">
+      <div class="row">
+        <span class="ctl">📅 Today <span class="chev">⌄</span></span>
+        <span class="ctl muted">All doctors <span class="chev">⌄</span></span>
+        <span class="ctl muted">All tests <span class="chev">⌄</span></span>
+        <span class="ctl muted">Payment: all <span class="chev">⌄</span></span>
+        <span class="ctl grow muted">🔍 Name, phone, bill, doctor or test…</span>
+      </div>
+    </div>
+    <ul class="note">
+      <li>Fixes the real defect (mixed <code>inline-flex</code> / <code>flex</code>) and nothing else changes.</li>
+      <li>Still five controls on the line — busy on a counter laptop at 1366px.</li>
+    </ul>
+  </div>
+
+  <!-- D -->
+  <div class="opt">
+    <header><h2>D · Search only, filters inferred</h2><span class="tag">boldest</span></header>
+    <p class="why">No filter controls at all. One box, and the row of results tells you how it read what you typed —
+      with one click to change its mind.</p>
+    <div class="demo">
+      <div class="row">
+        <span class="ctl grow">🔍 sharath cbp due</span>
+        <span class="ctl">Today <span class="chev">⌄</span></span>
+      </div>
+      <div class="row" style="margin-top:10px;font-size:12.5px;color:var(--ink2)">
+        reading as
+        <span class="chip"><b>Dr</b> SHARATH <i>×</i></span>
+        <span class="chip"><b>Test</b> CBP <i>×</i></span>
+        <span class="chip"><b>Payment</b> balance due <i>×</i></span>
+        <span style="color:var(--ink3)">· 14 cases</span>
+      </div>
+    </div>
+    <ul class="note">
+      <li>Fastest for a regular: three words, no clicks.</li>
+      <li>Worst for a new staffer: nothing on screen tells them what is filterable until they type.</li>
+    </ul>
+  </div>
+
+  <p class="sub" style="margin-top:26px">
+    My pick: <strong>A</strong> for Finalized and Pending, with the date select left as-is.
+    It removes three controls, makes the applied state visible, and the doctor and test lists it needs
+    are already cached on the page. <strong>C</strong> if you want it fixed today with no new behaviour.
+  </p>
+</div>
+</body>
+</html>

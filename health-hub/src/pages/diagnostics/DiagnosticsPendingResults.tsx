@@ -24,8 +24,11 @@ import { searchWorklist } from "@/lib/worklistSearch";
 import { usePagedList } from "@/hooks/usePagedList";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRevalidateOnFocus } from "@/hooks/useRevalidateOnFocus";
-import { DateRangeFilter } from "@/components/worklist/DateRangeFilter";
-import { DoctorTestFilter, ANY } from "@/components/worklist/DoctorTestFilter";
+import {
+  WorklistFilterBar,
+  ANY,
+  SELF,
+} from "@/components/worklist/WorklistFilterBar";
 import {
   type DateRangeState,
   makeDateRange,
@@ -171,7 +174,12 @@ const DiagnosticsPendingResults = () => {
   const [doctorId, setDoctorId] = useState(ANY);
   const [productId, setProductId] = useState(ANY);
   // "due" = balance outstanding, "paid" = nothing left to collect.
-  const [dueFilter, setDueFilter] = useState<"all" | "due" | "paid">("all");
+  const [dueFilter, setDueFilter] = useState("all");
+  // Where the case is in result entry: nothing typed yet, part typed, or every
+  // result in and only the finalize click missing.
+  const [stage, setStage] = useState("all");
+  // How long it has been sitting — the queue's own SLA, read off the bill time.
+  const [waiting, setWaiting] = useState("all");
   // Debounce the value that drives the (client-side) filter + pagination reset,
   // so the box stays responsive while typing and the list only re-ranks/re-renders
   // once the user pauses — instead of jumping on every keystroke.
@@ -278,7 +286,9 @@ const DiagnosticsPendingResults = () => {
       }
 
       if (!matchesDateRange(dateRange, visit.createdAt)) return false;
-      if (doctorId !== ANY && visit.referralDoctorId !== doctorId) return false;
+      if (doctorId === SELF && visit.referralDoctorId) return false;
+      if (doctorId !== ANY && doctorId !== SELF && visit.referralDoctorId !== doctorId)
+        return false;
       if (
         productId !== ANY &&
         !testOrders.some((o) => o.productId === productId && !o.cancelledAt)
@@ -287,6 +297,20 @@ const DiagnosticsPendingResults = () => {
       const due = visit.dueAmountInPaise ?? 0;
       if (dueFilter === "due" && due <= 0) return false;
       if (dueFilter === "paid" && due > 0) return false;
+
+      const total = visit.reportInclusionCount ?? 0;
+      const ready = visit.readyReportInclusionCount ?? 0;
+      if (stage === "notStarted" && ready > 0) return false;
+      if (stage === "inProgress" && !(ready > 0 && ready < total)) return false;
+      if (stage === "ready" && !(total > 0 && ready >= total)) return false;
+      if (stage === "partial" && !visit.hasPartialReport) return false;
+
+      if (waiting !== "all") {
+        const billed = new Date(visit.billedAt ?? visit.createdAt).getTime();
+        const days = (Date.now() - billed) / 864e5;
+        if (waiting === "over1d" && days < 1) return false;
+        if (waiting === "over3d" && days < 3) return false;
+      }
       return true;
     });
 
@@ -299,6 +323,7 @@ const DiagnosticsPendingResults = () => {
         name: patient?.name,
         phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")
           ?.value,
+        patientNumber: patient?.patientNumber,
         billNumber: visit.billNumber,
         doctorName: visit.referralDoctor?.name,
         testNames: formatTestList(testOrders),
@@ -311,11 +336,13 @@ const DiagnosticsPendingResults = () => {
     doctorId,
     productId,
     dueFilter,
+    stage,
+    waiting,
   ]);
 
   const paged = usePagedList(
     filteredVisits,
-    `${debouncedSearch}|${dateRangeKey(dateRange)}|${doctorId}|${productId}|${dueFilter}`,
+    `${debouncedSearch}|${dateRangeKey(dateRange)}|${doctorId}|${productId}|${dueFilter}|${stage}|${waiting}`,
   );
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
@@ -510,47 +537,53 @@ const DiagnosticsPendingResults = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <DateRangeFilter
-                value={dateRange}
-                onChange={setDateRange}
-                triggerClassName="w-full sm:w-[180px]"
-              />
-              <DoctorTestFilter
-                doctorId={doctorId}
-                onDoctorChange={setDoctorId}
-                productId={productId}
-                onProductChange={setProductId}
-              />
-              <div className="space-y-2">
-                <Label>Payment</Label>
-                <Select
-                  value={dueFilter}
-                  onValueChange={(v) => setDueFilter(v as typeof dueFilter)}
-                >
-                  <SelectTrigger className="w-full sm:w-[150px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="due">Balance due</SelectItem>
-                    <SelectItem value="paid">Fully paid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
-                <Label>Search</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Name / Phone / Bill / Doctor / Test"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-            </div>
+            <WorklistFilterBar
+              dateRange={dateRange}
+              onDateRange={setDateRange}
+              search={search}
+              onSearch={setSearch}
+              doctorId={doctorId}
+              onDoctor={setDoctorId}
+              productId={productId}
+              onProduct={setProductId}
+              extras={[
+                {
+                  key: "payment",
+                  label: "Payment",
+                  value: dueFilter,
+                  onChange: setDueFilter,
+                  options: [
+                    { value: ANY, label: "All" },
+                    { value: "due", label: "Balance due" },
+                    { value: "paid", label: "Fully paid" },
+                  ],
+                },
+                {
+                  key: "stage",
+                  label: "Stage",
+                  value: stage,
+                  onChange: setStage,
+                  options: [
+                    { value: ANY, label: "All" },
+                    { value: "notStarted", label: "Not started" },
+                    { value: "inProgress", label: "In progress" },
+                    { value: "ready", label: "Ready to finalize" },
+                    { value: "partial", label: "Partial sent" },
+                  ],
+                },
+                {
+                  key: "waiting",
+                  label: "Waiting",
+                  value: waiting,
+                  onChange: setWaiting,
+                  options: [
+                    { value: ANY, label: "Any age" },
+                    { value: "over1d", label: "Over 1 day" },
+                    { value: "over3d", label: "Over 3 days" },
+                  ],
+                },
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -594,6 +627,8 @@ const DiagnosticsPendingResults = () => {
                       setDoctorId(ANY);
                       setProductId(ANY);
                       setDueFilter('all');
+                      setStage('all');
+                      setWaiting('all');
                     }}
                   >
                     Clear filters
