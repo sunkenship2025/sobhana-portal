@@ -61,6 +61,9 @@ interface ProductLite {
   name: string;
   code?: string;
   basePriceInPaise?: number;
+  /** Branch price where one is set, else base. The swap gate compares against
+      THIS, so showing basePriceInPaise makes a money-neutral swap look wrong. */
+  effectivePriceInPaise?: number;
   workflowMode?: string;
 }
 
@@ -72,6 +75,9 @@ const WORKFLOW_TAG: Record<string, { label: string; className: string }> = {
   EXTERNAL_UPLOAD: { label: "External", className: "bg-sky-100 text-sky-800" },
   EVENT: { label: "Event", className: "bg-red-100 text-red-800" },
 };
+
+const priceOf = (product: ProductLite) =>
+  product.effectivePriceInPaise ?? product.basePriceInPaise;
 
 interface SwapTestDialogProps {
   visit: VisitTimelineItem;
@@ -216,7 +222,7 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
     () =>
       products
         .filter((product) => addSelected.has(product.id))
-        .reduce((sum, product) => sum + (product.basePriceInPaise ?? 0), 0),
+        .reduce((sum, product) => sum + (priceOf(product) ?? 0), 0),
     [products, addSelected],
   );
 
@@ -406,9 +412,9 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                               <Check className="h-3.5 w-3.5 shrink-0" />
                             )}
                           </span>
-                          {typeof product.basePriceInPaise === "number" && (
+                          {typeof priceOf(product) === "number" && (
                             <span className="tabular-nums text-muted-foreground shrink-0">
-                              {formatCurrency(product.basePriceInPaise)}
+                              {formatCurrency(priceOf(product)!)}
                             </span>
                           )}
                         </button>
@@ -493,9 +499,9 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                         )}
                         {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
                       </span>
-                      {typeof product.basePriceInPaise === "number" && (
+                      {typeof priceOf(product) === "number" && (
                         <span className="tabular-nums text-muted-foreground shrink-0">
-                          {formatCurrency(product.basePriceInPaise)}
+                          {formatCurrency(priceOf(product)!)}
                         </span>
                       )}
                     </button>

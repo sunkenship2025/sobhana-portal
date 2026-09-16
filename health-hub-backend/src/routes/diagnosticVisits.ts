@@ -4122,6 +4122,14 @@ router.post("/:id/swap-product", async (req: AuthRequest, res) => {
         message: err.message,
       });
     }
+    // A misconfigured replacement (bad panel, deep nesting, inactive product)
+    // explains itself on the add path — it must here too, or Replace just says
+    // "failed" and staff have nothing to act on.
+    if (err instanceof ProductResolutionError) {
+      return res
+        .status(400)
+        .json({ error: err.code, message: err.message, details: err.details });
+    }
     console.error("Swap product error:", err);
     return res.status(500).json({
       error: "INTERNAL_ERROR",
