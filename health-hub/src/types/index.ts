@@ -562,6 +562,15 @@ export interface ClinicVisitView {
 
 // Visit timeline item for Patient 360 display
 export interface VisitTimelineItem {
+  /** Set when this visit came from a partner; drives the "we get" figure. */
+  partner?: {
+    name: string;
+    kind: PartnerArrangementKind;
+    /** False when THEY billed the patient, so our bill was never raised. */
+    weBilled: boolean;
+    partnerBilledInPaise: number | null;
+    ourShareInPaise: number;
+  } | null;
   /** Every concession on this visit's bill, newest first. Empty for pre-ledger bills. */
   discountGrants?: BillDiscountGrant[];
   visitId: string;

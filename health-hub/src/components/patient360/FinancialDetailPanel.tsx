@@ -129,7 +129,23 @@ export function FinancialDetailPanel({
 
         <Separator className="my-2" />
 
-        <KvRow label="Total">{formatCurrency(visit.totalAmountInPaise)}</KvRow>
+        {visit.partner ? (
+          // The patient really was charged this — it just was not ours. Keep it
+          // on screen, muted, with what we actually get stated underneath, so a
+          // glance never reads the partner's number as revenue.
+          <>
+            <KvRow label={visit.partner.weBilled ? "Billed" : `Billed by ${visit.partner.name}`}>
+              <span className="text-muted-foreground line-through">
+                {formatCurrency(
+                  visit.partner.partnerBilledInPaise ?? visit.totalAmountInPaise,
+                )}
+              </span>
+            </KvRow>
+            <KvRow label="We get">{formatCurrency(visit.partner.ourShareInPaise)}</KvRow>
+          </>
+        ) : (
+          <KvRow label="Total">{formatCurrency(visit.totalAmountInPaise)}</KvRow>
+        )}
 
         {discountAmount > 0 &&
           (grants.length > 0 ? (

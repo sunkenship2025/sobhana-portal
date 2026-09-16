@@ -993,6 +993,7 @@ const TIMELINE_INCLUDE = {
       productId: true,
       product: { select: { name: true } },
       partnerId: true,
+      ourShareInPaise: true,
       // "No written report needed" (films only) — surfaced so the inspector can
       // show a trace (who/when/why) instead of the Report section going blank.
       noReportAt: true,
@@ -1009,6 +1010,15 @@ const TIMELINE_INCLUDE = {
       referralDoctor: { select: { id: true, name: true } },
     },
     take: 1,
+  },
+  // The partner this visit came from, if any — drives the "what we actually get"
+  // figure on the timeline and inspector.
+  partnerVisit: {
+    select: {
+      kind: true,
+      partnerBilledInPaise: true,
+      partner: { select: { id: true, name: true } },
+    },
   },
   // Who switched the patient's online access off (inspector shows who/when/why).
   patientLinkDisabledByUser: { select: { name: true } },
@@ -1192,6 +1202,23 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       transactions: financials.transactions,
       // Referring doctor (null ⇒ SELF) so the inspector can offer correction.
       referralDoctor: visit.referrals?.[0]?.referralDoctor ?? null,
+      // Partner money. `ourShareInPaise` is what this visit is actually worth to
+      // us; the billed figure stays alongside it so the screen can show the real
+      // number and keep the charged one visible but muted, rather than dropping
+      // it — the patient WAS charged that, it just was not ours.
+      partner: visit.partnerVisit
+        ? {
+            name: visit.partnerVisit.partner.name,
+            kind: visit.partnerVisit.kind,
+            weBilled: visit.partnerVisit.kind !== 'INBOUND_BILLED_THERE',
+            partnerBilledInPaise: visit.partnerVisit.partnerBilledInPaise,
+            ourShareInPaise: visit.testOrders.reduce(
+              (sum: number, o: { cancelledAt: Date | null; ourShareInPaise: number | null }) =>
+                o.cancelledAt ? sum : sum + (o.ourShareInPaise ?? 0),
+              0,
+            ),
+          }
+        : null,
       // Test line items so the inspector can offer per-test cancel/refund/swap.
       testOrders:
         visit.domain === 'DIAGNOSTICS'
