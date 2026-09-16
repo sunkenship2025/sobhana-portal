@@ -69,6 +69,16 @@ import {
 import { derivePayout } from "../services/payoutService";
 import { categorize } from "../services/payoutCategorize";
 import {
+  loadPartnerRateCard,
+  resolvePartnerRate,
+  computeOurShareInPaise,
+  computePartnerCutInPaise,
+  distributeShareAcrossLeaves,
+  applyPartnerDoctorMode,
+  type PartnerRateCard,
+} from "../services/partnerRateService";
+import type { PartnerArrangementKind, PartnerRateBasis } from "@prisma/client";
+import {
   allocateBillDiscountAcrossOrders,
   buildBillFinancialResponse,
   collectBillDue,
@@ -652,8 +662,8 @@ async function reevaluateVisitCompletion(
         where: { deletedAt: null },
         select: { referralDoctorId: true },
       },
-      diagnosticCenterReferrals: {
-        select: { diagnosticCenterId: true },
+      partnerVisit: {
+        select: { partnerId: true },
       },
     },
   });
@@ -712,8 +722,7 @@ async function reevaluateVisitCompletion(
   periodEndDate.setHours(23, 59, 59, 999);
   const payoutTasks: Array<Promise<unknown>> = [];
   const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-  const diagnosticCenterId =
-    visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+  const refreshPartnerId = visit.partnerVisit?.partnerId;
   if (referralDoctorId) {
     payoutTasks.push(
       derivePayout(
@@ -725,11 +734,11 @@ async function reevaluateVisitCompletion(
       ),
     );
   }
-  if (diagnosticCenterId) {
+  if (refreshPartnerId) {
     payoutTasks.push(
       derivePayout(
-        "DIAGNOSTIC_CENTER",
-        diagnosticCenterId,
+        "PARTNER",
+        refreshPartnerId,
         visit.branchId,
         periodStartDate,
         periodEndDate,
@@ -2244,9 +2253,13 @@ router.post("/", async (req: AuthRequest, res) => {
     const {
       patientId,
       referralDoctorId,
-      diagnosticCenterId,
+      // The partner this visit came from. externalLabByProductId /
+      // externalLabByTestId keep their wire names but now carry PARTNER ids for
+      // work we send OUT, so the existing client keeps working.
+      partnerId,
+      partnerBilledInPaise,
       referralOverrides,
-      diagnosticCenterOverrides,
+      partnerOverrides,
       externalLabByProductId,
       externalLabByTestId,
       testIds,
@@ -2304,8 +2317,10 @@ router.post("/", async (req: AuthRequest, res) => {
     // rate card). A per-product rule / ad-hoc override still takes priority.
     const doctorCategoryRuleByCategory = new Map<string, NormalizedReferralPayout>();
     const centerCategoryRateByCategory = new Map<string, NormalizedReferralPayout>();
-    let defaultDiagnosticCenterRule: NormalizedReferralPayout | null = null;
-    const diagnosticCenterRuleByProductId = new Map<
+    // The visit's inbound partner card, loaded once. Null when this is an
+    // ordinary walk-in, in which case nothing below writes partner fields.
+    let inboundCard: PartnerRateCard | null = null;
+    const legacyCenterRuleByProductId = new Map<
       string,
       NormalizedReferralPayout
     >();
@@ -2362,36 +2377,26 @@ router.post("/", async (req: AuthRequest, res) => {
       }
     }
 
-    if (diagnosticCenterId) {
-      const diagnosticCenter = await prisma.diagnosticReferralCenter.findUnique(
-        {
-          where: { id: diagnosticCenterId },
-          include: {
-            productRules: {
-              where: { isActive: true },
-            },
-          },
-        },
-      );
-
-      if (!diagnosticCenter) {
+    if (partnerId) {
+      const partner = await prisma.partner.findUnique({
+        where: { id: partnerId },
+        select: { id: true, isActive: true },
+      });
+      if (!partner || !partner.isActive) {
         return res.status(400).json({
           error: "VALIDATION_ERROR",
-          message: "Diagnostic center not found",
+          message: "Partner not found",
         });
       }
-
-      defaultDiagnosticCenterRule = {
-        commissionType: diagnosticCenter.commissionType,
-        commissionPercent: diagnosticCenter.commissionPercent,
-        commissionAmountInPaise: diagnosticCenter.commissionAmountInPaise,
-      };
-
-      for (const rule of diagnosticCenter.productRules) {
-        diagnosticCenterRuleByProductId.set(rule.productId, {
-          commissionType: rule.commissionType,
-          commissionPercent: rule.commissionPercent,
-          commissionAmountInPaise: rule.commissionAmountInPaise,
+      // A partner may hold both inbound kinds; whichever is active is the deal
+      // this visit came in under. weCollect on it says who took the money.
+      inboundCard =
+        (await loadPartnerRateCard(partnerId, "INBOUND_BILLED_HERE", req.branchId!)) ??
+        (await loadPartnerRateCard(partnerId, "INBOUND_BILLED_THERE", req.branchId!));
+      if (!inboundCard) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "That partner has no active inbound arrangement — set one up first.",
         });
       }
     }
@@ -2434,13 +2439,8 @@ router.post("/", async (req: AuthRequest, res) => {
       externalLabByTestId && typeof externalLabByTestId === "object"
         ? externalLabByTestId
         : {};
-    const labMap = new Map<
-      string,
-      {
-        lab: { rateType: any; ratePercent: number | null; rateAmountInPaise: number | null };
-        ruleByProductId: Map<string, any>;
-      }
-    >();
+    // Work we send OUT: one OUTBOUND_VENDOR card per distinct partner routed to.
+    const outboundCards = new Map<string, PartnerRateCard>();
     const labIds = Array.from(
       new Set(
         [...Object.values(labByProduct), ...Object.values(labByTest)].filter(
@@ -2448,21 +2448,13 @@ router.post("/", async (req: AuthRequest, res) => {
         )
       )
     );
-    if (labIds.length > 0) {
-      const labs = await prisma.externalLab.findMany({
-        where: { id: { in: labIds }, isActive: true },
-        include: { productRules: { where: { isActive: true } } },
-      });
-      for (const lab of labs) {
-        labMap.set(lab.id, {
-          lab,
-          ruleByProductId: new Map(lab.productRules.map((r) => [r.productId, r])),
-        });
-      }
+    for (const id of labIds) {
+      const card = await loadPartnerRateCard(id, "OUTBOUND_VENDOR", req.branchId!);
+      if (card) outboundCards.set(id, card);
     }
 
     const overrides = new Map<string, NormalizedReferralPayout>();
-    const diagnosticCenterOverrideMap = new Map<
+    const partnerOverrideMap = new Map<
       string,
       NormalizedReferralPayout
     >();
@@ -2482,15 +2474,12 @@ router.post("/", async (req: AuthRequest, res) => {
       }
     }
 
-    if (
-      diagnosticCenterOverrides &&
-      typeof diagnosticCenterOverrides === "object"
-    ) {
+    if (partnerOverrides && typeof partnerOverrides === "object") {
       try {
-        for (const [key, value] of Object.entries(diagnosticCenterOverrides)) {
+        for (const [key, value] of Object.entries(partnerOverrides)) {
           const normalized = normalizeReferralOverrideInput(value);
           if (normalized) {
-            diagnosticCenterOverrideMap.set(key, normalized);
+            partnerOverrideMap.set(key, normalized);
           }
         }
       } catch (validationErr: any) {
@@ -2520,61 +2509,81 @@ router.post("/", async (req: AuthRequest, res) => {
       referralCommissionType: "PERCENTAGE" | "FIXED_AMOUNT";
       referralCommissionPercentage: number | null;
       referralCommissionAmountInPaise: number | null;
-      diagnosticCenterCommissionType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
-      diagnosticCenterCommissionPercentage: number | null;
-      diagnosticCenterCommissionAmountInPaise: number | null;
-      externalLabId: string | null;
-      labCostType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
-      labCostPercentage: number | null;
-      labCostAmountInPaise: number | null;
+      partnerId: string | null;
+      partnerArrangement: PartnerArrangementKind | null;
+      ourShareBasis: PartnerRateBasis | null;
+      ourSharePercent: number | null;
+      ourShareInPaise: number | null;
+      partnerCutInPaise: number | null;
     }> = [];
 
-    // Resolve the outside-lab snapshot (+ optional reduced doctor commission)
-    // for one order. Returns the (possibly reduced) referral snapshot to use.
-    const resolveOrderLab = (
+    /**
+     * Freeze one order's partner money, and adjust the doctor's commission for it.
+     *
+     * An order is either sent OUT to a vendor (explicitly routed on this bill) or
+     * came IN from the visit's partner. Routing wins: if this product was sent
+     * out, that is the deal that applies to it.
+     *
+     * `shareOfProduct` is the product's whole share when a FLAT rule applies,
+     * already distributed across the product's leaves by the caller — a CBP is
+     * 13 orders and Lalitha's ₹60 cannot sit on one of them.
+     */
+    const resolveOrderPartner = (
       key: string | undefined,
       referral: {
         commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
         commissionPercentage: number | null;
         commissionAmountInPaise: number | null;
       },
-      productId?: string
+      productId: string | null,
+      category: string | null,
+      priceInPaise: number,
+      flatShareForThisLeaf?: number,
     ) => {
-      const labId = key ? (labByProduct[key] ?? labByTest[key]) : undefined;
-      const entry = labId ? labMap.get(labId) : undefined;
-      if (!labId || !entry) {
+      const routedTo = key ? (labByProduct[key] ?? labByTest[key]) : undefined;
+      const card = (routedTo ? outboundCards.get(routedTo) : undefined) ?? inboundCard;
+      if (!card) {
         return {
-          externalLabId: null as string | null,
-          labCostType: null as "PERCENTAGE" | "FIXED_AMOUNT" | null,
-          labCostPercentage: null as number | null,
-          labCostAmountInPaise: null as number | null,
+          partnerId: null as string | null,
+          partnerArrangement: null as PartnerArrangementKind | null,
+          ourShareBasis: null as PartnerRateBasis | null,
+          ourSharePercent: null as number | null,
+          ourShareInPaise: null as number | null,
+          partnerCutInPaise: null as number | null,
           referral,
         };
       }
-      const rule = productId ? entry.ruleByProductId.get(productId) : undefined;
-      const cost = resolveLabCostSnapshot(entry.lab, rule);
-      let nextReferral = referral;
-      if (referralDoctorId && rule?.reducedReferralCommissionType != null) {
-        const reduced = resolveReducedReferralSnapshot(
-          {
-            referralCommissionType: referral.commissionType,
-            referralCommissionPercentage: referral.commissionPercentage,
-            referralCommissionAmountInPaise: referral.commissionAmountInPaise,
-          },
-          rule
-        );
-        nextReferral = {
-          commissionType: reduced.referralCommissionType,
-          commissionPercentage: reduced.referralCommissionPercentage,
-          commissionAmountInPaise: reduced.referralCommissionAmountInPaise,
-        };
-      }
+      const rate = resolvePartnerRate(card, productId, category);
+      const ourShareInPaise =
+        flatShareForThisLeaf ??
+        computeOurShareInPaise(rate, priceInPaise, partnerBilledInPaise ?? null);
+      const partnerCutInPaise = computePartnerCutInPaise(card, priceInPaise, ourShareInPaise);
+      const adjusted = applyPartnerDoctorMode(
+        {
+          referralCommissionType: referral.commissionType,
+          referralCommissionPercentage: referral.commissionPercentage,
+          referralCommissionAmountInPaise: referral.commissionAmountInPaise,
+        },
+        rate.doctorCommissionMode,
+        priceInPaise,
+        ourShareInPaise,
+      );
       return {
-        externalLabId: labId,
-        labCostType: cost.labCostType,
-        labCostPercentage: cost.labCostPercentage,
-        labCostAmountInPaise: cost.labCostAmountInPaise,
-        referral: nextReferral,
+        partnerId: card.partnerId,
+        partnerArrangement: card.kind,
+        ourShareBasis: rate.basis,
+        ourSharePercent: rate.basis === "FLAT" ? null : rate.percent,
+        ourShareInPaise,
+        partnerCutInPaise,
+        referral: referralDoctorId
+          ? {
+              commissionType: (adjusted.referralCommissionType ?? "PERCENTAGE") as
+                | "PERCENTAGE"
+                | "FIXED_AMOUNT",
+              commissionPercentage: adjusted.referralCommissionPercentage,
+              commissionAmountInPaise: adjusted.referralCommissionAmountInPaise,
+            }
+          : referral,
       };
     };
 
@@ -2592,10 +2601,31 @@ router.post("/", async (req: AuthRequest, res) => {
             overrides.get(rp.productId) ??
             referralRuleByProductId.get(rp.productId) ??
             null;
-          const effectiveDiagnosticCenterRule =
-            diagnosticCenterOverrideMap.get(rp.productId) ??
-            diagnosticCenterRuleByProductId.get(rp.productId) ??
-            defaultDiagnosticCenterRule;
+          // A FLAT partner rate is the PRODUCT's share (Lalitha's CBP = ₹60),
+          // so resolve it once and spread it over the product's leaves.
+          const leafPrices = rp.testOrders.map((to) => to.priceInPaise);
+          const partnerCardForProduct =
+            outboundCards.get(labByProduct[rp.productId] ?? "") ?? inboundCard;
+          const flatShares =
+            partnerCardForProduct &&
+            resolvePartnerRate(
+              partnerCardForProduct,
+              rp.productId,
+              rp.testOrders[0]?.payoutCategory ?? null,
+            ).basis === "FLAT"
+              ? distributeShareAcrossLeaves(
+                  computeOurShareInPaise(
+                    resolvePartnerRate(
+                      partnerCardForProduct,
+                      rp.productId,
+                      rp.testOrders[0]?.payoutCategory ?? null,
+                    ),
+                    leafPrices.reduce((a, b) => a + b, 0),
+                    partnerBilledInPaise ?? null,
+                  ),
+                  leafPrices,
+                )
+              : null;
           const referralSnapshots = productLevelRule
             ? applyReferralRuleToPrices(
                 rp.testOrders.map((to) => to.priceInPaise),
@@ -2606,20 +2636,19 @@ router.post("/", async (req: AuthRequest, res) => {
                   resolveCategoryReferralSnapshot(to.payoutCategory),
                 )
               : rp.testOrders.map(() => zeroPayoutSnapshot());
-          const diagnosticCenterSnapshots = applyOptionalReferralRuleToPrices(
-            rp.testOrders.map((to) => to.priceInPaise),
-            effectiveDiagnosticCenterRule,
-          );
 
           for (const [index, to] of rp.testOrders.entries()) {
-            const labResolved = resolveOrderLab(
+            const labResolved = resolveOrderPartner(
               rp.productId,
               {
                 commissionType: referralSnapshots[index].commissionType,
                 commissionPercentage: referralSnapshots[index].commissionPercentage,
                 commissionAmountInPaise: referralSnapshots[index].commissionAmountInPaise,
               },
-              to.productId
+              to.productId,
+              to.payoutCategory ?? null,
+              to.priceInPaise,
+              flatShares ? flatShares[index] : undefined,
             );
             testOrderData.push({
               testId: to.labTestId,
@@ -2637,16 +2666,12 @@ router.post("/", async (req: AuthRequest, res) => {
               referralCommissionType: labResolved.referral.commissionType,
               referralCommissionPercentage: labResolved.referral.commissionPercentage,
               referralCommissionAmountInPaise: labResolved.referral.commissionAmountInPaise,
-              diagnosticCenterCommissionType:
-                diagnosticCenterSnapshots[index].commissionType,
-              diagnosticCenterCommissionPercentage:
-                diagnosticCenterSnapshots[index].commissionPercentage,
-              diagnosticCenterCommissionAmountInPaise:
-                diagnosticCenterSnapshots[index].commissionAmountInPaise,
-              externalLabId: labResolved.externalLabId,
-              labCostType: labResolved.labCostType,
-              labCostPercentage: labResolved.labCostPercentage,
-              labCostAmountInPaise: labResolved.labCostAmountInPaise,
+              partnerId: labResolved.partnerId,
+              partnerArrangement: labResolved.partnerArrangement,
+              ourShareBasis: labResolved.ourShareBasis,
+              ourSharePercent: labResolved.ourSharePercent,
+              ourShareInPaise: labResolved.ourShareInPaise,
+              partnerCutInPaise: labResolved.partnerCutInPaise,
             });
           }
           totalAmountInPaise += rp.effectivePrice;
@@ -2691,20 +2716,16 @@ router.post("/", async (req: AuthRequest, res) => {
           : referralDoctorId
             ? resolveCategoryReferralSnapshot(legacyCategory)
             : zeroPayoutSnapshot();
-        const diagnosticCenterSnapshot = applyOptionalReferralRuleToPrices(
-          [test.priceInPaise],
-          diagnosticCenterOverrideMap.get(test.id) ??
-            defaultDiagnosticCenterRule,
-        )[0];
-
-        const labResolved = resolveOrderLab(
+        const labResolved = resolveOrderPartner(
           test.id,
           {
             commissionType: referralSnapshot.commissionType,
             commissionPercentage: referralSnapshot.commissionPercentage,
             commissionAmountInPaise: referralSnapshot.commissionAmountInPaise,
           },
-          undefined
+          null,
+          legacyCategory,
+          test.priceInPaise,
         );
         return {
           testId: test.id,
@@ -2721,16 +2742,12 @@ router.post("/", async (req: AuthRequest, res) => {
           referralCommissionPercentage: labResolved.referral.commissionPercentage,
           referralCommissionAmountInPaise:
             labResolved.referral.commissionAmountInPaise,
-          diagnosticCenterCommissionType:
-            diagnosticCenterSnapshot.commissionType,
-          diagnosticCenterCommissionPercentage:
-            diagnosticCenterSnapshot.commissionPercentage,
-          diagnosticCenterCommissionAmountInPaise:
-            diagnosticCenterSnapshot.commissionAmountInPaise,
-          externalLabId: labResolved.externalLabId,
-          labCostType: labResolved.labCostType,
-          labCostPercentage: labResolved.labCostPercentage,
-          labCostAmountInPaise: labResolved.labCostAmountInPaise,
+          partnerId: labResolved.partnerId,
+          partnerArrangement: labResolved.partnerArrangement,
+          ourShareBasis: labResolved.ourShareBasis,
+          ourSharePercent: labResolved.ourSharePercent,
+          ourShareInPaise: labResolved.ourShareInPaise,
+          partnerCutInPaise: labResolved.partnerCutInPaise,
         };
       });
     }
@@ -2956,14 +2973,19 @@ router.post("/", async (req: AuthRequest, res) => {
           });
         }
 
-        // Create diagnostic center referral if specified
-        if (diagnosticCenterId) {
-          await tx.diagnosticCenter_Visit.create({
+        // Link the visit to the partner it came from, freezing which deal it
+        // came in under and — when THEY billed the patient — what they charged.
+        // That figure is never summed into a money total; it is theirs, not
+        // ours, and exists so a statement can reconcile against their register.
+        if (partnerId && inboundCard) {
+          await tx.partnerVisit.create({
             data: {
               visitId: visit.id,
-              diagnosticCenterId,
-              referralType: "REFERRED_FROM",
+              partnerId,
               branchId: req.branchId!,
+              kind: inboundCard.kind,
+              partnerBilledInPaise:
+                typeof partnerBilledInPaise === "number" ? partnerBilledInPaise : null,
             },
           });
         }
@@ -3008,48 +3030,46 @@ router.post("/", async (req: AuthRequest, res) => {
           }
         }
 
-        if (
-          diagnosticCenterId &&
-          hasProducts &&
-          diagnosticCenterOverrideMap.size > 0
-        ) {
+        if (partnerId && inboundCard && hasProducts && partnerOverrideMap.size > 0) {
           for (const productId of productIds.filter((id: string) =>
-            diagnosticCenterOverrideMap.has(id),
+            partnerOverrideMap.has(id),
           )) {
-            const override = diagnosticCenterOverrideMap.get(productId);
+            const override = partnerOverrideMap.get(productId);
             if (!override) continue;
-
-            if (
-              areReferralPayoutsEqual(override, defaultDiagnosticCenterRule)
-            ) {
-              await tx.diagnosticCenterProductRule.deleteMany({
-                where: {
-                  diagnosticCenterId,
-                  productId,
-                },
-              });
-              continue;
-            }
-
-            await tx.diagnosticCenterProductRule.upsert({
+            // An ad-hoc rate typed on the bill becomes this branch's per-product
+            // rule for that arrangement, so the next visit resolves it the same
+            // way without anyone re-typing it.
+            await tx.partnerProductRule.upsert({
               where: {
-                diagnosticCenterId_productId: {
-                  diagnosticCenterId,
+                arrangementId_branchId_productId: {
+                  arrangementId: inboundCard.arrangementId,
+                  branchId: req.branchId!,
                   productId,
                 },
               },
               update: {
-                commissionType: override.commissionType,
-                commissionPercent: override.commissionPercent,
-                commissionAmountInPaise: override.commissionAmountInPaise,
+                rateBasis:
+                  override.commissionType === "FIXED_AMOUNT" ? "FLAT" : "PCT_OF_OUR_PRICE",
+                ratePercent:
+                  override.commissionType === "FIXED_AMOUNT" ? null : override.commissionPercent,
+                rateAmountInPaise:
+                  override.commissionType === "FIXED_AMOUNT"
+                    ? override.commissionAmountInPaise
+                    : null,
                 isActive: true,
               },
               create: {
-                diagnosticCenterId,
+                arrangementId: inboundCard.arrangementId,
+                branchId: req.branchId!,
                 productId,
-                commissionType: override.commissionType,
-                commissionPercent: override.commissionPercent,
-                commissionAmountInPaise: override.commissionAmountInPaise,
+                rateBasis:
+                  override.commissionType === "FIXED_AMOUNT" ? "FLAT" : "PCT_OF_OUR_PRICE",
+                ratePercent:
+                  override.commissionType === "FIXED_AMOUNT" ? null : override.commissionPercent,
+                rateAmountInPaise:
+                  override.commissionType === "FIXED_AMOUNT"
+                    ? override.commissionAmountInPaise
+                    : null,
                 isActive: true,
               },
             });
@@ -3068,15 +3088,12 @@ router.post("/", async (req: AuthRequest, res) => {
             referralCommissionPercentage: tod.referralCommissionPercentage,
             referralCommissionAmountInPaise:
               tod.referralCommissionAmountInPaise,
-            diagnosticCenterCommissionType: tod.diagnosticCenterCommissionType,
-            diagnosticCenterCommissionPercentage:
-              tod.diagnosticCenterCommissionPercentage,
-            diagnosticCenterCommissionAmountInPaise:
-              tod.diagnosticCenterCommissionAmountInPaise,
-            externalLabId: tod.externalLabId ?? null,
-            labCostType: tod.labCostType,
-            labCostPercentage: tod.labCostPercentage,
-            labCostAmountInPaise: tod.labCostAmountInPaise,
+            partnerId: tod.partnerId,
+            partnerArrangement: tod.partnerArrangement,
+            ourShareBasis: tod.ourShareBasis,
+            ourSharePercent: tod.ourSharePercent,
+            ourShareInPaise: tod.ourShareInPaise,
+            partnerCutInPaise: tod.partnerCutInPaise,
             testNameSnapshot: tod.testNameSnapshot,
             testCodeSnapshot: tod.testCodeSnapshot,
             referenceMinSnapshot: tod.referenceMinSnapshot,
@@ -3157,11 +3174,11 @@ router.post("/", async (req: AuthRequest, res) => {
         );
       }
 
-      if (diagnosticCenterId) {
+      if (partnerId) {
         payoutRefreshTasks.push(
           derivePayout(
-            "DIAGNOSTIC_CENTER",
-            diagnosticCenterId,
+            "PARTNER",
+            partnerId,
             req.branchId!,
             periodStartDate,
             periodEndDate,
@@ -3316,11 +3333,9 @@ router.post("/", async (req: AuthRequest, res) => {
         referralCommissionType: to.referralCommissionType,
         referralCommissionPercent: to.referralCommissionPercentage,
         referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-        diagnosticCenterCommissionType: to.diagnosticCenterCommissionType,
-        diagnosticCenterCommissionPercent:
-          to.diagnosticCenterCommissionPercentage,
-        diagnosticCenterCommissionAmountInPaise:
-          to.diagnosticCenterCommissionAmountInPaise,
+        partnerId: to.partnerId,
+        ourShareInPaise: to.ourShareInPaise,
+        partnerCutInPaise: to.partnerCutInPaise,
       })),
     });
   } catch (err: any) {
@@ -5558,9 +5573,9 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
             referralDoctorId: true,
           },
         },
-        diagnosticCenterReferrals: {
+        partnerVisit: {
           select: {
-            diagnosticCenterId: true,
+            partnerId: true,
           },
         },
         testOrders: {
@@ -5634,8 +5649,7 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
 
     const payoutRefreshTasks: Array<Promise<unknown>> = [];
     const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-    const diagnosticCenterId =
-      visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+    const refreshPartnerId = visit.partnerVisit?.partnerId;
 
     if (referralDoctorId) {
       payoutRefreshTasks.push(
@@ -5649,11 +5663,11 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
       );
     }
 
-    if (diagnosticCenterId) {
+    if (refreshPartnerId) {
       payoutRefreshTasks.push(
         derivePayout(
-          "DIAGNOSTIC_CENTER",
-          diagnosticCenterId,
+          "PARTNER",
+          refreshPartnerId,
           visit.branchId,
           periodStartDate,
           periodEndDate,
@@ -6536,9 +6550,9 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
             referralDoctorId: true,
           },
         },
-        diagnosticCenterReferrals: {
+        partnerVisit: {
           select: {
-            diagnosticCenterId: true,
+            partnerId: true,
           },
         },
         testOrders: {
@@ -6665,8 +6679,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       periodEndDate.setHours(23, 59, 59, 999);
       const noReportPayoutTasks: Array<Promise<unknown>> = [];
       const noReportReferralDoctorId = visit.referrals[0]?.referralDoctorId;
-      const noReportDiagnosticCenterId =
-        visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+      const noReportPartnerId = visit.partnerVisit?.partnerId;
       if (noReportReferralDoctorId) {
         noReportPayoutTasks.push(
           derivePayout(
@@ -6678,11 +6691,11 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
           ),
         );
       }
-      if (noReportDiagnosticCenterId) {
+      if (noReportPartnerId) {
         noReportPayoutTasks.push(
           derivePayout(
-            "DIAGNOSTIC_CENTER",
-            noReportDiagnosticCenterId,
+            "PARTNER",
+            noReportPartnerId,
             visit.branchId,
             periodStartDate,
             periodEndDate,
@@ -6849,8 +6862,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
 
     const payoutRefreshTasks: Array<Promise<unknown>> = [];
     const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-    const diagnosticCenterId =
-      visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+    const refreshPartnerId = visit.partnerVisit?.partnerId;
 
     if (referralDoctorId) {
       payoutRefreshTasks.push(
@@ -6864,11 +6876,11 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       );
     }
 
-    if (diagnosticCenterId) {
+    if (refreshPartnerId) {
       payoutRefreshTasks.push(
         derivePayout(
-          "DIAGNOSTIC_CENTER",
-          diagnosticCenterId,
+          "PARTNER",
+          refreshPartnerId,
           visit.branchId,
           periodStartDate,
           periodEndDate,
