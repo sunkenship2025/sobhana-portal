@@ -25,6 +25,7 @@ import { usePagedList } from "@/hooks/usePagedList";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRevalidateOnFocus } from "@/hooks/useRevalidateOnFocus";
 import { DateRangeFilter } from "@/components/worklist/DateRangeFilter";
+import { DoctorTestFilter, ANY } from "@/components/worklist/DoctorTestFilter";
 import {
   type DateRangeState,
   makeDateRange,
@@ -167,6 +168,10 @@ const DiagnosticsPendingResults = () => {
   const { token } = useAuthStore();
   const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange("all"));
   const [search, setSearch] = useState("");
+  const [doctorId, setDoctorId] = useState(ANY);
+  const [productId, setProductId] = useState(ANY);
+  // "due" = balance outstanding, "paid" = nothing left to collect.
+  const [dueFilter, setDueFilter] = useState<"all" | "due" | "paid">("all");
   // Debounce the value that drives the (client-side) filter + pagination reset,
   // so the box stays responsive while typing and the list only re-ranks/re-renders
   // once the user pauses — instead of jumping on every keystroke.
@@ -263,7 +268,7 @@ const DiagnosticsPendingResults = () => {
   }, [pendingVisits, activeBranchId]);
 
   const filteredVisits = useMemo(() => {
-    const base = visitsWithDetails.filter(({ visit }) => {
+    const base = visitsWithDetails.filter(({ visit, testOrders }) => {
       // Include both REPORTABLE and EXTERNAL_UPLOAD visits — both land on the entry screen.
       const hasInclusion =
         visit.hasReportInclusionOrders ??
@@ -272,19 +277,46 @@ const DiagnosticsPendingResults = () => {
         return false;
       }
 
-      return matchesDateRange(dateRange, visit.createdAt);
+      if (!matchesDateRange(dateRange, visit.createdAt)) return false;
+      if (doctorId !== ANY && visit.referralDoctorId !== doctorId) return false;
+      if (
+        productId !== ANY &&
+        !testOrders.some((o) => o.productId === productId && !o.cancelledAt)
+      )
+        return false;
+      const due = visit.dueAmountInPaise ?? 0;
+      if (dueFilter === "due" && due <= 0) return false;
+      if (dueFilter === "paid" && due > 0) return false;
+      return true;
     });
 
     // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
     // returns `base` unchanged when the search box is empty.
-    return searchWorklist(base, debouncedSearch, ({ patient, visit }) => ({
-      name: patient?.name,
-      phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value,
-      billNumber: visit.billNumber,
-    }));
-  }, [visitsWithDetails, dateRange, debouncedSearch]);
+    return searchWorklist(
+      base,
+      debouncedSearch,
+      ({ patient, visit, testOrders }) => ({
+        name: patient?.name,
+        phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")
+          ?.value,
+        billNumber: visit.billNumber,
+        doctorName: visit.referralDoctor?.name,
+        testNames: formatTestList(testOrders),
+      }),
+    );
+  }, [
+    visitsWithDetails,
+    dateRange,
+    debouncedSearch,
+    doctorId,
+    productId,
+    dueFilter,
+  ]);
 
-  const paged = usePagedList(filteredVisits, `${debouncedSearch}|${dateRangeKey(dateRange)}`);
+  const paged = usePagedList(
+    filteredVisits,
+    `${debouncedSearch}|${dateRangeKey(dateRange)}|${doctorId}|${productId}|${dueFilter}`,
+  );
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
   // above), independent of date/search. Lets the empty state tell "nothing to
@@ -484,12 +516,34 @@ const DiagnosticsPendingResults = () => {
                 onChange={setDateRange}
                 triggerClassName="w-full sm:w-[180px]"
               />
+              <DoctorTestFilter
+                doctorId={doctorId}
+                onDoctorChange={setDoctorId}
+                productId={productId}
+                onProductChange={setProductId}
+              />
+              <div className="space-y-2">
+                <Label>Payment</Label>
+                <Select
+                  value={dueFilter}
+                  onValueChange={(v) => setDueFilter(v as typeof dueFilter)}
+                >
+                  <SelectTrigger className="w-full sm:w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="due">Balance due</SelectItem>
+                    <SelectItem value="paid">Fully paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Name / Phone / Bill Number"
+                    placeholder="Name / Phone / Bill / Doctor / Test"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-9"
@@ -526,7 +580,7 @@ const DiagnosticsPendingResults = () => {
                   </p>
                   <p className="max-w-sm text-sm text-muted-foreground">
                     {hasDisplayablePending
-                      ? 'Try a different date range, or clear the search to see every pending case.'
+                      ? 'Try a different date range, doctor or test — or clear the filters to see every pending case.'
                       : 'No lab cases are waiting for results right now. New cases appear here once a diagnostic bill is created.'}
                   </p>
                 </div>
@@ -537,6 +591,9 @@ const DiagnosticsPendingResults = () => {
                     onClick={() => {
                       setDateRange(makeDateRange('all'));
                       setSearch('');
+                      setDoctorId(ANY);
+                      setProductId(ANY);
+                      setDueFilter('all');
                     }}
                   >
                     Clear filters

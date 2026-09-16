@@ -777,9 +777,11 @@ async function computeCompletedDiagnosticIndex(
   from: string | undefined,
   to: string | undefined,
   q: string,
+  doctorId?: string,
+  productId?: string,
 ): Promise<{ ids: string[]; total: number }> {
   const qNorm = q.trim().toLowerCase();
-  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${to ?? ""}|${qNorm}`;
+  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${to ?? ""}|${qNorm}|${doctorId ?? ""}|${productId ?? ""}`;
   const cached = getWorklistIndex(cacheKey);
   if (cached) return cached;
 
@@ -793,6 +795,12 @@ async function computeCompletedDiagnosticIndex(
   // in-window rows — a row's stable date is always <= its updatedAt. We tighten
   // to the real window on that stable date below.
   if (!isNaN(fromDate.getTime())) where.updatedAt = { gte: fromDate };
+
+  // Referring-doctor / test filters run in the DB, so they also narrow the scan
+  // cap instead of being trimmed out of an already-capped page.
+  if (doctorId)
+    where.referrals = { some: { referralDoctorId: doctorId, deletedAt: null } };
+  if (productId) where.testOrders = { some: { productId, cancelledAt: null } };
 
   // Visible-set window on the row's STABLE date (finalized/bill time — the same
   // date the row shows and sorts by). Without this, a report finalized on an
@@ -816,8 +824,28 @@ async function computeCompletedDiagnosticIndex(
         select: { name: true, identifiers: { select: { type: true, value: true } } },
       },
       testOrders: {
-        select: { workflowMode: true, cancelledAt: true, noReportAt: true },
+        select: {
+          workflowMode: true,
+          cancelledAt: true,
+          noReportAt: true,
+          // Doctor/test names are only needed to SEARCH by them — skip the
+          // extra joins entirely when the search box is empty.
+          ...(qNorm
+            ? {
+                product: { select: { name: true } },
+                test: { select: { name: true } },
+              }
+            : {}),
+        },
       },
+      ...(qNorm
+        ? {
+            referrals: {
+              where: { deletedAt: null },
+              select: { referralDoctor: { select: { name: true } } },
+            },
+          }
+        : {}),
       report: {
         select: {
           versions: {
@@ -863,6 +891,12 @@ async function computeCompletedDiagnosticIndex(
       phone:
         v.patient?.identifiers?.find((i) => i.type === "PHONE")?.value ?? null,
       billNumber: v.billNumber ?? null,
+      doctorName:
+        (v as any).referrals?.[0]?.referralDoctor?.name ?? null,
+      testNames: ((v.testOrders ?? []) as any[])
+        .filter((o) => !o.cancelledAt)
+        .map((o) => o.product?.name || o.test?.name || "")
+        .join(", "),
     };
   });
 
@@ -881,6 +915,8 @@ async function computeCompletedDiagnosticIndex(
       name: r.name,
       phone: r.phone,
       billNumber: r.billNumber,
+      doctorName: r.doctorName,
+      testNames: r.testNames,
     }));
   }
 
@@ -892,7 +928,8 @@ async function computeCompletedDiagnosticIndex(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, patientId, from, to, q, page, pageSize } = req.query;
+    const { status, patientId, from, to, q, page, pageSize, doctorId, productId } =
+      req.query;
 
     const where: any = {
       domain: "DIAGNOSTICS",
@@ -925,6 +962,8 @@ router.get("/", async (req: AuthRequest, res) => {
         typeof from === "string" ? from : undefined,
         typeof to === "string" ? to : undefined,
         qStr,
+        typeof doctorId === "string" && doctorId ? doctorId : undefined,
+        typeof productId === "string" && productId ? productId : undefined,
       );
       const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
       const size = Math.min(
@@ -1253,6 +1292,11 @@ router.get("/", async (req: AuthRequest, res) => {
               productName: to.product?.name ?? null,
               testDefinitionId: to.testDefinitionId,
               workflowMode: to.workflowMode,
+              // The worklists already filter voided / film-only orders out of
+              // the test list and the test filter — they just never received
+              // these two flags, so those guards were silently no-ops here.
+              cancelledAt: to.cancelledAt,
+              noReportAt: to.noReportAt,
               // null for bill-only orders (not part of the report); true/false
               // for report-inclusion orders based on whether results are in.
               resultReady: reportInclusionOrderIds.has(to.id)

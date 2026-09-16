@@ -14,6 +14,10 @@ export interface WorklistFields {
   phone?: string | null;
   billNumber?: string | null;
   visitRef?: string | null;
+  /** Referring doctor's name — so "ravi" finds every case he referred. */
+  doctorName?: string | null;
+  /** Comma-joined test/product labels — so "cbp" finds every CBP case. */
+  testNames?: string | null;
 }
 
 /** Digits only — lets a phone match ignore spaces, dashes and +country codes. */
@@ -48,6 +52,14 @@ export function scoreWorklistMatch(
 
   const ref = (fields.visitRef ?? "").toLowerCase();
   if (ref && ref.includes(q)) return 20;
+
+  // Doctor / test names rank below the patient's own identifiers: typing a name
+  // that is both a patient and a doctor should still show the patient first.
+  const doctor = (fields.doctorName ?? "").toLowerCase();
+  if (doctor && doctor.includes(q)) return 15;
+
+  const tests = (fields.testNames ?? "").toLowerCase();
+  if (tests && tests.includes(q)) return 10;
 
   return 0;
 }
