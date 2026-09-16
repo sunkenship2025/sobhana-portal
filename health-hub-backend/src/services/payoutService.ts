@@ -939,8 +939,21 @@ export async function derivePayout(
 
   if (existing) {
     const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
-    // Re-derivation is always safe now: amounts come from TestOrder snapshots
-    // frozen at order time, and there is no settled state left to protect.
+    // Re-derivation OVERWRITES in place, and it is not as safe as it looks.
+    // The commission RATE is snapshotted on TestOrder at order time, but two
+    // inputs are read live and both move after a period closes:
+    //   - the bill discount, allocated across orders below to cut commission —
+    //     a concession granted at collection time lands days after finalization
+    //   - cancelledAt, which drops an order's commission entirely — and 69 of
+    //     the last 89 cancels happened AFTER the report was finalized
+    // So a statement can change after the doctor was handed it. Nothing records
+    // that it moved: derivedAmountInPaise is replaced and the old value is gone.
+    // Tolerable only because this is a BOOK, not a payment record (settlement
+    // state was removed 16 Sep — 6 of 1,602 rows ever marked paid). If payouts
+    // ever need to answer "what did we pay against", the line items have to be
+    // snapshotted here rather than re-derived on read.
+    // ponytail: no line-item history. Snapshot lineItems if a statement ever
+    // has to be reproducible after the fact.
     const nextData: { derivedAmountInPaise?: number; derivedAt?: Date } = {};
     if (existing.derivedAmountInPaise !== derivation.derivedAmountInPaise) {
       nextData.derivedAmountInPaise = derivation.derivedAmountInPaise;

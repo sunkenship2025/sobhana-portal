@@ -920,6 +920,8 @@ export async function getMoneyDaySheet(
                 cancelledAt: true,
                 replacedAt: true,
                 productId: true,
+                priceInPaise: true,
+                createdAt: true,
                 product: { select: { name: true } },
               },
             },
@@ -945,9 +947,9 @@ export async function getMoneyDaySheet(
             transactionDate: true,
           },
         },
-        // Concession grants, bounded at win.end for the same reason payments are.
+        // Every grant: the ones after win.end are what get subtracted back off
+        // the stored total to rewind it to what this sheet said on the day.
         discounts: {
-          where: { createdAt: { lt: win.end } },
           orderBy: { createdAt: 'asc' },
           select: { amountInPaise: true, createdAt: true, stage: true, reason: true },
         },
@@ -967,7 +969,20 @@ export async function getMoneyDaySheet(
       string,
       { label: string; live: number; total: number; replaced: number }
     >();
+    // Adding a test to an already-billed visit rewrites Bill.totalAmountInPaise
+    // in place, so a sheet printed before that sale kept growing afterwards —
+    // 41 orders, ₹9,600, and the day the test was actually sold showed nothing.
+    // Undo what arrived after the window rather than re-deriving gross from the
+    // orders: a CLINIC bill has no test orders at all and would re-derive to
+    // zero, and the stored total stays the authoritative number either way.
+    const addedAfterWindow = b.visit.testOrders
+      .filter((t) => t.createdAt >= win.end)
+      .reduce((sum, t) => sum + t.priceInPaise, 0);
+    const grossAsOfWindow = Math.max(0, b.totalAmountInPaise - addedAfterWindow);
+
     for (const t of b.visit.testOrders) {
+      // A test ordered after this sheet closed was not on the bill that day.
+      if (t.createdAt >= win.end) continue;
       const key = t.productId ? `p:${t.productId}` : `t:${t.testNameSnapshot}`;
       const item = billedItems.get(key) ?? {
         label: t.product?.name || t.testNameSnapshot,
@@ -1030,21 +1045,24 @@ export async function getMoneyDaySheet(
     // Discount and Net keep drifting after the fact.
     const hasGrantLedger = b._count.discounts > 0;
     let discountInWindow = 0;
-    let discountBeforeWindow = 0;
+    let grantedAfterWindow = 0;
     let firstGrantAt: Date | null = null;
     for (const g of b.discounts) {
-      if (g.createdAt < win.start) {
-        discountBeforeWindow += g.amountInPaise;
+      if (g.createdAt >= win.end) {
+        grantedAfterWindow += g.amountInPaise;
         continue;
       }
+      if (g.createdAt < win.start) continue;
       discountInWindow += g.amountInPaise;
       if (!firstGrantAt) firstGrantAt = g.createdAt;
     }
-    // Pre-ledger bills have no grants to date, so the stored total is the only
-    // thing there is — keyed to the bill's own day, which is where it belongs.
-    const discountAsOfWindow = hasGrantLedger
-      ? discountBeforeWindow + discountInWindow
-      : b.discountAmountInPaise;
+    // Undo what was granted after this window closed, exactly as gross does —
+    // rather than re-deriving from the grants. The stored total absorbs one
+    // thing the ledger cannot see: a PERCENTAGE discount is RESCALED whenever
+    // the subtotal moves (billFinancialService.recomputeBillFinancialsForSubtotal),
+    // which posts no grant. Subtracting keeps that rescale in the number and
+    // needs no fallback branch — a pre-ledger bill simply subtracts nothing.
+    const discountAsOfWindow = Math.max(0, b.discountAmountInPaise - grantedAfterWindow);
     const discountHere = hasGrantLedger
       ? discountInWindow
       : carried
@@ -1069,7 +1087,7 @@ export async function getMoneyDaySheet(
     // are blanked for a carried row — the Due column has to stay truthful.
     const chargedNetInPaise = Math.max(
       0,
-      b.totalAmountInPaise - discountAsOfWindow - (b.reversedChargeInPaise ?? 0),
+      grossAsOfWindow - discountAsOfWindow - (b.reversedChargeInPaise ?? 0),
     );
     const due = Math.max(0, chargedNetInPaise - paidToDateInPaise);
     const paymentMethod: DaySheetRow['paymentMethod'] =
@@ -1099,7 +1117,7 @@ export async function getMoneyDaySheet(
         b.visit.domain === 'CLINIC'
           ? 1
           : [...billedItems.values()].filter((i) => i.live > 0).length,
-      grossInPaise: carried ? 0 : b.totalAmountInPaise,
+      grossInPaise: carried ? 0 : grossAsOfWindow,
       discountInPaise: discountHere,
       reversedInPaise: carried ? 0 : b.reversedChargeInPaise ?? 0,
       netInPaise: carried ? 0 : chargedNetInPaise,
