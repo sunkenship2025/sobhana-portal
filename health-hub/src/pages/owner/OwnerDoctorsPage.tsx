@@ -72,7 +72,7 @@ interface DoctorsResponse {
   recentPayouts: Array<{
     id: string;
     doctorName: string;
-    doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER';
+    doctorType: 'REFERRAL' | 'CLINIC' | 'PARTNER';
     periodStart: string;
     periodEnd: string;
     amountInPaise: number;

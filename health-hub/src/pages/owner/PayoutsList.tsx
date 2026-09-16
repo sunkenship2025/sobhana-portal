@@ -37,25 +37,22 @@ import { PayoutDeleteDialog } from "@/components/payouts/PayoutDeleteDialog";
 
 type TypeFilter = "all" | PayoutDoctorType;
 
-const TYPE_ORDER: PayoutDoctorType[] = ["REFERRAL", "DIAGNOSTIC_CENTER", "CLINIC", "LAB"];
+const TYPE_ORDER: PayoutDoctorType[] = ["REFERRAL", "CLINIC", "PARTNER"];
 const TYPE_LABEL: Record<PayoutDoctorType, string> = {
   REFERRAL: "Referral Doctors",
-  DIAGNOSTIC_CENTER: "Clinic Referrals",
   CLINIC: "Consulting Doctors",
-  LAB: "Outside Labs",
+  PARTNER: "Outside Labs",
 };
 const TYPE_BADGE: Record<PayoutDoctorType, string> = {
   REFERRAL: "REF",
-  DIAGNOSTIC_CENTER: "CLINIC",
   CLINIC: "CONSULT",
-  LAB: "LAB",
+  PARTNER: "PARTNER",
 };
 const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "REFERRAL", label: "Ref Dr" },
-  { key: "DIAGNOSTIC_CENTER", label: "Clinic" },
   { key: "CLINIC", label: "Consult" },
-  { key: "LAB", label: "Lab" },
+  { key: "PARTNER", label: "Partner" },
 ];
 
 // ── date helpers ────────────────────────────────────────────────────────────
@@ -540,7 +537,7 @@ export default function PayoutsList() {
                     {TYPE_LABEL[t]}{" "}
                     <span
                       className="font-medium"
-                      style={{ color: t === "LAB" ? TOKENS.caution : TOKENS.textPrimary }}
+                      style={{ color: t === "PARTNER" ? TOKENS.caution : TOKENS.textPrimary }}
                     >
                       {formatRupees(totals?.byType[t].amountInPaise ?? 0)}
                     </span>{" "}
@@ -639,7 +636,7 @@ export default function PayoutsList() {
               </SectionCard>
             ) : (
               groups.map((g) => {
-                const outbound = g.payeeType === "LAB";
+                const outbound = g.payeeType === "PARTNER";
                 const isCollapsed = collapsed.has(g.payeeType);
                 return (
                   <div key={g.payeeType}>
@@ -774,7 +771,7 @@ function RowsTable({
       </thead>
       <tbody>
         {rows.map((r) => {
-          const outbound = r.payeeType === "LAB";
+          const outbound = r.payeeType === "PARTNER";
           return (
             <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
               {selectMode && (
@@ -858,7 +855,7 @@ function RegisterPrint({
   const t = idSet
     ? printRows.reduce(
         (acc, r) => {
-          if (r.payeeType === "LAB") acc.labPayablesTotalInPaise += r.amountInPaise;
+          if (r.payeeType === "PARTNER") acc.labPayablesTotalInPaise += r.amountInPaise;
           else acc.commissionsTotalInPaise += r.amountInPaise;
           return acc;
         },

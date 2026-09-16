@@ -24,8 +24,11 @@ import { searchWorklist } from "@/lib/worklistSearch";
 import { usePagedList } from "@/hooks/usePagedList";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRevalidateOnFocus } from "@/hooks/useRevalidateOnFocus";
-import { DateRangeFilter } from "@/components/worklist/DateRangeFilter";
-import { DoctorTestFilter, ANY } from "@/components/worklist/DoctorTestFilter";
+import {
+  WorklistFilterBar,
+  ANY,
+  type PaymentFilter,
+} from "@/components/worklist/WorklistFilterBar";
 import {
   type DateRangeState,
   makeDateRange,
@@ -171,7 +174,7 @@ const DiagnosticsPendingResults = () => {
   const [doctorId, setDoctorId] = useState(ANY);
   const [productId, setProductId] = useState(ANY);
   // "due" = balance outstanding, "paid" = nothing left to collect.
-  const [dueFilter, setDueFilter] = useState<"all" | "due" | "paid">("all");
+  const [dueFilter, setDueFilter] = useState<PaymentFilter>("all");
   // Debounce the value that drives the (client-side) filter + pagination reset,
   // so the box stays responsive while typing and the list only re-ranks/re-renders
   // once the user pauses — instead of jumping on every keystroke.
@@ -510,47 +513,18 @@ const DiagnosticsPendingResults = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <DateRangeFilter
-                value={dateRange}
-                onChange={setDateRange}
-                triggerClassName="w-full sm:w-[180px]"
-              />
-              <DoctorTestFilter
-                doctorId={doctorId}
-                onDoctorChange={setDoctorId}
-                productId={productId}
-                onProductChange={setProductId}
-              />
-              <div className="space-y-2">
-                <Label>Payment</Label>
-                <Select
-                  value={dueFilter}
-                  onValueChange={(v) => setDueFilter(v as typeof dueFilter)}
-                >
-                  <SelectTrigger className="w-full sm:w-[150px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="due">Balance due</SelectItem>
-                    <SelectItem value="paid">Fully paid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
-                <Label>Search</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Name / Phone / Bill / Doctor / Test"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-            </div>
+            <WorklistFilterBar
+              dateRange={dateRange}
+              onDateRange={setDateRange}
+              search={search}
+              onSearch={setSearch}
+              doctorId={doctorId}
+              onDoctor={setDoctorId}
+              productId={productId}
+              onProduct={setProductId}
+              payment={dueFilter}
+              onPayment={setDueFilter}
+            />
           </CardContent>
         </Card>
 

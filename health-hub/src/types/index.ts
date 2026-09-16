@@ -863,7 +863,7 @@ export interface PatientEditPayload {
 // ============================================
 // PAYOUT TYPES
 // ============================================
-export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "DIAGNOSTIC_CENTER" | "LAB";
+export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "PARTNER";
 // Categories are centre-defined (BillableProduct.payoutCategory), no fixed enum.
 export type PayoutCategory = string;
 export type PayoutDirection = "INBOUND" | "OUTBOUND";
@@ -1095,37 +1095,61 @@ export interface PayoutStatement {
 }
 
 // ============================================
-// OUTSIDE LABS (vendor master + per-product rules)
+// PARTNERS (outside labs & referring centres — one master, both directions)
 // ============================================
-export interface ExternalLabProductRule {
+export type PartnerArrangementKind =
+  | "INBOUND_BILLED_HERE"
+  | "INBOUND_BILLED_THERE"
+  | "OUTBOUND_VENDOR";
+
+/** A rate always expresses OUR SHARE — what we keep, never what they take. */
+export type PartnerRateBasis = "PCT_OF_OUR_PRICE" | "PCT_OF_PARTNER_BILLED" | "FLAT";
+
+export type PartnerDoctorCommissionMode = "NONE" | "OUR_SHARE" | "GROSS";
+
+export interface PartnerRule {
   id: string;
-  externalLabId: string;
-  productId: string;
-  rateType: ReferralPayoutType;
+  branchId: string | null;
+  productId?: string;
+  category?: string;
+  rateBasis: PartnerRateBasis;
   ratePercent: number | null;
   rateAmountInPaise: number | null;
-  reducedReferralCommissionType: ReferralPayoutType | null;
-  reducedReferralCommissionPercent: number | null;
-  reducedReferralCommissionAmountInPaise: number | null;
+  doctorCommissionMode: PartnerDoctorCommissionMode | null;
   isActive: boolean;
   product?: { id: string; name: string; code: string };
 }
 
-export interface ExternalLab {
+export interface PartnerArrangement {
   id: string;
-  labNumber: string;
+  kind: PartnerArrangementKind;
+  isActive: boolean;
+  /** True when the patient's money crosses OUR counter under this deal. */
+  weCollect: boolean;
+  rateBasis: PartnerRateBasis;
+  ratePercent: number | null;
+  rateAmountInPaise: number | null;
+  doctorCommissionMode: PartnerDoctorCommissionMode;
+  productRules: PartnerRule[];
+  categoryRules: PartnerRule[];
+}
+
+export interface Partner {
+  id: string;
+  partnerNumber: string;
   name: string;
   contactPerson: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
-  rateType: ReferralPayoutType;
-  ratePercent: number;
-  rateAmountInPaise: number | null;
+  /** OFF closes the bill WhatsApp, the bill QR link, and greys counter print. */
+  sendBill: boolean;
+  sendReport: boolean;
   isActive: boolean;
-  productRules: ExternalLabProductRule[];
-  _count?: { testOrders: number; payoutLedger: number };
+  arrangements: PartnerArrangement[];
+  _count?: { visits: number; testOrders: number; payoutLedger: number };
 }
+
 
 // ============================================
 // SHARED BILL RECEIPT TYPE (For unified print)

@@ -19,8 +19,7 @@ import { formatPaymentModes } from '@/lib/paymentDisplay';
 import { cn } from '@/lib/utils';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
-import { DoctorTestFilter, ANY } from '@/components/worklist/DoctorTestFilter';
+import { WorklistFilterBar, ANY } from '@/components/worklist/WorklistFilterBar';
 import {
   type DateRangeState,
   makeDateRange,
@@ -317,31 +316,16 @@ const DiagnosticsFinalizedReports = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <DateRangeFilter
-                value={dateRange}
-                onChange={setDateRange}
-                triggerClassName="w-full sm:w-[180px]"
-              />
-              <DoctorTestFilter
-                doctorId={doctorId}
-                onDoctorChange={setDoctorId}
-                productId={productId}
-                onProductChange={setProductId}
-              />
-              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
-                <Label>Search</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Name / Phone / Bill / Doctor / Test"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-            </div>
+            <WorklistFilterBar
+              dateRange={dateRange}
+              onDateRange={setDateRange}
+              search={search}
+              onSearch={setSearch}
+              doctorId={doctorId}
+              onDoctor={setDoctorId}
+              productId={productId}
+              onProduct={setProductId}
+            />
           </CardContent>
         </Card>
 

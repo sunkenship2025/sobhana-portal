@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Archive, FlaskConical, Plus, Pencil, X } from "lucide-react";
+import { FlaskConical, Plus, Pencil, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -42,7 +42,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { OwnerPageHeader, SectionCard, EmptyState, FullPageSkeleton, TOKENS } from "./_shared/ownerUi";
 import { formatRupees } from "@/lib/payoutFormatters";
-import type { ExternalLab, ReferralPayoutType } from "@/types";
+import type {
+  Partner,
+  PartnerArrangementKind,
+  PartnerDoctorCommissionMode,
+  PartnerRateBasis,
+} from "@/types";
 
 interface ProductLite {
   id: string;
@@ -50,16 +55,55 @@ interface ProductLite {
   code: string;
 }
 
-interface OverrideRow {
+/** One row of a partner's rate card. */
+interface RuleRow {
   productId: string;
-  rateType: ReferralPayoutType;
+  rateBasis: PartnerRateBasis;
   ratePercent: string;
   rateAmount: string;
-  reduceDoctor: boolean;
-  reducedType: ReferralPayoutType;
-  reducedPercent: string;
-  reducedAmount: string;
 }
+
+interface ArrangementForm {
+  enabled: boolean;
+  rateBasis: PartnerRateBasis;
+  ratePercent: string;
+  rateAmount: string;
+  doctorCommissionMode: PartnerDoctorCommissionMode;
+  rules: RuleRow[];
+}
+
+const KINDS: { kind: PartnerArrangementKind; label: string; hint: string }[] = [
+  {
+    kind: "INBOUND_BILLED_THERE",
+    label: "They send patients · they bill",
+    hint: "They collect from the patient and owe us our share.",
+  },
+  {
+    kind: "INBOUND_BILLED_HERE",
+    label: "They send patients · we bill",
+    hint: "We collect at our counter and owe them their cut.",
+  },
+  {
+    kind: "OUTBOUND_VENDOR",
+    label: "We send work to them",
+    hint: "We collect at our counter and owe them a vendor rate.",
+  },
+];
+
+const DOCTOR_MODES: { value: PartnerDoctorCommissionMode; label: string }[] = [
+  { value: "OUR_SHARE", label: "Off our share" },
+  { value: "NONE", label: "No doctor commission" },
+  { value: "GROSS", label: "Off the full price" },
+];
+
+const emptyArrangement = (): ArrangementForm => ({
+  enabled: false,
+  rateBasis: "PCT_OF_OUR_PRICE",
+  ratePercent: "100",
+  rateAmount: "0",
+  doctorCommissionMode: "OUR_SHARE",
+  rules: [],
+});
 
 const EMPTY_FORM = {
   name: "",
@@ -67,16 +111,30 @@ const EMPTY_FORM = {
   phone: "",
   email: "",
   address: "",
-  rateType: "PERCENTAGE" as ReferralPayoutType,
-  ratePercent: "0",
-  rateAmount: "0",
-  overrides: [] as OverrideRow[],
+  sendBill: false,
+  sendReport: true,
+  arrangements: Object.fromEntries(
+    KINDS.map((k) => [k.kind, emptyArrangement()]),
+  ) as Record<PartnerArrangementKind, ArrangementForm>,
 };
 
-function rateLabel(lab: ExternalLab): string {
-  return lab.rateType === "FIXED_AMOUNT"
-    ? `${formatRupees(lab.rateAmountInPaise ?? 0)} / test`
-    : `${lab.ratePercent}% of price`;
+/** A rate always reads as what WE keep, so the label says so explicitly. */
+function rateLabel(basis: PartnerRateBasis, percent: number | null, amountInPaise: number | null) {
+  if (basis === "FLAT") return `${formatRupees(amountInPaise ?? 0)} / test to us`;
+  const of = basis === "PCT_OF_PARTNER_BILLED" ? "their bill" : "our price";
+  return `${percent ?? 0}% of ${of} to us`;
+}
+
+function summarise(partner: Partner): string {
+  const active = partner.arrangements.filter((a) => a.isActive);
+  if (!active.length) return "—";
+  return active
+    .map((a) => {
+      const k = KINDS.find((x) => x.kind === a.kind);
+      const rules = a.productRules?.length ? ` · ${a.productRules.length} test rate(s)` : "";
+      return `${k?.label ?? a.kind}: ${rateLabel(a.rateBasis, a.ratePercent, a.rateAmountInPaise)}${rules}`;
+    })
+    .join("  ·  ");
 }
 
 export default function OutsideLabs() {
@@ -87,13 +145,12 @@ export default function OutsideLabs() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
 
-  const { data: labs = [], isLoading } = useApiQuery<ExternalLab[]>({
+  const { data: partners = [], isLoading } = useApiQuery<Partner[]>({
     branchScoped: true,
     // "all" keeps this off the active-only key New Visit reads — same key +
     // different URL meant whichever page loaded first served the other one.
     queryKey: [...qk.externalLabs(branchId), "all"],
-    queryFn: () =>
-      branchRequest<ExternalLab[]>("/external-labs?includeInactive=true", branchId!),
+    queryFn: () => branchRequest<Partner[]>("/partners?includeInactive=true", branchId!),
   });
 
   const { data: products = [] } = useApiQuery<ProductLite[]>({
@@ -105,131 +162,141 @@ export default function OutsideLabs() {
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
 
   const saveMutation = useApiMutation<
-    ExternalLab,
+    Partner,
     { editingId: string | null; payload: Record<string, unknown> }
   >({
     mutationFn: ({ editingId, payload }) =>
-      branchRequest<ExternalLab>(
-        editingId ? `/external-labs/${editingId}` : "/external-labs",
-        branchId!,
-        { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) }
-      ),
-    invalidate: [qk.externalLabs(branchId)],
-    onSuccess: (_d, { editingId }) => {
-      toast.success(editingId ? "Outside lab updated" : "Outside lab created");
-      resetForm();
-    },
-    onError: (err) => toast.error(err.message || "Failed to save outside lab"),
-  });
-
-  const toggleMutation = useApiMutation<ExternalLab, ExternalLab>({
-    mutationFn: (lab) =>
-      branchRequest<ExternalLab>(`/external-labs/${lab.id}`, branchId!, {
-        method: "PATCH",
-        body: JSON.stringify({ isActive: !lab.isActive }),
+      branchRequest<Partner>(editingId ? `/partners/${editingId}` : "/partners", branchId!, {
+        method: editingId ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
       }),
     invalidate: [qk.externalLabs(branchId)],
-    onSuccess: (_d, lab) => toast.success(`Lab ${!lab.isActive ? "activated" : "deactivated"}`),
+    onSuccess: (_d, { editingId }) => {
+      toast.success(editingId ? "Partner updated" : "Partner created");
+      resetForm();
+    },
+    onError: (err) => toast.error(err.message || "Failed to save partner"),
+  });
+
+  const toggleMutation = useApiMutation<Partner, Partner>({
+    mutationFn: (partner) =>
+      branchRequest<Partner>(`/partners/${partner.id}`, branchId!, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !partner.isActive }),
+      }),
+    invalidate: [qk.externalLabs(branchId)],
+    onSuccess: (_d, p) => toast.success(`Partner ${!p.isActive ? "activated" : "deactivated"}`),
     onError: (err) => toast.error(err.message || "Failed to update status"),
   });
 
   const deleteMutation = useApiMutation<void, string>({
-    mutationFn: (id) =>
-      branchRequest<void>(`/external-labs/${id}`, branchId!, { method: "DELETE" }),
+    mutationFn: (id) => branchRequest<void>(`/partners/${id}`, branchId!, { method: "DELETE" }),
     invalidate: [qk.externalLabs(branchId)],
-    onSuccess: () => toast.success("Outside lab deactivated"),
-    onError: (err) => toast.error(err.message || "Failed to delete lab"),
+    onSuccess: () => toast.success("Partner deactivated"),
+    onError: (err) => toast.error(err.message || "Failed to delete partner"),
     onSettled: () => setDeleteId(null),
   });
 
   const resetForm = () => {
-    setForm({ ...EMPTY_FORM, overrides: [] });
+    setForm({
+      ...EMPTY_FORM,
+      arrangements: Object.fromEntries(
+        KINDS.map((k) => [k.kind, emptyArrangement()]),
+      ) as Record<PartnerArrangementKind, ArrangementForm>,
+    });
     setDialogOpen(false);
     setEditingId(null);
   };
 
   const handleAdd = () => {
-    setForm({ ...EMPTY_FORM, overrides: [] });
-    setEditingId(null);
+    resetForm();
     setDialogOpen(true);
   };
 
-  const handleEdit = (lab: ExternalLab) => {
+  const handleEdit = (partner: Partner) => {
+    const arrangements = Object.fromEntries(
+      KINDS.map((k) => {
+        const a = partner.arrangements.find((x) => x.kind === k.kind);
+        if (!a) return [k.kind, emptyArrangement()];
+        return [
+          k.kind,
+          {
+            enabled: a.isActive,
+            rateBasis: a.rateBasis,
+            ratePercent: String(a.ratePercent ?? 0),
+            rateAmount: String((a.rateAmountInPaise ?? 0) / 100),
+            doctorCommissionMode: a.doctorCommissionMode,
+            rules: (a.productRules ?? []).map((r) => ({
+              productId: r.productId!,
+              rateBasis: r.rateBasis,
+              ratePercent: String(r.ratePercent ?? 0),
+              rateAmount: String((r.rateAmountInPaise ?? 0) / 100),
+            })),
+          } as ArrangementForm,
+        ];
+      }),
+    ) as Record<PartnerArrangementKind, ArrangementForm>;
+
     setForm({
-      name: lab.name,
-      contactPerson: lab.contactPerson || "",
-      phone: lab.phone || "",
-      email: lab.email || "",
-      address: lab.address || "",
-      rateType: lab.rateType,
-      ratePercent: String(lab.ratePercent ?? 0),
-      rateAmount: String((lab.rateAmountInPaise ?? 0) / 100),
-      overrides: (lab.productRules ?? []).map((r) => ({
-        productId: r.productId,
-        rateType: r.rateType,
-        ratePercent: String(r.ratePercent ?? 0),
-        rateAmount: String((r.rateAmountInPaise ?? 0) / 100),
-        reduceDoctor: r.reducedReferralCommissionType != null,
-        reducedType: r.reducedReferralCommissionType ?? "PERCENTAGE",
-        reducedPercent: String(r.reducedReferralCommissionPercent ?? 0),
-        reducedAmount: String((r.reducedReferralCommissionAmountInPaise ?? 0) / 100),
-      })),
+      name: partner.name,
+      contactPerson: partner.contactPerson || "",
+      phone: partner.phone || "",
+      email: partner.email || "",
+      address: partner.address || "",
+      sendBill: partner.sendBill,
+      sendReport: partner.sendReport,
+      arrangements,
     });
-    setEditingId(lab.id);
+    setEditingId(partner.id);
     setDialogOpen(true);
   };
 
-  const setOverride = (idx: number, patch: Partial<OverrideRow>) =>
+  const patchArrangement = (kind: PartnerArrangementKind, patch: Partial<ArrangementForm>) =>
     setForm((f) => ({
       ...f,
-      overrides: f.overrides.map((o, i) => (i === idx ? { ...o, ...patch } : o)),
+      arrangements: { ...f.arrangements, [kind]: { ...f.arrangements[kind], ...patch } },
     }));
 
-  const handleSubmit = () => {
+  const handleSave = () => {
     if (!form.name.trim()) {
-      toast.error("Lab name is required");
+      toast.error("Partner name is required");
       return;
     }
-    const payload: Record<string, unknown> = {
-      name: form.name.trim(),
-      contactPerson: form.contactPerson.trim() || null,
-      phone: form.phone.trim() || null,
-      email: form.email.trim() || null,
-      address: form.address.trim() || null,
-      rateType: form.rateType,
-    };
-    if (form.rateType === "FIXED_AMOUNT") {
-      const amt = parseFloat(form.rateAmount);
-      if (isNaN(amt) || amt < 0) return toast.error("Fixed rate must be a non-negative number");
-      payload.rateAmount = amt;
-    } else {
-      const pct = parseFloat(form.ratePercent);
-      if (isNaN(pct) || pct < 0 || pct > 100)
-        return toast.error("Rate percent must be between 0 and 100");
-      payload.ratePercent = pct;
+    const arrangements = KINDS.filter((k) => form.arrangements[k.kind].enabled).map((k) => {
+      const a = form.arrangements[k.kind];
+      return {
+        kind: k.kind,
+        rateBasis: a.rateBasis,
+        ratePercent: Number(a.ratePercent || 0),
+        rateAmount: Number(a.rateAmount || 0),
+        doctorCommissionMode: a.doctorCommissionMode,
+        productRules: a.rules
+          .filter((r) => r.productId)
+          .map((r) => ({
+            productId: r.productId,
+            rateBasis: r.rateBasis,
+            ratePercent: Number(r.ratePercent || 0),
+            rateAmount: Number(r.rateAmount || 0),
+          })),
+      };
+    });
+    if (!arrangements.length) {
+      toast.error("Turn on at least one arrangement — that is what a partner IS.");
+      return;
     }
-
-    // Per-product overrides (validate each has a product)
-    const seen = new Set<string>();
-    const productRules: Record<string, unknown>[] = [];
-    for (const o of form.overrides) {
-      if (!o.productId) return toast.error("Each override must pick a test/product");
-      if (seen.has(o.productId)) return toast.error("Duplicate product in overrides");
-      seen.add(o.productId);
-      const rule: Record<string, unknown> = { productId: o.productId, rateType: o.rateType };
-      if (o.rateType === "FIXED_AMOUNT") rule.rateAmount = parseFloat(o.rateAmount) || 0;
-      else rule.ratePercent = parseFloat(o.ratePercent) || 0;
-      if (o.reduceDoctor) {
-        rule.reducedReferralCommissionType = o.reducedType;
-        if (o.reducedType === "FIXED_AMOUNT")
-          rule.reducedReferralCommissionAmount = parseFloat(o.reducedAmount) || 0;
-        else rule.reducedReferralCommissionPercent = parseFloat(o.reducedPercent) || 0;
-      }
-      productRules.push(rule);
-    }
-    payload.productRules = productRules;
-
-    saveMutation.mutate({ editingId, payload });
+    saveMutation.mutate({
+      editingId,
+      payload: {
+        name: form.name,
+        contactPerson: form.contactPerson,
+        phone: form.phone,
+        email: form.email,
+        address: form.address,
+        sendBill: form.sendBill,
+        sendReport: form.sendReport,
+        arrangements,
+      },
+    });
   };
 
   return (
@@ -237,17 +304,17 @@ export default function OutsideLabs() {
       <div style={{ maxWidth: 1100 }}>
         <OwnerPageHeader
           title="Payouts · Outside Labs & rates"
-          subtitle="Vendor labs we send tests to. Set the rate we pay each; these drive the lab payables."
+          subtitle="Labs and centres we work with, both directions. A rate here always means what WE keep."
           rightSlot={
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate("/owner/payouts")}
                 style={{ color: TOKENS.info, fontSize: 13 }}
               >
-                View lab payables →
+                View partner settlements →
               </button>
               <Button onClick={handleAdd}>
-                <Plus className="mr-2 h-4 w-4" /> Add lab
+                <Plus className="mr-2 h-4 w-4" /> Add partner
               </Button>
             </div>
           }
@@ -255,323 +322,334 @@ export default function OutsideLabs() {
 
         {isLoading ? (
           <FullPageSkeleton rows={4} />
-        ) : labs.length === 0 ? (
+        ) : partners.length === 0 ? (
           <SectionCard>
             <EmptyState
               icon={FlaskConical}
-              label="No outside labs yet"
-              hint="Vendor labs you send tests to. The rate you set here becomes a lab payable each time a biller outsources a test at billing."
+              label="No partners yet"
+              hint="A lab or hospital you exchange work with. Set what you keep per test, and it is frozen onto every order billed from then on."
             />
             <div className="mt-3 flex justify-center">
               <Button onClick={handleAdd}>
-                <Plus className="mr-2 h-4 w-4" /> Add your first lab
+                <Plus className="mr-2 h-4 w-4" /> Add your first partner
               </Button>
             </div>
           </SectionCard>
         ) : (
           <SectionCard padding={0}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Lab #</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Default rate</TableHead>
-                <TableHead>Overrides</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead className="text-center">Active</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {labs.map((lab) => (
-                <TableRow key={lab.id} className={!lab.isActive ? "opacity-50" : ""}>
-                  <TableCell className="font-mono">{lab.labNumber}</TableCell>
-                  <TableCell className="font-medium">{lab.name}</TableCell>
-                  <TableCell>{rateLabel(lab)}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {lab.productRules?.length ? `${lab.productRules.length} test(s)` : "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {lab.contactPerson || lab.phone || "---"}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Switch checked={lab.isActive} onCheckedChange={() => toggleMutation.mutate(lab)} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => handleEdit(lab)} aria-label="Edit lab">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Partner #</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Arrangements &amp; rates</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead className="text-center">Bill</TableHead>
+                  <TableHead className="text-center">Report</TableHead>
+                  <TableHead className="text-center">Active</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {partners.map((partner) => (
+                  <TableRow key={partner.id} className={!partner.isActive ? "opacity-50" : ""}>
+                    <TableCell className="font-mono">{partner.partnerNumber}</TableCell>
+                    <TableCell className="font-medium">{partner.name}</TableCell>
+                    <TableCell className="text-muted-foreground" style={{ fontSize: 12 }}>
+                      {summarise(partner)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {partner.contactPerson || partner.phone || "---"}
+                    </TableCell>
+                    <TableCell className="text-center text-muted-foreground">
+                      {partner.sendBill ? "Sent" : "Held"}
+                    </TableCell>
+                    <TableCell className="text-center text-muted-foreground">
+                      {partner.sendReport ? "Sent" : "Held"}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch
+                        checked={partner.isActive}
+                        onCheckedChange={() => toggleMutation.mutate(partner)}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleEdit(partner)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      {lab.isActive && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setDeleteId(lab.id)}
-                          aria-label="Deactivate lab"
-                          title="Deactivate lab"
-                        >
-                          <Archive className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteId(partner.id)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </SectionCard>
         )}
       </div>
 
-      {/* Create / Edit */}
-      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) resetForm(); }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <Dialog open={dialogOpen} onOpenChange={(o) => (o ? setDialogOpen(true) : resetForm())}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[760px]">
           <DialogHeader>
-            <DialogTitle>{editingId ? "Edit outside lab" : "Add outside lab"}</DialogTitle>
+            <DialogTitle>{editingId ? "Edit partner" : "Add partner"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="lab-name">Name *</Label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label>Name</Label>
               <Input
-                id="lab-name"
-                placeholder="e.g. Thyrocare (Mumbai)"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Lalitha Hospital"
               />
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="lab-contact">Contact person</Label>
-                <Input
-                  id="lab-contact"
-                  value={form.contactPerson}
-                  onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lab-phone">Phone</Label>
-                <Input
-                  id="lab-phone"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  maxLength={10}
-                />
-              </div>
+            <div>
+              <Label>Contact person</Label>
+              <Input
+                value={form.contactPerson}
+                onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+              />
             </div>
-
-            <div className="space-y-2">
-              <Label>Default rate (what we pay the lab)</Label>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={form.rateType}
-                  onValueChange={(v) => setForm({ ...form, rateType: v as ReferralPayoutType })}
-                >
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PERCENTAGE">Percentage</SelectItem>
-                    <SelectItem value="FIXED_AMOUNT">Fixed amount</SelectItem>
-                  </SelectContent>
-                </Select>
-                {form.rateType === "FIXED_AMOUNT" ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-muted-foreground">₹</span>
-                    <Input
-                      type="number"
-                      className="w-28"
-                      min={0}
-                      value={form.rateAmount}
-                      onChange={(e) => setForm({ ...form, rateAmount: e.target.value })}
-                    />
-                    <span className="text-sm text-muted-foreground">/ test</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      className="w-24"
-                      min={0}
-                      max={100}
-                      value={form.ratePercent}
-                      onChange={(e) => setForm({ ...form, ratePercent: e.target.value })}
-                    />
-                    <span className="text-sm text-muted-foreground">% of price</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Per-product overrides */}
-            <div className="space-y-3 rounded-lg border p-3">
-              <div className="flex items-center justify-between">
-                <Label>Per-test overrides</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      overrides: [
-                        ...f.overrides,
-                        {
-                          productId: "",
-                          rateType: "PERCENTAGE",
-                          ratePercent: "0",
-                          rateAmount: "0",
-                          reduceDoctor: false,
-                          reducedType: "PERCENTAGE",
-                          reducedPercent: "0",
-                          reducedAmount: "0",
-                        },
-                      ],
-                    }))
-                  }
-                >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Add override
-                </Button>
-              </div>
-              {form.overrides.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Optional. Each lab uses its default rate unless a test is overridden here. Set a
-                  reduced referring-doctor commission per test if needed.
-                </p>
-              ) : (
-                form.overrides.map((o, idx) => (
-                  <div key={idx} className="space-y-2 rounded-md border bg-muted/20 p-2">
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="h-9 flex-1 rounded-md border bg-white px-2 text-sm"
-                        value={o.productId}
-                        onChange={(e) => setOverride(idx, { productId: e.target.value })}
-                      >
-                        <option value="">Select test / product…</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() =>
-                          setForm((f) => ({ ...f, overrides: f.overrides.filter((_, i) => i !== idx) }))
-                        }
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Lab rate</span>
-                      <select
-                        className="h-8 rounded-md border bg-white px-2"
-                        value={o.rateType}
-                        onChange={(e) => setOverride(idx, { rateType: e.target.value as ReferralPayoutType })}
-                      >
-                        <option value="PERCENTAGE">%</option>
-                        <option value="FIXED_AMOUNT">Flat ₹</option>
-                      </select>
-                      {o.rateType === "FIXED_AMOUNT" ? (
-                        <Input
-                          type="number"
-                          className="h-8 w-24"
-                          min={0}
-                          value={o.rateAmount}
-                          onChange={(e) => setOverride(idx, { rateAmount: e.target.value })}
-                        />
-                      ) : (
-                        <Input
-                          type="number"
-                          className="h-8 w-20"
-                          min={0}
-                          max={100}
-                          value={o.ratePercent}
-                          onChange={(e) => setOverride(idx, { ratePercent: e.target.value })}
-                        />
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <label className="flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={o.reduceDoctor}
-                          onChange={(e) => setOverride(idx, { reduceDoctor: e.target.checked })}
-                        />
-                        <span className="text-muted-foreground">Reduce doctor commission</span>
-                      </label>
-                      {o.reduceDoctor && (
-                        <>
-                          <select
-                            className="h-8 rounded-md border bg-white px-2"
-                            value={o.reducedType}
-                            onChange={(e) =>
-                              setOverride(idx, { reducedType: e.target.value as ReferralPayoutType })
-                            }
-                          >
-                            <option value="PERCENTAGE">%</option>
-                            <option value="FIXED_AMOUNT">Flat ₹</option>
-                          </select>
-                          {o.reducedType === "FIXED_AMOUNT" ? (
-                            <Input
-                              type="number"
-                              className="h-8 w-24"
-                              min={0}
-                              value={o.reducedAmount}
-                              onChange={(e) => setOverride(idx, { reducedAmount: e.target.value })}
-                            />
-                          ) : (
-                            <Input
-                              type="number"
-                              className="h-8 w-20"
-                              min={0}
-                              max={100}
-                              value={o.reducedPercent}
-                              onChange={(e) => setOverride(idx, { reducedPercent: e.target.value })}
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {o.productId && (
-                      <p className="text-xs text-muted-foreground">{productName(o.productId)}</p>
-                    )}
-                  </div>
-                ))
-              )}
+            <div>
+              <Label>Phone</Label>
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
             </div>
           </div>
+
+          <div className="mt-2 flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={form.sendBill}
+                onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
+              />
+              <Label className="font-normal">Send our bill to the patient</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={form.sendReport}
+                onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
+              />
+              <Label className="font-normal">Send the report to the patient</Label>
+            </div>
+          </div>
+          <p className="text-muted-foreground" style={{ fontSize: 12 }}>
+            With the bill held, the bill WhatsApp and its link are closed and counter print is
+            greyed — an owner can still print with a reason, and it is logged.
+          </p>
+
+          {KINDS.map((k) => {
+            const a = form.arrangements[k.kind];
+            return (
+              <div
+                key={k.kind}
+                className="mt-3 rounded-md p-3"
+                style={{ border: `0.5px solid ${TOKENS.border}` }}
+              >
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={a.enabled}
+                    onCheckedChange={(v) => patchArrangement(k.kind, { enabled: v })}
+                  />
+                  <Label className="font-medium">{k.label}</Label>
+                </div>
+                <p className="mt-1 text-muted-foreground" style={{ fontSize: 12 }}>
+                  {k.hint}
+                </p>
+
+                {a.enabled && (
+                  <>
+                    <div className="mt-3 grid grid-cols-3 gap-3">
+                      <div>
+                        <Label>We keep</Label>
+                        <Select
+                          value={a.rateBasis}
+                          onValueChange={(v) =>
+                            patchArrangement(k.kind, { rateBasis: v as PartnerRateBasis })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PCT_OF_OUR_PRICE">% of our price</SelectItem>
+                            <SelectItem value="PCT_OF_PARTNER_BILLED">% of their bill</SelectItem>
+                            <SelectItem value="FLAT">A flat amount per test</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>{a.rateBasis === "FLAT" ? "Amount (₹)" : "Percent"}</Label>
+                        {a.rateBasis === "FLAT" ? (
+                          <Input
+                            value={a.rateAmount}
+                            onChange={(e) =>
+                              patchArrangement(k.kind, { rateAmount: e.target.value })
+                            }
+                          />
+                        ) : (
+                          <Input
+                            value={a.ratePercent}
+                            onChange={(e) =>
+                              patchArrangement(k.kind, { ratePercent: e.target.value })
+                            }
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <Label>Referring doctor paid</Label>
+                        <Select
+                          value={a.doctorCommissionMode}
+                          onValueChange={(v) =>
+                            patchArrangement(k.kind, {
+                              doctorCommissionMode: v as PartnerDoctorCommissionMode,
+                            })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DOCTOR_MODES.map((m) => (
+                              <SelectItem key={m.value} value={m.value}>
+                                {m.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between">
+                      <Label>Per-test rates</Label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          patchArrangement(k.kind, {
+                            rules: [
+                              ...a.rules,
+                              {
+                                productId: "",
+                                rateBasis: "FLAT",
+                                ratePercent: "0",
+                                rateAmount: "0",
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> Add test
+                      </Button>
+                    </div>
+                    <p className="text-muted-foreground" style={{ fontSize: 12 }}>
+                      A named test beats the rate above. Most lab cards are flat per test — a CBP at
+                      ₹60 and a culture at ₹100 are not the same percentage.
+                    </p>
+
+                    {a.rules.map((rule, i) => (
+                      <div key={i} className="mt-2 grid grid-cols-12 items-end gap-2">
+                        <div className="col-span-5">
+                          <Select
+                            value={rule.productId}
+                            onValueChange={(v) => {
+                              const rules = [...a.rules];
+                              rules[i] = { ...rules[i], productId: v };
+                              patchArrangement(k.kind, { rules });
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select test" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {products.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-3">
+                          <Select
+                            value={rule.rateBasis}
+                            onValueChange={(v) => {
+                              const rules = [...a.rules];
+                              rules[i] = { ...rules[i], rateBasis: v as PartnerRateBasis };
+                              patchArrangement(k.kind, { rules });
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="FLAT">Flat ₹</SelectItem>
+                              <SelectItem value="PCT_OF_OUR_PRICE">% our price</SelectItem>
+                              <SelectItem value="PCT_OF_PARTNER_BILLED">% their bill</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-3">
+                          <Input
+                            value={rule.rateBasis === "FLAT" ? rule.rateAmount : rule.ratePercent}
+                            onChange={(e) => {
+                              const rules = [...a.rules];
+                              rules[i] =
+                                rule.rateBasis === "FLAT"
+                                  ? { ...rules[i], rateAmount: e.target.value }
+                                  : { ...rules[i], ratePercent: e.target.value };
+                              patchArrangement(k.kind, { rules });
+                            }}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              patchArrangement(k.kind, {
+                                rules: a.rules.filter((_, idx) => idx !== i),
+                              })
+                            }
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            );
+          })}
+
           <DialogFooter>
-            <Button variant="outline" onClick={resetForm} disabled={saveMutation.isPending}>
+            <Button variant="outline" onClick={resetForm}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? "Saving…" : editingId ? "Update" : "Create"}
+            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+              {editingId ? "Save changes" : "Create partner"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete */}
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Deactivate this outside lab?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate this partner?</AlertDialogTitle>
             <AlertDialogDescription>
-              It will no longer appear in active lists, but existing payouts and order history are
-              preserved.
+              Bills already raised keep the share frozen on them — nothing recorded changes. The
+              partner simply stops being selectable on new visits.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteId && deleteMutation.mutate(deleteId)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deactivating…" : "Deactivate"}
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteId && deleteMutation.mutate(deleteId)}>
+              Deactivate
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

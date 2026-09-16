@@ -1063,7 +1063,7 @@ const DiagnosticsNewVisit = () => {
         body: JSON.stringify({
           patientId: patient.id,
           referralDoctorId: selectedDoctorId || null,
-          diagnosticCenterId: selectedCenterId || null,
+          partnerId: selectedCenterId || null,
           referralOverrides: selectedDoctorId
             ? Object.fromEntries(
                 selectedProducts
@@ -1087,7 +1087,7 @@ const DiagnosticsNewVisit = () => {
                   .map((item) => [item.productId, item.payload]),
               )
             : undefined,
-          diagnosticCenterOverrides: selectedCenterId
+          partnerOverrides: selectedCenterId
             ? Object.fromEntries(
                 selectedProducts
                   .map((productId) => {
