@@ -10,6 +10,10 @@
 export interface DaySheetRow {
   billNumber: string;
   billedAtIso: string;
+  /** When this row's money moved: bill time, or collection time for a due. */
+  entryAtIso: string;
+  /** ISO bill date when this row is a due collected against an earlier bill. */
+  dueFrom: string | null;
   patientName: string;
   patientTitle: string | null;
   branchCode: string;

@@ -74,16 +74,17 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
       const dueClass = r.dueInPaise > 0 ? ' class="amt due"' : ' class="amt"';
       return `<tr>
         <td class="num">${i + 1}</td>
-        <td>${esc(istDateTime(r.billedAtIso))}</td>
+        <td>${esc(istDateTime(r.entryAtIso))}</td>
         <td>${esc(r.billNumber)}</td>
+        <td${r.dueFrom ? ' class="carried"' : ''}>${r.dueFrom ? esc(istDate(r.dueFrom)) : '—'}</td>
         <td>${esc(patient)}</td>
         <td>${esc(r.referredBy ?? '—')}</td>
         <td>${esc(r.branchCode)}</td>
         <td class="tests">${esc(r.tests)}</td>
-        <td class="amt">${rupees(r.grossInPaise)}</td>
+        <td class="amt">${r.dueFrom ? '—' : rupees(r.grossInPaise)}</td>
         <td class="amt">${r.discountInPaise ? rupees(r.discountInPaise) : '—'}</td>
         <td class="amt">${r.reversedInPaise ? rupees(r.reversedInPaise) : '—'}</td>
-        <td class="amt">${rupees(r.netInPaise)}</td>
+        <td class="amt">${r.dueFrom ? '—' : rupees(r.netInPaise)}</td>
         <td class="amt">${r.cashInPaise ? rupees(r.cashInPaise) : '—'}</td>
         <td class="amt">${r.onlineInPaise ? rupees(r.onlineInPaise) : '—'}</td>
         <td class="amt">${rupees(r.paidInPaise)}</td>
@@ -95,7 +96,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
 
   const t = data.totals;
   const empty = data.rows.length === 0
-    ? '<tr><td colspan="13" class="empty">No bills in this period.</td></tr>'
+    ? '<tr><td colspan="17" class="empty">No bills in this period.</td></tr>'
     : '';
 
   return `<!doctype html>
@@ -115,6 +116,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
   td.amt, th.amt { text-align: right; white-space: nowrap; }
   td.tests { max-width: 260px; }
   td.due { color: #b91c1c; font-weight: 600; }
+  td.carried { font-weight: 600; white-space: nowrap; }
   tfoot td { font-weight: 700; background: #fafafa; }
   .empty { text-align: center; color: #888; padding: 18px; }
   /* Totals repeated above the table: on a long sheet the tfoot is pages away,
@@ -137,7 +139,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
     <div><div class="k">Gross</div><div class="v">${rupees(t.grossInPaise)}</div></div>
     <div><div class="k">Discount</div><div class="v">${rupees(t.discountInPaise)}</div></div>
     <div><div class="k">Reversed</div><div class="v">${rupees(t.reversedInPaise)}</div></div>
-    <div><div class="k">Net</div><div class="v">${rupees(t.netInPaise)}</div></div>
+    <div><div class="k">Net billed</div><div class="v">${rupees(t.netInPaise)}</div></div>
     <div><div class="k">Cash</div><div class="v">${rupees(t.cashInPaise)}</div></div>
     <div><div class="k">Online</div><div class="v">${rupees(t.onlineInPaise)}</div></div>
     <div><div class="k">Collected</div><div class="v">${rupees(t.paidInPaise)}</div></div>
@@ -150,6 +152,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
         <th class="num">#</th>
         <th>Date &amp; time</th>
         <th>Bill No</th>
+        <th>Due from</th>
         <th>Patient</th>
         <th>Referred by</th>
         <th>Branch</th>
@@ -170,7 +173,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="7" class="amt">Total</td>
+        <td colspan="8" class="amt">Total</td>
         <td class="amt">${rupees(t.grossInPaise)}</td>
         <td class="amt">${rupees(t.discountInPaise)}</td>
         <td class="amt">${rupees(t.reversedInPaise)}</td>
