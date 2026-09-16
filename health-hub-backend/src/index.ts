@@ -68,8 +68,7 @@ import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import inboxRoutes from './routes/inbox';
 import departmentRoutes from './routes/departments';
-import diagnosticCenterRoutes from './routes/diagnosticCenters';
-import externalLabRoutes from './routes/externalLabs';
+import partnerRoutes from './routes/partners';
 import signingDoctorRoutes from './routes/signingDoctors';
 import signingRuleRoutes from './routes/signingRules';
 import signingLabInchargeRoutes from './routes/signingLabIncharges';
@@ -407,8 +406,11 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/inbox', inboxRoutes); // Patient Messages inbox (WhatsApp two-way)
 app.use('/api/coupons', couponRoutes);
 app.use('/api/departments', departmentRoutes);
-app.use('/api/diagnostic-centers', diagnosticCenterRoutes);
-app.use('/api/external-labs', externalLabRoutes);
+// One partner master behind three paths: /partners is the real one, and the two
+// old paths stay mounted so existing clients keep working while the UI moves.
+app.use('/api/partners', partnerRoutes);
+app.use('/api/diagnostic-centers', partnerRoutes);
+app.use('/api/external-labs', partnerRoutes);
 app.use('/api/signing-doctors', signingDoctorRoutes);
 app.use('/api/signing-rules', signingRuleRoutes);
 app.use('/api/signing-lab-incharges', signingLabInchargeRoutes);
