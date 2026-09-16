@@ -1055,6 +1055,14 @@ model TestOrder {
   noReportReason   String?
   noReportByUserId String? // User who closed this order as film-only (audit; mirrors Bill.discountedByUserId)
 
+  // Swapped out for another product (Patient 360 → Edit billed tests → Replace).
+  // Set together with cancelledAt so every "live orders" filter drops it, but
+  // kept distinct because a replacement is NOT a cancellation: no charge is
+  // reversed, and the order must stay out of the bill-discount denominator
+  // (its replacement carries that price now). The row and its entered results
+  // survive — a swap used to hard-delete both.
+  replacedAt       DateTime?
+
   // Last reversal of a "no report needed" close (audit trace surfaced in
   // Patient 360 + the owner audit feed). Cleared again if the order is
   // re-waived. A reopened order re-enters the report/entry workflow.

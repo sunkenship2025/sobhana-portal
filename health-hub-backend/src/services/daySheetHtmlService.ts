@@ -82,6 +82,8 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
         <td class="tests">${esc(r.tests)}</td>
         <td class="amt">${rupees(r.grossInPaise)}</td>
         <td class="amt">${r.discountInPaise ? rupees(r.discountInPaise) : '—'}</td>
+        <td class="amt">${r.reversedInPaise ? rupees(r.reversedInPaise) : '—'}</td>
+        <td class="amt">${rupees(r.netInPaise)}</td>
         <td class="amt">${r.cashInPaise ? rupees(r.cashInPaise) : '—'}</td>
         <td class="amt">${r.onlineInPaise ? rupees(r.onlineInPaise) : '—'}</td>
         <td class="amt">${rupees(r.paidInPaise)}</td>
@@ -134,6 +136,8 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
     <div><div class="k">Bills</div><div class="v">${t.count}</div></div>
     <div><div class="k">Gross</div><div class="v">${rupees(t.grossInPaise)}</div></div>
     <div><div class="k">Discount</div><div class="v">${rupees(t.discountInPaise)}</div></div>
+    <div><div class="k">Reversed</div><div class="v">${rupees(t.reversedInPaise)}</div></div>
+    <div><div class="k">Net</div><div class="v">${rupees(t.netInPaise)}</div></div>
     <div><div class="k">Cash</div><div class="v">${rupees(t.cashInPaise)}</div></div>
     <div><div class="k">Online</div><div class="v">${rupees(t.onlineInPaise)}</div></div>
     <div><div class="k">Collected</div><div class="v">${rupees(t.paidInPaise)}</div></div>
@@ -152,6 +156,8 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
         <th>Tests / service</th>
         <th class="amt">Gross</th>
         <th class="amt">Discount</th>
+        <th class="amt">Reversed</th>
+        <th class="amt">Net</th>
         <th class="amt">Cash</th>
         <th class="amt">Online</th>
         <th class="amt">Paid</th>
@@ -167,6 +173,8 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
         <td colspan="7" class="amt">Total</td>
         <td class="amt">${rupees(t.grossInPaise)}</td>
         <td class="amt">${rupees(t.discountInPaise)}</td>
+        <td class="amt">${rupees(t.reversedInPaise)}</td>
+        <td class="amt">${rupees(t.netInPaise)}</td>
         <td class="amt">${rupees(t.cashInPaise)}</td>
         <td class="amt">${rupees(t.onlineInPaise)}</td>
         <td class="amt">${rupees(t.paidInPaise)}</td>
