@@ -136,7 +136,7 @@ router.get(
     try {
       const visitId = await validateBillToken(req.params.token);
       if (!visitId) return res.json({ state: 'invalid' });
-      if (await patientLinkBlock(visitId)) return res.json({ state: 'disabled' });
+      if (await patientLinkBlock(visitId, 'BILL')) return res.json({ state: 'disabled' });
 
       const visit = await prisma.visit.findUnique({
         where: { id: visitId },
@@ -185,7 +185,7 @@ router.get(
 
       // Staff switched this visit's online access off — say where to collect it
       // instead, and never reveal the reason.
-      const blocked = await patientLinkBlock(visitId);
+      const blocked = await patientLinkBlock(visitId, 'BILL');
       if (blocked) {
         res.setHeader('Cache-Control', 'no-store');
         return res.status(403).send(collectAtCentrePage(blocked.branchName));

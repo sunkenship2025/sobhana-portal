@@ -77,7 +77,7 @@ router.get(
 
       // Online access switched off for this visit — serve the branded "collect at
       // the centre" card instead of the PDF (this link opens in a browser).
-      const blocked = await patientLinkBlock(visitId);
+      const blocked = await patientLinkBlock(visitId, 'BILL');
       if (blocked) {
         res.setHeader('Content-Type', 'text/html');
         res.setHeader('Cache-Control', 'no-store');

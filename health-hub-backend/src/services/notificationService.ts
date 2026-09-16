@@ -52,6 +52,20 @@ type DiagnosticNotificationInfo = Awaited<ReturnType<typeof getDiagnosticVisitNo
 // HELPERS
 // ============================================================================
 
+/**
+ * A partner that bills its own patients does not want our bill landing on their
+ * phone as well; one that only sent us a sample holds the report too. Checked
+ * beside the visit-level switch so both reasons to stay quiet live together.
+ */
+function partnerHoldsDoor(
+  visit: { partnerVisit?: { partner: { sendBill: boolean; sendReport: boolean } } | null },
+  door: 'BILL' | 'REPORT',
+): boolean {
+  const partner = visit.partnerVisit?.partner;
+  if (!partner) return false;
+  return door === 'BILL' ? !partner.sendBill : !partner.sendReport;
+}
+
 async function getPatientNotificationInfo(visitId: string) {
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
@@ -65,6 +79,9 @@ async function getPatientNotificationInfo(visitId: string) {
         },
       },
       bill: true,
+      // The partner's door toggles ride along so a send can be suppressed at
+      // the same place the visit-level kill switch is checked.
+      partnerVisit: { select: { partner: { select: { sendBill: true, sendReport: true } } } },
     },
   });
 
@@ -95,6 +112,7 @@ async function getDiagnosticVisitNotificationInfo(visitId: string) {
         },
       },
       bill: true,
+      partnerVisit: { select: { partner: { select: { sendBill: true, sendReport: true } } } },
       testOrders: {
         select: {
           workflowMode: true,
@@ -318,7 +336,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
 
     // Online access switched off for this visit — the link would land the patient
     // on the "collect at the centre" page, so don't send (or bill for) it at all.
-    if (info.visit.patientLinkDisabledAt) {
+    if (info.visit.patientLinkDisabledAt || partnerHoldsDoor(info.visit, 'REPORT')) {
       log.info({ visitId: input.visitId }, 'patient link disabled — skipping report notification');
       return { success: false, error: 'Online access is switched off for this visit' };
     }
@@ -453,7 +471,7 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
       return;
     }
 
-    if (info.visit.patientLinkDisabledAt) {
+    if (info.visit.patientLinkDisabledAt || partnerHoldsDoor(info.visit, 'BILL')) {
       log.info({ visitId }, 'patient link disabled — skipping bill notification');
       return;
     }
@@ -678,7 +696,7 @@ export async function resendBillNotification(
       return { success: false, error: 'Patient, phone, or bill not found' };
     }
 
-    if (info.visit.patientLinkDisabledAt) {
+    if (info.visit.patientLinkDisabledAt || partnerHoldsDoor(info.visit, 'BILL')) {
       return { success: false, error: 'Online access is switched off for this visit' };
     }
 
