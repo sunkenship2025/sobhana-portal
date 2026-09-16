@@ -171,7 +171,7 @@ export async function projectWindow(
   const branchWhere = branchId ? { branchId } : {};
   const window = { gte: from, lte: to };
 
-  const [auditRows, bills, refunds, reopens, payments] = await Promise.all([
+  const [auditRows, bills, grants, refunds, reopens, payments] = await Promise.all([
     prisma.auditLog.findMany({
       where: { createdAt: window, ...branchWhere },
       orderBy: { createdAt: "desc" },
@@ -190,6 +190,25 @@ export async function projectWindow(
         discountAmountInPaise: true, discountPercentage: true, discountReason: true,
         discountedByUserId: true, billedAt: true,
         visit: { select: { id: true, patient: { select: { name: true } } } },
+      },
+    }),
+    // Concessions, keyed on when they were GRANTED. The bill-derived source
+    // below can only key on billedAt, so a discount given days later at
+    // collection time landed under the bill's date — out of the audit page's
+    // Today window, which is where anyone would actually look for it.
+    prisma.billDiscount.findMany({
+      where: { createdAt: window, ...branchWhere },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+      select: {
+        id: true, billId: true, branchId: true, stage: true, amountInPaise: true,
+        percentage: true, reason: true, createdByUserId: true, createdAt: true,
+        bill: {
+          select: {
+            billNumber: true, totalAmountInPaise: true,
+            visit: { select: { id: true, patient: { select: { name: true } } } },
+          },
+        },
       },
     }),
     prisma.orderRefund.findMany({
@@ -238,6 +257,7 @@ export async function projectWindow(
   const userIds = Array.from(new Set([
     ...auditRows.map((r) => r.userId),
     ...bills.map((b) => b.discountedByUserId),
+    ...grants.map((g) => g.createdByUserId),
     ...refunds.map((r) => r.createdByUserId),
     ...reopens.map((r) => r.reopenedByUserId),
     ...payments.map((p) => p.collectedByUserId),
@@ -314,7 +334,42 @@ export async function projectWindow(
     };
   });
 
-  const discountEvents: ProjRow[] = bills.map((b) => {
+  // Ledgered grants win: one row per concession, dated when it was granted, so
+  // a bill discounted twice reads as two events with their own reasons instead
+  // of one merged number wearing only the newest reason.
+  const ledgeredBillIds = new Set(grants.map((g) => g.billId));
+
+  const grantEvents: ProjRow[] = grants.map((g) => {
+    const total = Math.max(0, g.bill.totalAmountInPaise);
+    const pct = g.percentage ?? (total > 0 ? (g.amountInPaise / total) * 100 : 0);
+    const hasReason = Boolean(g.reason && g.reason.trim());
+    const onDue = g.stage === "ON_DUE";
+    let score = 1;
+    if (pct >= 50 || g.amountInPaise >= LARGE_AMOUNT_PAISE) score += 3;
+    else if (pct >= 20) score += 1;
+    if (!hasReason) score += 1;
+    // A concession granted at collection time is the one worth a second look:
+    // the service is already delivered, so it buys nothing the centre needed.
+    if (onDue) score += 1;
+    const u = userMap.get(g.createdByUserId);
+    const patientName = g.bill.visit?.patient?.name ?? null;
+    const detail = `${Math.round(pct)}% off ${rupees(total)}${onDue ? " at collection" : ""} · ${hasReason ? g.reason : "no reason"}${patientName ? ` · ${patientName}` : ""}`;
+    return {
+      id: `grant:${g.id}`, dedupeKey: `grant:${g.id}`, branchId: g.branchId,
+      occurredAt: g.createdAt, severity: band(score), category: "money", score,
+      event: onDue ? "Discount applied at collection" : "Discount applied", detail,
+      actorUserId: g.createdByUserId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
+      entityType: "Bill", entityId: g.billId, patientName,
+      amountInPaise: g.amountInPaise, reason: g.reason,
+      drillTo: g.bill.visit ? `/diagnostics/results/${g.bill.visit.id}` : null,
+      sourceKind: "discount", sourceId: g.id,
+    };
+  });
+
+  // Bills with no ledger row: everything discounted before the ledger existed.
+  // Still keyed on billedAt, which is the best this source can do — dropping it
+  // would erase history rather than fix it.
+  const discountEvents: ProjRow[] = bills.filter((b) => !ledgeredBillIds.has(b.id)).map((b) => {
     const total = Math.max(0, b.totalAmountInPaise);
     const pct = b.discountPercentage ?? (total > 0 ? (b.discountAmountInPaise / total) * 100 : 0);
     const hasReason = Boolean(b.discountReason && b.discountReason.trim());
@@ -453,7 +508,7 @@ export async function projectWindow(
   });
 
   // Discounts + refunds can change (a discount edited at collect-time) → upsert.
-  const mutable = [...discountEvents, ...refundEvents];
+  const mutable = [...grantEvents, ...discountEvents, ...refundEvents];
   for (const e of mutable) {
     const { id: _id, dedupeKey, ...rest } = e;
     await prisma.anomalyEvent.upsert({

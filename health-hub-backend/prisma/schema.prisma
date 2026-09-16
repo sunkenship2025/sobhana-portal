@@ -685,6 +685,7 @@ model User {
   discountedBills           Bill[]                 @relation("BillDiscountedBy")
   refundedBills             Bill[]                 @relation("BillRefundedBy")
   orderRefunds              OrderRefund[]          @relation("OrderRefundCreatedBy")
+  billDiscounts             BillDiscount[]         @relation("BillDiscountCreatedBy")
   noReportTestOrders        TestOrder[]            @relation("TestOrderNoReportBy")
   patientLinkDisabledVisits Visit[]                @relation("VisitPatientLinkDisabledBy")
   reopenedTestOrders        TestOrder[]            @relation("TestOrderReopenedBy")
@@ -788,6 +789,9 @@ model Visit {
   /// Per-order cancel/refund records
   orderRefunds OrderRefund[]
 
+  /// Per-grant concession records
+  discounts BillDiscount[]
+
   @@unique([branchId, billNumber])
   @@index([branchId])
   @@index([patientId])
@@ -868,6 +872,7 @@ model Bill {
   refundedByUser   User?                @relation("BillRefundedBy", fields: [refundedByUserId], references: [id], onDelete: SetNull)
   transactions     PaymentTransaction[]
   orderRefunds     OrderRefund[]
+  discounts        BillDiscount[]
 
   @@unique([branchId, billNumber])
   @@index([billNumber])
@@ -1128,6 +1133,48 @@ model TestOrder {
 /// Bill-level rollups (Bill.refundedAmountInPaise / paymentStatus) are derived
 /// from these rows; the refund is also written to the PaymentTransaction ledger
 /// as a REFUND row so due/paid math stays correct.
+/// BillDiscount: one row per discount GRANT, mirroring OrderRefund for cancels.
+///
+/// Bill.discountAmountInPaise stays the authoritative CURRENT amount — it is
+/// rescaled when the subtotal changes (add/remove a test under a percentage
+/// discount), so this ledger does not sum to it and is not meant to. What it
+/// records is the thing nothing recorded before: WHEN a concession was granted,
+/// by whom, and why. Without that, a discount given at collection time was filed
+/// under the bill's date, so the audit feed's Today view never showed it and the
+/// day sheet's Discount column kept moving after the sheet was printed.
+///
+/// ponytail: grant log, not a running balance. If the two ever need to tie, the
+/// rescale path has to post a compensating row rather than edit the bill field.
+model BillDiscount {
+  id            String            @id @default(cuid())
+  billId        String
+  visitId       String
+  branchId      String
+  stage         BillDiscountStage @default(AT_BILLING)
+  amountInPaise Int // the INCREMENT granted by this event, not the running total
+  discountType  BillDiscountType
+  percentage    Float? // set only when this grant was expressed as a percentage
+  reason        String // required at both grant sites
+  createdByUserId String
+  createdAt     DateTime          @default(now())
+
+  bill      Bill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  visit     Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("BillDiscountCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([billId])
+  @@index([visitId])
+  @@index([branchId, createdAt])
+}
+
+/// Where in the visit's life a concession was granted. ON_DUE is the one that
+/// matters: the service is already delivered, so the concession buys nothing —
+/// it is the shape a pocketed collection would take, and it must be visible.
+enum BillDiscountStage {
+  AT_BILLING
+  ON_DUE
+}
+
 model OrderRefund {
   id                    String          @id @default(cuid())
   billId                String

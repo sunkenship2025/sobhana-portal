@@ -603,7 +603,8 @@ export interface VisitDiscount {
 export interface MappedBillFinancials {
   hasBill: boolean;
   paymentStatus: PaymentStatus | null;
-  paymentType: PaymentType | null;
+  /** Every method that moved money, e.g. "CASH" or "CASH + ONLINE". */
+  paymentType: string | null;
   paidAmountInPaise: number;
   netAmountInPaise: number;
   dueAmountInPaise: number;
@@ -617,6 +618,8 @@ export interface MappedBillFinancials {
   refundReason: string | null;
   refundedAt: Date | null;
   transactions: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date; transactionType?: string }[];
+  /** Every concession granted on this bill, newest first. Empty for pre-ledger bills. */
+  discountGrants: { amountInPaise: number; reason: string; stage: string; createdAt: Date }[];
 }
 
 type BillForMapping = {
@@ -632,6 +635,7 @@ type BillForMapping = {
   refundReason?: string | null;
   refundedAt?: Date | null;
   transactions?: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date; transactionType?: string }[];
+  discounts?: { amountInPaise: number; reason: string; stage: string; createdAt: Date }[];
 } | null | undefined;
 
 /**
@@ -662,6 +666,7 @@ export function mapBillFinancials(
       refundReason: null,
       refundedAt: null,
       transactions: [],
+      discountGrants: [],
     };
   }
 
@@ -682,7 +687,17 @@ export function mapBillFinancials(
   const dueAmountInPaise = isRefunded || isCancelled ? 0 : computed.dueAmountInPaise;
 
   const transactions = bill.transactions ?? [];
-  const paymentType = transactions[0]?.paymentType ?? null;
+  // transactions is ordered newest-first, so transactions[0] is the LAST payment.
+  // Reading only that made a bill paid in cash and later topped up online report
+  // "ONLINE", hiding the cash entirely. List every method that moved money.
+  const methods = Array.from(
+    new Set(
+      transactions
+        .filter((t) => t.transactionType !== 'REFUND' && t.amountInPaise > 0)
+        .map((t) => t.paymentType),
+    ),
+  );
+  const paymentType = methods.length ? methods.join(' + ') : null;
 
   return {
     hasBill: true,
@@ -705,6 +720,7 @@ export function mapBillFinancials(
     refundReason: bill.refundReason ?? null,
     refundedAt: bill.refundedAt ?? null,
     transactions,
+    discountGrants: bill.discounts ?? [],
   };
 }
 
@@ -950,6 +966,10 @@ const TIMELINE_INCLUDE = {
       transactions: {
         select: { amountInPaise: true, paymentType: true, transactionDate: true, transactionType: true },
         orderBy: { transactionDate: 'desc' as const },
+      },
+      discounts: {
+        select: { amountInPaise: true, reason: true, stage: true, createdAt: true },
+        orderBy: { createdAt: 'desc' as const },
       },
     },
   },

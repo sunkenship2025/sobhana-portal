@@ -58,6 +58,35 @@ async function main() {
     }
   }
 
+  // Concessions obey the same rule as cash: what a sheet shows was granted that
+  // day, and a grant dated later cannot reach back into a sheet already closed.
+  const grantDays = await prisma.$queryRawUnsafe<{ d: string; paise: bigint }[]>(`
+    SELECT (g."createdAt" ${IST})::date::text AS d, SUM(g."amountInPaise")::bigint AS paise
+    FROM "BillDiscount" g GROUP BY 1 ORDER BY 1 DESC LIMIT 10`);
+
+  if (grantDays.length === 0) {
+    console.log('\n--  no BillDiscount rows yet; only the pre-ledger fallback is exercised above');
+  }
+  for (const { d, paise } of grantDays) {
+    const sheet = await getMoneyDaySheet('custom', null, { startKey: d, endKey: d });
+    // Only ledgered bills contribute to this identity — a pre-ledger bill still
+    // reports its stored total on its own day, which is the best it can do.
+    const ledgered = await prisma.bill.findMany({
+      where: { discounts: { some: {} }, billNumber: { in: sheet.rows.map((r) => r.billNumber) } },
+      select: { billNumber: true },
+    });
+    const keys = new Set(ledgered.map((b) => b.billNumber));
+    const onSheet = sheet.rows
+      .filter((r) => keys.has(r.billNumber))
+      .reduce((a, r) => a + r.discountInPaise, 0);
+    const ok = onSheet === Number(paise);
+    if (!ok) failed += 1;
+    console.log(
+      `${ok ? 'ok  ' : 'FAIL'} ${d}  discount on sheet ₹${(onSheet / 100).toLocaleString('en-IN')}` +
+        `  granted that day ₹${(Number(paise) / 100).toLocaleString('en-IN')}`,
+    );
+  }
+
   console.log(failed ? `\n${failed} FAILED` : '\nall clean');
   await prisma.$disconnect();
   process.exit(failed ? 1 : 0);

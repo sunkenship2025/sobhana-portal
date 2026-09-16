@@ -10,6 +10,7 @@ import { Pencil } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { StatusChip } from "./StatusChip";
 import { formatCurrency } from "@/lib/patientDisplay";
+import { formatDate } from "@/lib/payoutFormatters";
 import type { VisitTimelineItem, VisitPaymentStatus } from "@/types";
 
 interface KvRowProps {
@@ -61,6 +62,14 @@ export function FinancialDetailPanel({
   const discountAmount = visit.discount?.amount ?? visit.discountAmountInPaise ?? 0;
   const discountReason = visit.discount?.reason ?? visit.discountReason ?? null;
   const paid = visit.paidAmountInPaise ?? 0;
+  const grants = visit.discountGrants ?? [];
+  // Oldest first, so the ledger reads down the page in the order it happened.
+  const payments = [...(visit.transactions ?? [])]
+    .filter((t) => (t.amountInPaise ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        new Date(a.transactionDate ?? 0).getTime() - new Date(b.transactionDate ?? 0).getTime(),
+    );
   const due = visit.dueAmountInPaise ?? 0;
   const isCancelled = String(visit.status).toUpperCase() === "CANCELLED";
 
@@ -122,11 +131,24 @@ export function FinancialDetailPanel({
 
         <KvRow label="Total">{formatCurrency(visit.totalAmountInPaise)}</KvRow>
 
-        {discountAmount > 0 && (
-          <KvRow label={discountReason ? `Discount (${discountReason})` : "Discount"}>
-            − {formatCurrency(discountAmount)}
-          </KvRow>
-        )}
+        {discountAmount > 0 &&
+          (grants.length > 0 ? (
+            // The stored total wears only the NEWEST reason, so a twice-discounted
+            // bill used to read as one number under whichever reason was typed
+            // last. "on due" is the one worth seeing: the report was already out.
+            grants.map((g, i) => (
+              <KvRow
+                key={i}
+                label={`Discount${g.stage === "ON_DUE" ? " on due" : ""}${g.reason ? ` (${g.reason})` : ""}`}
+              >
+                − {formatCurrency(g.amountInPaise)}
+              </KvRow>
+            ))
+          ) : (
+            <KvRow label={discountReason ? `Discount (${discountReason})` : "Discount"}>
+              − {formatCurrency(discountAmount)}
+            </KvRow>
+          ))}
 
         {hasBill && (visit.reversedChargeInPaise ?? 0) > 0 && (
           <KvRow label="Cancelled charge">
@@ -135,6 +157,15 @@ export function FinancialDetailPanel({
         )}
 
         {hasBill && <KvRow label="Paid">{formatCurrency(paid)}</KvRow>}
+
+        {payments.map((t, i) => (
+          <KvRow
+            key={i}
+            label={`  ${t.transactionType === "REFUND" ? "Refunded" : "Collected"} ${formatDate(t.transactionDate)}`}
+          >
+            {formatCurrency(t.amountInPaise ?? 0)} · {t.paymentType}
+          </KvRow>
+        ))}
 
         {hasBill && (visit.refundedAmountInPaise ?? 0) > 0 && (
           <KvRow
