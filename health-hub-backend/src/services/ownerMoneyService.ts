@@ -807,6 +807,14 @@ export async function getOwnerMoney(
 export interface DaySheetRow {
   billNumber: string;
   billedAtIso: string;
+  /** When this row's money moved: bill time, or collection time for a due. */
+  entryAtIso: string;
+  /**
+   * Set only on a due collected here against a bill raised on an EARLIER day —
+   * the ISO date that bill was raised. Null on an ordinary row. A non-null value
+   * is what makes the blank billing columns legible rather than look like a gap.
+   */
+  dueFrom: string | null;
   patientName: string;
   patientTitle: string | null;
   branchCode: string;
@@ -817,13 +825,16 @@ export interface DaySheetRow {
   domain: 'DIAGNOSTICS' | 'CLINIC';
   tests: string; // comma-joined test/consultation names
   testCount: number;
+  // Zero on a due-collected row: that charge was revenue on the day the bill was
+  // raised and must not be counted twice. Blanks sum as zero, so the billing
+  // totals and the cash totals both come out right off one unfiltered reduce.
   grossInPaise: number;
   discountInPaise: number;
   // Charge voided by a cancelled test. Gross never shrinks on a cancel, so a
   // register without this column reads a fully-cancelled bill as revenue.
   reversedInPaise: number;
   netInPaise: number; // gross − discount − reversed = what was actually charged
-  paidInPaise: number;
+  paidInPaise: number; // collected INSIDE this window, not the bill's lifetime total
   cashInPaise: number; // CASH payment transactions on this bill
   onlineInPaise: number; // ONLINE payment transactions on this bill
   dueInPaise: number;
@@ -876,8 +887,18 @@ export async function getMoneyDaySheet(
       ? prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, name: true } })
       : Promise.resolve(null),
     prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainWhere },
-      orderBy: { billedAt: 'asc' },
+      // Two kinds of row: bills raised in the window, and older bills whose DUE
+      // was collected inside it. Without the second arm that money appears on no
+      // day's sheet at all — it used to be back-dated onto the bill's own day,
+      // which silently rewrote a sheet that had already been printed and sent.
+      where: {
+        ...billBranchWhere,
+        ...domainWhere,
+        OR: [
+          { billedAt: { gte: win.start, lt: win.end } },
+          { transactions: { some: { transactionDate: { gte: win.start, lt: win.end } } } },
+        ],
+      },
       select: {
         billNumber: true,
         billedAt: true,
@@ -917,9 +938,21 @@ export async function getMoneyDaySheet(
             },
           },
         },
+        // Bounded at win.end: a payment made after this window closes can never
+        // enter it, which is what makes a reprinted sheet byte-identical forever.
         transactions: {
-          select: { paymentType: true, amountInPaise: true, transactionType: true },
+          where: { transactionDate: { lt: win.end } },
+          orderBy: { transactionDate: 'asc' },
+          select: {
+            paymentType: true,
+            amountInPaise: true,
+            transactionType: true,
+            transactionDate: true,
+          },
         },
+        // Unbounded — distinguishes a pre-ledger legacy bill from one whose
+        // payments simply all fall outside this window.
+        _count: { select: { transactions: true } },
       },
     }),
   ]);
@@ -957,26 +990,59 @@ export async function getMoneyDaySheet(
             if (i.live === 0) return `${i.label} (cancelled)`;
             return i.live < billable ? `${i.label} (partly cancelled)` : i.label;
           });
+    // A bill raised before this window, appearing only because a due was
+    // collected during it. Its charge was revenue on its own day, so the billing
+    // columns stay empty here — which also makes the totals come out right with
+    // no filtering: blanks sum as zero, so Gross/Net total the day's BILLING
+    // while Cash/Online/Paid total the day's DRAWER.
+    const carried = b.billedAt < win.start;
+
     // Cash/online split NET of refunds, from the transaction ledger. A REFUND
     // row carries a positive amount but returns money, so it subtracts — this
     // matches how paidAmountInPaise is derived (sum PAYMENT − sum REFUND), so
     // Cash + Online tallies to Paid for every txn-backed bill.
+    //
+    // Split at win.start: money moved INSIDE the window is this sheet's cash,
+    // money moved before it only informs the balance carried forward.
     let cashInPaise = 0;
     let onlineInPaise = 0;
+    let refundedInWindow = 0;
+    let paidBeforeWindow = 0;
+    let firstMoneyAt: Date | null = null;
     const kinds = new Set<string>();
     for (const t of b.transactions) {
       const signed = t.transactionType === 'REFUND' ? -t.amountInPaise : t.amountInPaise;
+      if (t.transactionDate < win.start) {
+        paidBeforeWindow += signed;
+        continue;
+      }
       if (t.paymentType === 'CASH') cashInPaise += signed;
       else if (t.paymentType === 'ONLINE') onlineInPaise += signed;
-      if (t.transactionType !== 'REFUND' && t.amountInPaise > 0) kinds.add(t.paymentType);
+      if (t.transactionType === 'REFUND') refundedInWindow += t.amountInPaise;
+      else if (t.amountInPaise > 0) kinds.add(t.paymentType);
+      if (!firstMoneyAt) firstMoneyAt = t.transactionDate;
     }
     // Ledger is the source of truth when transactions exist; fall back to the
-    // stored field only for legacy bills backfilled without a ledger.
-    const paidInPaise = b.transactions.length > 0 ? cashInPaise + onlineInPaise : b.paidAmountInPaise;
-    const due = Math.max(
+    // stored field only for legacy bills backfilled without a ledger. The count
+    // is deliberately unbounded — using the windowed list here would send every
+    // bill whose payments land outside the window back to the all-time stored
+    // total, which is the very drift this change removes.
+    const hasLedger = b._count.transactions > 0;
+    const collectedInPaise = hasLedger
+      ? cashInPaise + onlineInPaise
+      : carried
+        ? 0
+        : b.paidAmountInPaise;
+    const paidToDateInPaise = hasLedger
+      ? paidBeforeWindow + cashInPaise + onlineInPaise
+      : b.paidAmountInPaise;
+    // Charged net is always the bill's real net, even when the billing columns
+    // are blanked for a carried row — the Due column has to stay truthful.
+    const chargedNetInPaise = Math.max(
       0,
-      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - paidInPaise,
+      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0),
     );
+    const due = Math.max(0, chargedNetInPaise - paidToDateInPaise);
     const paymentMethod: DaySheetRow['paymentMethod'] =
       kinds.size === 0
         ? 'NONE'
@@ -986,6 +1052,10 @@ export async function getMoneyDaySheet(
     return {
       billNumber: b.billNumber,
       billedAtIso: b.billedAt.toISOString(),
+      // The row's own event time: when the bill was raised, or when the due was
+      // collected. One clock, so the sheet reads in the order the day happened.
+      entryAtIso: (carried && firstMoneyAt ? firstMoneyAt : b.billedAt).toISOString(),
+      dueFrom: carried ? b.billedAt.toISOString() : null,
       patientName: b.visit.patient.name,
       patientTitle: b.visit.patient.title,
       branchCode: b.branch.code,
@@ -1000,22 +1070,23 @@ export async function getMoneyDaySheet(
         b.visit.domain === 'CLINIC'
           ? 1
           : [...billedItems.values()].filter((i) => i.live > 0).length,
-      grossInPaise: b.totalAmountInPaise,
-      discountInPaise: b.discountAmountInPaise,
-      reversedInPaise: b.reversedChargeInPaise ?? 0,
-      netInPaise: Math.max(
-        0,
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0),
-      ),
-      paidInPaise,
+      grossInPaise: carried ? 0 : b.totalAmountInPaise,
+      discountInPaise: carried ? 0 : b.discountAmountInPaise,
+      reversedInPaise: carried ? 0 : b.reversedChargeInPaise ?? 0,
+      netInPaise: carried ? 0 : chargedNetInPaise,
+      paidInPaise: collectedInPaise,
       cashInPaise,
       onlineInPaise,
       dueInPaise: due,
-      refundedInPaise: b.refundedAmountInPaise ?? 0,
+      // Refunds dated inside the window, not the bill's running total — the
+      // stored field keeps growing and would drag an old sheet with it.
+      refundedInPaise: hasLedger ? refundedInWindow : carried ? 0 : b.refundedAmountInPaise ?? 0,
       paymentMethod,
       paymentStatus: b.paymentStatus,
     };
   });
+
+  rows.sort((a, b) => a.entryAtIso.localeCompare(b.entryAtIso));
 
   const totals = rows.reduce(
     (acc, r) => {
