@@ -819,6 +819,10 @@ export interface DaySheetRow {
   testCount: number;
   grossInPaise: number;
   discountInPaise: number;
+  // Charge voided by a cancelled test. Gross never shrinks on a cancel, so a
+  // register without this column reads a fully-cancelled bill as revenue.
+  reversedInPaise: number;
+  netInPaise: number; // gross − discount − reversed = what was actually charged
   paidInPaise: number;
   cashInPaise: number; // CASH payment transactions on this bill
   onlineInPaise: number; // ONLINE payment transactions on this bill
@@ -838,6 +842,8 @@ export interface DaySheetResponse {
     count: number;
     grossInPaise: number;
     discountInPaise: number;
+    reversedInPaise: number;
+    netInPaise: number;
     paidInPaise: number;
     cashInPaise: number;
     onlineInPaise: number;
@@ -888,10 +894,18 @@ export async function getMoneyDaySheet(
             patient: { select: { name: true, title: true } },
             // A money row says what was BILLED, so cancelled orders stay and are
             // labelled — filtering them out left a fully-refunded bill with an
-            // empty "Tests / service" cell, which reads as lost data.
+            // empty "Tests / service" cell, which reads as lost data. productId
+            // collapses the row back to the billed PACKAGE (one "COMPLETE BLOOD
+            // PICTURE", not its 39 constituents), same rule as the worklists.
             testOrders: {
               orderBy: { displayOrder: 'asc' },
-              select: { testNameSnapshot: true, cancelledAt: true },
+              select: {
+                testNameSnapshot: true,
+                cancelledAt: true,
+                replacedAt: true,
+                productId: true,
+                product: { select: { name: true } },
+              },
             },
             clinicVisit: { select: { clinicDoctor: { select: { name: true } } } },
             // Same shape the bill PDF uses (billPdfService.ts:178) — soft-deleted
@@ -911,12 +925,38 @@ export async function getMoneyDaySheet(
   ]);
 
   const rows: DaySheetRow[] = bills.map((b) => {
+    // Collapse the orders to what was billed: one line per product (a package
+    // ordered as 39 sub-tests is ONE billed item), falling back to the test's
+    // own name for orders with no product. A group is marked "(cancelled)" only
+    // when every order under it was voided.
+    const billedItems = new Map<
+      string,
+      { label: string; live: number; total: number; replaced: number }
+    >();
+    for (const t of b.visit.testOrders) {
+      const key = t.productId ? `p:${t.productId}` : `t:${t.testNameSnapshot}`;
+      const item = billedItems.get(key) ?? {
+        label: t.product?.name || t.testNameSnapshot,
+        live: 0,
+        total: 0,
+        replaced: 0,
+      };
+      item.total += 1;
+      if (t.replacedAt) item.replaced += 1;
+      else if (!t.cancelledAt) item.live += 1;
+      billedItems.set(key, item);
+    }
     const testNames =
       b.visit.domain === 'CLINIC'
         ? [`Consultation${b.visit.clinicVisit?.clinicDoctor?.name ? ` — Dr. ${b.visit.clinicVisit.clinicDoctor.name}` : ''}`]
-        : b.visit.testOrders.map((t) =>
-            t.cancelledAt ? `${t.testNameSnapshot} (cancelled)` : t.testNameSnapshot,
-          );
+        : [...billedItems.values()].map((i) => {
+            // A swapped-out item was never performed and never charged — shown
+            // so the register still names what the bill originally said.
+            if (i.replaced === i.total) return `${i.label} (replaced)`;
+            const billable = i.total - i.replaced;
+            if (i.live === 0) return `${i.label} (cancelled)`;
+            return i.live < billable ? `${i.label} (partly cancelled)` : i.label;
+          });
     // Cash/online split NET of refunds, from the transaction ledger. A REFUND
     // row carries a positive amount but returns money, so it subtracts — this
     // matches how paidAmountInPaise is derived (sum PAYMENT − sum REFUND), so
@@ -954,14 +994,19 @@ export async function getMoneyDaySheet(
         (b.visit.domain === 'DIAGNOSTICS' ? 'SELF' : null),
       domain: b.visit.domain as DaySheetRow['domain'],
       tests: testNames.join(', '),
-      // Count only live orders — a cancelled test was never performed, so the
-      // volume column must not inflate even though the name is still shown.
+      // Billed items still live — a cancelled one was never performed, and a
+      // package counts once, matching what the Tests column now lists.
       testCount:
         b.visit.domain === 'CLINIC'
           ? 1
-          : b.visit.testOrders.filter((t) => !t.cancelledAt).length,
+          : [...billedItems.values()].filter((i) => i.live > 0).length,
       grossInPaise: b.totalAmountInPaise,
       discountInPaise: b.discountAmountInPaise,
+      reversedInPaise: b.reversedChargeInPaise ?? 0,
+      netInPaise: Math.max(
+        0,
+        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0),
+      ),
       paidInPaise,
       cashInPaise,
       onlineInPaise,
@@ -977,6 +1022,8 @@ export async function getMoneyDaySheet(
       acc.count += 1;
       acc.grossInPaise += r.grossInPaise;
       acc.discountInPaise += r.discountInPaise;
+      acc.reversedInPaise += r.reversedInPaise;
+      acc.netInPaise += r.netInPaise;
       acc.paidInPaise += r.paidInPaise;
       acc.cashInPaise += r.cashInPaise;
       acc.onlineInPaise += r.onlineInPaise;
@@ -988,6 +1035,8 @@ export async function getMoneyDaySheet(
       count: 0,
       grossInPaise: 0,
       discountInPaise: 0,
+      reversedInPaise: 0,
+      netInPaise: 0,
       paidInPaise: 0,
       cashInPaise: 0,
       onlineInPaise: 0,

@@ -269,12 +269,16 @@ async function deriveReferralPayout(
     const billFinancials = visit.bill
       ? computeBillFinancialsFromPersisted(visit.bill)
       : null;
+    // Swapped-out orders are left out of the denominator: their replacement
+    // carries that price now, so counting both shrinks every order's share.
     const discountAllocations = billFinancials
       ? allocateBillDiscountAcrossOrders(
-          visit.testOrders.map((order) => ({
-            id: order.id,
-            priceInPaise: order.priceInPaise,
-          })),
+          visit.testOrders
+            .filter((order) => !order.replacedAt)
+            .map((order) => ({
+              id: order.id,
+              priceInPaise: order.priceInPaise,
+            })),
           billFinancials.discountAmountInPaise
         )
       : new Map<string, number>();
@@ -679,7 +683,9 @@ async function deriveExternalLabPayout(
     // Allocate discount across the FULL bill (all orders), not just outsourced ones.
     const discountAllocations = billFinancials
       ? allocateBillDiscountAcrossOrders(
-          visit.testOrders.map((order) => ({ id: order.id, priceInPaise: order.priceInPaise })),
+          visit.testOrders
+            .filter((order) => !order.replacedAt)
+            .map((order) => ({ id: order.id, priceInPaise: order.priceInPaise })),
           billFinancials.discountAmountInPaise
         )
       : new Map<string, number>();

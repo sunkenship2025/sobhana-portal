@@ -3757,8 +3757,12 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
     // Each order's cancellable charge is its price minus its proportional
     // share of the bill discount (so a discounted bill never over-refunds),
     // minus any charge already reversed on it.
+    // Denominator is the orders the discount was actually spread across: every
+    // order still on the bill, cancelled ones included (their share was already
+    // spent). Orders swapped OUT are excluded — their replacement carries that
+    // price now, so counting both would shrink everyone's share.
     const discountAllocations = allocateBillDiscountAcrossOrders(
-      visit.testOrders,
+      visit.testOrders.filter((order) => !order.replacedAt),
       current.discountAmountInPaise,
     );
     const perOrder = targets.map((order) => ({

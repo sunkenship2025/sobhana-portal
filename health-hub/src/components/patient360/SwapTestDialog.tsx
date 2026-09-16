@@ -126,8 +126,8 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
   const [busy, setBusy] = useState(false);
   // Add mode: multi-select of products to add.
   const [addSelected, setAddSelected] = useState<Set<string>>(new Set());
-  // What the swap would destroy, asked of the server before the user commits.
-  const [swapPreview, setSwapPreview] = useState<{ resultsDeleted: number } | null>(null);
+  // What the swap moves off the report, asked of the server before committing.
+  const [swapPreview, setSwapPreview] = useState<{ resultsDetached: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -159,7 +159,7 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
       return;
     }
     let stale = false;
-    apiRequest<{ resultsDeleted: number }>(
+    apiRequest<{ resultsDetached: number }>(
       `${API_BASE}/visits/diagnostic/${visit.visitId}/swap-product`,
       {
         method: "POST",
@@ -424,11 +424,12 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                 </div>
               )}
 
-              {(swapPreview?.resultsDeleted ?? 0) > 0 && (
-                <p className="text-sm text-destructive">
-                  {swapPreview!.resultsDeleted} entered result
-                  {swapPreview!.resultsDeleted === 1 ? "" : "s"} will be deleted
-                  and cannot be recovered.
+              {(swapPreview?.resultsDetached ?? 0) > 0 && (
+                <p className="text-sm text-amber-700">
+                  {swapPreview!.resultsDetached} entered result
+                  {swapPreview!.resultsDetached === 1 ? "" : "s"} will come off
+                  the report. The replaced test and its values stay on the
+                  visit, marked replaced.
                 </p>
               )}
 

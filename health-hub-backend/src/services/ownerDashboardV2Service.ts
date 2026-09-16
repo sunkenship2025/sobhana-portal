@@ -465,6 +465,9 @@ export async function getOwnerDashboardV2(
     prisma.testOrder.findMany({
       where: {
         createdAt: { gte: win.start, lt: win.end },
+        // Cancelled / swapped-out orders accrue no commission (payoutService
+        // skips them) and were never revenue — keep them out of both.
+        cancelledAt: null,
         ...(branchId ? { branchId } : {}),
       },
       select: {
@@ -525,6 +528,9 @@ export async function getOwnerDashboardV2(
     prisma.testOrder.findMany({
       where: {
         createdAt: { gte: win.start, lt: win.end },
+        // Cancelled / swapped-out orders accrue no commission (payoutService
+        // skips them) and were never revenue — keep them out of both.
+        cancelledAt: null,
         ...(branchId ? { branchId } : {}),
       },
       select: {
@@ -709,6 +715,7 @@ export async function getOwnerDashboardV2(
     prisma.testOrder.findMany({
       where: {
         createdAt: { gte: priorWin.start, lt: priorWin.end },
+        cancelledAt: null,
         ...(branchId ? { branchId } : {}),
       },
       select: {

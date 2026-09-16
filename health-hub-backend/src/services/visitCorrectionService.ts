@@ -662,11 +662,12 @@ export async function swapVisitProduct(params: {
     snapshots = resolved.testOrders.map(() => ({ ...SELF_SNAPSHOT }));
   }
 
-  // Snapshot the results that the hard-delete is about to cascade away. The
-  // outgoing rows leave NO trace in the DB (unlike every other correction path,
-  // which soft-cancels), so the audit log is the only record they existed —
-  // a bare count would make a deleted result unreconstructible.
-  const deletedResults = await prisma.testResult.findMany({
+  // Results already entered on the outgoing orders. They are NOT deleted any
+  // more (the orders are voided, not dropped), but they do leave the report, so
+  // the operator is still shown the count before committing. Snapshotted into
+  // the audit row as well, so the values are readable without joining a voided
+  // order.
+  const detachedResults = await prisma.testResult.findMany({
     where: { testOrderId: { in: targetOrders.map((order) => order.id) } },
     select: {
       testOrderId: true,
@@ -678,22 +679,23 @@ export async function swapVisitProduct(params: {
       notes: true,
     },
   });
-  const resultsToDelete = deletedResults.length;
+  const resultsDetachedCount = detachedResults.length;
 
   // Dry-run for the confirm dialog: every guard above has passed, so the caller
-  // can show what the swap will destroy BEFORE the user commits to it.
+  // can show what the swap moves off the report BEFORE the user commits to it.
   if (preview) {
     return {
       preview: true,
       oldTestNames: targetOrders.map((order) => order.testNameSnapshot),
       newProductName: resolved.productName,
-      resultsDeleted: resultsToDelete,
+      resultsDetached: resultsDetachedCount,
     };
   }
 
   const displayOrderBase = Math.min(
     ...targetOrders.map((order) => order.displayOrder ?? 0),
   );
+  const now = new Date();
 
   await prisma.$transaction(async (tx) => {
     await tx.testOrder.createMany({
@@ -716,10 +718,18 @@ export async function swapVisitProduct(params: {
         ...snapshots[index],
       })),
     });
-    // Hard-delete the mistaken orders (cascades their results); the swap is
-    // fully recorded in the audit log, and the bill's money is untouched.
-    await tx.testOrder.deleteMany({
+    // Void the mistaken orders instead of deleting them: cancelledAt drops them
+    // from every live-order filter (report, worklists, payout, completeness),
+    // replacedAt records WHY, and the rows — with any results already typed on
+    // them — stay in the database. The bill's money is untouched: no charge is
+    // reversed, because the replacement carries the same price.
+    await tx.testOrder.updateMany({
       where: { id: { in: targetOrders.map((order) => order.id) } },
+      data: {
+        cancelledAt: now,
+        replacedAt: now,
+        cancelReason: `Replaced by ${resolved.productName}`,
+      },
     });
     await reopenVisitForEntry(tx, visit, resolved.testOrders);
   }, { timeout: 30_000 });
@@ -735,8 +745,9 @@ export async function swapVisitProduct(params: {
       productId: oldProductId,
       testNames: targetOrders.map((order) => order.testNameSnapshot),
       amountInPaise: oldTotalInPaise,
-      // Full snapshot of the hard-deleted rows + their results. The TestOrder
-      // rows are gone, so this is the ONLY way to reconstruct what was billed.
+      // Snapshot of the voided rows + their results. The rows themselves now
+      // survive (replacedAt set); this keeps the values readable straight from
+      // the audit entry.
       orders: targetOrders.map((order) => ({
         id: order.id,
         testName: order.testNameSnapshot,
@@ -746,7 +757,7 @@ export async function swapVisitProduct(params: {
         panelId: order.panelId,
         testDefinitionId: order.testDefinitionId,
         workflowMode: order.workflowMode,
-        results: deletedResults
+        results: detachedResults
           .filter((result) => result.testOrderId === order.id)
           .map(({ testOrderId: _omit, ...rest }) => rest),
       })),
@@ -757,7 +768,7 @@ export async function swapVisitProduct(params: {
       productId: newProductId,
       productName: resolved.productName,
       amountInPaise: resolved.effectivePrice,
-      resultsDeleted: resultsToDelete,
+      resultsDetached: resultsDetachedCount,
       reason,
       note: note ?? null,
     },
@@ -776,7 +787,7 @@ export async function swapVisitProduct(params: {
   return {
     oldTestNames: targetOrders.map((order) => order.testNameSnapshot),
     newProductName: resolved.productName,
-    resultsDeleted: resultsToDelete,
+    resultsDetached: resultsDetachedCount,
   };
 }
 

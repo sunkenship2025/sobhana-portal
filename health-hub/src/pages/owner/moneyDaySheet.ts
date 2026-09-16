@@ -19,6 +19,8 @@ export interface DaySheetRow {
   testCount: number;
   grossInPaise: number;
   discountInPaise: number;
+  reversedInPaise: number;
+  netInPaise: number;
   paidInPaise: number;
   cashInPaise: number;
   onlineInPaise: number;
@@ -38,6 +40,8 @@ export interface DaySheetResponse {
     count: number;
     grossInPaise: number;
     discountInPaise: number;
+    reversedInPaise: number;
+    netInPaise: number;
     paidInPaise: number;
     cashInPaise: number;
     onlineInPaise: number;
