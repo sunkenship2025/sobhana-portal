@@ -67,14 +67,10 @@ export interface PayoutSummary {
   periodEndDate: Date;
   derivedAmountInPaise: number;
   derivedAt: Date;
-  paidAt: Date | null;
-  paymentMethod: PaymentType | null;
 }
 
 export interface PayoutDetail extends PayoutSummary {
-  paymentReferenceId: string | null;
   notes: string | null;
-  reviewedAt: Date | null;
   lineItems: PayoutLineItem[];
 }
 
@@ -474,148 +470,7 @@ async function deriveClinicPayout(
 
 // ===========================================================================
 // DERIVATION LOGIC - DIAGNOSTIC CENTERS
-// ===========================================================================
-
-/**
- * Derive payout for a diagnostic center.
- * Formula:
- *   - snapshot percentage rules: testOrder.priceInPaise × diagnosticCenterCommissionPercentage / 100
- *   - snapshot fixed rules: diagnosticCenterCommissionAmountInPaise
- * for all finalized diagnostic-center-linked visits in the period.
- * Older records created before snapshot support fall back to the center's legacy percentage.
- */
-async function deriveDiagnosticCenterPayout(
-  diagnosticCenterId: string,
-  branchId: string,
-  periodStartDate: Date,
-  periodEndDate: Date
-): Promise<PayoutDerivationResult> {
-  const center = await prisma.diagnosticReferralCenter.findUnique({
-    where: { id: diagnosticCenterId },
-    select: { id: true, name: true, commissionPercent: true },
-  });
-
-  if (!center) {
-    throw new Error('Diagnostic center not found');
-  }
-
-  // Get visits linked to this center and completed in the period.
-  const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
-    where: {
-      diagnosticCenterId,
-      branchId,
-      visit: {
-        domain: 'DIAGNOSTICS',
-        ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
-      },
-    },
-    include: {
-      visit: {
-        include: {
-          patient: { select: { name: true, title: true } },
-          testOrders: {
-            include: {
-              test: { select: { name: true, code: true, department: { select: { name: true } } } },
-              product: { select: { id: true, name: true, code: true, payoutCategory: true } },
-            },
-          },
-          report: {
-            include: {
-              versions: {
-                where: { status: 'FINALIZED' },
-                orderBy: { versionNum: 'desc' },
-                take: 1,
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const lineItems: PayoutLineItem[] = [];
-  let totalDerivedInPaise = 0;
-
-  for (const cv of centerVisits) {
-    const visit = cv.visit;
-    const finalizedAt = visit.report?.versions[0]?.finalizedAt;
-    for (const testOrder of visit.testOrders) {
-      if (testOrder.cancelledAt) continue;
-      // Only pay resolved orders (finalized report / bill-only / films-only) —
-      // mirrors the referral derive so films-only referrals earn here too.
-      const isPayable =
-        Boolean(finalizedAt) ||
-        testOrder.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
-        testOrder.noReportAt != null;
-      if (!isPayable) continue;
-      const hasSnapshot = testOrder.diagnosticCenterCommissionType !== null;
-      const commissionInPaise = hasSnapshot
-        ? computeCommissionInPaise({
-            priceInPaise: testOrder.priceInPaise,
-            commissionType: testOrder.diagnosticCenterCommissionType,
-            commissionPercentage: testOrder.diagnosticCenterCommissionPercentage,
-            commissionAmountInPaise: testOrder.diagnosticCenterCommissionAmountInPaise,
-          })
-        : Math.round((testOrder.priceInPaise * center.commissionPercent) / 100);
-
-      totalDerivedInPaise += commissionInPaise;
-
-      lineItems.push({
-        visitId: visit.id,
-        productId: testOrder.productId,
-        billNumber: visit.billNumber,
-        patientName: visit.patient.name,
-        patientTitle: visit.patient.title,
-        date: finalizedAt || testOrder.noReportAt || visit.updatedAt || visit.createdAt,
-        testOrFee:
-          testOrder.product?.name ||
-          testOrder.testNameSnapshot ||
-          testOrder.test.name,
-        amountInPaise: testOrder.priceInPaise,
-        commissionType: hasSnapshot
-          ? testOrder.diagnosticCenterCommissionType ?? undefined
-          : 'PERCENTAGE',
-        commissionPercentage:
-          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'PERCENTAGE'
-            ? testOrder.diagnosticCenterCommissionPercentage ?? undefined
-            : !hasSnapshot
-              ? center.commissionPercent
-              : undefined,
-        commissionAmountInPaise:
-          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
-            ? testOrder.diagnosticCenterCommissionAmountInPaise ?? undefined
-            : undefined,
-        derivedCommissionInPaise: commissionInPaise,
-        category: testOrder.payoutCategorySnapshot || categorize({
-          productPayoutCategory: testOrder.product?.payoutCategory,
-          productName: testOrder.product?.name,
-          testName: testOrder.testNameSnapshot || testOrder.test?.name,
-        }),
-        basisLabel:
-          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
-            ? `Flat ${rupeesShort(commissionInPaise)}`
-            : `${(hasSnapshot ? testOrder.diagnosticCenterCommissionPercentage : center.commissionPercent) ?? 0}% → ${rupeesShort(commissionInPaise)}`,
-        discountInPaise: 0,
-        departmentName: testOrder.test?.department?.name ?? null,
-        productCode: testOrder.product?.code ?? testOrder.testCodeSnapshot ?? null,
-      });
-    }
-  }
-
-  return {
-    doctorType: 'DIAGNOSTIC_CENTER',
-    doctorId: diagnosticCenterId,
-    doctorName: center.name,
-    branchId,
-    periodStartDate,
-    periodEndDate,
-    lineItems: groupDiagnosticLineItemsByBillableProduct(lineItems),
-    derivedAmountInPaise: totalDerivedInPaise,
-  };
-}
-
-// ===========================================================================
-// DERIVATION LOGIC - OUTSIDE LABS (vendor payables)
+// DERIVATION LOGIC - PARTNERS (two-sided: outside labs & referring centres)
 // ===========================================================================
 
 function rupeesShort(paise: number): string {
@@ -623,38 +478,53 @@ function rupeesShort(paise: number): string {
 }
 
 /**
- * Derive the vendor payable owed to an outside lab for tests outsourced to it
- * in the period. Mirrors deriveReferralPayout: the bill discount is allocated
- * across the FULL bill, then PERCENTAGE lab cost is taken on the post-discount
- * price of each outsourced order (FIXED = flat snapshot). Center margin =
- * post-discount price − lab cost. Lab line items are NOT product-grouped (the
- * group merge does not sum lab cost / margin), so each outsourced order is its
- * own line.
+ * Derive a partner's position for the period — BOTH directions at once.
+ *
+ * Replaces deriveDiagnosticCenterPayout (they send in, we owe a cut) and
+ * deriveExternalLabPayout (we send out, we owe a vendor rate). A real partner is
+ * usually both and settles on one net figure, so deriving them separately meant
+ * two statements and a subtraction done on paper.
+ *
+ * Every amount comes from the snapshot frozen onto the TestOrder at order time
+ * (ourShareInPaise / partnerCutInPaise), so editing a rate today cannot restate
+ * a past period.
+ *
+ * The one thing recomputed here is REVERSALS. A snapshot is frozen against the
+ * charge that stood at order time; if part of that charge was later voided, both
+ * sides must fall with it. Previously only a FULL cancel was honoured and
+ * `reversedChargeInPaise` was ignored, so a partial refund still paid out in
+ * full. Both sides are scaled by the surviving fraction of the charge.
+ *
+ * derivedAmountInPaise is NET and signed:
+ *     what we owe them (partner cuts) − what they owe us (our share on work
+ *                                        they billed and collected)
+ * Negative therefore means the partner owes US, and the Pay-Run renders that as
+ * a receivable rather than paying it.
  */
-async function deriveExternalLabPayout(
-  externalLabId: string,
+async function derivePartnerPayout(
+  partnerId: string,
   branchId: string,
   periodStartDate: Date,
   periodEndDate: Date
 ): Promise<PayoutDerivationResult> {
-  const lab = await prisma.externalLab.findUnique({
-    where: { id: externalLabId },
+  const partner = await prisma.partner.findUnique({
+    where: { id: partnerId },
     select: { id: true, name: true },
   });
-
-  if (!lab) {
-    throw new Error('Outside lab not found');
+  if (!partner) {
+    throw new Error('Partner not found');
   }
 
   const visits = await prisma.visit.findMany({
     where: {
       branchId,
       domain: 'DIAGNOSTICS',
-      testOrders: { some: { externalLabId } },
+      testOrders: { some: { partnerId } },
       ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
     },
     include: {
       patient: { select: { name: true, title: true } },
+      partnerVisit: { select: { kind: true, partnerBilledInPaise: true } },
       testOrders: {
         include: {
           test: { select: { name: true, code: true, department: { select: { name: true } } } },
@@ -664,23 +534,20 @@ async function deriveExternalLabPayout(
       bill: true,
       report: {
         include: {
-          versions: {
-            where: { status: 'FINALIZED' },
-            orderBy: { versionNum: 'desc' },
-            take: 1,
-          },
+          versions: { where: { status: 'FINALIZED' }, orderBy: { versionNum: 'desc' }, take: 1 },
         },
       },
     },
   });
 
   const lineItems: PayoutLineItem[] = [];
-  let totalDerivedInPaise = 0;
+  let weOweInPaise = 0;
+  let theyOweInPaise = 0;
 
   for (const visit of visits) {
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
     const billFinancials = visit.bill ? computeBillFinancialsFromPersisted(visit.bill) : null;
-    // Allocate discount across the FULL bill (all orders), not just outsourced ones.
+    // Discount is allocated across the FULL bill, not just the partner's orders.
     const discountAllocations = billFinancials
       ? allocateBillDiscountAcrossOrders(
           visit.testOrders
@@ -691,10 +558,10 @@ async function deriveExternalLabPayout(
       : new Map<string, number>();
 
     for (const testOrder of visit.testOrders) {
-      if (testOrder.externalLabId !== externalLabId) continue;
+      if (testOrder.partnerId !== partnerId) continue;
       if (testOrder.cancelledAt) continue;
-      // Only owe the lab for delivered orders (finalized / bill-only / films-only),
-      // consistent with the referral & diagnostic-center derives.
+      // Partner money is earned on DELIVERY, exactly like commission: a finalized
+      // report, a bill-only order, or one closed films-only.
       const isPayable =
         Boolean(finalizedAt) ||
         testOrder.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
@@ -702,25 +569,17 @@ async function deriveExternalLabPayout(
       if (!isPayable) continue;
 
       const discountInPaise = discountAllocations.get(testOrder.id) ?? 0;
-      const postDiscountPriceInPaise = Math.max(0, testOrder.priceInPaise - discountInPaise);
-      const labCostInPaise = computeLabCostInPaise({
-        postDiscountPriceInPaise,
-        costType: testOrder.labCostType,
-        costPercent: testOrder.labCostPercentage,
-        costAmountInPaise: testOrder.labCostAmountInPaise,
-      });
-      const centerMarginInPaise = postDiscountPriceInPaise - labCostInPaise;
-      totalDerivedInPaise += labCostInPaise;
+      const chargeAtOrderTime = Math.max(0, testOrder.priceInPaise - discountInPaise);
+      const standingCharge = Math.max(0, chargeAtOrderTime - (testOrder.reversedChargeInPaise ?? 0));
+      const surviving = chargeAtOrderTime > 0 ? standingCharge / chargeAtOrderTime : 0;
 
-      const category = testOrder.payoutCategorySnapshot || categorize({
-          productPayoutCategory: testOrder.product?.payoutCategory,
-          productName: testOrder.product?.name,
-          testName: testOrder.testNameSnapshot || testOrder.test?.name,
-        });
-      const basisLabel =
-        testOrder.labCostType === 'FIXED_AMOUNT'
-          ? `Flat ${rupeesShort(labCostInPaise)}`
-          : `${testOrder.labCostPercentage ?? 0}% of P`;
+      const ourShareInPaise = Math.round((testOrder.ourShareInPaise ?? 0) * surviving);
+      const partnerCutInPaise = Math.round((testOrder.partnerCutInPaise ?? 0) * surviving);
+      const theyCollected =
+        (testOrder.partnerArrangement ?? visit.partnerVisit?.kind ?? null) === 'INBOUND_BILLED_THERE';
+
+      weOweInPaise += partnerCutInPaise;
+      if (theyCollected) theyOweInPaise += ourShareInPaise;
 
       lineItems.push({
         visitId: visit.id,
@@ -728,35 +587,48 @@ async function deriveExternalLabPayout(
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         patientTitle: visit.patient.title,
-        date: finalizedAt || visit.updatedAt || visit.createdAt,
+        date: finalizedAt || testOrder.noReportAt || visit.updatedAt || visit.createdAt,
         testOrFee: testOrder.product?.name || testOrder.testNameSnapshot || testOrder.test.name,
-        amountInPaise: postDiscountPriceInPaise,
-        commissionType: testOrder.labCostType ?? undefined,
+        // The statement must reconcile against the partner's OWN register, so it
+        // shows gross — what the patient was charged, by whoever charged them.
+        amountInPaise: visit.partnerVisit?.partnerBilledInPaise ?? standingCharge,
+        commissionType: testOrder.ourShareBasis === 'FLAT' ? 'FIXED_AMOUNT' : 'PERCENTAGE',
         commissionPercentage:
-          testOrder.labCostType === 'PERCENTAGE' ? testOrder.labCostPercentage ?? undefined : undefined,
-        commissionAmountInPaise:
-          testOrder.labCostType === 'FIXED_AMOUNT' ? testOrder.labCostAmountInPaise ?? undefined : undefined,
-        derivedCommissionInPaise: labCostInPaise,
-        category,
-        basisLabel,
+          testOrder.ourShareBasis === 'FLAT' ? undefined : testOrder.ourSharePercent ?? undefined,
+        commissionAmountInPaise: testOrder.ourShareBasis === 'FLAT' ? ourShareInPaise : undefined,
+        // Signed per line, so a statement mixing both directions still sums.
+        derivedCommissionInPaise: theyCollected ? -ourShareInPaise : partnerCutInPaise,
+        category:
+          testOrder.payoutCategorySnapshot ||
+          categorize({
+            productPayoutCategory: testOrder.product?.payoutCategory,
+            productName: testOrder.product?.name,
+            testName: testOrder.testNameSnapshot || testOrder.test?.name,
+          }),
+        basisLabel:
+          testOrder.ourShareBasis === 'FLAT'
+            ? `Flat ${rupeesShort(ourShareInPaise)} to us`
+            : `${testOrder.ourSharePercent ?? 0}% to us → ${rupeesShort(ourShareInPaise)}`,
         discountInPaise,
         departmentName: testOrder.test?.department?.name ?? null,
         productCode: testOrder.product?.code ?? testOrder.testCodeSnapshot ?? null,
-        labCostInPaise,
-        centerMarginInPaise,
+        labCostInPaise: partnerCutInPaise,
+        centerMarginInPaise: ourShareInPaise,
       });
     }
   }
 
   return {
-    doctorType: 'LAB',
-    doctorId: externalLabId,
-    doctorName: lab.name,
+    doctorType: 'PARTNER',
+    doctorId: partnerId,
+    doctorName: partner.name,
     branchId,
     periodStartDate,
     periodEndDate,
+    // Not product-grouped: the group merge does not sum cut / share, and a
+    // partner statement is read line by line against their own register.
     lineItems,
-    derivedAmountInPaise: totalDerivedInPaise,
+    derivedAmountInPaise: weOweInPaise - theyOweInPaise,
   };
 }
 
@@ -776,10 +648,8 @@ function deriveByType(
       return deriveReferralPayout(doctorId, branchId, periodStartDate, periodEndDate);
     case 'CLINIC':
       return deriveClinicPayout(doctorId, branchId, periodStartDate, periodEndDate);
-    case 'DIAGNOSTIC_CENTER':
-      return deriveDiagnosticCenterPayout(doctorId, branchId, periodStartDate, periodEndDate);
-    case 'LAB':
-      return deriveExternalLabPayout(doctorId, branchId, periodStartDate, periodEndDate);
+    case 'PARTNER':
+      return derivePartnerPayout(doctorId, branchId, periodStartDate, periodEndDate);
     default:
       throw new Error(`Unsupported doctor type: ${doctorType}`);
   }
@@ -794,10 +664,8 @@ function doctorIdWhereClause(doctorType: PayoutDoctorType, doctorId: string) {
       return { referralDoctorId: doctorId };
     case 'CLINIC':
       return { clinicDoctorId: doctorId };
-    case 'DIAGNOSTIC_CENTER':
-      return { diagnosticCenterId: doctorId };
-    case 'LAB':
-      return { externalLabId: doctorId };
+    case 'PARTNER':
+      return { partnerId: doctorId };
     default:
       throw new Error(`Unsupported doctor type: ${doctorType}`);
   }
@@ -820,8 +688,7 @@ function extractDoctorName(payout: any): string {
   return (
     payout.referralDoctor?.name ||
     payout.clinicDoctor?.name ||
-    payout.diagnosticCenter?.name ||
-    payout.externalLab?.name ||
+    payout.partner?.name ||
     'Unknown'
   );
 }
@@ -839,39 +706,12 @@ function buildDayPeriod(date: Date) {
   };
 }
 
-async function findCoveringPaidPayout(
-  doctorType: PayoutDoctorType,
-  doctorId: string,
-  branchId: string,
-  periodStartDate: Date,
-  periodEndDate: Date,
-  excludePayoutId?: string
-) {
-  return prisma.doctorPayoutLedger.findFirst({
-    where: {
-      doctorType,
-      ...doctorIdWhereClause(doctorType, doctorId),
-      branchId,
-      deletedAt: null,
-      paidAt: { not: null },
-      periodStartDate: { lte: periodStartDate },
-      periodEndDate: { gte: periodEndDate },
-      ...(excludePayoutId && { id: { not: excludePayoutId } }),
-    },
-    orderBy: [
-      { periodStartDate: 'desc' },
-      { periodEndDate: 'asc' },
-      { paidAt: 'desc' },
-    ],
-  });
-}
 
 async function syncReferralPayoutsForBranch(
   branchId: string,
   filters?: {
     doctorType?: PayoutDoctorType;
     doctorId?: string;
-    isPaid?: boolean;
     startDate?: Date;
     endDate?: Date;
   }
@@ -967,124 +807,33 @@ async function syncReferralPayoutsForBranch(
   }
 }
 
-async function syncDiagnosticCenterPayoutsForBranch(
-  branchId: string,
-  filters?: {
-    doctorType?: PayoutDoctorType;
-    doctorId?: string;
-    isPaid?: boolean;
-    startDate?: Date;
-    endDate?: Date;
-  }
-) {
-  if (filters?.doctorType && filters.doctorType !== 'DIAGNOSTIC_CENTER') return;
-
-  const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
-    where: {
-      branchId,
-      ...(filters?.doctorId && { diagnosticCenterId: filters.doctorId }),
-      visit: {
-        domain: 'DIAGNOSTICS',
-        ...buildDiagnosticPayoutVisitWindow(
-          filters?.startDate ?? defaultSyncWindowStart(),
-          filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
-        ),
-      },
-    },
-    select: {
-      diagnosticCenterId: true,
-      visit: {
-        select: {
-          updatedAt: true,
-          report: {
-            select: {
-              versions: {
-                where: {
-                  status: 'FINALIZED',
-                },
-                orderBy: {
-                  versionNum: 'desc',
-                },
-                take: 1,
-                select: {
-                  finalizedAt: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const periods = new Map<
-    string,
-    { doctorId: string; periodStartDate: Date; periodEndDate: Date }
-  >();
-
-  for (const centerVisit of centerVisits) {
-    const finalizedAt = centerVisit.visit.report?.versions[0]?.finalizedAt || centerVisit.visit.updatedAt;
-
-    if (!centerVisit.diagnosticCenterId || !finalizedAt) {
-      continue;
-    }
-
-    const { periodStartDate, periodEndDate } = buildDayPeriod(finalizedAt);
-    periods.set(`${centerVisit.diagnosticCenterId}:${periodStartDate.toISOString()}`, {
-      doctorId: centerVisit.diagnosticCenterId,
-      periodStartDate,
-      periodEndDate,
-    });
-  }
-
-  for (const period of periods.values()) {
-    // Auto-sync respects deletions — see comment in syncReferralPayoutsForBranch.
-    const anyExisting = await prisma.doctorPayoutLedger.findFirst({
-      where: {
-        doctorType: 'DIAGNOSTIC_CENTER',
-        diagnosticCenterId: period.doctorId,
-        branchId,
-        periodStartDate: period.periodStartDate,
-        periodEndDate: period.periodEndDate,
-      },
-      select: { id: true },
-    });
-    if (anyExisting) continue;
-
-    await derivePayout(
-      'DIAGNOSTIC_CENTER',
-      period.doctorId,
-      branchId,
-      period.periodStartDate,
-      period.periodEndDate
-    );
-  }
-}
-
 /**
- * Auto-create LAB (outside-lab) payout ledger rows for any (lab, day) bucket
- * that has outsourced test orders but no existing row. Mirrors the referral and
- * diagnostic-center syncs and respects soft-deletes (skips if ANY row exists).
+ * Keep partner ledger rows fresh for a branch.
+ *
+ * Replaces the separate diagnostic-centre and outside-lab syncs. One pass driven
+ * by TestOrder.partnerId now covers every arrangement, because a partner order is
+ * a partner order whichever way the work and the money flowed.
  */
-async function syncExternalLabPayoutsForBranch(
+async function syncPartnerPayoutsForBranch(
   branchId: string,
   filters?: {
     doctorType?: PayoutDoctorType;
     doctorId?: string;
-    isPaid?: boolean;
     startDate?: Date;
     endDate?: Date;
   }
 ) {
-  if (filters?.doctorType && filters.doctorType !== 'LAB') return;
+  if (filters?.doctorType && filters.doctorType !== 'PARTNER') return;
+
+  const partnerOrderWhere = filters?.doctorId
+    ? { partnerId: filters.doctorId }
+    : { partnerId: { not: null } };
 
   const visits = await prisma.visit.findMany({
     where: {
       branchId,
       domain: 'DIAGNOSTICS',
-      testOrders: {
-        some: { externalLabId: filters?.doctorId ? filters.doctorId : { not: null } },
-      },
+      testOrders: { some: partnerOrderWhere },
       ...buildDiagnosticPayoutVisitWindow(
         filters?.startDate ?? defaultSyncWindowStart(),
         filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
@@ -1092,12 +841,7 @@ async function syncExternalLabPayoutsForBranch(
     },
     select: {
       updatedAt: true,
-      testOrders: {
-        where: filters?.doctorId
-          ? { externalLabId: filters.doctorId }
-          : { externalLabId: { not: null } },
-        select: { externalLabId: true },
-      },
+      testOrders: { where: partnerOrderWhere, select: { partnerId: true } },
       report: {
         select: {
           versions: {
@@ -1121,13 +865,13 @@ async function syncExternalLabPayoutsForBranch(
     if (!finalizedAt) continue;
 
     const { periodStartDate, periodEndDate } = buildDayPeriod(finalizedAt);
-    const labIds = new Set<string>();
+    const partnerIds = new Set<string>();
     for (const order of visit.testOrders) {
-      if (order.externalLabId) labIds.add(order.externalLabId);
+      if (order.partnerId) partnerIds.add(order.partnerId);
     }
-    for (const labId of labIds) {
-      periods.set(`${labId}:${periodStartDate.toISOString()}`, {
-        doctorId: labId,
+    for (const partnerId of partnerIds) {
+      periods.set(`${partnerId}:${periodStartDate.toISOString()}`, {
+        doctorId: partnerId,
         periodStartDate,
         periodEndDate,
       });
@@ -1138,8 +882,8 @@ async function syncExternalLabPayoutsForBranch(
     // Auto-sync respects deletions — see comment in syncReferralPayoutsForBranch.
     const anyExisting = await prisma.doctorPayoutLedger.findFirst({
       where: {
-        doctorType: 'LAB',
-        externalLabId: period.doctorId,
+        doctorType: 'PARTNER',
+        partnerId: period.doctorId,
         branchId,
         periodStartDate: period.periodStartDate,
         periodEndDate: period.periodEndDate,
@@ -1148,7 +892,13 @@ async function syncExternalLabPayoutsForBranch(
     });
     if (anyExisting) continue;
 
-    await derivePayout('LAB', period.doctorId, branchId, period.periodStartDate, period.periodEndDate);
+    await derivePayout(
+      'PARTNER',
+      period.doctorId,
+      branchId,
+      period.periodStartDate,
+      period.periodEndDate
+    );
   }
 }
 
@@ -1182,43 +932,19 @@ export async function derivePayout(
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
-      diagnosticCenter: { select: { name: true } },
-      externalLab: { select: { name: true } },
+      partner: { select: { name: true } },
       branch: { select: { name: true } },
     },
   });
 
   if (existing) {
     const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
-    const coveringPaidPayout = existing.paidAt
-      ? null
-      : await findCoveringPaidPayout(
-          doctorType,
-          doctorId,
-          branchId,
-          periodStartDate,
-          periodEndDate,
-          existing.id
-        );
-    const nextData: {
-      derivedAmountInPaise?: number;
-      derivedAt?: Date;
-      paidAt?: Date | null;
-      paymentMethod?: PaymentType | null;
-      paymentReferenceId?: string | null;
-      notes?: string | null;
-    } = {};
-
-    if (!existing.paidAt && existing.derivedAmountInPaise !== derivation.derivedAmountInPaise) {
+    // Re-derivation is always safe now: amounts come from TestOrder snapshots
+    // frozen at order time, and there is no settled state left to protect.
+    const nextData: { derivedAmountInPaise?: number; derivedAt?: Date } = {};
+    if (existing.derivedAmountInPaise !== derivation.derivedAmountInPaise) {
       nextData.derivedAmountInPaise = derivation.derivedAmountInPaise;
       nextData.derivedAt = new Date();
-    }
-
-    if (!existing.paidAt && coveringPaidPayout?.paidAt) {
-      nextData.paidAt = coveringPaidPayout.paidAt;
-      nextData.paymentMethod = coveringPaidPayout.paymentMethod;
-      nextData.paymentReferenceId = coveringPaidPayout.paymentReferenceId;
-      nextData.notes = existing.notes ?? coveringPaidPayout.notes;
     }
 
     const refreshedExisting =
@@ -1229,7 +955,7 @@ export async function derivePayout(
             include: {
               referralDoctor: { select: { name: true } },
               clinicDoctor: { select: { name: true } },
-              diagnosticCenter: { select: { name: true } },
+              partner: { select: { name: true } },
               branch: { select: { name: true } },
             },
           })
@@ -1247,11 +973,7 @@ export async function derivePayout(
         periodEndDate: refreshedExisting.periodEndDate,
         derivedAmountInPaise: refreshedExisting.derivedAmountInPaise,
         derivedAt: refreshedExisting.derivedAt,
-        paidAt: refreshedExisting.paidAt,
-        paymentMethod: refreshedExisting.paymentMethod,
-        paymentReferenceId: refreshedExisting.paymentReferenceId,
         notes: refreshedExisting.notes,
-        reviewedAt: refreshedExisting.reviewedAt,
         lineItems: derivation.lineItems,
       },
       isNew: false,
@@ -1260,13 +982,6 @@ export async function derivePayout(
 
   // Derive new payout
   const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
-  const coveringPaidPayout = await findCoveringPaidPayout(
-    doctorType,
-    doctorId,
-    branchId,
-    periodStartDate,
-    periodEndDate
-  );
 
   // Create new ledger entry
   const newPayout = await prisma.doctorPayoutLedger.create({
@@ -1274,19 +989,12 @@ export async function derivePayout(
       doctorType,
       referralDoctorId: doctorType === 'REFERRAL' ? doctorId : null,
       clinicDoctorId: doctorType === 'CLINIC' ? doctorId : null,
-      diagnosticCenterId: doctorType === 'DIAGNOSTIC_CENTER' ? doctorId : null,
-      externalLabId: doctorType === 'LAB' ? doctorId : null,
+      partnerId: doctorType === 'PARTNER' ? doctorId : null,
       branchId,
       periodStartDate,
       periodEndDate,
       derivedAmountInPaise: derivation.derivedAmountInPaise,
       derivedAt: new Date(),
-      ...(coveringPaidPayout?.paidAt && {
-        paidAt: coveringPaidPayout.paidAt,
-        paymentMethod: coveringPaidPayout.paymentMethod,
-        paymentReferenceId: coveringPaidPayout.paymentReferenceId,
-        notes: coveringPaidPayout.notes,
-      }),
     },
     include: {
       branch: { select: { name: true } },
@@ -1305,11 +1013,7 @@ export async function derivePayout(
       periodEndDate: newPayout.periodEndDate,
       derivedAmountInPaise: newPayout.derivedAmountInPaise,
       derivedAt: newPayout.derivedAt,
-      paidAt: newPayout.paidAt,
-      paymentMethod: newPayout.paymentMethod,
-      paymentReferenceId: newPayout.paymentReferenceId,
       notes: newPayout.notes,
-      reviewedAt: newPayout.reviewedAt,
       lineItems: derivation.lineItems,
     },
     isNew: true,
@@ -1319,13 +1023,12 @@ export async function derivePayout(
 /**
  * Get all payouts for a branch with optional filters.
  */
-export type PayoutSortField = 'derivedAt' | 'doctorName' | 'amount' | 'periodStart' | 'paidAt';
+export type PayoutSortField = 'derivedAt' | 'doctorName' | 'amount' | 'periodStart';
 export type SortDir = 'asc' | 'desc';
 
 export interface ListPayoutsFilters {
   doctorType?: PayoutDoctorType;
   doctorId?: string;
-  isPaid?: boolean;
   startDate?: Date;
   endDate?: Date;
   q?: string;                  // free-text search (doctor name, reference id)
@@ -1344,10 +1047,8 @@ export interface ListPayoutsResult {
   page: number;
   pageSize: number;
   totals?: {
-    pendingCount: number;
-    pendingAmountInPaise: number;
-    paidCount: number;
-    paidAmountInPaise: number;
+    accruedCount: number;
+    accruedAmountInPaise: number;
   };
 }
 
@@ -1356,8 +1057,7 @@ export async function listPayouts(
   filters?: ListPayoutsFilters
 ): Promise<ListPayoutsResult> {
   await syncReferralPayoutsForBranch(branchId, filters);
-  await syncDiagnosticCenterPayoutsForBranch(branchId, filters);
-  await syncExternalLabPayoutsForBranch(branchId, filters);
+  await syncPartnerPayoutsForBranch(branchId, filters);
 
   const page = Math.max(1, filters?.page ?? 1);
   const pageSize = Math.min(500, Math.max(1, filters?.pageSize ?? 50));
@@ -1385,9 +1085,7 @@ export async function listPayouts(
         OR: [
           { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
           { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
-          { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
-          { externalLab: { name: { contains: q, mode: 'insensitive' as const } } },
-          { paymentReferenceId: { contains: q, mode: 'insensitive' as const } },
+          { partner: { name: { contains: q, mode: 'insensitive' as const } } },
         ],
       }
     : {};
@@ -1397,9 +1095,6 @@ export async function listPayouts(
     deletedAt: null,
     ...(filters?.doctorType && { doctorType: filters.doctorType }),
     ...doctorIdFilter,
-    ...(filters?.isPaid !== undefined && {
-      paidAt: filters.isPaid ? { not: null } : null,
-    }),
     ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
     ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
     ...searchFilter,
@@ -1416,14 +1111,11 @@ export async function listPayouts(
         return [{ derivedAmountInPaise: sortDir }];
       case 'periodStart':
         return [{ periodStartDate: sortDir }];
-      case 'paidAt':
-        return [{ paidAt: sortDir }];
       case 'doctorName':
         return [
           { referralDoctor: { name: sortDir } },
           { clinicDoctor: { name: sortDir } },
-          { diagnosticCenter: { name: sortDir } },
-          { externalLab: { name: sortDir } },
+          { partner: { name: sortDir } },
         ];
       case 'derivedAt':
       default:
@@ -1437,8 +1129,7 @@ export async function listPayouts(
       include: {
         referralDoctor: { select: { name: true } },
         clinicDoctor: { select: { name: true } },
-        diagnosticCenter: { select: { name: true } },
-        externalLab: { select: { name: true } },
+        partner: { select: { name: true } },
         branch: { select: { name: true } },
       },
       orderBy,
@@ -1447,10 +1138,9 @@ export async function listPayouts(
     }),
     prisma.doctorPayoutLedger.count({ where }),
     filters?.includeTotals
-      ? prisma.doctorPayoutLedger.groupBy({
-          by: ['paidAt'],
+      ? prisma.doctorPayoutLedger.aggregate({
           where,
-          _count: { _all: true },
+          _count: true,
           _sum: { derivedAmountInPaise: true },
         })
       : Promise.resolve(null),
@@ -1467,33 +1157,15 @@ export async function listPayouts(
     periodEndDate: p.periodEndDate,
     derivedAmountInPaise: p.derivedAmountInPaise,
     derivedAt: p.derivedAt,
-    paidAt: p.paidAt,
-    paymentMethod: p.paymentMethod,
   }));
 
   let totals: ListPayoutsResult['totals'] | undefined;
   if (totalsAgg) {
-    let pendingCount = 0;
-    let pendingAmount = 0;
-    let paidCount = 0;
-    let paidAmount = 0;
-    // groupBy on a nullable column returns one bucket per distinct value,
-    // including a null bucket; collapse all non-null paidAt values into one.
-    for (const row of totalsAgg) {
-      const isPaid = row.paidAt !== null;
-      if (isPaid) {
-        paidCount += row._count._all;
-        paidAmount += row._sum.derivedAmountInPaise ?? 0;
-      } else {
-        pendingCount += row._count._all;
-        pendingAmount += row._sum.derivedAmountInPaise ?? 0;
-      }
-    }
+    // The ledger is a book of what accrued, so there is no paid/pending split
+    // left to make — one accrued figure for the filtered set.
     totals = {
-      pendingCount,
-      pendingAmountInPaise: pendingAmount,
-      paidCount,
-      paidAmountInPaise: paidAmount,
+      accruedCount: totalsAgg._count,
+      accruedAmountInPaise: totalsAgg._sum.derivedAmountInPaise ?? 0,
     };
   }
 
@@ -1509,8 +1181,7 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
-      diagnosticCenter: { select: { name: true } },
-      externalLab: { select: { name: true } },
+      partner: { select: { name: true } },
       branch: { select: { name: true } },
     },
   });
@@ -1540,11 +1211,7 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
     periodEndDate: payout.periodEndDate,
     derivedAmountInPaise: payout.derivedAmountInPaise,
     derivedAt: payout.derivedAt,
-    paidAt: payout.paidAt,
-    paymentMethod: payout.paymentMethod,
-    paymentReferenceId: payout.paymentReferenceId,
     notes: payout.notes,
-    reviewedAt: payout.reviewedAt,
     lineItems: derivation.lineItems,
   };
 }
@@ -1621,7 +1288,7 @@ function emptyStatementTotals(isLab: boolean): StatementTotals {
  * identity holds per row: tAmt − disc = pAmt; finAmt = commission (or lab cost).
  */
 export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatement {
-  const isLab = detail.doctorType === 'LAB';
+  const isLab = detail.doctorType === 'PARTNER';
   const bandsByCategory = new Map<PayoutCategory, StatementBand>();
   const grandTotal = emptyStatementTotals(isLab);
 
@@ -1767,11 +1434,7 @@ async function buildRangeDetail(
     periodEndDate: endDate,
     derivedAmountInPaise: derivation.derivedAmountInPaise,
     derivedAt: startDate,
-    paidAt: null,
-    paymentMethod: null,
-    paymentReferenceId: null,
     notes: null,
-    reviewedAt: null,
     lineItems: derivation.lineItems,
   };
 }
@@ -1819,8 +1482,7 @@ export async function getPayoutPayeePhone(payoutId: string): Promise<string | nu
     include: {
       referralDoctor: { select: { phone: true } },
       clinicDoctor: { select: { phone: true } },
-      diagnosticCenter: { select: { phone: true } },
-      externalLab: { select: { phone: true } },
+      partner: { select: { phone: true } },
     },
   });
   if (!p) return null;
@@ -1829,10 +1491,8 @@ export async function getPayoutPayeePhone(payoutId: string): Promise<string | nu
       return p.referralDoctor?.phone ?? null;
     case 'CLINIC':
       return p.clinicDoctor?.phone ?? null;
-    case 'DIAGNOSTIC_CENTER':
-      return p.diagnosticCenter?.phone ?? null;
-    case 'LAB':
-      return p.externalLab?.phone ?? null;
+    case 'PARTNER':
+      return p.partner?.phone ?? null;
     default:
       return null;
   }
@@ -1843,7 +1503,7 @@ export async function getPayoutPayeePhone(payoutId: string): Promise<string | nu
 // ===========================================================================
 
 export type PayoutDirection = 'INBOUND' | 'OUTBOUND';
-export type PayoutKind = 'COMMISSION' | 'PAYABLE';
+export type PayoutKind = 'COMMISSION' | 'PAYABLE' | 'RECEIVABLE';
 
 export interface PayoutWorklistRow {
   id: string;
@@ -1890,7 +1550,7 @@ export interface PayRunWorklist {
   rows: PayoutWorklistRow[];
 }
 
-const PAYOUT_TYPES_ORDER: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER', 'LAB'];
+const PAYOUT_TYPES_ORDER: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'PARTNER'];
 
 export async function getPayRunWorklist(
   branchId: string,
@@ -1905,8 +1565,7 @@ export async function getPayRunWorklist(
     endDate: filters?.endDate,
   };
   await syncReferralPayoutsForBranch(branchId, syncFilters);
-  await syncDiagnosticCenterPayoutsForBranch(branchId, syncFilters);
-  await syncExternalLabPayoutsForBranch(branchId, syncFilters);
+  await syncPartnerPayoutsForBranch(branchId, syncFilters);
 
   const q = filters?.q?.trim();
   const where: Prisma.DoctorPayoutLedgerWhereInput = {
@@ -1919,9 +1578,7 @@ export async function getPayRunWorklist(
       OR: [
         { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
         { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
-        { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
-        { externalLab: { name: { contains: q, mode: 'insensitive' as const } } },
-        { paymentReferenceId: { contains: q, mode: 'insensitive' as const } },
+        { partner: { name: { contains: q, mode: 'insensitive' as const } } },
       ],
     }),
   };
@@ -1931,8 +1588,7 @@ export async function getPayRunWorklist(
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
-      diagnosticCenter: { select: { name: true } },
-      externalLab: { select: { name: true } },
+      partner: { select: { name: true } },
       branch: { select: { name: true } },
     },
     orderBy: [{ derivedAmountInPaise: 'desc' }],
@@ -1998,12 +1654,15 @@ export async function getPayRunWorklist(
 
   const rows: PayoutWorklistRow[] = entries
     .map((e, idx) => {
-      const isLab = e.payeeType === 'LAB';
+      // A partner nets both directions into one figure, so the sign — not the
+      // payee type — says whether we pay them or they owe us.
+      const isPartner = e.payeeType === 'PARTNER';
+      const owesUs = isPartner && amounts[idx] < 0;
       return {
         id: `${e.payeeType}.${e.payeeId}`,
         payeeType: e.payeeType,
-        direction: (isLab ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
-        kind: (isLab ? 'PAYABLE' : 'COMMISSION') as PayoutKind,
+        direction: (isPartner ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
+        kind: (owesUs ? 'RECEIVABLE' : isPartner ? 'PAYABLE' : 'COMMISSION') as PayoutKind,
         payeeId: e.payeeId,
         payeeName: e.payeeName,
         periodStartDate: fallbackStart,
@@ -2024,7 +1683,7 @@ export async function getPayRunWorklist(
     const bt = byType[r.payeeType];
     bt.count += 1;
     bt.amountInPaise += r.amountInPaise;
-    if (r.payeeType === 'LAB') labTotal += r.amountInPaise;
+    if (r.payeeType === 'PARTNER') labTotal += r.amountInPaise;
     else commissionsTotal += r.amountInPaise;
   }
 
@@ -2032,7 +1691,7 @@ export async function getPayRunWorklist(
     const groupRows = rows.filter((r) => r.payeeType === t);
     return {
       payeeType: t,
-      direction: (t === 'LAB' ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
+      direction: (t === 'PARTNER' ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
       subtotalInPaise: groupRows.reduce((s, r) => s + r.amountInPaise, 0),
       rows: groupRows,
     };
@@ -2052,79 +1711,6 @@ export async function getPayRunWorklist(
   };
 }
 
-/**
- * Mark a payout as paid.
- * IMMUTABLE after this operation - no further changes allowed.
- *
- * Concurrency: uses an atomic conditional updateMany so two simultaneous
- * mark-paid calls don't both succeed (which would double-pay the doctor).
- *
- * Cascade: payouts whose period falls inside this payout's period AND that
- * were derived BEFORE this one was paid are also marked paid. Newly-derived
- * payouts created AFTER the human approved the outer payment are NOT
- * auto-paid — they need their own approval.
- */
-export async function markPayoutPaid(
-  payoutId: string,
-  paymentMethod: PaymentType,
-  paymentReferenceId?: string,
-  notes?: string,
-  paidOn?: Date
-): Promise<PayoutDetail> {
-  // Get current payout (read-only context for downstream details).
-  const existing = await prisma.doctorPayoutLedger.findUnique({
-    where: { id: payoutId },
-  });
-
-  if (!existing || existing.deletedAt) {
-    throw new Error('Payout not found');
-  }
-
-  if (existing.paidAt) {
-    throw new Error('Payout already marked as paid - cannot modify');
-  }
-
-  const paidAt = paidOn ?? new Date();
-  const doctorId = extractDoctorId(existing);
-
-  await prisma.$transaction(async (tx) => {
-    // Atomic conditional update — if another request raced us and already
-    // flipped paidAt, our updateMany returns count=0 and we abort.
-    const claim = await tx.doctorPayoutLedger.updateMany({
-      where: { id: payoutId, deletedAt: null, paidAt: null },
-      data: { paidAt, paymentMethod, paymentReferenceId, notes },
-    });
-    if (claim.count === 0) {
-      throw new Error('Payout already marked as paid - cannot modify');
-    }
-
-    // Cascade-pay only payouts that existed (derivedAt <= our paidAt) at the
-    // moment of approval. Anything derived later is intentionally untouched
-    // so it requires its own human review.
-    await tx.doctorPayoutLedger.updateMany({
-      where: {
-        id: { not: payoutId },
-        doctorType: existing.doctorType,
-        ...doctorIdWhereClause(existing.doctorType, doctorId),
-        branchId: existing.branchId,
-        deletedAt: null,
-        paidAt: null,
-        periodStartDate: { gte: existing.periodStartDate },
-        periodEndDate: { lte: existing.periodEndDate },
-        derivedAt: { lte: paidAt },
-      },
-      data: { paidAt, paymentMethod, paymentReferenceId, notes },
-    });
-  });
-
-  // Return full detail
-  const detail = await getPayoutDetail(payoutId);
-  if (!detail) {
-    throw new Error('Failed to retrieve updated payout');
-  }
-
-  return detail;
-}
 
 /**
  * Get referral doctors for dropdown selection.
@@ -2175,23 +1761,26 @@ export async function getClinicDoctors(isActive?: boolean, branchId?: string) {
 }
 
 /**
- * Get diagnostic centers for dropdown selection. See note above on branchId.
+ * Get partners for dropdown selection. See note above on branchId.
  */
-export async function getDiagnosticCenters(isActive?: boolean, branchId?: string) {
+export async function getPartners(isActive?: boolean, branchId?: string) {
   const where: any = isActive !== undefined ? { isActive } : {};
   if (branchId) {
     where.payoutLedger = { some: { branchId } };
   }
-  return prisma.diagnosticReferralCenter.findMany({
+  return prisma.partner.findMany({
     where,
     select: {
       id: true,
-      centerNumber: true,
+      partnerNumber: true,
       name: true,
-      commissionType: true,
-      commissionPercent: true,
-      commissionAmountInPaise: true,
+      sendBill: true,
+      sendReport: true,
       isActive: true,
+      arrangements: {
+        where: { isActive: true },
+        select: { kind: true, weCollect: true, rateBasis: true, ratePercent: true, rateAmountInPaise: true },
+      },
     },
     orderBy: { name: 'asc' },
   });
@@ -2278,80 +1867,6 @@ export interface BulkMarkPaidResult {
   labPayablesPaidInPaise: number; // LAB (outbound)
 }
 
-/**
- * Apply ONE payment record (method + reference + notes) to N selected payouts
- * in a single transaction. Rows already marked paid are reported as conflicts.
- * Each row gets its own paidAt (within ms of each other).
- */
-export async function markPayoutsPaidBulk(
-  payoutIds: string[],
-  branchId: string,
-  payment: { paymentMethod: PaymentType; paymentReferenceId?: string; notes?: string; paidOn?: Date }
-): Promise<BulkMarkPaidResult> {
-  if (payoutIds.length === 0) {
-    return {
-      paidIds: [],
-      conflictIds: [],
-      notFoundIds: [],
-      totalPaidInPaise: 0,
-      commissionsPaidInPaise: 0,
-      labPayablesPaidInPaise: 0,
-    };
-  }
-
-  const paidAt = payment.paidOn ?? new Date();
-
-  return prisma.$transaction(async (tx) => {
-    // Fetch the candidates first so we can categorize the response.
-    const candidates = await tx.doctorPayoutLedger.findMany({
-      where: { id: { in: payoutIds }, branchId, deletedAt: null },
-      select: { id: true, paidAt: true, derivedAmountInPaise: true, doctorType: true },
-    });
-
-    const candidateIds = new Set(candidates.map(c => c.id));
-    const notFoundIds = payoutIds.filter(id => !candidateIds.has(id));
-
-    const eligibleIds: string[] = [];
-    const conflictIds: string[] = [];
-    let totalPaid = 0;
-    let commissionsPaid = 0;
-    let labPayablesPaid = 0;
-    for (const c of candidates) {
-      if (c.paidAt) {
-        conflictIds.push(c.id);
-      } else {
-        eligibleIds.push(c.id);
-        totalPaid += c.derivedAmountInPaise;
-        if (c.doctorType === 'LAB') {
-          labPayablesPaid += c.derivedAmountInPaise;
-        } else {
-          commissionsPaid += c.derivedAmountInPaise;
-        }
-      }
-    }
-
-    if (eligibleIds.length > 0) {
-      await tx.doctorPayoutLedger.updateMany({
-        where: { id: { in: eligibleIds }, paidAt: null, deletedAt: null },
-        data: {
-          paidAt,
-          paymentMethod: payment.paymentMethod,
-          paymentReferenceId: payment.paymentReferenceId ?? null,
-          notes: payment.notes ?? null,
-        },
-      });
-    }
-
-    return {
-      paidIds: eligibleIds,
-      conflictIds,
-      notFoundIds,
-      totalPaidInPaise: totalPaid,
-      commissionsPaidInPaise: commissionsPaid,
-      labPayablesPaidInPaise: labPayablesPaid,
-    };
-  });
-}
 
 // ===========================================================================
 // BULK DERIVE + PREVIEW
@@ -2370,7 +1885,6 @@ export interface DerivePreviewWillBucket extends DerivePreviewBucket {
 export interface DerivePreviewAlreadyBucket extends DerivePreviewBucket {
   payoutId: string;
   amountInPaise: number;
-  isPaid: boolean;
 }
 
 export interface DerivePreviewResult {
@@ -2401,8 +1915,8 @@ async function resolveDoctorIds(
     const docs = await getClinicDoctors(true, branchId);
     return docs.map(d => ({ id: d.id, name: d.name }));
   }
-  const docs = await getDiagnosticCenters(true, branchId);
-  return docs.map(d => ({ id: d.id, name: d.name }));
+  const partners = await getPartners(true, branchId);
+  return partners.map((partner) => ({ id: partner.id, name: partner.name }));
 }
 
 async function getDoctorsByIds(
@@ -2421,7 +1935,7 @@ async function getDoctorsByIds(
       select: { id: true, name: true },
     });
   }
-  return prisma.diagnosticReferralCenter.findMany({
+  return prisma.partner.findMany({
     where: { id: { in: ids } },
     select: { id: true, name: true },
   });
@@ -2454,7 +1968,7 @@ export async function previewDerivePayouts(args: {
         periodEndDate: args.periodEndDate,
         deletedAt: null,
       },
-      select: { id: true, derivedAmountInPaise: true, paidAt: true },
+      select: { id: true, derivedAmountInPaise: true },
     });
     if (existing) {
       alreadyDerived.push({
@@ -2462,7 +1976,6 @@ export async function previewDerivePayouts(args: {
         doctorName: d.name,
         payoutId: existing.id,
         amountInPaise: existing.derivedAmountInPaise,
-        isPaid: existing.paidAt !== null,
       });
       continue;
     }
@@ -2536,8 +2049,6 @@ export async function derivePayoutsBulk(args: {
         periodEndDate: result.payout.periodEndDate,
         derivedAmountInPaise: result.payout.derivedAmountInPaise,
         derivedAt: result.payout.derivedAt,
-        paidAt: result.payout.paidAt,
-        paymentMethod: result.payout.paymentMethod,
       };
       if (result.isNew) {
         derived.push(summary);
@@ -2565,9 +2076,7 @@ export interface DoctorPayoutRollup {
   doctorType: PayoutDoctorType;
   doctorName: string;
   periodCount: number;
-  pendingTotalInPaise: number;
-  paidTotalInPaise: number;
-  lastPaidAt: Date | null;
+  accruedTotalInPaise: number;
 }
 
 /**
@@ -2586,7 +2095,7 @@ export async function groupPayoutsByDoctor(
         OR: [
           { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
           { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
-          { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
+          { partner: { name: { contains: q, mode: 'insensitive' as const } } },
         ],
       }
     : {};
@@ -2604,21 +2113,20 @@ export async function groupPayoutsByDoctor(
       doctorType: true,
       referralDoctorId: true,
       clinicDoctorId: true,
-      diagnosticCenterId: true,
+      partnerId: true,
       derivedAmountInPaise: true,
-      paidAt: true,
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
-      diagnosticCenter: { select: { name: true } },
+      partner: { select: { name: true } },
     },
   });
 
   const map = new Map<string, DoctorPayoutRollup>();
   for (const r of rows) {
     const doctorId =
-      r.referralDoctorId ?? r.clinicDoctorId ?? r.diagnosticCenterId ?? '';
+      r.referralDoctorId ?? r.clinicDoctorId ?? r.partnerId ?? '';
     const doctorName =
-      r.referralDoctor?.name ?? r.clinicDoctor?.name ?? r.diagnosticCenter?.name ?? '';
+      r.referralDoctor?.name ?? r.clinicDoctor?.name ?? r.partner?.name ?? '';
     const key = `${r.doctorType}:${doctorId}`;
 
     let bucket = map.get(key);
@@ -2628,22 +2136,13 @@ export async function groupPayoutsByDoctor(
         doctorType: r.doctorType,
         doctorName,
         periodCount: 0,
-        pendingTotalInPaise: 0,
-        paidTotalInPaise: 0,
-        lastPaidAt: null,
+        accruedTotalInPaise: 0,
       };
       map.set(key, bucket);
     }
 
     bucket.periodCount += 1;
-    if (r.paidAt) {
-      bucket.paidTotalInPaise += r.derivedAmountInPaise;
-      if (!bucket.lastPaidAt || r.paidAt > bucket.lastPaidAt) {
-        bucket.lastPaidAt = r.paidAt;
-      }
-    } else {
-      bucket.pendingTotalInPaise += r.derivedAmountInPaise;
-    }
+    bucket.accruedTotalInPaise += r.derivedAmountInPaise;
   }
 
   return Array.from(map.values()).sort((a, b) =>
