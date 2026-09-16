@@ -148,14 +148,39 @@ enum Title {
 enum PayoutDoctorType {
   REFERRAL
   CLINIC
-  DIAGNOSTIC_CENTER
-  LAB
+  /// One two-sided payee replacing the old DIAGNOSTIC_CENTER + LAB split: a real
+  /// partner is usually both directions at once, and settles on one net figure.
+  PARTNER
 }
 
 enum ReferralSourceType {
   SELF // In-house test
   REFERRED_TO // We refer TO another diagnostic center
   REFERRED_FROM // Referred FROM another diagnostic center to us
+}
+
+/// The three deals we can have with a partner. Which one applies to an order is
+/// DERIVED from the direction of the work — never chosen at the counter.
+enum PartnerArrangementKind {
+  INBOUND_BILLED_HERE // they send patients · we bill and collect · we owe them a cut
+  INBOUND_BILLED_THERE // they send patients · THEY bill and collect · they owe us our share
+  OUTBOUND_VENDOR // we send them work · we bill and collect · we owe them a vendor rate
+}
+
+/// What a partner rate is a rate OF. Set per rule, so one partner can hold a flat
+/// per-test card on lab work and a percentage on imaging.
+enum PartnerRateBasis {
+  PCT_OF_OUR_PRICE // % of our list price for the test
+  PCT_OF_PARTNER_BILLED // % of what the partner charged the patient
+  FLAT // fixed amount per product, regardless of price
+}
+
+/// How a referring doctor is paid on partner-sourced work. NONE is the Lalitha
+/// case: the partner IS the referrer, so no doctor is also paid.
+enum PartnerDoctorCommissionMode {
+  NONE
+  OUR_SHARE // base = what we keep (default — can never exceed what we got)
+  GROSS // base = the full price, as for a walk-in
 }
 
 enum ReferralPayoutType {
@@ -388,6 +413,35 @@ model ReferralCategoryRate {
   @@index([branchId])
 }
 
+/// ReferralProductRate: centre-wide DEFAULT referral rate for ONE product — the
+/// rung that was missing. Before this, a per-product rate could only be set per
+/// doctor, so "nobody earns more than ₹300 on an MRI Brain" had to be entered 226
+/// times. Sits BELOW both per-doctor rungs: a doctor rule is a deal struck with a
+/// named person and outranks a centre default, per-product or not.
+/// Resolution: doctor×product → doctor×category → CENTRE×product → CENTRE×category → ₹0
+model ReferralProductRate {
+  id        String  @id @default(cuid())
+  /// null = global default (every branch inherits it); set = per-branch override.
+  branchId  String?
+  productId String
+
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float?
+  commissionAmountInPaise Int?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch  Branch?         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  product BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, productId])
+  @@index([productId])
+  @@index([branchId])
+  @@index([isActive])
+}
+
 /// ReferralDoctorCategoryRule: per-doctor override of a category's referral rate.
 /// Only set when a specific doctor negotiated a different rate for a modality
 /// (e.g. "Dr X gets 35% on Lab"). Overrides ReferralCategoryRate; itself
@@ -537,7 +591,10 @@ model Branch {
   /// All data for this branch
   visits                    Visit[]
   referrals                 ReferralDoctor_Visit[]
-  diagnosticCenterReferrals DiagnosticCenter_Visit[]
+  partnerVisits             PartnerVisit[]
+  partnerCategoryRules      PartnerCategoryRule[]
+  partnerProductRules       PartnerProductRule[]
+  referralProductRates      ReferralProductRate[]
   bills                     Bill[]
   payoutLedger              DoctorPayoutLedger[]
   auditLogs                 AuditLog[]
@@ -709,8 +766,8 @@ model Visit {
   /// Explicit referrals (for diagnostics)
   referrals ReferralDoctor_Visit[]
 
-  /// External diagnostic center referrals (to/from)
-  diagnosticCenterReferrals DiagnosticCenter_Visit[]
+  /// The partner this visit came from, if any (at most one — a visit has one source)
+  partnerVisit PartnerVisit?
 
   /// Bill (one per visit)
   bill Bill?
@@ -963,13 +1020,22 @@ model TestOrder {
   referralCommissionType                  ReferralPayoutType     @default(PERCENTAGE)
   referralCommissionPercentage            Float? // 0-100 when payout type = PERCENTAGE
   referralCommissionAmountInPaise         Int? // Fixed payout snapshot when payout type = FIXED_AMOUNT
-  diagnosticCenterCommissionType          ReferralPayoutType?
-  diagnosticCenterCommissionPercentage    Float?
-  diagnosticCenterCommissionAmountInPaise Int?
-  externalLabId                           String? // non-null ⇒ this test is outsourced to this lab
-  labCostType                             ReferralPayoutType? // frozen vendor-cost basis (null ⇒ not outsourced)
-  labCostPercentage                       Float?
-  labCostAmountInPaise                    Int?
+  // ─── Partner money, frozen at order time ─────────────────────────────────
+  // Replaces the old diagnosticCenterCommission* (they send in) and labCost*
+  // (we send out) snapshot sets, which were the same idea modelled twice.
+  // partnerId non-null ⇒ this order came from, or went to, a partner.
+  //
+  // ourShareInPaise is the ONE number every money surface reads as "what we get";
+  // partnerCutInPaise is what we owe them. Exactly one is non-zero per
+  // arrangement — when they collect we are owed our share and owe nothing back;
+  // when we collect we keep the remainder and owe them their cut. Both are
+  // already distributed across panel leaves, so summing over a visit is correct.
+  partnerId          String?
+  partnerArrangement PartnerArrangementKind?
+  ourShareBasis      PartnerRateBasis?
+  ourSharePercent    Float?
+  ourShareInPaise    Int?
+  partnerCutInPaise  Int?
   displayOrder                            Int                    @default(0)
   createdAt                               DateTime               @default(now())
 
@@ -1027,7 +1093,7 @@ model TestOrder {
   test                LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
   testDefinition      TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
   product             BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  externalLab         ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
+  partner             Partner?         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   noReportByUser      User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
   reopenedByUser      User?            @relation("TestOrderReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
   uploadInsteadByUser User?            @relation("TestOrderUploadInsteadBy", fields: [uploadInsteadByUserId], references: [id], onDelete: SetNull)
@@ -1047,7 +1113,7 @@ model TestOrder {
   @@index([branchId])
   @@index([branchId, createdAt])
   @@index([workflowMode])
-  @@index([externalLabId])
+  @@index([partnerId])
 }
 
 /// OrderRefund: a per-order cancel or refund event (supports partial amounts).
@@ -1237,8 +1303,12 @@ model DoctorPayoutRule {
   @@index([referralDoctorId])
 }
 
-/// DoctorPayoutLedger: Immutable payout snapshot
-/// RULE: Once paidAt is set, row is immutable.
+/// DoctorPayoutLedger: what accrued to a payee over a period. A BOOK, not a
+/// tracker — it records how much is owed, never whether it moved. Settlement
+/// state (paidAt / reviewedAt / paymentMethod / paymentReferenceId) was removed
+/// on 16 Sep 2026: of 1,602 live rows only 6 were ever marked paid, the last on
+/// 26 Jun 2026, while rows kept deriving daily. Re-derivation is always safe
+/// because the amounts come from TestOrder snapshots frozen at order time.
 /// DERIVATION: 
 ///   - REFERRAL: Sum of (test price × commission %) for all finalized tests in period
 ///   - CLINIC: Sum of consultation fees for all completed visits in period
@@ -1247,25 +1317,19 @@ model DoctorPayoutLedger {
   doctorType           PayoutDoctorType // REFERRAL | CLINIC | DIAGNOSTIC_CENTER
   referralDoctorId     String? // Set when doctorType = REFERRAL
   clinicDoctorId       String? // Set when doctorType = CLINIC
-  diagnosticCenterId   String? // Set when doctorType = DIAGNOSTIC_CENTER
-  externalLabId        String? // Set when doctorType = LAB
+  partnerId            String? // Set when doctorType = PARTNER
   branchId             String
   periodStartDate      DateTime
   periodEndDate        DateTime
   derivedAmountInPaise Int // Fully derived, not manual
   derivedAt            DateTime // When calculation was done
-  reviewedAt           DateTime? // When reviewed by owner
-  paidAt               DateTime? // When marked paid (immutable after)
-  paymentMethod        PaymentType? // Cash, Online, Cheque
-  paymentReferenceId   String? // Cheque #, transaction ID, etc.
   notes                String?
   createdAt            DateTime         @default(now())
   deletedAt            DateTime? // Soft delete: hidden from all views; partial unique index allows re-derive after delete
 
   referralDoctor   ReferralDoctor?           @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
   clinicDoctor     ClinicDoctor?             @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
-  diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
-  externalLab      ExternalLab?              @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
+  partner          Partner?                  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   branch           Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
   statementTokens  StatementAccessToken[]
 
@@ -1273,14 +1337,12 @@ model DoctorPayoutLedger {
   // (WHERE deletedAt IS NULL) created in migration 20260511000000_add_payout_soft_delete.
   // Prisma cannot express partial uniques, so we declare a regular index here for
   // query performance only; the partial unique constraint lives in raw SQL.
-  @@index([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, externalLabId, branchId, periodStartDate, periodEndDate], name: "DoctorPayoutLedger_lookup_idx")
+  @@index([doctorType, referralDoctorId, clinicDoctorId, partnerId, branchId, periodStartDate, periodEndDate], name: "DoctorPayoutLedger_lookup_idx")
   @@index([doctorType])
   @@index([referralDoctorId])
   @@index([clinicDoctorId])
-  @@index([diagnosticCenterId])
-  @@index([externalLabId])
+  @@index([partnerId])
   @@index([branchId])
-  @@index([paidAt])
   @@index([deletedAt])
 }
 
@@ -1821,63 +1883,35 @@ model DerivedParameter {
 }
 
 // ─── Diagnostic Referral Centers ─────────────────────────────────
-model DiagnosticReferralCenter {
-  id                      String             @id @default(cuid())
-  name                    String
-  centerNumber            String             @unique
-  contactPerson           String?
-  phone                   String?
-  email                   String?
-  address                 String?
-  commissionType          ReferralPayoutType @default(PERCENTAGE)
-  commissionPercent       Float              @default(0)
-  commissionAmountInPaise Int?
-  isActive                Boolean            @default(true)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+// ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
+// ─── Partners (outside labs & referring centres) ─────────────────────────────
 
-  payoutLedger   DoctorPayoutLedger[]
-  visitReferrals DiagnosticCenter_Visit[]
-  productRules   DiagnosticCenterProductRule[]
-}
+/// Partner: one organisation we are tied up with — an outside lab, a referring
+/// hospital, a diagnostic centre. Replaces ExternalLab (we send out) and
+/// DiagnosticReferralCenter (they send in), which were the same relationship
+/// modelled twice in opposite directions: a real partner is usually both.
+/// Money direction lives on PartnerArrangement, never on the partner itself.
+model Partner {
+  id            String  @id @default(cuid())
+  partnerNumber String  @unique // PT-00001
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  isActive      Boolean @default(true)
 
-model DiagnosticCenterProductRule {
-  id                      String             @id @default(cuid())
-  diagnosticCenterId      String
-  productId               String
-  commissionType          ReferralPayoutType @default(PERCENTAGE)
-  commissionPercent       Float?
-  commissionAmountInPaise Int?
-  isActive                Boolean            @default(true)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  /// Patient-facing doors. sendBill OFF also closes the bill QR/token link and
+  /// greys the counter Print button (owner may override with a logged reason) —
+  /// the partner already billed this patient, so our bill is a contradiction.
+  sendBill   Boolean @default(false)
+  sendReport Boolean @default(true)
 
-  diagnosticCenter DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id], onDelete: Cascade)
-  product          BillableProduct          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([diagnosticCenterId, productId])
-  @@index([diagnosticCenterId])
-  @@index([productId])
-}
-
-/// ExternalLab: A vendor lab we outsource tests to (we owe them their rate).
-/// Payouts to an ExternalLab ride DoctorPayoutLedger as doctorType = LAB.
-model ExternalLab {
-  id                String             @id @default(cuid())
-  name              String
-  labNumber         String             @unique
-  contactPerson     String?
-  phone             String?
-  email             String?
-  address           String?
-  rateType          ReferralPayoutType @default(PERCENTAGE)
-  ratePercent       Float              @default(0)
-  rateAmountInPaise Int?
-  isActive          Boolean            @default(true)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  productRules ExternalLabProductRule[]
+  arrangements PartnerArrangement[]
+  visits       PartnerVisit[]
   testOrders   TestOrder[]
   payoutLedger DoctorPayoutLedger[]
 
@@ -1885,46 +1919,134 @@ model ExternalLab {
   @@index([createdAt])
 }
 
-/// ExternalLabProductRule: Per-product override of the lab rate, and (optionally)
-/// a reduced referring-doctor commission for tests outsourced to this lab.
-model ExternalLabProductRule {
-  id                                     String              @id @default(cuid())
-  externalLabId                          String
-  productId                              String
-  rateType                               ReferralPayoutType  @default(PERCENTAGE)
-  ratePercent                            Float?
-  rateAmountInPaise                      Int?
-  reducedReferralCommissionType          ReferralPayoutType? // null ⇒ doctor keeps normal commission
-  reducedReferralCommissionPercent       Float?
-  reducedReferralCommissionAmountInPaise Int?
-  isActive                               Boolean             @default(true)
-  createdAt                              DateTime            @default(now())
-  updatedAt                              DateTime            @updatedAt
+/// PartnerArrangement: ONE deal with a partner, and the bottom rung of its rate
+/// ladder. A partner holds at most one arrangement of each kind.
+model PartnerArrangement {
+  id        String                 @id @default(cuid())
+  partnerId String
+  kind      PartnerArrangementKind
+  isActive  Boolean                @default(true)
 
-  externalLab ExternalLab     @relation(fields: [externalLabId], references: [id], onDelete: Cascade)
-  product     BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// True when the patient's money crosses OUR counter for work under this deal.
+  /// Implied by kind for the two we ship with a user, but stored rather than
+  /// inferred so a partner who settles differently is one column, not a new kind.
+  weCollect Boolean
 
-  @@unique([externalLabId, productId])
-  @@index([externalLabId])
-  @@index([productId])
+  /// Default rate for this deal — overridden by category, then product rules.
+  ///
+  /// A rate ALWAYS expresses OUR SHARE: what we keep, never what they take. One
+  /// meaning across all three kinds, so it can never be read inverted:
+  ///   INBOUND_BILLED_HERE  we collect ₹300, our share 20% ⇒ keep ₹60, owe them ₹240
+  ///   INBOUND_BILLED_THERE they collect ₹300, our share 20% ⇒ they owe us ₹60
+  ///   OUTBOUND_VENDOR      we collect ₹750, our share 40% ⇒ keep ₹300, owe them ₹450
+  /// partnerCut is therefore always (standing charge − our share) when we collect,
+  /// and zero when they do — nothing flows from us on work we never billed.
+  rateBasis         PartnerRateBasis @default(PCT_OF_OUR_PRICE)
+  ratePercent       Float?
+  rateAmountInPaise Int?
+
+  /// How the referring doctor is paid on this deal's work.
+  doctorCommissionMode PartnerDoctorCommissionMode @default(OUR_SHARE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  partner       Partner               @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  categoryRules PartnerCategoryRule[]
+  productRules  PartnerProductRule[]
+
+  @@unique([partnerId, kind])
+  @@index([partnerId])
 }
 
-// ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
-model DiagnosticCenter_Visit {
-  id                 String             @id @default(cuid())
-  visitId            String
-  diagnosticCenterId String
-  branchId           String
-  referralType       ReferralSourceType @default(SELF)
-  createdAt          DateTime           @default(now())
+/// PartnerCategoryRule: this deal's rate for one payout category (Laboratory,
+/// CT / MRI, …). `category` is the same free-text taxonomy as
+/// BillableProduct.payoutCategory and ReferralCategoryRate — no FK, categories
+/// are centre-defined strings.
+model PartnerCategoryRule {
+  id            String @id @default(cuid())
+  arrangementId String
+  /// null = every branch; set = per-branch override, as on ReferralCategoryRate.
+  branchId      String?
+  category      String
 
-  visit            Visit                    @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  diagnosticCenter DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id])
-  branch           Branch                   @relation(fields: [branchId], references: [id])
+  rateBasis         PartnerRateBasis
+  ratePercent       Float?
+  rateAmountInPaise Int?
 
-  @@unique([visitId, diagnosticCenterId])
-  @@index([diagnosticCenterId])
+  /// null = inherit the arrangement's mode.
+  doctorCommissionMode PartnerDoctorCommissionMode?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  arrangement PartnerArrangement @relation(fields: [arrangementId], references: [id], onDelete: Cascade)
+  branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([arrangementId, branchId, category])
+  @@index([arrangementId])
   @@index([branchId])
+}
+
+/// PartnerProductRule: this deal's rate for one BillableProduct — the rung a real
+/// lab rate card lands on (Lalitha: CBP ₹60, CRP ₹100, URINE C/S ₹100, ESR ₹50).
+/// Keyed on the PRODUCT, not the leaf test: a CBP is 13 TestOrder rows, and the
+/// ₹60 is distributed across them at order time.
+model PartnerProductRule {
+  id            String  @id @default(cuid())
+  arrangementId String
+  /// null = every branch; set = per-branch override.
+  branchId      String?
+  productId     String
+
+  rateBasis         PartnerRateBasis
+  ratePercent       Float?
+  rateAmountInPaise Int?
+
+  /// null = inherit the arrangement's mode.
+  doctorCommissionMode PartnerDoctorCommissionMode?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  arrangement PartnerArrangement @relation(fields: [arrangementId], references: [id], onDelete: Cascade)
+  product     BillableProduct    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([arrangementId, branchId, productId])
+  @@index([arrangementId])
+  @@index([productId])
+  @@index([branchId])
+}
+
+/// PartnerVisit: this visit came from (or went to) a partner. Replaces
+/// DiagnosticCenter_Visit. One partner per visit — a visit has one source.
+model PartnerVisit {
+  id        String                 @id @default(cuid())
+  visitId   String                 @unique
+  partnerId String
+  branchId  String
+  /// Frozen: which deal sourced this visit. Kept here as well as on each order so
+  /// a visit-level read never has to join orders to know where it came from.
+  kind      PartnerArrangementKind
+
+  /// What the PARTNER charged the patient, in paise. Recorded when they billed
+  /// (Lalitha's ₹300, the referring hospital's ₹1,500). Null when we billed.
+  /// Never summed into a money total — it is theirs, not ours. Display only,
+  /// except where a rule's basis is PCT_OF_PARTNER_BILLED.
+  partnerBilledInPaise Int?
+
+  createdAt DateTime @default(now())
+
+  visit   Visit   @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId])
+  @@index([branchId])
+  @@index([kind])
 }
 
 // ============================================================================
@@ -2140,8 +2262,8 @@ model BillableProduct {
   branchPricing         ProductBranchPricing[]
   testOrders            TestOrder[]
   referralDoctorRules   ReferralDoctorProductRule[]
-  diagnosticCenterRules DiagnosticCenterProductRule[]
-  externalLabRules      ExternalLabProductRule[]
+  partnerProductRules   PartnerProductRule[]
+  referralProductRates  ReferralProductRate[]
   couponCampaign        CouponCampaign?               @relation(fields: [couponCampaignId], references: [id], onDelete: SetNull)
 
   @@index([code])
