@@ -198,82 +198,97 @@ async function main() {
   }
 
   const partnerNumber = await generateNextNumber('partner', 'PT');
-  await prisma.$transaction(async (tx) => {
-    const partner = await tx.partner.create({
-      data: {
-        name: PARTNER_NAME,
-        partnerNumber,
-        // She bills and hands the patient their report; our bill would be a
-        // second ₹300 document for the same test.
-        sendBill: false,
-        sendReport: false,
-        arrangements: {
-          create: {
-            kind: 'INBOUND_BILLED_THERE',
-            weCollect: false,
-            rateBasis: 'PCT_OF_OUR_PRICE',
-            ratePercent: 0, // every real rate is a product rule below
-            doctorCommissionMode: 'NONE',
-            productRules: {
-              create: products.map((p) => ({
-                productId: p.id,
-                rateBasis: 'FLAT' as const,
-                rateAmountInPaise: RATE_CARD[p.code],
-              })),
-            },
+
+  // Deliberately NOT one giant transaction. 408 visits and 4,729 orders is far
+  // past Prisma's 5s transaction timeout, and holding a write transaction open
+  // that long against the shared Neon instance is how the pool got exhausted
+  // before. Each step below is idempotent, so a failure mid-way can be re-run.
+  const partner = await prisma.partner.create({
+    data: {
+      name: PARTNER_NAME,
+      partnerNumber,
+      // She bills and hands the patient their report; our bill would be a
+      // second ₹300 document for the same test.
+      sendBill: false,
+      sendReport: false,
+      arrangements: {
+        create: {
+          kind: 'INBOUND_BILLED_THERE',
+          weCollect: false,
+          rateBasis: 'PCT_OF_OUR_PRICE',
+          ratePercent: 0, // every real rate is a product rule below
+          doctorCommissionMode: 'NONE',
+          productRules: {
+            create: products.map((p) => ({
+              productId: p.id,
+              rateBasis: 'FLAT' as const,
+              rateAmountInPaise: RATE_CARD[p.code],
+            })),
           },
         },
       },
-      include: { arrangements: true },
-    });
+    },
+  });
+  console.log(`  partner ${partnerNumber} created with ${products.length} product rules`);
 
-    for (const link of links) {
-      await tx.partnerVisit.upsert({
-        where: { visitId: link.visitId },
-        update: {},
-        create: {
-          visitId: link.visitId,
+  // One row per visit; skipDuplicates makes a re-run harmless.
+  const pv = await prisma.partnerVisit.createMany({
+    data: links.map((l) => ({
+      visitId: l.visitId,
+      partnerId: partner.id,
+      branchId: l.visit.branchId,
+      kind: 'INBOUND_BILLED_THERE' as const,
+      partnerBilledInPaise: null, // what she charged lives on her sheet, not ours
+    })),
+    skipDuplicates: true,
+  });
+  console.log(`  ${pv.count} visits linked to the partner`);
+
+  // Orders grouped by the share they carry, so 4,729 rows go out as a handful of
+  // updateMany calls rather than 4,729 round trips.
+  const byShare = new Map<number, string[]>();
+  for (const [orderId, share] of shareByOrder) {
+    byShare.set(share, [...(byShare.get(share) ?? []), orderId]);
+  }
+  let updated = 0;
+  for (const [share, ids] of byShare) {
+    for (let i = 0; i < ids.length; i += 500) {
+      const res = await prisma.testOrder.updateMany({
+        where: { id: { in: ids.slice(i, i + 500) } },
+        data: {
           partnerId: partner.id,
-          branchId: link.visit.branchId,
-          kind: 'INBOUND_BILLED_THERE',
-          // What she charged is on her sheet, not in our system, per visit.
-          partnerBilledInPaise: null,
+          partnerArrangement: 'INBOUND_BILLED_THERE',
+          ourShareBasis: 'FLAT',
+          ourSharePercent: null,
+          ourShareInPaise: share,
+          partnerCutInPaise: 0, // she collected; nothing flows from us
+          // The 50% that should never have accrued.
+          referralCommissionType: 'PERCENTAGE',
+          referralCommissionPercentage: 0,
+          referralCommissionAmountInPaise: null,
         },
       });
-      for (const o of link.visit.testOrders) {
-        await tx.testOrder.update({
-          where: { id: o.id },
-          data: {
-            partnerId: partner.id,
-            partnerArrangement: 'INBOUND_BILLED_THERE',
-            ourShareBasis: 'FLAT',
-            ourSharePercent: null,
-            ourShareInPaise: shareByOrder.get(o.id) ?? 0,
-            partnerCutInPaise: 0, // she collected; nothing flows from us
-            // The 50% that should never have accrued.
-            referralCommissionType: 'PERCENTAGE',
-            referralCommissionPercentage: 0,
-            referralCommissionAmountInPaise: null,
-          },
-        });
-      }
+      updated += res.count;
     }
+  }
+  console.log(`  ${updated} test orders re-snapshotted across ${byShare.size} distinct share values`);
 
-    // Her ledger rows point the wrong way; soft-delete rather than destroy, so
-    // the history stays inspectable.
-    await tx.doctorPayoutLedger.updateMany({
-      where: { referralDoctorId: doctor.id, deletedAt: null },
-      data: { deletedAt: new Date() },
-    });
-
-    // Retire the impostor doctor row so nobody picks it at the counter again.
-    await tx.referralDoctor.update({
-      where: { id: doctor.id },
-      data: { isActive: false, name: `${DOCTOR_NAME} (migrated → ${partnerNumber})` },
-    });
+  // Her ledger rows point the wrong way; soft-delete rather than destroy, so the
+  // history stays inspectable.
+  const led = await prisma.doctorPayoutLedger.updateMany({
+    where: { referralDoctorId: doctor.id, deletedAt: null },
+    data: { deletedAt: new Date() },
   });
+  console.log(`  ${led.count} wrong-direction ledger rows soft-deleted`);
 
-  console.log(`\n✓ Committed. ${PARTNER_NAME} is ${partnerNumber}, ${links.length} visits moved, ${ordersTouched} orders re-snapshotted.\n`);
+  // Retire the impostor doctor row so nobody picks it at the counter again.
+  await prisma.referralDoctor.update({
+    where: { id: doctor.id },
+    data: { isActive: false, name: `${DOCTOR_NAME} (migrated → ${partnerNumber})` },
+  });
+  console.log(`  old doctor row retired`);
+
+  console.log(`\n✓ Committed. ${PARTNER_NAME} is ${partnerNumber}.\n`);
   await prisma.$disconnect();
 }
 
