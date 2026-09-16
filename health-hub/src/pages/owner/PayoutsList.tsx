@@ -786,7 +786,7 @@ function RowsTable({
       <thead>
         <tr style={{ color: TOKENS.textTertiary, fontSize: 11, textAlign: "left" }}>
           {selectMode && <th className="py-1 pl-3 font-normal" style={{ width: 28 }} />}
-          <th className="py-1 font-normal">Payee</th>
+          <th className={`py-1 font-normal${selectMode ? "" : " pl-3"}`}>Payee</th>
           <th className="py-1 text-right font-normal">Amount</th>
           <th className="py-1 pr-3 text-right font-normal">Actions</th>
         </tr>
@@ -802,7 +802,7 @@ function RowsTable({
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => onToggle(r.id)} />
                 </td>
               )}
-              <td className="py-2">
+              <td className={`py-2${selectMode ? "" : " pl-3"}`}>
                 {/* The payee name is the primary drill-in — opens the statement. */}
                 <button
                   className="text-left hover:underline"

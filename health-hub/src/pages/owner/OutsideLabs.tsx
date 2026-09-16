@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { OwnerPageHeader, SectionCard, EmptyState, FullPageSkeleton, TOKENS } from "./_shared/ownerUi";
 import { formatRupees } from "@/lib/payoutFormatters";
+import { useReferralCategories } from "@/lib/payoutCategories";
 import type {
   Partner,
   PartnerArrangementKind,
@@ -58,6 +59,12 @@ interface RuleRow {
   ratePercent: string;
   rateAmount: string;
 }
+/** A category rung row. Blank value = inherit the arrangement's default. */
+interface CatRow {
+  rateBasis: PartnerRateBasis;
+  ratePercent: string;
+  rateAmount: string;
+}
 interface ArrangementForm {
   enabled: boolean;
   rateBasis: PartnerRateBasis;
@@ -65,6 +72,7 @@ interface ArrangementForm {
   rateAmount: string;
   doctorCommissionMode: PartnerDoctorCommissionMode;
   rules: RuleRow[];
+  cats: Record<string, CatRow>;
 }
 
 /** The deal, asked in words. Enum names never reach the screen. */
@@ -72,6 +80,10 @@ const KINDS: {
   kind: PartnerArrangementKind;
   label: string;
   hint: string;
+  /** Where the patient's money goes. The only thing that really separates these. */
+  flow: string;
+  /** Which way the settlement points, and therefore which colour it wears. */
+  settle: "they owe us" | "we owe them";
   example?: string;
   inbound: boolean;
 }[] = [
@@ -79,19 +91,25 @@ const KINDS: {
     kind: "INBOUND_BILLED_THERE",
     label: "They send patients, they bill",
     hint: "They collect from the patient and owe us our share.",
-    example: "Lalitha Hospital",
+    flow: "patient → them → us",
+    settle: "they owe us",
+    example: "Lalitha",
     inbound: true,
   },
   {
     kind: "INBOUND_BILLED_HERE",
     label: "They send patients, we bill",
-    hint: "We collect at the counter and owe them their cut.",
+    hint: "We collect at the counter and keep our share.",
+    flow: "patient → us → them",
+    settle: "we owe them",
     inbound: true,
   },
   {
     kind: "OUTBOUND_VENDOR",
     label: "We send them work",
-    hint: "We collect at the counter and owe them a vendor rate.",
+    hint: "We collect at the counter and pay them a vendor rate.",
+    flow: "patient → us → them",
+    settle: "we owe them",
     inbound: false,
   },
 ];
@@ -109,7 +127,13 @@ const emptyArrangement = (): ArrangementForm => ({
   rateAmount: "0",
   doctorCommissionMode: "OUR_SHARE",
   rules: [],
+  cats: {},
 });
+
+const blankCat = (): CatRow => ({ rateBasis: "PCT_OF_OUR_PRICE", ratePercent: "", rateAmount: "" });
+/** A rung is set only when its value box has something in it. */
+const catFilled = (c?: CatRow) =>
+  !!c && (c.rateBasis === "FLAT" ? c.rateAmount !== "" : c.ratePercent !== "");
 const blankArrangements = () =>
   Object.fromEntries(KINDS.map((k) => [k.kind, emptyArrangement()])) as Record<
     PartnerArrangementKind,
@@ -135,6 +159,7 @@ function rateLabel(basis: PartnerRateBasis, pct: number | null, amt: number | nu
 export default function OutsideLabs() {
   const navigate = useNavigate();
   const branchId = useBranchId();
+  const categories = useReferralCategories();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -226,6 +251,16 @@ export default function OutsideLabs() {
                   ratePercent: String(r.ratePercent ?? 0),
                   rateAmount: String((r.rateAmountInPaise ?? 0) / 100),
                 })),
+                cats: Object.fromEntries(
+                  (a.categoryRules ?? []).map((r) => [
+                    r.category!,
+                    {
+                      rateBasis: r.rateBasis,
+                      ratePercent: r.rateBasis === "FLAT" ? "" : String(r.ratePercent ?? ""),
+                      rateAmount: r.rateBasis === "FLAT" ? String((r.rateAmountInPaise ?? 0) / 100) : "",
+                    },
+                  ]),
+                ),
               } as ArrangementForm)
             : emptyArrangement(),
         ];
@@ -275,6 +310,16 @@ export default function OutsideLabs() {
                 ratePercent: Number(r.ratePercent || 0),
                 rateAmount: Number(r.rateAmount || 0),
               })),
+            // Only categories the owner actually typed a value into become
+            // rules; a blank row means "inherit", not "zero".
+            categoryRules: Object.entries(a.cats)
+              .filter(([, c]) => catFilled(c))
+              .map(([category, c]) => ({
+                category,
+                rateBasis: c.rateBasis,
+                ratePercent: Number(c.ratePercent || 0),
+                rateAmount: Number(c.rateAmount || 0),
+              })),
           };
         }),
       },
@@ -289,163 +334,188 @@ export default function OutsideLabs() {
       return n;
     });
 
-  const renderGroup = (
-    title: string,
-    rows: Partner[],
-    out: boolean,
-    subtitle: React.ReactNode,
-  ) => (
-    <div className="mb-3">
-      {out && (
-        <div
-          className="mb-1.5 mt-3 flex items-center gap-2 font-medium uppercase"
-          style={{ fontSize: 11, letterSpacing: "0.05em", color: TOKENS.caution }}
-        >
-          <span style={{ flex: 1, height: 1, background: "#e0cfa3" }} />
-          {title}
-          <span style={{ flex: 1, height: 1, background: "#e0cfa3" }} />
-        </div>
-      )}
-      <SectionCard padding={0}>
+  /**
+   * One row = one partner under one direction. Laid out as a flex line rather
+   * than a fixed-column table: with only a handful of columns, fixed widths left
+   * voids that made the row read as scattered islands instead of a sentence.
+   * The rate card takes the slack, because it is the part that varies.
+   */
+  const partnerRow = (p: Partner, out: boolean) => {
+    const deal = p.arrangements.find((a) =>
+      out ? a.kind === "OUTBOUND_VENDOR" : a.kind !== "OUTBOUND_VENDOR",
+    );
+    const rules = deal?.productRules ?? [];
+    const cats = deal?.categoryRules ?? [];
+    const rowKey = p.id + (out ? ":o" : ":i");
+    const open = expanded.has(rowKey);
+    return (
+      <Fragment key={rowKey}>
         <div
           className="flex items-center gap-3 px-3 py-2"
-          style={{
-            background: out ? "#fbf7ee" : "#f6f5f2",
-            borderTopLeftRadius: 12,
-            borderTopRightRadius: 12,
-          }}
+          style={{ borderTop: `0.5px solid ${TOKENS.border}`, opacity: p.isActive ? 1 : 0.45 }}
         >
-          <span className="font-medium" style={{ fontSize: 12 }}>
-            {out ? "Outbound" : title}
+          <button onClick={() => toggleExpand(rowKey)} className="shrink-0">
+            <ChevronDown
+              className="h-3.5 w-3.5 transition-transform"
+              style={{ transform: open ? "none" : "rotate(-90deg)", color: TOKENS.textTertiary }}
+            />
+          </button>
+          <span
+            className="shrink-0 tabular-nums"
+            style={{ fontSize: 11.5, color: TOKENS.textTertiary }}
+          >
+            {p.partnerNumber}
           </span>
-          <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>{subtitle}</span>
-        </div>
-        {rows.length === 0 ? (
-          <div className="px-3 py-4" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-            None yet.
+          <span className="shrink-0 font-medium" style={{ fontSize: 13 }}>
+            {p.name}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate"
+            style={{ fontSize: 12, color: TOKENS.textSecondary }}
+          >
+            {rules.length > 0 ? (
+              rules.slice(0, 4).map((r, i) => (
+                <span key={r.id}>
+                  {i > 0 && <span style={{ color: TOKENS.textTertiary }}> · </span>}
+                  {r.product?.code ?? "?"}{" "}
+                  <span style={{ color: TOKENS.textPrimary, fontWeight: 600 }}>
+                    {r.rateBasis === "FLAT" ? formatRupees(r.rateAmountInPaise ?? 0) : `${r.ratePercent}%`}
+                  </span>
+                </span>
+              ))
+            ) : deal ? (
+              rateLabel(deal.rateBasis, deal.ratePercent, deal.rateAmountInPaise)
+            ) : null}
+            {rules.length > 4 && (
+              <span style={{ color: TOKENS.textTertiary }}> +{rules.length - 4}</span>
+            )}
+            {cats.length > 0 && (
+              <span style={{ color: TOKENS.textTertiary }}>
+                {" "}
+                · {cats.length} category
+              </span>
+            )}
+          </span>
+          {!p.sendBill && (
+            <span
+              className="shrink-0"
+              style={{
+                fontSize: 10.5,
+                border: `0.5px solid ${TOKENS.border}`,
+                borderRadius: 4,
+                padding: "1px 5px",
+                color: TOKENS.textTertiary,
+              }}
+            >
+              bill held
+            </span>
+          )}
+          <div className="flex shrink-0 items-center gap-2">
+            <Switch checked={p.isActive} onCheckedChange={() => toggleActive.mutate(p)} />
+            <button onClick={() => edit(p)} title="Edit">
+              <Pencil className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
+            </button>
+            <button onClick={() => setDeleteId(p.id)} title="Deactivate">
+              <X className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
+            </button>
           </div>
-        ) : (
-          <table className="w-full">
-            <tbody>
-              {rows.map((p) => {
-                const deal = p.arrangements.find((a) =>
-                  out ? a.kind === "OUTBOUND_VENDOR" : a.kind !== "OUTBOUND_VENDOR",
-                );
-                const rules = deal?.productRules ?? [];
-                const rowKey = p.id + (out ? ":o" : ":i");
-                const open = expanded.has(rowKey);
-                return (
-                  <Fragment key={rowKey}>
-                    <tr style={{ borderTop: `0.5px solid ${TOKENS.border}`, opacity: p.isActive ? 1 : 0.5 }}>
-                      <td className="py-2 pl-3" style={{ width: 26 }}>
-                        <button onClick={() => toggleExpand(rowKey)}>
-                          <ChevronDown
-                            className="h-3.5 w-3.5 transition-transform"
-                            style={{ transform: open ? "none" : "rotate(-90deg)", color: TOKENS.textTertiary }}
-                          />
-                        </button>
-                      </td>
-                      <td className="py-2" style={{ width: 92, fontSize: 12, color: TOKENS.textSecondary }}>
-                        {p.partnerNumber}
-                      </td>
-                      <td className="py-2 font-medium">{p.name}</td>
-                      <td className="py-2" style={{ fontSize: 12, color: TOKENS.textSecondary }}>
-                        {rules.length > 0
-                          ? rules.slice(0, 3).map((r, i) => (
-                              <span key={r.id}>
-                                {i > 0 && " · "}
-                                {r.product?.code ?? "—"}{" "}
-                                <span style={{ color: TOKENS.textPrimary, fontWeight: 600 }}>
-                                  {r.rateBasis === "FLAT"
-                                    ? formatRupees(r.rateAmountInPaise ?? 0)
-                                    : `${r.ratePercent}%`}
-                                </span>
-                              </span>
-                            ))
-                          : deal
-                            ? rateLabel(deal.rateBasis, deal.ratePercent, deal.rateAmountInPaise)
-                            : "—"}
-                        {rules.length > 3 && (
-                          <span style={{ color: TOKENS.textTertiary }}> +{rules.length - 3}</span>
-                        )}
-                      </td>
-                      <td className="py-2" style={{ width: 120, fontSize: 11 }}>
-                        {!p.sendBill && (
-                          <span
-                            style={{
-                              border: `1px solid ${TOKENS.border}`,
-                              borderRadius: 4,
-                              padding: "1px 5px",
-                              color: TOKENS.textTertiary,
-                            }}
-                          >
-                            bill held
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-3 text-right" style={{ width: 110 }}>
-                        <Switch
-                          className="mr-2 align-middle"
-                          checked={p.isActive}
-                          onCheckedChange={() => toggleActive.mutate(p)}
-                        />
-                        <button className="mr-1 align-middle" onClick={() => edit(p)}>
-                          <Pencil className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
-                        </button>
-                        <button className="align-middle" onClick={() => setDeleteId(p.id)}>
-                          <X className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
-                        </button>
-                      </td>
-                    </tr>
-                    {open && (
-                      <tr style={{ background: "#fcfcfb" }}>
-                        <td colSpan={6} className="px-3 py-3">
-                          <div style={{ fontSize: 12, color: TOKENS.textSecondary, marginBottom: 6 }}>
-                            {KINDS.find((k) => k.kind === deal?.kind)?.hint}
-                          </div>
-                          {rules.length > 0 && (
-                            <table className="w-full" style={{ maxWidth: 460 }}>
-                              <tbody>
-                                {rules.map((r) => (
-                                  <tr key={r.id}>
-                                    <td style={{ fontSize: 12, padding: "2px 0" }}>
-                                      {r.product?.name ?? productName(r.productId!)}
-                                    </td>
-                                    <td
-                                      className="text-right font-medium tabular-nums"
-                                      style={{ fontSize: 12, padding: "2px 0" }}
-                                    >
-                                      {r.rateBasis === "FLAT"
-                                        ? formatRupees(r.rateAmountInPaise ?? 0)
-                                        : `${r.ratePercent}%`}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                          {/* Pay-Run's statement route is /owner/payouts/:id
-                              where id is "<payeeType>.<payeeId>" — land on THIS
-                              partner's statement, not the top of the list. */}
-                          <button
-                            className="mt-2"
-                            style={{ color: TOKENS.info, fontSize: 12 }}
-                            onClick={() => navigate(`/owner/payouts/PARTNER.${p.id}`)}
-                          >
-                            <Printer className="mr-1 inline h-3 w-3" />
-                            Open {p.name}'s statement →
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+        </div>
+
+        {open && (
+          <div
+            className="px-3 py-3"
+            style={{ borderTop: `0.5px solid ${TOKENS.border}`, background: "#fcfcfb" }}
+          >
+            <div style={{ fontSize: 12, color: TOKENS.textSecondary, marginBottom: 8 }}>
+              {KINDS.find((k) => k.kind === deal?.kind)?.hint}
+            </div>
+            {(rules.length > 0 || cats.length > 0) && (
+              <div style={{ maxWidth: 380 }}>
+                {cats.map((r) => (
+                  <div key={r.id} className="flex justify-between" style={{ fontSize: 12, padding: "2px 0" }}>
+                    <span style={{ color: TOKENS.textSecondary }}>{r.category}</span>
+                    <span className="font-medium tabular-nums">
+                      {r.rateBasis === "FLAT" ? formatRupees(r.rateAmountInPaise ?? 0) : `${r.ratePercent}%`}
+                    </span>
+                  </div>
+                ))}
+                {rules.map((r) => (
+                  <div key={r.id} className="flex justify-between" style={{ fontSize: 12, padding: "2px 0" }}>
+                    <span>{r.product?.name ?? productName(r.productId!)}</span>
+                    <span className="font-medium tabular-nums">
+                      {r.rateBasis === "FLAT" ? formatRupees(r.rateAmountInPaise ?? 0) : `${r.ratePercent}%`}
+                    </span>
+                  </div>
+                ))}
+                <div
+                  className="mt-1 flex justify-between"
+                  style={{ fontSize: 12, borderTop: `0.5px solid ${TOKENS.border}`, paddingTop: 4, color: TOKENS.textTertiary }}
+                >
+                  <span>Anything else</span>
+                  <span className="tabular-nums">
+                    {deal ? rateLabel(deal.rateBasis, deal.ratePercent, deal.rateAmountInPaise) : "—"}
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Pay-Run's statement route is /owner/payouts/:id where id is
+                "<payeeType>.<payeeId>" — land on THIS partner, not the list. */}
+            <button
+              className="mt-2.5"
+              style={{ color: TOKENS.info, fontSize: 12 }}
+              onClick={() => navigate(`/owner/payouts/PARTNER.${p.id}`)}
+            >
+              <Printer className="mr-1 inline h-3 w-3" />
+              {p.name}'s statement in Pay-Run →
+            </button>
+          </div>
         )}
-      </SectionCard>
-    </div>
+      </Fragment>
+    );
+  };
+
+  /** Both directions live in ONE card, split by a tinted bar — an empty section
+   *  gets a single quiet line rather than its own card, rule and empty state. */
+  const directions = (
+    <SectionCard padding={0}>
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        style={{ background: "#f6f5f2", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+      >
+        <span className="font-medium" style={{ fontSize: 12 }}>
+          They send us patients
+        </span>
+        <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+          {inbound.length || "none"}
+        </span>
+      </div>
+      {inbound.length === 0 ? (
+        <div className="px-3 py-2.5" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+          No inbound partners yet.
+        </div>
+      ) : (
+        inbound.map((p) => partnerRow(p, false))
+      )}
+
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        style={{ background: "#fbf7ee", borderTop: `0.5px solid ${TOKENS.border}` }}
+      >
+        <span className="font-medium" style={{ fontSize: 12, color: TOKENS.caution }}>
+          We send them work
+        </span>
+        <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+          {outbound.length || "none"}
+        </span>
+      </div>
+      {outbound.length === 0 ? (
+        <div className="px-3 py-2.5" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+          Nothing sent out. Add an outbound arrangement on a partner when you start.
+        </div>
+      ) : (
+        outbound.map((p) => partnerRow(p, true))
+      )}
+    </SectionCard>
   );
 
   return (
@@ -485,72 +555,50 @@ export default function OutsideLabs() {
             </div>
           </SectionCard>
         ) : (
-          <>
-            {renderGroup(
-              "They send us patients",
-              inbound,
-              false,
-              <>
-                {inbound.length} {inbound.length === 1 ? "partner" : "partners"}
-              </>,
-            )}
-            {renderGroup(
-              "We send them work",
-              outbound,
-              true,
-              <>
-                {outbound.length} {outbound.length === 1 ? "partner" : "partners"}
-              </>,
-            )}
-          </>
+          directions
         )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={(o) => (o ? setDialogOpen(true) : reset())}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[640px]">
-          <DialogHeader>
-            <DialogTitle style={{ fontSize: 16 }}>
-              {editingId ? "Edit partner" : "Add partner"}
+        <DialogContent
+          className="max-h-[86vh] gap-0 overflow-y-auto p-0 sm:max-w-[560px]"
+          style={{ background: TOKENS.surface }}
+        >
+          <DialogHeader
+            className="px-4 py-2.5"
+            style={{ background: "#f6f5f2", borderBottom: `0.5px solid ${TOKENS.border}` }}
+          >
+            <DialogTitle
+              className="font-medium uppercase"
+              style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
+            >
+              {editingId ? "Edit partner" : "New partner"}
             </DialogTitle>
           </DialogHeader>
 
           {/* Stepped: one question per screen. The first version put three
               arrangements, three bases, a doctor mode and a rate card on one
               scroll, which is why it read as a wall. */}
-          <div className="flex" style={{ borderBottom: `0.5px solid ${TOKENS.border}` }}>
+          <div className="flex px-4" style={{ borderBottom: `0.5px solid ${TOKENS.border}` }}>
             {STEPS.map((label, i) => (
               <button
                 key={label}
                 onClick={() => setStep(i)}
-                className="px-3 py-2"
+                className="py-2 pr-5 font-medium uppercase"
                 style={{
-                  fontSize: 12,
+                  fontSize: 10.5,
+                  letterSpacing: "0.06em",
                   color: i === step ? TOKENS.textPrimary : TOKENS.textTertiary,
-                  fontWeight: i === step ? 600 : 400,
-                  borderBottom: `2px solid ${i === step ? TOKENS.textPrimary : "transparent"}`,
+                  borderBottom: `1.5px solid ${i === step ? TOKENS.textPrimary : "transparent"}`,
+                  marginBottom: -1,
                 }}
               >
-                <span
-                  className="mr-1.5 inline-block text-center"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    lineHeight: "16px",
-                    borderRadius: 99,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    background: i === step ? TOKENS.textPrimary : "#eceae5",
-                    color: i === step ? "#fff" : TOKENS.textSecondary,
-                  }}
-                >
-                  {i + 1}
-                </span>
-                {label}
+                {i + 1} · {label}
               </button>
             ))}
           </div>
 
-          <div className="pt-1">
+          <div className="px-4 py-3.5">
             {step === 0 && (
               <>
                 <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
@@ -625,8 +673,74 @@ export default function OutsideLabs() {
                       <div className="mb-2 font-medium" style={{ fontSize: 12 }}>
                         {k.label}
                       </div>
+                      <div
+                        className="mb-2 rounded-r px-3 py-1.5"
+                        style={{ borderLeft: `2px solid ${TOKENS.border}`, background: "#fafaf8", fontSize: 11.5, color: TOKENS.textTertiary }}
+                      >
+                        Most specific wins: <b style={{ color: TOKENS.textSecondary }}>a named test</b> beats{" "}
+                        <b style={{ color: TOKENS.textSecondary }}>its category</b>, which beats{" "}
+                        <b style={{ color: TOKENS.textSecondary }}>the catch-all</b>.
+                      </div>
+
                       <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                        WHAT WE KEEP, PER TEST
+                        BY CATEGORY
+                      </label>
+                      <div className="mb-3">
+                        {categories.map((cat) => {
+                          const c = a.cats[cat] ?? blankCat();
+                          const set = catFilled(c);
+                          const patchCat = (v: Partial<CatRow>) =>
+                            patch(k.kind, { cats: { ...a.cats, [cat]: { ...c, ...v } } });
+                          return (
+                            <div key={cat} className="mb-1 grid grid-cols-12 items-center gap-2">
+                              <div
+                                className="col-span-5"
+                                style={{ fontSize: 12.5, color: set ? TOKENS.textPrimary : TOKENS.textSecondary }}
+                              >
+                                {cat}
+                              </div>
+                              <div className="col-span-4">
+                                <Select
+                                  value={c.rateBasis}
+                                  onValueChange={(v) => patchCat({ rateBasis: v as PartnerRateBasis })}
+                                >
+                                  <SelectTrigger className="h-7" style={{ fontSize: 12 }}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="PCT_OF_OUR_PRICE">% our price</SelectItem>
+                                    <SelectItem value="PCT_OF_PARTNER_BILLED">% their bill</SelectItem>
+                                    <SelectItem value="FLAT">Flat ₹</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="col-span-3">
+                                <Input
+                                  className="h-7"
+                                  style={{ fontSize: 12 }}
+                                  /* Blank means inherit the catch-all — the placeholder
+                                     shows what it would inherit, so an empty box is
+                                     never mistaken for a zero rate. */
+                                  placeholder={
+                                    a.rateBasis === "FLAT" ? a.rateAmount || "0" : `${a.ratePercent || "0"}%`
+                                  }
+                                  value={c.rateBasis === "FLAT" ? c.rateAmount : c.ratePercent}
+                                  onChange={(e) =>
+                                    patchCat(
+                                      c.rateBasis === "FLAT"
+                                        ? { rateAmount: e.target.value }
+                                        : { ratePercent: e.target.value },
+                                    )
+                                  }
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
+                        BY TEST <span style={{ fontWeight: 400, color: TOKENS.textTertiary }}>· overrides its category</span>
                       </label>
                       {a.rules.map((r, i) => (
                         <div key={i} className="mb-1.5 grid grid-cols-12 gap-2">

@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><title>Outside Labs — built markup</title>
+<style>
+ :root{--healthy:#0F6E56;--caution:#854F0B;--info:#185FA5;--t1:#1F1F1E;--t2:#5F5E5A;--t3:#888780;
+       --surface:#fff;--page:#FAFAF8;--border:rgba(0,0,0,.08);--borderStrong:rgba(0,0,0,.15)}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--page);color:var(--t1);
+      font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+ .wrap{max-width:1100px;margin:0 auto;padding:26px 24px}
+ .hdr{display:flex;align-items:flex-start;margin-bottom:14px}
+ .hdr h1{font-size:19px;margin:0 0 2px}
+ .hdr p{font-size:12px;color:var(--t2);margin:0}
+ .sp{flex:1}
+ .lnk{color:var(--info);font-size:13px;background:none;border:0;cursor:pointer;margin-right:12px}
+ .btn{background:#1F1F1E;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500}
+ .card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;overflow:hidden}
+ .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px}
+ .bar.in{background:#f6f5f2}
+ .bar.out{background:#fbf7ee;border-top:.5px solid var(--border)}
+ .bar .nm{font-weight:500}
+ .bar .ct{color:var(--t3)}
+ .row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-top:.5px solid var(--border)}
+ .chev{color:var(--t3);font-size:10px;flex:0 0 auto;width:14px}
+ .pn{flex:0 0 auto;font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums}
+ .nm{flex:0 0 auto;font-size:13px;font-weight:500}
+ .rates{flex:1 1 auto;min-width:0;font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .rates b{color:var(--t1);font-weight:600}
+ .rates .sep{color:var(--t3)}
+ .tag{flex:0 0 auto;font-size:10.5px;border:.5px solid var(--border);border-radius:4px;padding:1px 5px;color:var(--t3)}
+ .acts{flex:0 0 auto;display:flex;align-items:center;gap:8px;color:var(--t3)}
+ .sw{width:30px;height:17px;border-radius:99px;background:#1F1F1E;position:relative;display:inline-block}
+ .sw::after{content:"";position:absolute;top:2px;right:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+ .none{padding:10px 12px;font-size:12px;color:var(--t3)}
+ .exp{padding:12px;border-top:.5px solid var(--border);background:#fcfcfb}
+ .exp .hint{font-size:12px;color:var(--t2);margin-bottom:8px}
+ .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;max-width:380px}
+ .kv .r{font-weight:600;font-variant-numeric:tabular-nums}
+ .kv.last{border-top:.5px solid var(--border);padding-top:4px;margin-top:4px;color:var(--t3)}
+ .kv.last .r{font-weight:400}
+ .stmt{margin-top:10px;color:var(--info);font-size:12px;background:none;border:0;cursor:pointer;padding:0}
+</style>
+<div class="wrap">
+  <div class="hdr">
+    <div><h1>Payouts · Outside Labs</h1>
+      <p>Who we exchange work with, and what we keep. No money is settled here — Pay-Run owns the period.</p></div>
+    <div class="sp"></div>
+    <button class="lnk">Partner settlements →</button>
+    <button class="btn">+ Add partner</button>
+  </div>
+
+  <div class="card">
+    <div class="bar in"><span class="nm">They send us patients</span><span class="ct">1</span></div>
+
+    <div class="row">
+      <span class="chev">▾</span>
+      <span class="pn">PT-000001</span>
+      <span class="nm">LALITHA HOSPITAL</span>
+      <span class="rates">CBP <b>₹60</b><span class="sep"> · </span>CRP <b>₹100</b><span class="sep"> · </span>UCS <b>₹100</b><span class="sep"> · </span>ESR <b>₹50</b><span class="sep"> +1</span></span>
+      <span class="tag">bill held</span>
+      <span class="acts"><span class="sw"></span>✎ ✕</span>
+    </div>
+    <div class="exp">
+      <div class="hint">They collect from the patient and owe us our share.</div>
+      <div class="kv"><span>COMPLETE BLOOD PICTURE</span><span class="r">₹60</span></div>
+      <div class="kv"><span>C-REACTIVE PROTEIN</span><span class="r">₹100</span></div>
+      <div class="kv"><span>URINE FOR CULTURE AND SENSITIVITY</span><span class="r">₹100</span></div>
+      <div class="kv"><span>ESR</span><span class="r">₹50</span></div>
+      <div class="kv"><span>URINE FOR KETONE BODIES</span><span class="r">₹100</span></div>
+      <div class="kv last"><span>Anything else</span><span class="r">100% of our price</span></div>
+      <button class="stmt">🖨 LALITHA HOSPITAL's statement in Pay-Run →</button>
+    </div>
+
+    <div class="bar out"><span class="nm" style="color:var(--caution)">We send them work</span><span class="ct">none</span></div>
+    <div class="none">Nothing sent out. Add an outbound arrangement on a partner when you start.</div>
+  </div>
+</div>

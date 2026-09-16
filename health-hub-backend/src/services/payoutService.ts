@@ -1,5 +1,6 @@
 import { DiagnosticWorkflowMode, PayoutDoctorType, PaymentType, Prisma, ReportStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { computeCommissionInPaise, computeLabCostInPaise, computeReferralPayoutInPaise } from './referralPayoutService';
 import {
   allocateBillDiscountAcrossOrders,
@@ -1528,6 +1529,10 @@ export interface PayoutWorklistRow {
   periodStartDate: Date;
   periodEndDate: Date;
   amountInPaise: number;
+  /// True when this figure is a STALE stored per-day sum, not a live derive —
+  /// either the derive threw, or no range was given to derive over. Surfaced so
+  /// the screen can mark it rather than presenting it as trustworthy.
+  stale: boolean;
 }
 
 export interface PayoutTypeTotals {
@@ -1646,12 +1651,17 @@ export async function getPayRunWorklist(
   const canDeriveRange = Boolean(filters?.startDate && filters?.endDate);
   const entries = Array.from(payeeIndex.values());
   const amounts = new Array<number>(entries.length);
+  // A payee whose live derive failed is showing a STALE stored sum. Tracked so
+  // the screen can say so instead of presenting it as a derived figure.
+  const staleFallback = new Array<boolean>(entries.length).fill(false);
   const CONCURRENCY = 6;
   for (let i = 0; i < entries.length; i += CONCURRENCY) {
     const slice = entries.slice(i, i + CONCURRENCY);
     const sliceAmounts = await Promise.all(
-      slice.map(async (e) => {
-        if (!canDeriveRange) return e.storedSumInPaise;
+      slice.map(async (e): Promise<{ amount: number; stale: boolean }> => {
+        // Without a range there is nothing to derive over, so the stored sum is
+        // the honest answer — but it is still not a derived one.
+        if (!canDeriveRange) return { amount: e.storedSumInPaise, stale: true };
         try {
           const d = await deriveByType(
             e.payeeType,
@@ -1660,14 +1670,25 @@ export async function getPayRunWorklist(
             filters!.startDate!,
             filters!.endDate!
           );
-          return d.derivedAmountInPaise;
-        } catch {
-          // A missing/renamed payee must not sink the whole worklist.
-          return e.storedSumInPaise;
+          return { amount: d.derivedAmountInPaise, stale: false };
+        } catch (err) {
+          // A missing/renamed payee must not sink the whole worklist — but a
+          // silent fallback is worse than a gap. This is how Lalitha showed
+          // ₹379.66 of stale per-day rows while a live derive over the same
+          // range returned ₹9,660: a wrong number that looked exactly like a
+          // right one. Say so, loudly, in the log and on the row.
+          logger.error(
+            { err, payeeType: e.payeeType, payeeId: e.payeeId, branchId },
+            'pay-run: live derive failed, falling back to the stored per-day sum — this figure is STALE',
+          );
+          return { amount: e.storedSumInPaise, stale: true };
         }
       })
     );
-    for (let j = 0; j < sliceAmounts.length; j++) amounts[i + j] = sliceAmounts[j];
+    for (let j = 0; j < sliceAmounts.length; j++) {
+      amounts[i + j] = sliceAmounts[j].amount;
+      staleFallback[i + j] = sliceAmounts[j].stale;
+    }
   }
 
   const rows: PayoutWorklistRow[] = entries
@@ -1686,6 +1707,7 @@ export async function getPayRunWorklist(
         periodStartDate: fallbackStart,
         periodEndDate: fallbackEnd,
         amountInPaise: amounts[idx],
+        stale: staleFallback[idx],
       };
     })
     .sort((a, b) => b.amountInPaise - a.amountInPaise);
