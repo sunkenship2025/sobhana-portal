@@ -38,14 +38,16 @@ const EMPTY_FILTERS: TimelineFiltersValue = {
   to: null,
   branchId: null,
   unpaidOnly: false,
-  includeCancelled: false,
+  // Patient 360 is the source of truth: a cancelled/refunded visit stays on the
+  // timeline (dimmed, badged) unless the user deliberately hides it.
+  includeCancelled: true,
 };
 
 const LOCATE_PAGE_CAP = 10;
 
 function filtersApplied(f: TimelineFiltersValue): boolean {
   return (
-    !!f.domain || !!f.from || !!f.to || !!f.branchId || f.unpaidOnly || f.includeCancelled
+    !!f.domain || !!f.from || !!f.to || !!f.branchId || f.unpaidOnly || !f.includeCancelled
   );
 }
 

@@ -840,12 +840,15 @@ export async function getPatient360Summary(patientId: string) {
     }),
     prisma.visit.count({ where: { patientId, status: { not: 'CANCELLED' } } }),
     prisma.visit.count({ where: { patientId } }),
+    // Patient 360 never hides history: the last visit is the last visit, even
+    // if every test on it was cancelled/refunded. `status` lets the card say so.
     prisma.visit.findFirst({
-      where: { patientId, status: { not: 'CANCELLED' } },
+      where: { patientId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         domain: true,
+        status: true,
         createdAt: true,
         branch: { select: { name: true } },
       },
@@ -913,6 +916,7 @@ export async function getPatient360Summary(patientId: string) {
         ? {
             visitId: lastVisit.id,
             domain: lastVisit.domain,
+            status: lastVisit.status,
             branchName: lastVisit.branch?.name || 'Unknown',
             createdAt: lastVisit.createdAt,
           }
