@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
+import { DoctorTestFilter, ANY } from '@/components/worklist/DoctorTestFilter';
 import {
   type DateRangeState,
   makeDateRange,
@@ -118,6 +119,8 @@ const DiagnosticsFinalizedReports = () => {
   const { token } = useAuthStore();
   const [dateRange, setDateRangeState] = useState<DateRangeState>(makeDateRange('today'));
   const [search, setSearchState] = useState('');
+  const [doctorId, setDoctorIdState] = useState(ANY);
+  const [productId, setProductIdState] = useState(ANY);
   const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(1);
   const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
@@ -139,6 +142,14 @@ const DiagnosticsFinalizedReports = () => {
   };
   const setSearch = (value: string) => {
     setSearchState(value);
+    setPage(1);
+  };
+  const setDoctorId = (value: string) => {
+    setDoctorIdState(value);
+    setPage(1);
+  };
+  const setProductId = (value: string) => {
+    setProductIdState(value);
     setPage(1);
   };
 
@@ -164,6 +175,10 @@ const DiagnosticsFinalizedReports = () => {
         const to = dateRangeTo(dateRange);
         if (to) params.set('to', to);
         if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
+        // Doctor / test filtering happens server-side too — the visible page is
+        // only ~20 of the matching rows, so filtering it here would lie.
+        if (doctorId !== ANY) params.set('doctorId', doctorId);
+        if (productId !== ANY) params.set('productId', productId);
         const response = await fetch(`${API_BASE}/visits/diagnostic?${params.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -184,7 +199,7 @@ const DiagnosticsFinalizedReports = () => {
         setEverLoaded(true);
       }
     },
-    [token, activeBranchId, dateRange, debouncedSearch, page],
+    [token, activeBranchId, dateRange, debouncedSearch, doctorId, productId, page],
   );
 
   useEffect(() => {
@@ -308,12 +323,18 @@ const DiagnosticsFinalizedReports = () => {
                 onChange={setDateRange}
                 triggerClassName="w-full sm:w-[180px]"
               />
+              <DoctorTestFilter
+                doctorId={doctorId}
+                onDoctorChange={setDoctorId}
+                productId={productId}
+                onProductChange={setProductId}
+              />
               <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Name / Phone / Bill Number"
+                    placeholder="Name / Phone / Bill / Doctor / Test"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-9"
@@ -339,7 +360,11 @@ const DiagnosticsFinalizedReports = () => {
                 // Search/date-range filtering now happens server-side, so we
                 // can't distinguish the two from an already-empty page — use
                 // "any non-default filter active" as the proxy instead.
-                const hasData = Boolean(search.trim()) || dateRange.preset !== 'today';
+                const hasData =
+                  Boolean(search.trim()) ||
+                  dateRange.preset !== 'today' ||
+                  doctorId !== ANY ||
+                  productId !== ANY;
                 return (
                   <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -357,7 +382,7 @@ const DiagnosticsFinalizedReports = () => {
                       </p>
                       <p className="max-w-sm text-sm text-muted-foreground">
                         {hasData
-                          ? 'Try a different date range, or clear the search to see every finalized report.'
+                          ? 'Try a different date range, doctor or test — or clear the filters to see every finalized report.'
                           : 'Reports appear here once a diagnostic visit is completed and its report is finalized.'}
                       </p>
                     </div>
@@ -368,6 +393,8 @@ const DiagnosticsFinalizedReports = () => {
                         onClick={() => {
                           setDateRange(makeDateRange('all'));
                           setSearch('');
+                          setDoctorId(ANY);
+                          setProductId(ANY);
                         }}
                       >
                         Clear filters
