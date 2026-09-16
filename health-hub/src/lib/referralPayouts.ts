@@ -191,3 +191,56 @@ export function areReferralPayoutsEqual(
     normalizedLeft.commissionAmountInPaise === normalizedRight.commissionAmountInPaise
   );
 }
+
+/**
+ * A partner's effective rate for one product, expressed in the commission shape
+ * the billing screen and its override boxes already speak.
+ *
+ * Resolution mirrors the server (partnerRateService): product rule → category
+ * rule → the arrangement's own default. Kept in the same commission vocabulary
+ * so the existing override plumbing needs no second dialect — the route maps
+ * FIXED_AMOUNT back to FLAT when it writes the rule.
+ *
+ * A partner rate ALWAYS means what WE keep, in every arrangement.
+ */
+export function getEffectivePartnerPayout(
+  partner: { arrangements?: PartnerArrangementLike[] } | null | undefined,
+  kind: string | null,
+  productId: string,
+  category?: string | null,
+) {
+  const arrangement =
+    partner?.arrangements?.find((a) => a.isActive && (!kind || a.kind === kind)) ??
+    partner?.arrangements?.find((a) => a.isActive && a.kind !== 'OUTBOUND_VENDOR');
+  if (!arrangement) return null;
+
+  const hit =
+    arrangement.productRules?.find((r) => r.productId === productId) ??
+    (category ? arrangement.categoryRules?.find((r) => r.category === category) : undefined);
+  const basis = hit?.rateBasis ?? arrangement.rateBasis;
+  const percent = hit ? hit.ratePercent : arrangement.ratePercent;
+  const amount = hit ? hit.rateAmountInPaise : arrangement.rateAmountInPaise;
+
+  return {
+    commissionType: (basis === 'FLAT' ? 'FIXED_AMOUNT' : 'PERCENTAGE') as ReferralPayoutType,
+    commissionPercent: basis === 'FLAT' ? null : (percent ?? 0),
+    commissionAmountInPaise: basis === 'FLAT' ? (amount ?? 0) : null,
+  };
+}
+
+interface PartnerRuleLike {
+  productId?: string;
+  category?: string;
+  rateBasis: string;
+  ratePercent: number | null;
+  rateAmountInPaise: number | null;
+}
+interface PartnerArrangementLike {
+  kind: string;
+  isActive: boolean;
+  rateBasis: string;
+  ratePercent: number | null;
+  rateAmountInPaise: number | null;
+  productRules?: PartnerRuleLike[];
+  categoryRules?: PartnerRuleLike[];
+}

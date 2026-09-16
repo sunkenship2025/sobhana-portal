@@ -14,7 +14,12 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useApiQuery, useApiMutation, branchRequest, useBranchId, qk } from "@/lib/query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -23,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, FlaskConical, Pencil, Plus, Printer, X } from "lucide-react";
+import { ChevronDown, FlaskConical, Pencil, Plus, Printer, Trash2, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -354,25 +359,25 @@ export default function OutsideLabs() {
           className="flex items-center gap-3 px-3 py-2"
           style={{ borderTop: `0.5px solid ${TOKENS.border}`, opacity: p.isActive ? 1 : 0.45 }}
         >
-          <button onClick={() => toggleExpand(rowKey)} className="shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            onClick={() => toggleExpand(rowKey)}
+            aria-label={open ? "Collapse" : "Expand"}
+          >
             <ChevronDown
-              className="h-3.5 w-3.5 transition-transform"
+              className="h-4 w-4 transition-transform"
               style={{ transform: open ? "none" : "rotate(-90deg)", color: TOKENS.textTertiary }}
             />
-          </button>
-          <span
-            className="shrink-0 tabular-nums"
-            style={{ fontSize: 11.5, color: TOKENS.textTertiary }}
-          >
+          </Button>
+          <span className="shrink-0 tabular-nums text-xs" style={{ color: TOKENS.textTertiary }}>
             {p.partnerNumber}
           </span>
-          <span className="shrink-0 font-medium" style={{ fontSize: 13 }}>
-            {p.name}
-          </span>
-          <span
-            className="min-w-0 flex-1 truncate"
-            style={{ fontSize: 12, color: TOKENS.textSecondary }}
-          >
+          {/* The stored name is upper-case data; the column should not shout it
+              back. Rendered in sentence case, title-cased for display only. */}
+          <span className="shrink-0 font-medium capitalize">{p.name.toLowerCase()}</span>
+          <span className="min-w-0 flex-1 truncate text-sm" style={{ color: TOKENS.textSecondary }}>
             {rules.length > 0 ? (
               rules.slice(0, 4).map((r, i) => (
                 <span key={r.id}>
@@ -397,27 +402,28 @@ export default function OutsideLabs() {
             )}
           </span>
           {!p.sendBill && (
-            <span
-              className="shrink-0"
-              style={{
-                fontSize: 10.5,
-                border: `0.5px solid ${TOKENS.border}`,
-                borderRadius: 4,
-                padding: "1px 5px",
-                color: TOKENS.textTertiary,
-              }}
-            >
-              bill held
-            </span>
+            <Badge variant="secondary" className="shrink-0 font-normal">
+              Bill held
+            </Badge>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Switch checked={p.isActive} onCheckedChange={() => toggleActive.mutate(p)} />
-            <button onClick={() => edit(p)} title="Edit">
-              <Pencil className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
-            </button>
-            <button onClick={() => setDeleteId(p.id)} title="Deactivate">
-              <X className="h-3.5 w-3.5" style={{ color: TOKENS.textTertiary }} />
-            </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Switch
+              className="mr-1"
+              checked={p.isActive}
+              onCheckedChange={() => toggleActive.mutate(p)}
+              aria-label={p.isActive ? "Deactivate" : "Activate"}
+            />
+            <Button variant="ghost" size="icon" onClick={() => edit(p)} aria-label="Edit partner">
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDeleteId(p.id)}
+              aria-label="Deactivate partner"
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
           </div>
         </div>
 
@@ -426,30 +432,39 @@ export default function OutsideLabs() {
             className="px-3 py-3"
             style={{ borderTop: `0.5px solid ${TOKENS.border}`, background: "#fcfcfb" }}
           >
-            <div style={{ fontSize: 12, color: TOKENS.textSecondary, marginBottom: 8 }}>
+            <div className="mb-2 text-sm" style={{ color: TOKENS.textSecondary }}>
               {KINDS.find((k) => k.kind === deal?.kind)?.hint}
             </div>
             {(rules.length > 0 || cats.length > 0) && (
               <div style={{ maxWidth: 380 }}>
                 {cats.map((r) => (
-                  <div key={r.id} className="flex justify-between" style={{ fontSize: 12, padding: "2px 0" }}>
-                    <span style={{ color: TOKENS.textSecondary }}>{r.category}</span>
+                  <div key={r.id} className="flex items-center justify-between py-0.5 text-sm">
+                    <span className="flex items-center gap-2" style={{ color: TOKENS.textSecondary }}>
+                      {r.category}
+                      {/* Badged, because "Laboratory 20%" and "CBP ₹60" otherwise
+                          look like the same kind of rule when one overrides the other. */}
+                      <Badge variant="secondary" className="font-normal">
+                        category
+                      </Badge>
+                    </span>
                     <span className="font-medium tabular-nums">
                       {r.rateBasis === "FLAT" ? formatRupees(r.rateAmountInPaise ?? 0) : `${r.ratePercent}%`}
                     </span>
                   </div>
                 ))}
                 {rules.map((r) => (
-                  <div key={r.id} className="flex justify-between" style={{ fontSize: 12, padding: "2px 0" }}>
-                    <span>{r.product?.name ?? productName(r.productId!)}</span>
+                  <div key={r.id} className="flex items-center justify-between py-0.5 text-sm">
+                    <span className="capitalize">
+                      {(r.product?.name ?? productName(r.productId!)).toLowerCase()}
+                    </span>
                     <span className="font-medium tabular-nums">
                       {r.rateBasis === "FLAT" ? formatRupees(r.rateAmountInPaise ?? 0) : `${r.ratePercent}%`}
                     </span>
                   </div>
                 ))}
                 <div
-                  className="mt-1 flex justify-between"
-                  style={{ fontSize: 12, borderTop: `0.5px solid ${TOKENS.border}`, paddingTop: 4, color: TOKENS.textTertiary }}
+                  className="mt-1 flex justify-between pt-1 text-sm"
+                  style={{ borderTop: `0.5px solid ${TOKENS.border}`, color: TOKENS.textTertiary }}
                 >
                   <span>Anything else</span>
                   <span className="tabular-nums">
@@ -460,14 +475,15 @@ export default function OutsideLabs() {
             )}
             {/* Pay-Run's statement route is /owner/payouts/:id where id is
                 "<payeeType>.<payeeId>" — land on THIS partner, not the list. */}
-            <button
-              className="mt-2.5"
-              style={{ color: TOKENS.info, fontSize: 12 }}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2.5 h-7 px-2"
               onClick={() => navigate(`/owner/payouts/PARTNER.${p.id}`)}
             >
-              <Printer className="mr-1 inline h-3 w-3" />
-              {p.name}'s statement in Pay-Run →
-            </button>
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              Statement in Pay-Run
+            </Button>
           </div>
         )}
       </Fragment>
@@ -482,15 +498,13 @@ export default function OutsideLabs() {
         className="flex items-center gap-2 px-3 py-2"
         style={{ background: "#f6f5f2", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
       >
-        <span className="font-medium" style={{ fontSize: 12 }}>
-          They send us patients
-        </span>
-        <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+        <span className="text-sm font-semibold">They send us patients</span>
+        <span className="text-sm" style={{ color: TOKENS.textTertiary }}>
           {inbound.length || "none"}
         </span>
       </div>
       {inbound.length === 0 ? (
-        <div className="px-3 py-2.5" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+        <div className="px-3 py-2.5 text-sm" style={{ color: TOKENS.textTertiary }}>
           No inbound partners yet.
         </div>
       ) : (
@@ -501,15 +515,15 @@ export default function OutsideLabs() {
         className="flex items-center gap-2 px-3 py-2"
         style={{ background: "#fbf7ee", borderTop: `0.5px solid ${TOKENS.border}` }}
       >
-        <span className="font-medium" style={{ fontSize: 12, color: TOKENS.caution }}>
+        <span className="text-sm font-semibold" style={{ color: TOKENS.caution }}>
           We send them work
         </span>
-        <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+        <span className="text-sm" style={{ color: TOKENS.textTertiary }}>
           {outbound.length || "none"}
         </span>
       </div>
       {outbound.length === 0 ? (
-        <div className="px-3 py-2.5" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+        <div className="px-3 py-2.5 text-sm" style={{ color: TOKENS.textTertiary }}>
           Nothing sent out. Add an outbound arrangement on a partner when you start.
         </div>
       ) : (
@@ -566,46 +580,31 @@ export default function OutsideLabs() {
           className="max-h-[86vh] gap-0 overflow-y-auto p-0 sm:max-w-[560px]"
           style={{ background: TOKENS.surface }}
         >
-          <DialogHeader
-            className="px-4 py-2.5"
-            style={{ background: "#f6f5f2", borderBottom: `0.5px solid ${TOKENS.border}` }}
-          >
-            <DialogTitle
-              className="font-medium uppercase"
-              style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
-            >
-              {editingId ? "Edit partner" : "New partner"}
+          <DialogHeader className="px-5 pb-0 pt-5">
+            <DialogTitle className="text-base font-semibold">
+              {editingId ? "Edit partner" : "Add partner"}
             </DialogTitle>
           </DialogHeader>
 
           {/* Stepped: one question per screen. The first version put three
               arrangements, three bases, a doctor mode and a rate card on one
               scroll, which is why it read as a wall. */}
-          <div className="flex px-4" style={{ borderBottom: `0.5px solid ${TOKENS.border}` }}>
-            {STEPS.map((label, i) => (
-              <button
-                key={label}
-                onClick={() => setStep(i)}
-                className="py-2 pr-5 font-medium uppercase"
-                style={{
-                  fontSize: 10.5,
-                  letterSpacing: "0.06em",
-                  color: i === step ? TOKENS.textPrimary : TOKENS.textTertiary,
-                  borderBottom: `1.5px solid ${i === step ? TOKENS.textPrimary : "transparent"}`,
-                  marginBottom: -1,
-                }}
-              >
-                {i + 1} · {label}
-              </button>
-            ))}
+          <div className="px-5 pt-4">
+            <Tabs value={String(step)} onValueChange={(v) => setStep(Number(v))}>
+              <TabsList>
+                {STEPS.map((label, i) => (
+                  <TabsTrigger key={label} value={String(i)}>
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           </div>
 
-          <div className="px-4 py-3.5">
+          <div className="px-5 py-4">
             {step === 0 && (
               <>
-                <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                  NAME
-                </label>
+                <Label className="mb-1.5 block">Name</Label>
                 <Input
                   autoFocus
                   value={form.name}
@@ -614,18 +613,14 @@ export default function OutsideLabs() {
                 />
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                      CONTACT
-                    </label>
+                    <Label className="mb-1.5 block">Contact person</Label>
                     <Input
                       value={form.contactPerson}
                       onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
-                      PHONE
-                    </label>
+                    <Label className="mb-1.5 block">Phone</Label>
                     <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                   </div>
                 </div>
@@ -633,34 +628,48 @@ export default function OutsideLabs() {
             )}
 
             {step === 1 && (
-              <div className="flex flex-col gap-2">
-                {KINDS.map((k) => {
-                  const on = form.arrangements[k.kind].enabled;
-                  return (
-                    <button
-                      key={k.kind}
-                      onClick={() => patch(k.kind, { enabled: !on })}
-                      className="rounded-lg px-3 py-2.5 text-left"
-                      style={{
-                        border: `0.5px solid ${on ? TOKENS.borderStrong : TOKENS.border}`,
-                        background: on ? "#fbfbf9" : "#fff",
-                      }}
-                    >
-                      <div style={{ fontWeight: on ? 600 : 400 }}>{k.label}</div>
-                      <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-                        {k.hint}
-                        {k.example && <em> {k.example}.</em>}
-                      </div>
-                    </button>
-                  );
-                })}
-                <div
-                  className="mt-1 rounded-r px-3 py-2"
-                  style={{ borderLeft: `2px solid #e0cfa3`, background: "#fcfaf5", fontSize: 12, color: TOKENS.textSecondary }}
-                >
-                  A partner can have more than one. Most have one.
+              <>
+                <Label className="mb-2 block">What is the arrangement?</Label>
+                {/* Multi-select in substance (a partner can hold several), but each
+                    row needs a real indicator — the previous version was clickable
+                    divs with nothing showing which was chosen. */}
+                <div className="flex flex-col gap-2">
+                  {KINDS.map((k) => {
+                    const on = form.arrangements[k.kind].enabled;
+                    return (
+                      <button
+                        key={k.kind}
+                        type="button"
+                        onClick={() => patch(k.kind, { enabled: !on })}
+                        className="flex items-start gap-3 rounded-md border px-3 py-3 text-left"
+                        style={{
+                          borderColor: on ? TOKENS.textPrimary : "hsl(var(--input))",
+                          background: on ? "#fbfbf9" : "#fff",
+                        }}
+                      >
+                        <Checkbox checked={on} className="mt-0.5" tabIndex={-1} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium">{k.label}</span>
+                          <span className="block text-sm" style={{ color: TOKENS.textTertiary }}>
+                            {k.hint}
+                            {k.example && <em> {k.example}.</em>}
+                          </span>
+                        </span>
+                        {/* The only thing that truly separates the three. */}
+                        <span
+                          className="shrink-0 whitespace-nowrap text-xs tabular-nums"
+                          style={{ color: TOKENS.textTertiary }}
+                        >
+                          {k.flow}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+                <p className="mt-2 text-sm" style={{ color: TOKENS.textTertiary }}>
+                  A partner can have more than one. Most have one.
+                </p>
+              </>
             )}
 
             {step === 2 && (
@@ -684,9 +693,9 @@ export default function OutsideLabs() {
                         <b style={{ color: TOKENS.textSecondary }}>the catch-all</b>.
                       </div>
 
-                      <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
+                      <Label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
                         BY CATEGORY
-                      </label>
+                      </Label>
                       <div className="mb-3">
                         {categories.map((cat) => {
                           const c = a.cats[cat] ?? blankCat();
@@ -741,9 +750,9 @@ export default function OutsideLabs() {
                         })}
                       </div>
 
-                      <label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
+                      <Label className="mb-1 block" style={{ fontSize: 11, fontWeight: 600, color: TOKENS.textSecondary }}>
                         BY TEST <span style={{ fontWeight: 400, color: TOKENS.textTertiary }}>· overrides its category</span>
-                      </label>
+                      </Label>
                       {a.rules.map((r, i) => (
                         <div key={i} className="mb-1.5 grid grid-cols-12 gap-2">
                           <div className="col-span-6">
@@ -822,7 +831,32 @@ export default function OutsideLabs() {
                         + Add test
                       </button>
 
-                      <div className="mt-3 flex items-center gap-2" style={{ fontSize: 12 }}>
+                      {/* A rate always means what WE keep. For an outbound deal the
+                          owner is thinking "I pay Sunrise 60%", so a box labelled
+                          "what we keep" is one keystroke from being entered
+                          backwards. Echo the complement so it cannot be. */}
+                      {k.kind === "OUTBOUND_VENDOR" && a.rateBasis !== "FLAT" && (
+                        <div
+                          className="mt-3 rounded-md border px-3 py-2 text-sm"
+                          style={{ borderColor: "#e0cfa3", background: "#fcfaf5", color: TOKENS.textSecondary }}
+                        >
+                          On a ₹1,000 test we keep{" "}
+                          <b style={{ color: TOKENS.textPrimary }}>
+                            ₹{Math.round((Number(a.ratePercent || 0) * 1000) / 100)}
+                          </b>{" "}
+                          and pay {form.name.trim() || "them"}{" "}
+                          <b style={{ color: TOKENS.caution }}>
+                            ₹{1000 - Math.round((Number(a.ratePercent || 0) * 1000) / 100)}
+                          </b>
+                          . If that is the wrong way round, enter{" "}
+                          <b style={{ color: TOKENS.textPrimary }}>
+                            {100 - Number(a.ratePercent || 0)}
+                          </b>{" "}
+                          instead.
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex items-center gap-2 text-sm">
                         <span style={{ color: TOKENS.textSecondary }}>Anything not listed</span>
                         <Select
                           value={a.rateBasis}
@@ -890,28 +924,36 @@ export default function OutsideLabs() {
 
             {step === 3 && (
               <>
-                <div className="flex items-start gap-3 py-1.5">
-                  <Switch checked={form.sendBill} onCheckedChange={(v) => setForm({ ...form, sendBill: v })} />
+                <div className="flex items-start gap-3 py-2">
+                  <Switch
+                    className="mt-0.5"
+                    checked={form.sendBill}
+                    onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
+                  />
                   <div>
-                    <div>Send our bill to the patient</div>
-                    <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-                      Off: the bill WhatsApp and its link stay shut, and counter print greys.
-                    </div>
+                    <Label className="block">Send our bill to the patient</Label>
+                    <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
+                      Off: the bill WhatsApp, its link and counter print all stay shut.
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-start gap-3 py-1.5">
-                  <Switch checked={form.sendReport} onCheckedChange={(v) => setForm({ ...form, sendReport: v })} />
+                <div className="flex items-start gap-3 py-2">
+                  <Switch
+                    className="mt-0.5"
+                    checked={form.sendReport}
+                    onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
+                  />
                   <div>
-                    <div>Send the report to the patient</div>
-                    <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+                    <Label className="block">Send the report to the patient</Label>
+                    <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
                       On: they still get their result from us.
-                    </div>
+                    </p>
                   </div>
                 </div>
                 {form.arrangements.INBOUND_BILLED_THERE.enabled && form.sendBill && (
                   <div
-                    className="mt-2 rounded-r px-3 py-2"
-                    style={{ borderLeft: "2px solid #e3b3b3", background: "#fdf6f6", fontSize: 12, color: TOKENS.textSecondary }}
+                    className="mt-2 rounded-md border px-3 py-2.5 text-sm"
+                    style={{ borderColor: "#e9d9d9", background: "#fdf7f7", color: TOKENS.textSecondary }}
                   >
                     They bill the patient themselves. Leaving our bill on hands the patient a second one
                     for the same test.

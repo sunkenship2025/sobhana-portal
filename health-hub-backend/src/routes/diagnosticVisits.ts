@@ -2290,6 +2290,10 @@ router.post("/", async (req: AuthRequest, res) => {
       // externalLabByTestId keep their wire names but now carry PARTNER ids for
       // work we send OUT, so the existing client keeps working.
       partnerId,
+      // Which of the partner's deals this visit came in under. Most partners
+      // hold one, so the client may omit it and we take the only active inbound
+      // arrangement — but a partner with both MUST be told apart at the counter.
+      partnerArrangement,
       partnerBilledInPaise,
       referralOverrides,
       partnerOverrides,
@@ -2423,9 +2427,14 @@ router.post("/", async (req: AuthRequest, res) => {
       }
       // A partner may hold both inbound kinds; whichever is active is the deal
       // this visit came in under. weCollect on it says who took the money.
-      inboundCard =
-        (await loadPartnerRateCard(partnerId, "INBOUND_BILLED_HERE", req.branchId!)) ??
-        (await loadPartnerRateCard(partnerId, "INBOUND_BILLED_THERE", req.branchId!));
+      const askedFor =
+        partnerArrangement === "INBOUND_BILLED_HERE" || partnerArrangement === "INBOUND_BILLED_THERE"
+          ? (partnerArrangement as PartnerArrangementKind)
+          : null;
+      inboundCard = askedFor
+        ? await loadPartnerRateCard(partnerId, askedFor, req.branchId!)
+        : ((await loadPartnerRateCard(partnerId, "INBOUND_BILLED_HERE", req.branchId!)) ??
+          (await loadPartnerRateCard(partnerId, "INBOUND_BILLED_THERE", req.branchId!)));
       if (!inboundCard) {
         return res.status(400).json({
           error: "VALIDATION_ERROR",

@@ -28,6 +28,7 @@ import type {
   TestOrder,
   ReferralDoctor,
   DiagnosticCenter,
+  Partner,
   BillReceiptItem,
   BillDiscountType,
 } from "@/types";
@@ -52,7 +53,7 @@ import {
 import {
   areReferralPayoutsEqual,
   formatReferralPayout,
-  getEffectiveDiagnosticCenterPayout,
+  getEffectivePartnerPayout,
   getEffectiveDoctorPayout,
   toReferralPayoutDraft,
   toReferralPayoutPayload,
@@ -103,10 +104,14 @@ const DiagnosticsNewVisit = () => {
   const [products, setProducts] = useState<ProductForSelector[]>([]);
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
   const [diagnosticCenters, setDiagnosticCenters] = useState<
-    DiagnosticCenter[]
+    Partner[]
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCenterId, setSelectedCenterId] = useState<string>("");
+  // A partner may hold several deals. Most hold one and it is picked for you;
+  // a partner with both must be told apart at the counter, because "they bill"
+  // and "we bill" put the patient's money in completely different places.
+  const [partnerArrangement, setPartnerArrangement] = useState<string>("");
   const [highlightedPatientIndex, setHighlightedPatientIndex] = useState(0);
   const patientListRef = useRef<HTMLDivElement>(null);
 
@@ -258,7 +263,7 @@ const DiagnosticsNewVisit = () => {
         // .catch keeps one failing from dropping the others (old per-.ok behavior).
         const [doctors, centers, labs] = await Promise.all([
           apiFetchQuery<ReferralDoctor[]>(queryClient, qk.referralDoctors(), "/referral-doctors", activeBranch.id, { staleTime }).catch(() => null),
-          apiFetchQuery<DiagnosticCenter[]>(queryClient, qk.diagnosticCenters(activeBranch.id), "/diagnostic-centers", activeBranch.id, { staleTime }).catch(() => null),
+          apiFetchQuery<Partner[]>(queryClient, qk.diagnosticCenters(activeBranch.id), "/partners", activeBranch.id, { staleTime }).catch(() => null),
           apiFetchQuery<{ id: string; name: string }[]>(queryClient, qk.externalLabs(activeBranch.id), "/external-labs", activeBranch.id, { staleTime }).catch(() => null),
         ]);
 
@@ -443,7 +448,10 @@ const DiagnosticsNewVisit = () => {
         setSelectedCenterId(center.id);
         setDiagnosticCenterOverrides(
           buildOverridesForProducts(selectedProducts, (productId) =>
-            getEffectiveDiagnosticCenterPayout(center, productId),
+            getEffectivePartnerPayout(
+                            center,
+                            partnerArrangement,
+                            productId),
           ),
         );
         setShowAddCenterDialog(false);
@@ -519,7 +527,10 @@ const DiagnosticsNewVisit = () => {
         return buildOverridesForProducts(
           [...selectedProducts, product.id],
           (productId) =>
-            getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
+            getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId),
           prev,
         );
       });
@@ -1064,6 +1075,7 @@ const DiagnosticsNewVisit = () => {
           patientId: patient.id,
           referralDoctorId: selectedDoctorId || null,
           partnerId: selectedCenterId || null,
+          partnerArrangement: partnerArrangement || null,
           referralOverrides: selectedDoctorId
             ? Object.fromEntries(
                 selectedProducts
@@ -1094,14 +1106,16 @@ const DiagnosticsNewVisit = () => {
                     const draft =
                       diagnosticCenterOverrides[productId] ??
                       toReferralPayoutDraft(
-                        getEffectiveDiagnosticCenterPayout(
-                          selectedCenter,
-                          productId,
+                        getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId,
                         ),
                       );
-                    const savedPayout = getEffectiveDiagnosticCenterPayout(
-                      selectedCenter,
-                      productId,
+                    const savedPayout = getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId,
                     );
                     return {
                       productId,
@@ -2104,7 +2118,7 @@ const DiagnosticsNewVisit = () => {
               </div>
 
               <div className="space-y-3">
-                <Label className="font-semibold">Diagnostic Referral (optional)</Label>
+                <Label className="font-semibold">External Partner (optional)</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <SearchableSelect
                     id="diagnostic-center"
@@ -2114,13 +2128,19 @@ const DiagnosticsNewVisit = () => {
                       const center = diagnosticCenters.find(
                         (item) => item.id === value,
                       );
+                      const deals = (center?.arrangements ?? []).filter(
+                        (a) => a.isActive && a.kind !== "OUTBOUND_VENDOR",
+                      );
+                      // One deal needs no question; several do.
+                      setPartnerArrangement(deals.length === 1 ? deals[0].kind : "");
                       setDiagnosticCenterOverrides(
                         buildOverridesForProducts(
                           selectedProducts,
                           (productId) =>
-                            getEffectiveDiagnosticCenterPayout(
-                              center,
-                              productId,
+                            getEffectivePartnerPayout(
+                            center,
+                            partnerArrangement,
+                            productId,
                             ),
                         ),
                       );
@@ -2134,7 +2154,7 @@ const DiagnosticsNewVisit = () => {
                       value: center.id,
                       label: center.name,
                       description: [
-                        center.centerNumber,
+                        center.partnerNumber,
                         center.contactPerson,
                         center.phone,
                       ]
@@ -2142,17 +2162,17 @@ const DiagnosticsNewVisit = () => {
                         .join(" · "),
                       keywords: [
                         center.name,
-                        center.centerNumber,
+                        center.partnerNumber,
                         center.contactPerson,
                         center.phone,
                       ]
                         .filter(Boolean)
                         .join(" "),
                     }))}
-                    placeholder="Search diagnostic center (Enter to skip)"
-                    searchPlaceholder="Search by center name, phone or number"
-                    emptyText="No diagnostic centers found."
-                    ariaLabel="Diagnostic referral center — Enter to skip, Space to open"
+                    placeholder="Search partner (Enter to skip)"
+                    searchPlaceholder="Search by partner name, phone or number"
+                    emptyText="No partners found."
+                    ariaLabel="External partner — Enter to skip, Space to open"
                     className="h-11"
                   />
                   {selectedCenterId && (
@@ -2161,12 +2181,56 @@ const DiagnosticsNewVisit = () => {
                       variant="outline"
                       onClick={() => {
                         setSelectedCenterId("");
+                        setPartnerArrangement("");
                         setDiagnosticCenterOverrides({});
                       }}
                     >
                       Clear
                     </Button>
                   )}
+                </div>
+
+                {/* Which deal this visit came in under. "They bill" and "we bill"
+                    put the patient's money in completely different places, so a
+                    partner holding both must be told apart here, at the counter.
+                    A partner with one deal has it chosen already. */}
+                {selectedCenter && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(selectedCenter.arrangements ?? [])
+                      .filter((a) => a.isActive && a.kind !== "OUTBOUND_VENDOR")
+                      .map((a) => {
+                        const on = partnerArrangement === a.kind;
+                        const theyBill = a.kind === "INBOUND_BILLED_THERE";
+                        return (
+                          <button
+                            key={a.kind}
+                            type="button"
+                            onClick={() => setPartnerArrangement(a.kind)}
+                            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                              on
+                                ? "border-transparent bg-foreground text-background"
+                                : "bg-background hover:bg-accent"
+                            }`}
+                          >
+                            {theyBill ? "They bill" : "We bill"}
+                          </button>
+                        );
+                      })}
+                    {(selectedCenter.arrangements ?? []).some(
+                      (a) => a.isActive && a.kind === "OUTBOUND_VENDOR",
+                    ) && (
+                      <span className="text-sm text-muted-foreground">
+                        · we send them work too — route a test below
+                      </span>
+                    )}
+                    {partnerArrangement === "INBOUND_BILLED_THERE" && (
+                      <span className="text-sm text-muted-foreground">
+                        Patient pays them; nothing is collected here.
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <Button
                     type="button"
                     variant="outline"
@@ -2220,9 +2284,10 @@ const DiagnosticsNewVisit = () => {
                     return buildOverridesForProducts(
                       productIds,
                       (productId) =>
-                        getEffectiveDiagnosticCenterPayout(
-                          selectedCenter,
-                          productId,
+                        getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId,
                         ),
                       prev,
                     );
@@ -2497,9 +2562,12 @@ const DiagnosticsNewVisit = () => {
                     </div>
                     {selectedCenter && (
                       <div className="rounded-lg border bg-background px-3 py-2 text-sm">
-                        <p className="text-muted-foreground">Center default</p>
+                        <p className="text-muted-foreground">Partner default</p>
                         <p className="font-semibold">
-                          {formatReferralPayout(selectedCenter)}
+                          {formatReferralPayout(
+                            getEffectivePartnerPayout(selectedCenter, partnerArrangement, ""),
+                          )}{" "}
+                          to us
                         </p>
                       </div>
                     )}
@@ -2509,9 +2577,10 @@ const DiagnosticsNewVisit = () => {
                     {selectedProducts.map((productId) => {
                       const product = products.find((p) => p.id === productId);
                       if (!product) return null;
-                      const savedPayout = getEffectiveDiagnosticCenterPayout(
-                        selectedCenter,
-                        productId,
+                      const savedPayout = getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId,
                       );
                       const draft =
                         diagnosticCenterOverrides[productId] ??

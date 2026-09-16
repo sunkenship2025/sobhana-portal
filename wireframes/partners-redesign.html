@@ -1,0 +1,244 @@
+<!doctype html><meta charset="utf-8"><title>Outside Labs — redesign</title>
+<style>
+:root{
+ --healthy:#0F6E56;--caution:#854F0B;--info:#185FA5;
+ --t1:#1F1F1E;--t2:#5F5E5A;--t3:#888780;
+ --surface:#fff;--page:#FAFAF8;--border:rgba(0,0,0,.08);--input:#e4e2dd;
+ --muted:#f4f3f0;--accent:#f4f3f0;--destructive:#A32D2D;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--t1);
+ font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 24px 70px}
+h1{font-size:19px;margin:0 0 2px}
+.lede{font-size:13px;color:var(--t2);margin:0 0 24px}
+h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);font-weight:600;
+   margin:32px 0 10px;display:flex;align-items:center;gap:10px}
+h2::after{content:"";flex:1;height:1px;background:var(--border)}
+.v{margin:0 0 20px}
+.vh{font-size:12px;font-weight:600;color:var(--t2);margin-bottom:7px;display:flex;align-items:center;gap:8px}
+.pill{font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:99px;
+ background:#e7f2ee;color:var(--healthy);text-transform:uppercase}
+.pill.no{background:#f4f3f0;color:var(--t3)}
+.note{font-size:12.5px;color:var(--t2);margin:8px 0 0;max-width:80ch}
+.note b{color:var(--t1)}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;overflow:hidden}
+
+/* real shadcn metrics */
+.lbl{font-size:14px;font-weight:500;line-height:1;display:block;margin-bottom:6px}
+.inp{height:40px;border:1px solid var(--input);border-radius:6px;padding:8px 12px;font-size:14px;
+ background:#fff;display:flex;align-items:center;color:var(--t1);width:100%}
+.inp.ph{color:var(--t3)}
+.inp.sm{height:36px;font-size:13px}
+.btn{height:40px;padding:0 16px;border-radius:6px;font-size:14px;font-weight:500;border:0;
+ background:#1F1F1E;color:#fff;display:inline-flex;align-items:center;gap:8px}
+.btn.out{background:#fff;color:var(--t1);border:1px solid var(--input)}
+.btn.gh{background:transparent;color:var(--t1)}
+.btn.sm{height:36px;padding:0 12px;font-size:13px}
+.btn.ic{width:40px;padding:0;justify-content:center}
+.badge{display:inline-flex;align-items:center;border-radius:99px;border:1px solid var(--border);
+ padding:2px 10px;font-size:12px;font-weight:600}
+.badge.sec{background:var(--muted);border-color:transparent;color:var(--t2)}
+.badge.ok{background:#e7f2ee;border-color:transparent;color:var(--healthy)}
+.badge.warn{background:#fbf1e2;border-color:transparent;color:var(--caution)}
+.tabs{display:inline-flex;background:var(--muted);border-radius:6px;padding:4px;gap:2px}
+.tabs div{padding:6px 12px;border-radius:4px;font-size:13px;font-weight:500;color:var(--t2)}
+.tabs div.on{background:#fff;color:var(--t1);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+
+/* list */
+.bar{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:13px}
+.bar.in{background:#f6f5f2}
+.bar.out{background:#fbf7ee;border-top:.5px solid var(--border)}
+.bar .t{font-weight:600}
+.bar .c{color:var(--t3);font-size:12.5px}
+.row{display:flex;align-items:center;gap:14px;padding:10px 14px;border-top:.5px solid var(--border)}
+.row .pn{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums;width:78px;flex:none}
+.row .nm{font-weight:500;flex:none}
+.row .rt{flex:1;min-width:0;font-size:13px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .rt b{color:var(--t1);font-weight:600}
+.row .rt s{color:var(--t3);text-decoration:none}
+.acts{display:flex;align-items:center;gap:4px;flex:none;color:var(--t2)}
+.sw{width:36px;height:20px;border-radius:99px;background:#1F1F1E;position:relative;display:inline-block}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.sw.off{background:#dedcd6}.sw.off::after{right:auto;left:2px}
+.exp{padding:14px;background:#fcfcfb;border-top:.5px solid var(--border)}
+.kv{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;max-width:400px}
+.kv .r{font-weight:600;font-variant-numeric:tabular-nums}
+.kv.f{border-top:.5px solid var(--border);margin-top:5px;padding-top:6px;color:var(--t3)}
+.kv.f .r{font-weight:400}
+
+/* dialog */
+.dlg{width:560px;background:#fff;border-radius:10px;border:.5px solid var(--border);
+ box-shadow:0 12px 40px rgba(0,0,0,.14);overflow:hidden}
+.dlg.wide{width:620px}
+.dh{display:flex;align-items:center;padding:16px 20px 0}
+.dh h3{font-size:16px;font-weight:600;margin:0}
+.dh .x{margin-left:auto;color:var(--t3)}
+.db{padding:16px 20px}
+.df{display:flex;gap:8px;padding:0 20px 18px;align-items:center}
+.df .sp{flex:1}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.opt{display:flex;align-items:flex-start;gap:11px;padding:11px 12px;border:1px solid var(--input);
+ border-radius:8px;margin-bottom:8px}
+.opt.on{border-color:#1F1F1E;background:#fbfbf9}
+.dot{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--input);margin-top:2px;flex:none}
+.opt.on .dot{border-color:#1F1F1E;box-shadow:inset 0 0 0 3px #fff;background:#1F1F1E}
+.opt .ti{font-size:14px;font-weight:500}
+.opt .hi{font-size:12.5px;color:var(--t3);margin-top:1px}
+.flowtag{margin-left:auto;font-size:11.5px;color:var(--t3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.rate-row{display:grid;grid-template-columns:1fr 128px 92px 36px;gap:8px;align-items:center;margin-bottom:6px}
+.hint{font-size:12.5px;color:var(--t3);margin:6px 0 0}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;font-weight:500;color:var(--t3);font-size:12px;padding:0 0 6px}
+.tbl td{padding:5px 0;border-top:.5px solid var(--border)}
+.tbl td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+</style>
+<div class="wrap">
+<h1>Outside Labs — redesign</h1>
+<p class="lede">Built from the <b>actual</b> house components this time: <code>Label</code> is sentence-case 14px (not 11px caps), <code>Input</code> is h-40 rounded-6, <code>Button</code> h-40 / sm h-36 / icon 40², <code>Badge</code> is a pill, <code>Tabs</code> is a muted pill-group. The previous pass invented all of these, which is what made it read as generic.</p>
+
+<!-- STAGE 1 -->
+<h2>Stage 1 · The list</h2>
+
+<div class="v"><div class="vh">A — one card, two directions <span class="pill">recommended</span></div>
+<div class="card">
+  <div class="bar in"><span class="t">They send us patients</span><span class="c">1 partner</span></div>
+  <div class="row">
+    <span class="pn">PT-000001</span>
+    <span class="nm">Lalitha Hospital</span>
+    <span class="rt">CBP <b>₹60</b> <s>·</s> CRP <b>₹100</b> <s>·</s> UCS <b>₹100</b> <s>·</s> ESR <b>₹50</b> <s>+1</s></span>
+    <span class="badge sec">Bill held</span>
+    <span class="acts"><span class="sw"></span><span class="btn gh ic">✎</span><span class="btn gh ic" style="color:var(--destructive)">🗑</span></span>
+  </div>
+  <div class="bar out"><span class="t" style="color:var(--caution)">We send them work</span><span class="c">none</span></div>
+  <div class="row" style="color:var(--t3);font-size:13px">Nothing sent out yet.</div>
+</div>
+<p class="note"><b>Fixes:</b> sentence-case names (<i>Lalitha Hospital</i>, not LALITHA HOSPITAL — the caps were the data, so the column should not shout it back). Real <code>Badge</code> for "Bill held". Real ghost icon buttons at 40² so they have a hit target. Empty outbound is one row inside the same card, not a second card.</p></div>
+
+<div class="v"><div class="vh">B — direction as a badge, single flat list <span class="pill no">alt</span></div>
+<div class="card">
+  <div class="bar in"><span class="t">Partners</span><span class="c">1</span></div>
+  <div class="row">
+    <span class="pn">PT-000001</span><span class="nm">Lalitha Hospital</span>
+    <span class="badge ok">They bill</span>
+    <span class="rt">CBP <b>₹60</b> <s>·</s> CRP <b>₹100</b> <s>+3</s></span>
+    <span class="badge sec">Bill held</span>
+    <span class="acts"><span class="sw"></span><span class="btn gh ic">✎</span></span>
+  </div>
+</div>
+<p class="note">Fewer section bars, direction reads per-row. Better at 3 partners, worse at 30 — you lose the "what do we send out" scan.</p></div>
+
+<!-- STAGE 2 -->
+<h2>Stage 2 · Add partner — step 1</h2>
+<div class="v"><div class="vh">A — plain form, real labels <span class="pill">recommended</span></div>
+<div class="dlg">
+  <div class="dh"><h3>Add partner</h3><span class="x">✕</span></div>
+  <div class="db">
+    <div class="tabs" style="margin-bottom:16px"><div class="on">Who</div><div>Deal</div><div>Rates</div><div>Patient</div></div>
+    <label class="lbl">Name</label><div class="inp ph">Lalitha Hospital</div>
+    <div class="g2" style="margin-top:14px">
+      <div><label class="lbl">Contact person</label><div class="inp"></div></div>
+      <div><label class="lbl">Phone</label><div class="inp"></div></div>
+    </div>
+  </div>
+  <div class="df"><span class="sp"></span><span class="btn out">Cancel</span><span class="btn">Continue</span></div>
+</div>
+<p class="note"><b>Fixes:</b> NAME / CONTACT / PHONE in 11px caps was shouting three words at you. Real <code>Tabs</code> pill-group instead of an invented underlined stepper. A Cancel next to Continue so the primary button is not floating alone in space.</p></div>
+
+<!-- STAGE 3 -->
+<h2>Stage 3 · The deal</h2>
+<div class="v"><div class="vh">A — radio rows with the money flow <span class="pill">recommended</span></div>
+<div class="dlg"><div class="db">
+  <label class="lbl" style="margin-bottom:10px">What is the arrangement?</label>
+  <div class="opt on"><span class="dot"></span><span><span class="ti">They send patients, they bill</span>
+    <span class="hi">They collect from the patient and owe us our share. <i>Lalitha.</i></span></span>
+    <span class="flowtag">patient → them → us</span></div>
+  <div class="opt"><span class="dot"></span><span><span class="ti">They send patients, we bill</span>
+    <span class="hi">We collect and keep our share.</span></span><span class="flowtag">patient → us → them</span></div>
+  <div class="opt"><span class="dot"></span><span><span class="ti">We send them work</span>
+    <span class="hi">We collect and pay them a vendor rate.</span></span><span class="flowtag">patient → us → them</span></div>
+  <p class="hint">A partner can have more than one. Most have one.</p>
+</div></div>
+<p class="note"><b>Uses the real <code>RadioGroup</code> affordance</b> — the previous version was three clickable divs with no selection indicator at all, so nothing showed which was chosen until the border changed. The flow column is the only thing that truly separates the three.</p></div>
+
+<div class="v"><div class="vh">B — two questions instead of three options <span class="pill no">alt</span></div>
+<div class="dlg"><div class="db">
+  <label class="lbl">Who sends the work?</label>
+  <div class="tabs" style="margin:6px 0 16px"><div class="on">They send to us</div><div>We send to them</div></div>
+  <label class="lbl">Who bills the patient?</label>
+  <div class="tabs" style="margin-top:6px"><div class="on">They do</div><div>We do</div></div>
+  <p class="hint">Two answers, three valid combinations — "we send to them / they bill" is not a thing we do.</p>
+</div></div>
+<p class="note">Decomposes cleanly and is fewer words. But it allows an impossible fourth combination that then needs disabling, and disabled controls raise more questions than they answer.</p></div>
+
+<!-- STAGE 4 -->
+<h2>Stage 4 · Rates — all three rungs</h2>
+<div class="v"><div class="vh">A — category grid, then exceptions <span class="pill">recommended</span></div>
+<div class="dlg wide"><div class="db">
+  <label class="lbl">What we keep</label>
+  <p class="hint" style="margin:2px 0 12px">A named test beats its category, which beats the catch-all.</p>
+  <table class="tbl">
+    <tr><th>Category</th><th style="width:120px">Basis</th><th style="width:90px;text-align:right">Rate</th></tr>
+    <tr><td>Laboratory</td><td><div class="inp sm">% our price</div></td><td class="r"><div class="inp sm" style="text-align:right">20</div></td></tr>
+    <tr><td>X-Ray</td><td><div class="inp sm">% our price</div></td><td class="r"><div class="inp sm ph" style="text-align:right">100</div></td></tr>
+    <tr><td>Ultrasound</td><td><div class="inp sm">% our price</div></td><td class="r"><div class="inp sm ph" style="text-align:right">100</div></td></tr>
+    <tr><td style="color:var(--t3)">CT / MRI</td><td><div class="inp sm">% our price</div></td><td class="r"><div class="inp sm ph" style="text-align:right">100</div></td></tr>
+  </table>
+  <p class="hint">Greyed placeholder = inherits the catch-all. Type to override.</p>
+
+  <label class="lbl" style="margin-top:18px">Exceptions, by test</label>
+  <div class="rate-row" style="margin-top:6px">
+    <div class="inp sm">Complete Blood Picture</div><div class="inp sm">Flat ₹</div><div class="inp sm" style="text-align:right">60</div><span class="btn gh ic sm">✕</span></div>
+  <div class="rate-row">
+    <div class="inp sm">Urine for Culture</div><div class="inp sm">Flat ₹</div><div class="inp sm" style="text-align:right">100</div><span class="btn gh ic sm">✕</span></div>
+  <span class="btn out sm" style="margin-top:4px">+ Add test</span>
+  <p class="hint" style="margin-top:12px">A real lab card is flat per test — CBP ₹60 and a culture ₹100 are not the same percentage.</p>
+</div></div>
+<p class="note"><b>Fixes:</b> categories as a proper table with aligned columns, not ten loose grid rows. Only the tests that genuinely differ get their own line, so Lalitha is 5 exceptions rather than a wall.</p></div>
+
+<div class="v"><div class="vh">B — start from the card, infer nothing <span class="pill no">alt</span></div>
+<div class="dlg wide"><div class="db">
+  <label class="lbl">Paste their statement</label>
+  <div class="inp" style="height:84px;align-items:flex-start;padding-top:10px;color:var(--t3)">CBP&#9;300&#9;60<br>CRP&#9;400&#9;100</div>
+  <table class="tbl" style="margin-top:12px">
+    <tr><th>Matched</th><th style="text-align:right">Their price</th><th style="text-align:right">Ours</th></tr>
+    <tr><td>Complete Blood Picture <span class="badge ok" style="margin-left:6px">price agrees</span></td><td class="r">₹300</td><td class="r">₹60</td></tr>
+    <tr><td>C-Reactive Protein <span class="badge ok" style="margin-left:6px">price agrees</span></td><td class="r">₹400</td><td class="r">₹100</td></tr>
+  </table>
+</div></div>
+<p class="note">Matches the real monthly workflow and validates prices against our catalogue as it parses. Build after A — it needs A's editor to show what it read.</p></div>
+
+<!-- STAGE 5 -->
+<h2>Stage 5 · Patient doors</h2>
+<div class="v"><div class="vh">A — two switches, one consequence line <span class="pill">recommended</span></div>
+<div class="dlg"><div class="db">
+  <div style="display:flex;gap:12px;align-items:flex-start;padding:8px 0">
+    <span class="sw off"></span><span><span class="ti" style="font-size:14px;font-weight:500">Send our bill</span>
+    <div class="hi" style="font-size:12.5px;color:var(--t3)">Bill WhatsApp, its link and counter print all stay shut.</div></span></div>
+  <div style="display:flex;gap:12px;align-items:flex-start;padding:8px 0">
+    <span class="sw"></span><span><span class="ti" style="font-size:14px;font-weight:500">Send the report</span>
+    <div class="hi" style="font-size:12.5px;color:var(--t3)">They still get their result from us.</div></span></div>
+  <div style="margin-top:10px;padding:10px 12px;border:1px solid #e9d9d9;background:#fdf7f7;border-radius:8px;font-size:12.5px;color:var(--t2)">
+    Lalitha bills these patients herself — leaving our bill on hands them a second one for the same test.</div>
+</div></div></div>
+
+<!-- STAGE 6 -->
+<h2>Stage 6 · Expanded row</h2>
+<div class="v"><div class="vh">A — the card, then the statement action <span class="pill">recommended</span></div>
+<div class="card">
+  <div class="row"><span class="pn">PT-000001</span><span class="nm">Lalitha Hospital</span>
+    <span class="rt">CBP <b>₹60</b> <s>+4</s></span><span class="acts"><span class="sw"></span></span></div>
+  <div class="exp">
+    <div style="font-size:13px;color:var(--t2);margin-bottom:10px">They collect from the patient and owe us our share.</div>
+    <div class="kv"><span>Laboratory <span class="badge sec" style="margin-left:4px">category</span></span><span class="r">20%</span></div>
+    <div class="kv"><span>Complete Blood Picture</span><span class="r">₹60</span></div>
+    <div class="kv"><span>C-Reactive Protein</span><span class="r">₹100</span></div>
+    <div class="kv f"><span>Anything else</span><span class="r">100% of our price</span></div>
+    <span class="btn out sm" style="margin-top:12px">🖨 Statement in Pay-Run</span>
+  </div>
+</div>
+<p class="note">Category rows carry a badge so the rung is visible — otherwise "Laboratory 20%" and "CBP ₹60" look like the same kind of thing when one overrides the other.</p></div>
+
+<h2>What I'd build</h2>
+<p class="note">1A · 2A · 3A · 4A · 5A · 6A. Paste-the-sheet (4B) once 4A exists. The through-line: <b>stop inventing components.</b> Sentence-case <code>Label</code>, real <code>Badge</code>, real <code>RadioGroup</code>, real <code>Tabs</code>, 40² icon buttons — the previous pass hand-rolled every one of these at the wrong size, and that mismatch is what read as slop.</p>
+</div>
