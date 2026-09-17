@@ -628,48 +628,60 @@ export default function OutsideLabs() {
               <Separator />
 
               <div className="space-y-1">
-                  <div className="flex items-start gap-3 py-2">
-                    <Switch
-                      className="mt-0.5"
-                      checked={form.sendBill}
-                      onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
-                    />
+                  {/* Label left, switch trailing — the shape every other settings
+                      toggle in the app uses (see ManageSmartReports). Each hint
+                      describes the state the switch is actually IN, so a row can
+                      never read "Off:" while showing on. */}
+                  <div className="flex items-start justify-between gap-6 py-2">
                     <div>
                       <Label className="block">Send our bill to the patient</Label>
                       <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                        Off: the bill WhatsApp and its QR link stay shut.
+                        {form.sendBill
+                          ? "On: the patient gets our bill on WhatsApp and by QR link."
+                          : "Off: the bill WhatsApp and its QR link stay shut."}
                       </p>
                     </div>
+                    <Switch
+                      className="mt-0.5 shrink-0"
+                      checked={form.sendBill}
+                      onCheckedChange={(v) => setForm({ ...form, sendBill: v })}
+                    />
                   </div>
-                  {!form.sendBill && (
-                    <div className="flex items-start gap-3 py-2 pl-14">
-                      <Switch
-                        className="mt-0.5"
-                        checked={form.allowBillPrint}
-                        onCheckedChange={(v) => setForm({ ...form, allowBillPrint: v })}
-                      />
-                      <div>
-                        <Label className="block">Still print our bill at the counter</Label>
-                        <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                          {form.allowBillPrint
+                  {/* Always here, so the setting is findable. It has nothing to
+                      decide while the bill is being sent anyway — disabled then,
+                      rather than hidden, which is how it got missed. */}
+                  <div className="flex items-start justify-between gap-6 py-2 pl-6">
+                    <div>
+                      <Label className="block">Still print our bill at the counter</Label>
+                      <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
+                        {form.sendBill
+                          ? "Our bill already prints. This applies once it is held."
+                          : form.allowBillPrint
                             ? "On: staff can hand over our bill; it is still never sent."
                             : "Off: Print bill is greyed everywhere for this partner."}
-                        </p>
-                      </div>
+                      </p>
                     </div>
-                  )}
-                  <div className="flex items-start gap-3 py-2">
                     <Switch
-                      className="mt-0.5"
-                      checked={form.sendReport}
-                      onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
+                      className="mt-0.5 shrink-0"
+                      disabled={form.sendBill}
+                      checked={form.allowBillPrint}
+                      onCheckedChange={(v) => setForm({ ...form, allowBillPrint: v })}
                     />
+                  </div>
+                  <div className="flex items-start justify-between gap-6 py-2">
                     <div>
                       <Label className="block">Send the report to the patient</Label>
                       <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                        On: they still get their result from us.
+                        {form.sendReport
+                          ? "On: they still get their result from us."
+                          : "Off: they hand the result over themselves."}
                       </p>
                     </div>
+                    <Switch
+                      className="mt-0.5 shrink-0"
+                      checked={form.sendReport}
+                      onCheckedChange={(v) => setForm({ ...form, sendReport: v })}
+                    />
                   </div>
                   {form.arrangements.INBOUND_BILLED_THERE.enabled && form.sendBill && (
                     <div
