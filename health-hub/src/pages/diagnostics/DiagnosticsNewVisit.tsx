@@ -2087,9 +2087,8 @@ const DiagnosticsNewVisit = () => {
                   follow-up question, and with it a form that could sit silently
                   half-answered. An outbound-only partner is absent entirely —
                   we post samples to them, they referred nobody. */}
-              <div className="space-y-3">
-                <Label className="font-semibold">Referred by (optional)</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="space-y-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                   <SearchableSelect
                     id="referred-by"
                     value={
@@ -2161,11 +2160,10 @@ const DiagnosticsNewVisit = () => {
                           })),
                       ),
                     ]}
-                    placeholder="Search doctor or partner (Enter to skip)"
+                    placeholder="Referred by — doctor or partner (optional)"
                     searchPlaceholder="Search by name, phone or number"
                     emptyText="No doctors or partners found."
                     ariaLabel="Referred by — Enter to skip, Space to open"
-                    className="h-11"
                   />
                   {(selectedDoctorId || selectedCenterId) && (
                     <Button

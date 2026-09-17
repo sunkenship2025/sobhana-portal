@@ -125,19 +125,21 @@ export function SearchableSelect({
             }
           }}
         >
-          <span className="truncate text-left">
-            {selectedOption ? selectedOption.label : placeholder}
+          {/* Label and chip are ONE group, so the chip sits against the name.
+              Left as siblings of the chevron under justify-between, it drifted
+              into the middle of the row and read as unrelated to either. */}
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-left">
+              {selectedOption ? selectedOption.label : placeholder}
+            </span>
+            {/* The chip stays after choosing, so the selection is still legible
+                without reopening — for a partner that is the money direction. */}
+            {selectedOption?.badge && (
+              <Badge variant="outline" className={cn('shrink-0', selectedOption.badge.className)}>
+                {selectedOption.badge.text}
+              </Badge>
+            )}
           </span>
-          {/* The chip stays after choosing, so the selection is still legible
-              without reopening — for a partner that is the money direction. */}
-          {selectedOption?.badge && (
-            <Badge
-              variant="outline"
-              className={cn('ml-2 shrink-0 px-1.5 py-0 text-[10px]', selectedOption.badge.className)}
-            >
-              {selectedOption.badge.text}
-            </Badge>
-          )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -188,10 +190,7 @@ export function SearchableSelect({
                   <div className="flex items-center gap-2">
                     <span className="truncate">{option.label}</span>
                     {option.badge && (
-                      <Badge
-                        variant="outline"
-                        className={cn('shrink-0 px-1.5 py-0 text-[10px]', option.badge.className)}
-                      >
+                      <Badge variant="outline" className={cn('shrink-0', option.badge.className)}>
                         {option.badge.text}
                       </Badge>
                     )}
