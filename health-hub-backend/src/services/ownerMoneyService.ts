@@ -933,6 +933,9 @@ export async function getMoneyDaySheet(
               take: 1,
               select: { referralDoctor: { select: { name: true } } },
             },
+            // Same rule as the bill: an inbound partner IS the referrer; an
+            // outbound one is not — we sent them a sample, the patient is ours.
+            partnerVisit: { select: { kind: true, partner: { select: { name: true } } } },
           },
         },
         // Bounded at win.end: a payment made after this window closes can never
@@ -1108,6 +1111,9 @@ export async function getMoneyDaySheet(
       branchCode: b.branch.code,
       referredBy:
         b.visit.referrals[0]?.referralDoctor?.name ??
+        (b.visit.partnerVisit && b.visit.partnerVisit.kind !== 'OUTBOUND_VENDOR'
+          ? b.visit.partnerVisit.partner.name
+          : null) ??
         (b.visit.domain === 'DIAGNOSTICS' ? 'SELF' : null),
       domain: b.visit.domain as DaySheetRow['domain'],
       tests: testNames.join(', '),

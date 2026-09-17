@@ -1602,6 +1602,7 @@ export async function createReportSnapshot(
                 },
                 take: 1,
               },
+              partnerVisit: { select: { kind: true, partner: { select: { name: true } } } },
               testOrders: {
                 include: testOrderIncludeForDerived,
               },
@@ -1755,7 +1756,14 @@ export async function createReportSnapshot(
     branchCode: visit.branch.code,
     branchAddress: visit.branch.address,
     branchPhone: visit.branch.phone,
-    referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
+    // An inbound partner is the referrer when no doctor is named; an outbound
+    // one is not — that is a lab we sent a sample TO, not who sent the patient.
+    referralDoctorName:
+      visit.referrals[0]?.referralDoctor.name ||
+      (visit.partnerVisit && visit.partnerVisit.kind !== 'OUTBOUND_VENDOR'
+        ? visit.partnerVisit.partner.name
+        : null) ||
+      null,
     createdAt: visit.createdAt.toISOString(),
     collectedAt: visit.createdAt.toISOString(), // Sample collection time defaults to registration
     finalizedAt: new Date().toISOString(),
@@ -1802,6 +1810,7 @@ export async function buildEphemeralSnapshot(
         },
       },
       branch: true,
+      partnerVisit: { select: { kind: true, partner: { select: { name: true } } } },
       referrals: {
         where: { deletedAt: null },
         include: { referralDoctor: true },
@@ -1969,7 +1978,14 @@ export async function buildEphemeralSnapshot(
     branchCode: visit.branch.code,
     branchAddress: visit.branch.address,
     branchPhone: visit.branch.phone,
-    referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
+    // An inbound partner is the referrer when no doctor is named; an outbound
+    // one is not — that is a lab we sent a sample TO, not who sent the patient.
+    referralDoctorName:
+      visit.referrals[0]?.referralDoctor.name ||
+      (visit.partnerVisit && visit.partnerVisit.kind !== 'OUTBOUND_VENDOR'
+        ? visit.partnerVisit.partner.name
+        : null) ||
+      null,
     createdAt: visit.createdAt.toISOString(),
     collectedAt: visit.createdAt.toISOString(),
     finalizedAt: new Date().toISOString(),

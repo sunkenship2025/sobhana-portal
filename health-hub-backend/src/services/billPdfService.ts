@@ -190,6 +190,10 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
         include: { test: true, product: true },
       },
       referrals: { where: { deletedAt: null }, include: { referralDoctor: true } },
+      // An INBOUND partner is who sent the patient, so it is the referrer when
+      // no doctor is named. An OUTBOUND one is not: we sent THEM a sample, the
+      // patient is ours, and printing their name would credit the wrong party.
+      partnerVisit: { select: { kind: true, partner: { select: { name: true } } } },
       clinicVisit: { include: { clinicDoctor: true } },
     },
   });
@@ -291,6 +295,8 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       : null,
     referralDoctor: visit.referrals[0]?.referralDoctor
       ? { name: visit.referrals[0].referralDoctor.name }
+      : visit.partnerVisit && visit.partnerVisit.kind !== 'OUTBOUND_VENDOR'
+      ? { name: visit.partnerVisit.partner.name }
       : null,
     items,
     // Only diagnostics visits produce a report; clinic consultations never do.
