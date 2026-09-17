@@ -60,6 +60,9 @@ export default function ReportBuilder() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [defs, setDefs] = useState<TestDef[]>([]);
   const [homeQuery, setHomeQuery] = useState('');
+  // "Show only reports nothing sells" — turns the Not-sold pill from a label
+  // into something you can act on in bulk.
+  const [unsoldOnly, setUnsoldOnly] = useState(false);
 
   const [panel, setPanel] = useState<PanelForm>(blankPanel());
   const [items, setItemsRaw] = useState<BuilderItem[]>([]);
@@ -132,24 +135,28 @@ export default function ReportBuilder() {
       const q = debouncedHomeQuery.trim();
       const live = new URLSearchParams({ active: 'true', page: String(livePage), pageSize: String(HOME_PAGE_SIZE) });
       if (q) live.set('search', q);
+      if (unsoldOnly) live.set('unsold', 'true');
       const drafts = new URLSearchParams({ active: 'false' });
       if (q) drafts.set('search', q);
+      // A draft is unsold by definition — nothing can include it until it is
+      // published — so the filter is about live reports only, and the drafts
+      // request is simply not made rather than made and thrown away.
       const [lRes, dRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels?${live}`, { headers }),
-        fetch(`${API_BASE}/clinical-panels?${drafts}`, { headers }),
+        unsoldOnly ? Promise.resolve(null) : fetch(`${API_BASE}/clinical-panels?${drafts}`, { headers }),
       ]);
       const toRow = (r: any): PanelRow => ({
         id: r.id, code: r.code, name: r.name, isActive: !!r.isActive,
         itemCount: r.itemCount ?? 0, departmentName: r.department?.name ?? '', productCount: r.productCount ?? 0,
       });
       const liveBody = lRes.ok ? await lRes.json() : { results: [], total: 0 };
-      const draftRows = dRes.ok ? ((await dRes.json()) as any[]).map(toRow) : [];
+      const draftRows = dRes?.ok ? ((await dRes.json()) as any[]).map(toRow) : [];
       setLiveTotal(liveBody.total ?? 0);
       setPanelsList([...draftRows, ...(liveBody.results ?? []).map(toRow)]);
     } catch { /* the toast in loadAll already covers a dead network */ }
-  }, [headers, debouncedHomeQuery, livePage]);
+  }, [headers, debouncedHomeQuery, livePage, unsoldOnly]);
   useEffect(() => { loadHome(); }, [loadHome]);
-  useEffect(() => { setLivePage(1); }, [debouncedHomeQuery]);
+  useEffect(() => { setLivePage(1); }, [debouncedHomeQuery, unsoldOnly]);
 
   const openPanel = async (id: string) => {
     try {
@@ -412,6 +419,7 @@ export default function ReportBuilder() {
       <>
         <ReportHome panels={panelsList} query={homeQuery} setQuery={setHomeQuery}
           liveTotal={liveTotal} livePage={livePage} setLivePage={setLivePage} pageSize={HOME_PAGE_SIZE}
+          unsoldOnly={unsoldOnly} setUnsoldOnly={setUnsoldOnly}
           onOpen={openPanel} onNew={openNew}
           onDiscard={(p) => setDiscardTarget({ id: p.id, name: p.name })} />
         <DiscardDialog target={discardTarget} onCancel={() => setDiscardTarget(null)} onConfirm={doDiscard} />
@@ -516,6 +524,7 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
   panels: PanelRow[]; query: string; setQuery: (v: string) => void;
   onOpen: (id: string) => void; onNew: () => void; onDiscard: (p: PanelRow) => void;
   liveTotal: number; livePage: number; setLivePage: (f: (p: number) => number) => void; pageSize: number;
+  unsoldOnly: boolean; setUnsoldOnly: (v: boolean) => void;
 }) {
   // The server already filtered and paged these; splitting drafts from live is the
   // only thing left to do here. Re-filtering would filter one page.
@@ -526,6 +535,14 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-3 border-b bg-background/95 px-1 py-3 backdrop-blur">
         <div className="shrink-0"><h2 className="text-xl font-bold tracking-tight">Reports</h2><p className="text-sm text-muted-foreground">Build and manage your diagnostic report templates.</p></div>
         <div className="relative ml-auto flex-1 min-w-[220px] max-w-2xl"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${liveTotal} report${liveTotal === 1 ? '' : 's'}…`} className="pl-8 w-full" /></div>
+        <Button
+          variant={unsoldOnly ? 'secondary' : 'outline'}
+          onClick={() => setUnsoldOnly(!unsoldOnly)}
+          className="shrink-0"
+          title="Reports no billable product includes — they cannot be ordered"
+        >
+          Not sold
+        </Button>
         <Button onClick={onNew} className="shrink-0"><Plus className="h-4 w-4 mr-1" /> New report</Button>
       </div>
 
@@ -566,7 +583,14 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
                 <span className="font-mono text-xs text-muted-foreground w-20 shrink-0 hidden sm:block">{p.code}</span>
                 <span className="text-sm text-muted-foreground w-32 shrink-0 hidden md:block truncate">{p.departmentName}</span>
                 <span className="text-xs text-muted-foreground w-16 shrink-0 hidden md:block">{p.itemCount} test{p.itemCount === 1 ? '' : 's'}</span>
-                <span className={`shrink-0 rounded-full text-[10px] font-bold px-2 py-0.5 ${p.productCount > 0 ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{p.productCount > 0 ? 'Billable' : 'Live'}</span>
+                {/* Only the exception is badged. "Billable" fired on 187 of 210
+                    rows, which is decoration, and the calmer green "Live" marked
+                    the 23 that no product includes — the ones that cannot be
+                    sold or ordered at all. Amber, not red: an unsold report is
+                    something to look at, not necessarily something broken. */}
+                {p.productCount === 0 && (
+                  <span className="shrink-0 rounded-full text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700" title="No billable product includes this report, so it cannot be ordered">Not sold</span>
+                )}
               </button>
             ))}
           </div>

@@ -171,7 +171,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List panels ─────────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, departmentId, layoutType, active, page, pageSize, codesOnly } = req.query;
+    const { search, departmentId, layoutType, active, page, pageSize, codesOnly, unsold } = req.query;
 
     const where: any = {};
 
@@ -196,6 +196,14 @@ router.get('/', async (req: AuthRequest, res) => {
       where.isActive = false;
     } else {
       where.isActive = true;
+    }
+
+    // Reports no billable product includes — they cannot be ordered, so they
+    // are either config debt or something someone forgot to publish. Expressed
+    // server-side because the list is paged: filtering in the browser would
+    // filter one page and call it the answer.
+    if (unsold === 'true') {
+      where.productPanels = { none: {} };
     }
 
     // Codes only. The report builder auto-generates a panel code and has to
