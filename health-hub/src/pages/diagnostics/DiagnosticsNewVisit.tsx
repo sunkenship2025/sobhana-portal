@@ -2194,10 +2194,15 @@ const DiagnosticsNewVisit = () => {
                   </Button>
                 </div>
 
-                {/* Said at the moment a biller would otherwise reach for the drawer. */}
+                {/* Bill this exactly like any other visit, at our prices. The bill
+                    IS the internal record, and our share is frozen onto its orders
+                    from the partner's card. The only thing their billing changes is
+                    whether the patient hears from us, which the partner's own
+                    Send-bill toggle already decides. */}
                 {partnerArrangement === "INBOUND_BILLED_THERE" && (
                   <p className="text-sm text-muted-foreground">
-                    Patient pays them — nothing is collected here.
+                    Bill as usual at our prices — this is our record of what we
+                    earn. {selectedCenter?.sendBill === false && "No bill is sent to the patient."}
                   </p>
                 )}
               </div>
