@@ -2219,6 +2219,64 @@ const DiagnosticsNewVisit = () => {
           </Card>
         )}
 
+        {/* Select Tests */}
+        {(selectedPatient || showNewPatientForm) && (
+          <Card>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-base font-semibold">Select Tests</CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 pt-3">
+              <div ref={testSelectorRef}>
+              <ProductSelector
+                products={products}
+                selectedProductIds={selectedProducts}
+                onQuickAddBillOnly={openQuickAddProductDialog}
+                onSelectionChange={(productIds) => {
+                  setSelectedProducts(productIds);
+                  setReferralOverrides((prev) => {
+                    if (!selectedDoctor) {
+                      return Object.fromEntries(
+                        Object.entries(prev).filter(([productId]) =>
+                          productIds.includes(productId),
+                        ),
+                      );
+                    }
+                    return buildOverridesForProducts(
+                      productIds,
+                      (productId) =>
+                        getEffectiveDoctorPayout(selectedDoctor, productId),
+                      prev,
+                    );
+                  });
+                  setDiagnosticCenterOverrides((prev) => {
+                    if (!selectedCenter) {
+                      return Object.fromEntries(
+                        Object.entries(prev).filter(([productId]) =>
+                          productIds.includes(productId),
+                        ),
+                      );
+                    }
+                    return buildOverridesForProducts(
+                      productIds,
+                      (productId) =>
+                        getEffectivePartnerPayout(
+                            selectedCenter,
+                            partnerArrangement,
+                            productId,
+                        ),
+                      prev,
+                    );
+                  });
+                }}
+                onDone={() => goToStep(showMeasurements ? 40 : 60)}
+                focusStep={38}
+                disabled={isSubmitting}
+              />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Billing */}
         {selectedProducts.length > 0 && (
           <Card>
