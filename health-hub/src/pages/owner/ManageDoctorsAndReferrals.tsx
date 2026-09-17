@@ -6,7 +6,8 @@
  *  - Diagnostic Centers (ex-ManageDiagnosticCenters)
  */
 
-import { useState, useEffect, useRef, type RefObject } from 'react';
+import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { API_BASE } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -130,22 +131,18 @@ export default function ManageDoctorsAndReferrals() {
   const [refRulesBranch, setRefRulesBranch] = useState<string>('global');
   // List filter: show doctors who referred to a given branch ('all' = everyone).
   const [refListBranch, setRefListBranch] = useState<string>('all');
+  const REF_PAGE_SIZE = 20;
+  const [refPage, setRefPage] = useState(1);
+  const [refTotal, setRefTotal] = useState(0);
+  // Server-side search, so wait for a pause rather than a request per keystroke.
+  const debouncedRefSearch = useDebouncedValue(refSearch, 250);
   const branches = useBranchStore((s) => s.branches);
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? 'Branch';
   const referralCategories = useReferralCategories();
-  const refQuery = refSearch.trim().toLowerCase();
-  const byBranchReferral =
-    refListBranch === 'all'
-      ? referralDoctors
-      : referralDoctors.filter((d) => (d.branchIds || []).includes(refListBranch));
-  const filteredReferralDoctors = refQuery
-    ? byBranchReferral.filter(
-        (d) =>
-          (d.name || '').toLowerCase().includes(refQuery) ||
-          (d.phone || '').toLowerCase().includes(refQuery) ||
-          ((d as { doctorNumber?: string }).doctorNumber || '').toLowerCase().includes(refQuery),
-      )
-    : byBranchReferral;
+  // Search and the branch filter run on the server now, so `referralDoctors` IS
+  // the current page, already narrowed. Filtering again here would filter one
+  // page of 227 doctors and present it as the whole answer.
+  const filteredReferralDoctors = referralDoctors;
 
   // Edit forms render above their (long) lists, so bring the form into view when
   // it opens instead of leaving the user scrolled at the row they clicked.
@@ -201,21 +198,37 @@ export default function ManageDoctorsAndReferrals() {
   // REFERRAL DOCTORS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const fetchReferralDoctors = async () => {
+  const fetchReferralDoctors = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API_BASE}/referral-doctors`, {
+      const params = new URLSearchParams({
+        page: String(refPage),
+        pageSize: String(REF_PAGE_SIZE),
+      });
+      if (debouncedRefSearch.trim()) params.set('search', debouncedRefSearch.trim());
+      if (refListBranch !== 'all') params.set('branchId', refListBranch);
+      const res = await fetch(`${API_BASE}/referral-doctors?${params}`, {
         headers: branchHeaders(token),
       });
-      if (res.ok) setReferralDoctors(await res.json());
+      if (res.ok) {
+        // Envelope, because we asked for a page. Uncached on purpose: commission
+        // rates are edited here and must be right on the next render, and every
+        // mutation below already refetches.
+        const body = await res.json();
+        setReferralDoctors(body.results);
+        setRefTotal(body.total);
+      }
     } catch (err) {
       console.error('Error fetching referral doctors:', err);
     } finally {
       setRefLoading(false);
     }
-  };
+  }, [token, refPage, debouncedRefSearch, refListBranch]);
 
-  useEffect(() => { fetchReferralDoctors(); }, [token]);
+  useEffect(() => { fetchReferralDoctors(); }, [fetchReferralDoctors]);
+  // Narrowing restarts at page 1, or a short result viewed from a later page
+  // renders an empty table.
+  useEffect(() => { setRefPage(1); }, [debouncedRefSearch, refListBranch]);
 
   const fetchBillableProducts = async () => {
     if (!token) return;
@@ -1199,6 +1212,27 @@ export default function ManageDoctorsAndReferrals() {
             </TableBody>
           </Table>
         )}
+
+        {/* Count is the whole filtered set, not the page — "20 doctors" on 227
+            would read as the rest having been deleted. */}
+        <div className="mt-3 flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground">
+            {refTotal === 0
+              ? 'No doctors'
+              : `${(refPage - 1) * REF_PAGE_SIZE + 1}–${Math.min(refPage * REF_PAGE_SIZE, refTotal)} of ${refTotal}`}
+          </p>
+          {refTotal > REF_PAGE_SIZE && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" disabled={refPage <= 1 || refLoading}
+                onClick={() => setRefPage((p) => Math.max(1, p - 1))}>Previous</Button>
+              <span className="text-xs text-muted-foreground">
+                Page {refPage} of {Math.max(1, Math.ceil(refTotal / REF_PAGE_SIZE))}
+              </span>
+              <Button size="sm" variant="outline" disabled={refPage * REF_PAGE_SIZE >= refTotal || refLoading}
+                onClick={() => setRefPage((p) => p + 1)}>Next</Button>
+            </div>
+          )}
+        </div>
 
         <AlertDialog open={!!refDeleteId} onOpenChange={() => setRefDeleteId(null)}>
           <AlertDialogContent>

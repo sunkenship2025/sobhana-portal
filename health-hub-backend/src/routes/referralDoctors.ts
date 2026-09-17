@@ -189,7 +189,13 @@ router.post('/', async (req: AuthRequest, res) => {
 router.get('/', async (req: AuthRequest, res) => {
   try {
     const includeInactive = req.query.includeInactive === 'true';
-    const doctors = await doctorService.listReferralDoctors(includeInactive);
+    const { search, branchId, page, pageSize } = req.query;
+    const doctors = await doctorService.listReferralDoctors(includeInactive, {
+      search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+      branchId: typeof branchId === 'string' && branchId !== 'all' ? branchId : undefined,
+      page: page !== undefined ? Math.max(1, parseInt(page as string) || 1) : undefined,
+      pageSize: pageSize !== undefined ? parseInt(pageSize as string) : undefined,
+    });
     return res.json(doctors);
   } catch (err: any) {
     console.error('List referral doctors error:', err);

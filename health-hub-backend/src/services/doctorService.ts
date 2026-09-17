@@ -2,6 +2,7 @@ import { generateReferralDoctorNumber, generateClinicDoctorNumber } from './numb
 import { logAction } from './auditService';
 import { ValidationError, ConflictError, NotFoundError } from '../utils/errors';
 import prisma from '../lib/prisma';
+import type { Prisma } from '@prisma/client';
 import type { NormalizedReferralPayout } from './referralPayoutService';
 
 
@@ -204,19 +205,59 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
   return doctor;
 }
 
-export async function listReferralDoctors(includeInactive = false) {
+/**
+ * Opt-in pagination, same contract as billable-products / clinical-panels /
+ * patient search: no `page` returns the plain array every existing caller
+ * expects, `page` returns an envelope and only that page leaves the server.
+ *
+ * Search and the branch filter moved here from the browser for the same reason
+ * they did on the other admin lists — filtering a page in the client filters a
+ * page and calls it the answer.
+ */
+export async function listReferralDoctors(
+  includeInactive = false,
+  opts: { search?: string; branchId?: string; page?: number; pageSize?: number } = {},
+) {
+  const where: Prisma.ReferralDoctorWhereInput = {
+    ...(includeInactive ? {} : { isActive: true }),
+    ...(opts.search
+      ? {
+          OR: [
+            { name: { contains: opts.search, mode: 'insensitive' } },
+            { phone: { contains: opts.search, mode: 'insensitive' } },
+            { doctorNumber: { contains: opts.search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+    // "Doctors who referred to this branch" — the same thing branchIds below
+    // reports, asked as a filter instead of computed after the fact.
+    ...(opts.branchId ? { referrals: { some: { branchId: opts.branchId, deletedAt: null } } } : {}),
+  };
+
+  const paged = opts.page !== undefined;
+  const pageNum = Math.max(1, opts.page ?? 1);
+  const size = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const total = paged ? await prisma.referralDoctor.count({ where }) : 0;
+
   const doctors = await prisma.referralDoctor.findMany({
-    where: includeInactive ? {} : { isActive: true },
+    where,
     include: REFERRAL_DOCTOR_INCLUDE,
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    ...(paged ? { skip: (pageNum - 1) * size, take: size } : {}),
   });
-  if (doctors.length === 0) return doctors;
+  if (doctors.length === 0) {
+    return paged ? { results: [], total, page: pageNum, pageSize: size, hasMore: false } : doctors;
+  }
 
   // Which branches each doctor has referred to (for branch-wise grouping in the
   // UI — a doctor who referred to two branches is listed under both).
   const branchRows = await prisma.referralDoctor_Visit.groupBy({
     by: ['referralDoctorId', 'branchId'],
-    where: { referralDoctorId: { in: doctors.map((d) => d.id) } },
+    // deletedAt:null, which this was missing: a referral that was removed or
+    // corrected still listed the doctor under that branch. It also made the new
+    // server-side branch filter disagree with the labels beside each name —
+    // 113 doctors filtered, 116 labelled, on the same branch.
+    where: { referralDoctorId: { in: doctors.map((d) => d.id) }, deletedAt: null },
   });
   const branchesByDoctor = new Map<string, string[]>();
   for (const row of branchRows) {
@@ -224,7 +265,11 @@ export async function listReferralDoctors(includeInactive = false) {
     list.push(row.branchId);
     branchesByDoctor.set(row.referralDoctorId, list);
   }
-  return doctors.map((d) => ({ ...d, branchIds: branchesByDoctor.get(d.id) ?? [] }));
+  const rows = doctors.map((d) => ({ ...d, branchIds: branchesByDoctor.get(d.id) ?? [] }));
+  if (paged) {
+    return { results: rows, total, page: pageNum, pageSize: size, hasMore: pageNum * size < total };
+  }
+  return rows;
 }
 
 export async function updateReferralDoctor(
