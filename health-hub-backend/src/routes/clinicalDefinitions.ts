@@ -80,7 +80,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List latest test definitions ────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, departmentId, status, interpretationMode, code } = req.query;
+    const { search, departmentId, status, interpretationMode, code, page, pageSize } = req.query;
 
     const where: any = { isLatest: true };
 
@@ -111,8 +111,15 @@ router.get('/', async (req: AuthRequest, res) => {
       where.code = code;
     }
 
+    // Opt-in pagination — same contract as billable-products and clinical-panels.
+    const paged = page !== undefined;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const size = Math.min(100, Math.max(1, parseInt(pageSize as string) || 20));
+    const total = paged ? await prisma.testDefinition.count({ where }) : 0;
+
     const definitions = await prisma.testDefinition.findMany({
       where,
+      ...(paged ? { skip: (pageNum - 1) * size, take: size } : {}),
       include: {
         department: { select: { id: true, name: true } },
         _count: { select: { ranges: true, interpretationRules: true, panelItems: true, productPanels: true } },
@@ -120,7 +127,17 @@ router.get('/', async (req: AuthRequest, res) => {
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     });
 
-    return res.json(definitions.map(transformDefinition));
+    const rows = definitions.map(transformDefinition);
+    if (paged) {
+      return res.json({
+        results: rows,
+        total,
+        page: pageNum,
+        pageSize: size,
+        hasMore: pageNum * size < total,
+      });
+    }
+    return res.json(rows);
   } catch (error: any) {
     console.error('Error listing clinical definitions:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });

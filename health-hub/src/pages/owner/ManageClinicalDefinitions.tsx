@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Plus, Pencil, Search, ChevronDown, ChevronRight,
   FlaskConical, Lock, Archive, History, Eye, AlertTriangle, Trash2,
@@ -205,6 +206,11 @@ export default function ManageClinicalDefinitions() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // Server-side search, so wait for a pause instead of a query per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250);
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
+  const [totalDefs, setTotalDefs] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('__all__');
   const [deptFilter, setDeptFilter] = useState<string>('__all__');
   const [expandedRoot, setExpandedRoot] = useState<string | null>(null);
@@ -257,18 +263,29 @@ export default function ManageClinicalDefinitions() {
   const fetchDefinitions = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       params.set('status', statusFilter !== '__all__' ? statusFilter : 'all');
       if (deptFilter && deptFilter !== '__all__') params.set('departmentId', deptFilter);
+      params.set('page', String(page));
+      params.set('pageSize', String(PAGE_SIZE));
       const res = await fetch(`${API_BASE}/clinical-definitions?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
-      setDefinitions(await res.json());
+      // Envelope, because we asked for a page. Uncached deliberately — a
+      // reference range edited here has to be right on the next render, and
+      // every mutation already refetches.
+      const body = await res.json();
+      setDefinitions(body.results);
+      setTotalDefs(body.total);
     } catch {
       toast.error('Failed to load clinical definitions');
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, deptFilter]);
+  }, [debouncedSearch, statusFilter, deptFilter, page]);
+
+  // Narrowing restarts at page 1, or a short result viewed from a later page
+  // renders an empty table.
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, deptFilter]);
 
   const fetchDepartments = useCallback(async () => {
     try {
@@ -890,9 +907,24 @@ export default function ManageClinicalDefinitions() {
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground text-right">
-        Showing {definitions.length} definition{definitions.length !== 1 ? 's' : ''}
-      </p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          {totalDefs === 0
+            ? 'No definitions'
+            : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, totalDefs)} of ${totalDefs}`}
+        </p>
+        {totalDefs > PAGE_SIZE && (
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={page <= 1 || loading}
+              onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button>
+            <span className="text-xs text-muted-foreground">
+              Page {page} of {Math.max(1, Math.ceil(totalDefs / PAGE_SIZE))}
+            </span>
+            <Button size="sm" variant="outline" disabled={page * PAGE_SIZE >= totalDefs || loading}
+              onClick={() => setPage(p => p + 1)}>Next</Button>
+          </div>
+        )}
+      </div>
 
       {/* ─── Create/New-Version Dialog (Accordion Layout) ─────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

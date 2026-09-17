@@ -5,6 +5,7 @@ import { SAMPLE_TYPES } from '@/pages/owner/reportBuilderShared';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Plus, Pencil, Search, Eye, LayoutGrid, GripVertical, Trash2,
   ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Loader2,
@@ -317,6 +318,11 @@ export default function ManagePanelDefinitions() {
   const [availableDefs, setAvailableDefs] = useState<TestDefinitionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // Server-side search now, so wait for a pause rather than a query per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250);
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
+  const [totalPanels, setTotalPanels] = useState(0);
 
   // Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -431,17 +437,28 @@ export default function ManagePanelDefinitions() {
   const fetchPanels = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       params.set('active', 'all'); // Show active and inactive panels in management view
+      params.set('page', String(page));
+      params.set('pageSize', String(PAGE_SIZE));
       const res = await fetch(`${API_BASE}/clinical-panels?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
-      setPanels(await res.json());
+      // Envelope, because we asked for a page. Not cached on purpose: panels are
+      // edited here and the edit must be visible on the next render — every
+      // mutation below already refetches, which is what makes that true.
+      const body = await res.json();
+      setPanels(body.results);
+      setTotalPanels(body.total);
     } catch {
       toast.error('Failed to load panels');
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [debouncedSearch, page]);
+
+  // A narrowing search must restart at page 1, or a 3-row result viewed from
+  // page 5 renders an empty table.
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
 
   const fetchDepartments = useCallback(async () => {
     try {
@@ -961,9 +978,24 @@ export default function ManagePanelDefinitions() {
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground text-right">
-        Showing {panels.length} panel{panels.length !== 1 ? 's' : ''}
-      </p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          {totalPanels === 0
+            ? 'No panels'
+            : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, totalPanels)} of ${totalPanels}`}
+        </p>
+        {totalPanels > PAGE_SIZE && (
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={page <= 1 || loading}
+              onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button>
+            <span className="text-xs text-muted-foreground">
+              Page {page} of {Math.max(1, Math.ceil(totalPanels / PAGE_SIZE))}
+            </span>
+            <Button size="sm" variant="outline" disabled={page * PAGE_SIZE >= totalPanels || loading}
+              onClick={() => setPage(p => p + 1)}>Next</Button>
+          </div>
+        )}
+      </div>
 
       {/* ─── Create/Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

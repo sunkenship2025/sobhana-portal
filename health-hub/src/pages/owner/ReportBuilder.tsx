@@ -15,6 +15,7 @@ import { apiFetchQuery, qk } from '@/lib/query';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Plus, FilePlus2, Loader2, Search, Sparkles, Check, CircleDashed, Package, ArrowDown,
   ArrowLeft, Trash2, Rocket, FileText,
@@ -48,7 +49,14 @@ export default function ReportBuilder() {
 
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'home' | 'editor'>('home');
+  // Drafts are few and must ALL show; live reports are the 210 that need paging.
+  // They are fetched separately because they are two different questions.
   const [panelsList, setPanelsList] = useState<PanelRow[]>([]);
+  const [liveTotal, setLiveTotal] = useState(0);
+  const [livePage, setLivePage] = useState(1);
+  // Every existing code, for auto-generating a unique one. A page of rows
+  // cannot answer "is this code taken", so it is asked separately and cheaply.
+  const [allCodes, setAllCodes] = useState<string[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [defs, setDefs] = useState<TestDef[]>([]);
   const [homeQuery, setHomeQuery] = useState('');
@@ -86,7 +94,7 @@ export default function ReportBuilder() {
   const loadAll = useCallback(async () => {
     try {
       const [pRes, deps, defs] = await Promise.all([
-        fetch(`${API_BASE}/clinical-panels?active=all`, { headers }),
+        fetch(`${API_BASE}/clinical-panels?active=all&codesOnly=true`, { headers }),
         // Cached; departments list is global and rarely changes.
         apiFetchQuery<Department[]>(
           queryClient,
@@ -107,18 +115,41 @@ export default function ReportBuilder() {
           { staleTime: 5 * 60 * 1000 },
         ).catch(() => null),
       ]);
-      if (pRes.ok) {
-        const rows = await pRes.json();
-        setPanelsList(rows.map((r: any) => ({
-          id: r.id, code: r.code, name: r.name, isActive: !!r.isActive,
-          itemCount: r.itemCount ?? 0, departmentName: r.department?.name ?? '', productCount: r.productCount ?? 0,
-        })));
-      }
+      if (pRes.ok) setAllCodes(((await pRes.json()) as { code: string }[]).map((c) => c.code));
       if (deps) setDepartments(deps);
       if (defs) setDefs(defs);
     } catch { toast.error('Failed to load builder data'); } finally { setLoading(false); }
   }, [headers]);
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // Drafts unpaged (there are a handful and every one must be visible), live
+  // reports paged with the search pushed to the server. Two questions, two
+  // requests — the old single fetch pulled all 213 to render 20.
+  const HOME_PAGE_SIZE = 20;
+  const debouncedHomeQuery = useDebouncedValue(homeQuery, 250);
+  const loadHome = useCallback(async () => {
+    try {
+      const q = debouncedHomeQuery.trim();
+      const live = new URLSearchParams({ active: 'true', page: String(livePage), pageSize: String(HOME_PAGE_SIZE) });
+      if (q) live.set('search', q);
+      const drafts = new URLSearchParams({ active: 'false' });
+      if (q) drafts.set('search', q);
+      const [lRes, dRes] = await Promise.all([
+        fetch(`${API_BASE}/clinical-panels?${live}`, { headers }),
+        fetch(`${API_BASE}/clinical-panels?${drafts}`, { headers }),
+      ]);
+      const toRow = (r: any): PanelRow => ({
+        id: r.id, code: r.code, name: r.name, isActive: !!r.isActive,
+        itemCount: r.itemCount ?? 0, departmentName: r.department?.name ?? '', productCount: r.productCount ?? 0,
+      });
+      const liveBody = lRes.ok ? await lRes.json() : { results: [], total: 0 };
+      const draftRows = dRes.ok ? ((await dRes.json()) as any[]).map(toRow) : [];
+      setLiveTotal(liveBody.total ?? 0);
+      setPanelsList([...draftRows, ...(liveBody.results ?? []).map(toRow)]);
+    } catch { /* the toast in loadAll already covers a dead network */ }
+  }, [headers, debouncedHomeQuery, livePage]);
+  useEffect(() => { loadHome(); }, [loadHome]);
+  useEffect(() => { setLivePage(1); }, [debouncedHomeQuery]);
 
   const openPanel = async (id: string) => {
     try {
@@ -198,7 +229,7 @@ export default function ReportBuilder() {
     if (field === 'label') {
       const patch: Partial<PanelForm> = { label: value };
       if (!codeTouchedRef.current && (!panel.code || panel.code === lastAutoCodeRef.current)) {
-        const c = value.trim() ? autoCode(value, new Set(panelsList.map((p) => p.code))) : '';
+        const c = value.trim() ? autoCode(value, new Set(allCodes)) : '';
         patch.code = c; lastAutoCodeRef.current = c;
       }
       return setP(patch);
@@ -380,6 +411,7 @@ export default function ReportBuilder() {
     return (
       <>
         <ReportHome panels={panelsList} query={homeQuery} setQuery={setHomeQuery}
+          liveTotal={liveTotal} livePage={livePage} setLivePage={setLivePage} pageSize={HOME_PAGE_SIZE}
           onOpen={openPanel} onNew={openNew}
           onDiscard={(p) => setDiscardTarget({ id: p.id, name: p.name })} />
         <DiscardDialog target={discardTarget} onCancel={() => setDiscardTarget(null)} onConfirm={doDiscard} />
@@ -479,19 +511,21 @@ export default function ReportBuilder() {
 }
 
 /* ───────── Home ───────── */
-function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard }: {
+function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
+  liveTotal, livePage, setLivePage, pageSize }: {
   panels: PanelRow[]; query: string; setQuery: (v: string) => void;
   onOpen: (id: string) => void; onNew: () => void; onDiscard: (p: PanelRow) => void;
+  liveTotal: number; livePage: number; setLivePage: (f: (p: number) => number) => void; pageSize: number;
 }) {
-  const q = query.trim().toLowerCase();
-  const match = (p: PanelRow) => !q || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
-  const drafts = panels.filter((p) => !p.isActive && match(p));
-  const live = panels.filter((p) => p.isActive && match(p));
+  // The server already filtered and paged these; splitting drafts from live is the
+  // only thing left to do here. Re-filtering would filter one page.
+  const drafts = panels.filter((p) => !p.isActive);
+  const live = panels.filter((p) => p.isActive);
   return (
     <div className="space-y-7">
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-3 border-b bg-background/95 px-1 py-3 backdrop-blur">
         <div className="shrink-0"><h2 className="text-xl font-bold tracking-tight">Reports</h2><p className="text-sm text-muted-foreground">Build and manage your diagnostic report templates.</p></div>
-        <div className="relative ml-auto flex-1 min-w-[220px] max-w-2xl"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${panels.length} report${panels.length === 1 ? '' : 's'}…`} className="pl-8 w-full" /></div>
+        <div className="relative ml-auto flex-1 min-w-[220px] max-w-2xl"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${liveTotal} report${liveTotal === 1 ? '' : 's'}…`} className="pl-8 w-full" /></div>
         <Button onClick={onNew} className="shrink-0"><Plus className="h-4 w-4 mr-1" /> New report</Button>
       </div>
 
@@ -518,7 +552,9 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard }: {
       </section>
 
       <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Live reports <span className="text-muted-foreground/70">· {live.length}</span></h3>
+        {/* Count is the whole filtered set, not the page — "· 20" on 210 reports
+            would read as reports having gone missing. */}
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Live reports <span className="text-muted-foreground/70">· {liveTotal}</span></h3>
         {live.length === 0 ? (
           <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-6 text-center">No live reports yet — build a draft and Publish it.</p>
         ) : (
@@ -535,6 +571,17 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard }: {
             ))}
           </div>
         )}
+      {liveTotal > pageSize && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <Button size="sm" variant="outline" disabled={livePage <= 1}
+            onClick={() => setLivePage((p) => Math.max(1, p - 1))}>Previous</Button>
+          <span className="text-xs text-muted-foreground">
+            Page {livePage} of {Math.max(1, Math.ceil(liveTotal / pageSize))}
+          </span>
+          <Button size="sm" variant="outline" disabled={livePage * pageSize >= liveTotal}
+            onClick={() => setLivePage((p) => p + 1)}>Next</Button>
+        </div>
+      )}
       </section>
     </div>
   );

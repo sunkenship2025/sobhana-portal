@@ -171,7 +171,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List panels ─────────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, departmentId, layoutType, active } = req.query;
+    const { search, departmentId, layoutType, active, page, pageSize, codesOnly } = req.query;
 
     const where: any = {};
 
@@ -198,8 +198,33 @@ router.get('/', async (req: AuthRequest, res) => {
       where.isActive = true;
     }
 
+    // Codes only. The report builder auto-generates a panel code and has to
+    // avoid EVERY existing one, not just the page it is showing — so that one
+    // need is served by a few KB of codes rather than by refusing to paginate
+    // the list it actually renders.
+    if (codesOnly === 'true') {
+      // The schema's `name` IS the unique key the frontend calls `code`
+      // (transformPanel does the same rename for the full rows).
+      const codes = await prisma.clinicalPanel.findMany({
+        where,
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      return res.json(codes.map((c) => ({ id: c.id, code: c.name })));
+    }
+
+    // Opt-in pagination, same contract as billable-products and patient search:
+    // no `page` means the plain array every other caller still expects (the
+    // report builder and the picker both want the whole set), `page` means an
+    // envelope and only that page leaves the server.
+    const paged = page !== undefined;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const size = Math.min(100, Math.max(1, parseInt(pageSize as string) || 20));
+    const total = paged ? await prisma.clinicalPanel.count({ where }) : 0;
+
     const panels = await prisma.clinicalPanel.findMany({
       where,
+      ...(paged ? { skip: (pageNum - 1) * size, take: size } : {}),
       include: {
         department: { select: { id: true, name: true } },
         _count: { select: { items: true, productPanels: true } },
@@ -211,7 +236,17 @@ router.get('/', async (req: AuthRequest, res) => {
       ],
     });
 
-    return res.json(panels.map(transformPanel));
+    const rows = panels.map(transformPanel);
+    if (paged) {
+      return res.json({
+        results: rows,
+        total,
+        page: pageNum,
+        pageSize: size,
+        hasMore: pageNum * size < total,
+      });
+    }
+    return res.json(rows);
   } catch (error: any) {
     console.error('Error listing clinical panels:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
