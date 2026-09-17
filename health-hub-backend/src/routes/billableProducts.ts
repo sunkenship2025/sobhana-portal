@@ -173,6 +173,11 @@ router.get('/', async (req: AuthRequest, res) => {
       where,
       include: {
         _count: { select: { panels: true, branchPricing: true } },
+        // Just the panel ids, so the line-item picker can hide a panel that is
+        // already sold as a product of its own rather than listing the same
+        // real thing twice. Ids only — the full join rows are not needed here
+        // and this list is loaded on every catalog screen.
+        panels: { select: { panelId: true } },
         branchPricing: branchId ? {
           where: { branchId, isActive: true },
           select: { priceInPaise: true },

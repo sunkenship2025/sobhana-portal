@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
 import { API_BASE, API_BASE_URL } from '@/lib/api';
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
@@ -48,6 +49,8 @@ interface ProductSummary {
   workflowMode: WorkflowMode;
   basePriceInPaise?: number;
   basePrice?: number;
+  /** Panels this product sells, so the picker can hide them as separate rows. */
+  panelIds: string[];
 }
 
 interface ProductPanel {
@@ -296,6 +299,9 @@ export default function ManageBillableProducts() {
             workflowMode: p.workflowMode,
             basePrice: p.basePrice,
             basePriceInPaise: p.basePriceInPaise,
+            panelIds: (p.panels || [])
+              .map((l: { panelId?: string | null }) => l.panelId)
+              .filter(Boolean) as string[],
           })));
       }
     } catch { /* ignore */ }
@@ -395,6 +401,50 @@ export default function ManageBillableProducts() {
   const removePanel = (idx: number) => {
     setFormPanels(formPanels.filter((_, i) => i !== idx));
   };
+
+  // 172 of 210 panels are already sold as a product, so listing both put the
+  // same real thing in the dropdown twice — 13 of them under an identical name
+  // (TMT, ESR, WIDAL, HCV…) with nothing to tell them apart. A panel that has a
+  // product IS that product here; pick the product, which is the one carrying
+  // the price, the payout category and the commission rules.
+  const panelsSoldAsAProduct = useMemo(
+    () => new Set(availableSubProducts.flatMap((sp) => sp.panelIds)),
+    [availableSubProducts],
+  );
+
+  // One option per real thing. The line's CURRENT value is always included even
+  // when it would otherwise be hidden — otherwise every existing line pointing
+  // at an attached panel would render blank.
+  const lineOptions = useCallback(
+    (current: ProductPanel): SearchableSelectOption[] => [
+      ...availableSubProducts
+        .filter((sp) => !editingProduct || sp.id !== editingProduct.id) // no self-reference
+        .map((sp) => {
+          const wm = WORKFLOW_MODES.find((m) => m.value === sp.workflowMode);
+          return {
+            value: `child:${sp.id}`,
+            label: `${sp.code} – ${sp.name}`,
+            description: sp.basePrice != null ? `₹${sp.basePrice}` : undefined,
+            keywords: `${sp.code} ${sp.name}`,
+            badge: wm
+              ? { text: wm.value === 'EXTERNAL_UPLOAD' ? 'External' : wm.label, className: wm.color }
+              : undefined,
+            group: 'Products — carry their own price, category and commission',
+          };
+        }),
+      ...availablePanels
+        .filter((pl) => !panelsSoldAsAProduct.has(pl.id) || current.panelId === pl.id)
+        .map((pl) => ({
+          value: `panel:${pl.id}`,
+          label: `${pl.code} – ${pl.name}`,
+          description: pl.itemCount ? `${pl.itemCount} tests` : undefined,
+          keywords: `${pl.code} ${pl.name}`,
+          badge: { text: 'Panel only', className: 'bg-slate-100 text-slate-700' },
+          group: 'Panels — print inside this product, nothing sold on their own',
+        })),
+    ],
+    [availableSubProducts, availablePanels, panelsSoldAsAProduct, editingProduct],
+  );
 
   const lineSelectValue = (pp: ProductPanel): string => {
     if (pp.panelId) return `panel:${pp.panelId}`;
@@ -986,52 +1036,15 @@ export default function ManageBillableProducts() {
                   {formPanels.map((pp, i) => (
                     <div key={i} className="flex items-center gap-2 border p-2 rounded">
                       <span className="text-sm text-muted-foreground w-6 text-center">{i + 1}</span>
-                      <Select
+                      <SearchableSelect
                         value={lineSelectValue(pp)}
                         onValueChange={v => updatePanel(i, v)}
-                      >
-                        <SelectTrigger className="flex-1 h-8 text-xs">
-                          <SelectValue placeholder="Select panel or product..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availablePanels.length > 0 && (
-                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                              Clinical Panels
-                            </div>
-                          )}
-                          {availablePanels.map(p => (
-                            <SelectItem key={`panel:${p.id}`} value={`panel:${p.id}`}>
-                              {p.code} – {p.name}{p.itemCount ? ` (${p.itemCount} tests)` : ''}
-                            </SelectItem>
-                          ))}
-                          {availableSubProducts.length > 0 && (
-                            <div className="px-2 py-1 mt-1 border-t text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                              Products
-                            </div>
-                          )}
-                          {availableSubProducts
-                            // Don't allow a product to include itself
-                            .filter(sp => !editingProduct || sp.id !== editingProduct.id)
-                            .map(sp => {
-                              const wm = WORKFLOW_MODES.find(m => m.value === sp.workflowMode);
-                              return (
-                                <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
-                                  <span className="flex items-center gap-2">
-                                    <span>
-                                      {sp.code} – {sp.name}
-                                      {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
-                                    </span>
-                                    {wm && (
-                                      <Badge className={`${wm.color} shrink-0 text-[10px] px-1.5`}>
-                                        {wm.value === 'EXTERNAL_UPLOAD' ? 'External' : wm.label}
-                                      </Badge>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
-                        </SelectContent>
-                      </Select>
+                        options={lineOptions(pp)}
+                        placeholder="Select panel or product..."
+                        searchPlaceholder="Search by code or name..."
+                        emptyText="Nothing matches."
+                        className="flex-1 h-8 text-xs"
+                      />
                       {(() => {
                         const kind = lineItemKind(pp, availableSubProducts);
                         return kind ? (
