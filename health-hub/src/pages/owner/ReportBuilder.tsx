@@ -520,7 +520,7 @@ export default function ReportBuilder() {
 
 /* ───────── Home ───────── */
 function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
-  liveTotal, livePage, setLivePage, pageSize }: {
+  liveTotal, livePage, setLivePage, pageSize, unsoldOnly, setUnsoldOnly }: {
   panels: PanelRow[]; query: string; setQuery: (v: string) => void;
   onOpen: (id: string) => void; onNew: () => void; onDiscard: (p: PanelRow) => void;
   liveTotal: number; livePage: number; setLivePage: (f: (p: number) => number) => void; pageSize: number;

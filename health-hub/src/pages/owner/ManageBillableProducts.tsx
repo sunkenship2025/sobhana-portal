@@ -199,6 +199,11 @@ export default function ManageBillableProducts() {
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
+  // Rows for the @media print sheet. Fetched on demand rather than taken from
+  // `products`, which is one page now — a price list that silently prints 20 of
+  // 342 is worse than one that takes a second to assemble.
+  const [printRows, setPrintRows] = useState<BillableProduct[]>([]);
+  const [printing, setPrinting] = useState(false);
   const [filterType, setFilterType] = useState('all');
   const [filterWorkflow, setFilterWorkflow] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -695,6 +700,28 @@ export default function ManageBillableProducts() {
     setSelected(allShownSelected ? new Set() : new Set(filteredProducts.map(p => p.id)));
   };
 
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      // No `page` → the full list, which is exactly what a price list needs and
+      // is why pagination was made opt-in rather than mandatory.
+      const params = new URLSearchParams({ active: 'true' });
+      if (selectedBranch?.id) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`${API_BASE}/billable-products?${params}`, { headers });
+      if (!res.ok) throw new Error('Failed');
+      const all: BillableProduct[] = await res.json();
+      setPrintRows(selectedCount ? all.filter(p => selected.has(p.id)) : all);
+      // Let React commit the print block before the dialog opens, or the sheet
+      // prints the previous contents.
+      await new Promise(requestAnimationFrame);
+      window.print();
+    } catch {
+      toast.error('Could not assemble the price list');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const exportExcel = async () => {
     setExporting(true);
     try {
@@ -744,7 +771,8 @@ export default function ManageBillableProducts() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.print()}
+            onClick={handlePrint}
+            disabled={printing}
             title={selectedCount ? `Print ${selectedCount} selected` : 'Print all active products'}
           >
             <Printer className="h-4 w-4 mr-1" />
@@ -948,7 +976,7 @@ export default function ManageBillableProducts() {
       </div>
 
       {/* Print-only price list (visible only via @media print) */}
-      <PriceListPrint rows={exportTargets} branchName={selectedBranch?.name} />
+      <PriceListPrint rows={printRows} branchName={selectedBranch?.name} />
 
       {/* ─── Create/Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
