@@ -30,7 +30,7 @@ function paiseToRupees(paise: number): number {
 function formatDoctorType(t: string): string {
   if (t === 'REFERRAL') return 'Referral';
   if (t === 'CLINIC') return 'Clinic';
-  if (t === 'DIAGNOSTIC_CENTER') return 'Diagnostic Center';
+  if (t === 'PARTNER') return 'Partner';
   return t;
 }
 

@@ -83,7 +83,7 @@ function docTitle(s: Statement): string {
 // aggregate over the selected range) instead of a single ledger id. Detect it
 // so the statement is derived over the whole range (?from/?to) rather than the
 // one-day ledger row.
-const RANGE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
+const RANGE_ID_RE = /^(REFERRAL|CLINIC|PARTNER)\.(.+)$/;
 
 // A per-doctor statement is opened with the selected range in the URL (?from/?to).
 // If the URL carries no range — e.g. opened from a stale/cached link, a refresh

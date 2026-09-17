@@ -675,11 +675,19 @@ function doctorIdWhereClause(doctorType: PayoutDoctorType, doctorId: string) {
 /**
  * Extract doctorId from a payout ledger record.
  */
-function extractDoctorId(payout: any): string {
+// Typed, not `any`. It was `any`, which is how the fallback went on reading
+// `diagnosticCenterId` — a column the partner migration dropped — for months
+// after DIAGNOSTIC_CENTER and LAB stopped existing. Every PARTNER payout came
+// back with an undefined doctorId and nothing failed loudly enough to notice.
+function extractDoctorId(payout: {
+  doctorType: PayoutDoctorType;
+  referralDoctorId: string | null;
+  clinicDoctorId: string | null;
+  partnerId: string | null;
+}): string {
   if (payout.doctorType === 'REFERRAL') return payout.referralDoctorId!;
   if (payout.doctorType === 'CLINIC') return payout.clinicDoctorId!;
-  if (payout.doctorType === 'LAB') return payout.externalLabId!;
-  return payout.diagnosticCenterId!;
+  return payout.partnerId!;
 }
 
 /**
@@ -1085,8 +1093,7 @@ export async function listPayouts(
           OR: [
             { referralDoctorId: filters.doctorId },
             { clinicDoctorId: filters.doctorId },
-            { diagnosticCenterId: filters.doctorId },
-            { externalLabId: filters.doctorId },
+            { partnerId: filters.doctorId },
           ],
         }
     : {};
@@ -1912,7 +1919,7 @@ export interface BulkMarkPaidResult {
   conflictIds: string[]; // already paid
   notFoundIds: string[]; // out-of-branch or deleted
   totalPaidInPaise: number;
-  commissionsPaidInPaise: number; // REFERRAL + CLINIC + DIAGNOSTIC_CENTER
+  commissionsPaidInPaise: number; // REFERRAL + CLINIC + PARTNER
   labPayablesPaidInPaise: number; // LAB (outbound)
 }
 

@@ -67,12 +67,13 @@ export function formatPeriod(start: string | Date, end: string | Date): string {
 }
 
 /**
- * "DC" → "Diagnostic Center"; otherwise capitalized type label.
+ * Payee type → its display label; unknown values pass through unchanged, so a
+ * retired type still renders rather than showing an empty cell.
  */
 export function formatDoctorTypeLabel(t: string): string {
   if (t === "REFERRAL") return "Referral";
   if (t === "CLINIC") return "Clinic";
-  if (t === "DIAGNOSTIC_CENTER") return "Diagnostic Center";
+  if (t === "PARTNER") return "Partner";
   return t;
 }
 
@@ -80,6 +81,6 @@ export function formatDoctorTypeLabel(t: string): string {
 export function formatDoctorTypeShort(t: string): string {
   if (t === "REFERRAL") return "REF";
   if (t === "CLINIC") return "CLINIC";
-  if (t === "DIAGNOSTIC_CENTER") return "DC";
+  if (t === "PARTNER") return "PARTNER";
   return t;
 }

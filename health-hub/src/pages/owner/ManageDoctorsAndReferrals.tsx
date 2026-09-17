@@ -110,7 +110,7 @@ export default function ManageDoctorsAndReferrals() {
     invalidateDoctorLookups,
   } = useDoctorLookup();
   const navigate = useNavigate();
-  const goToPayouts = (doctorId: string, doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER') => {
+  const goToPayouts = (doctorId: string, doctorType: 'REFERRAL' | 'CLINIC' | 'PARTNER') => {
     navigate(`/owner/payouts?doctorId=${doctorId}&doctorType=${doctorType}`);
   };
 
@@ -1704,7 +1704,7 @@ export default function ManageDoctorsAndReferrals() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => goToPayouts(center.id, 'DIAGNOSTIC_CENTER')}
+                        onClick={() => goToPayouts(center.id, 'PARTNER')}
                         title="View payouts"
                         aria-label="View payouts"
                       >

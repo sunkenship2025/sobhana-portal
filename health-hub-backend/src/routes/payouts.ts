@@ -23,6 +23,7 @@ router.use(branchContextMiddleware);
 // ----------------------------------------------------------------------------
 
 const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'PARTNER'];
+const DOCTOR_TYPE_MESSAGE = `doctorType must be ${VALID_DOCTOR_TYPES.slice(0, -1).join(', ')} or ${VALID_DOCTOR_TYPES.at(-1)}`;
 const VALID_PAYMENT_METHODS: PaymentType[] = ['CASH', 'ONLINE', 'CHEQUE'];
 
 function parseDate(value: unknown): Date | undefined {
@@ -43,7 +44,10 @@ function parseDoctorType(value: unknown): PayoutDoctorType | undefined {
 // running a CACHED older bundle (or one loaded mid-deploy) calls the legacy
 // `/:id/statement` and `/:id/export` routes with this id. Detect that shape here
 // so those routes derive over a range instead of 404-ing on a missing ledger row.
-const SYNTHETIC_PAYEE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
+// Built from VALID_DOCTOR_TYPES rather than spelled out, so it cannot drift
+// again the way the hardcoded list did — it still named DIAGNOSTIC_CENTER and
+// LAB for months after both stopped existing.
+const SYNTHETIC_PAYEE_ID_RE = new RegExp(`^(${VALID_DOCTOR_TYPES.join('|')})\\.(.+)$`);
 
 function parseSyntheticPayeeId(
   id: string
@@ -93,7 +97,7 @@ router.get('/', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (r
     if (doctorType && !validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
@@ -136,7 +140,7 @@ router.get('/summary-by-doctor', requireRole('owner', 'staff', 'lab_incharge', '
     if (doctorType && !validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
@@ -173,7 +177,7 @@ router.post('/derive', requireRole('owner', 'staff', 'lab_incharge', 'sales'), a
     if (!validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
@@ -245,7 +249,7 @@ router.get('/derive/preview', requireRole('owner', 'staff', 'lab_incharge', 'sal
     if (!validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
@@ -293,7 +297,7 @@ router.post('/derive/bulk', requireRole('owner', 'staff', 'lab_incharge', 'sales
     if (!validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
@@ -473,7 +477,7 @@ router.get('/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), as
     if (doctorType && !validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+        message: DOCTOR_TYPE_MESSAGE,
       });
     }
 
