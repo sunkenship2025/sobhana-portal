@@ -1,13 +1,8 @@
+import React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +14,9 @@ export interface SearchableSelectOption {
   keywords?: string;
   /** Optional tinted chip beside the label, like the Panel chip in test search. */
   badge?: { text: string; className?: string };
+  /** Optional heading to file this option under. cmdk hides a group whose
+   *  options all filter out, so headings never survive alone. */
+  group?: string;
 }
 
 interface SearchableSelectProps {
@@ -73,6 +71,18 @@ export function SearchableSelect({
     if (!next) setSearch('');
   };
 
+  // Group in first-seen order so the caller controls which heading comes first.
+  const groups = React.useMemo(() => {
+    const out: [string, SearchableSelectOption[]][] = [];
+    for (const option of options) {
+      const heading = option.group ?? '';
+      const found = out.find(([h]) => h === heading);
+      if (found) found[1].push(option);
+      else out.push([heading, [option]]);
+    }
+    return out;
+  }, [options]);
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -118,6 +128,16 @@ export function SearchableSelect({
           <span className="truncate text-left">
             {selectedOption ? selectedOption.label : placeholder}
           </span>
+          {/* The chip stays after choosing, so the selection is still legible
+              without reopening — for a partner that is the money direction. */}
+          {selectedOption?.badge && (
+            <Badge
+              variant="outline"
+              className={cn('ml-2 shrink-0 px-1.5 py-0 text-[10px]', selectedOption.badge.className)}
+            >
+              {selectedOption.badge.text}
+            </Badge>
+          )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -147,7 +167,8 @@ export function SearchableSelect({
           />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
-            {options.map((option) => (
+            {groups.map(([heading, groupOptions]) => {
+              const body = groupOptions.map((option) => (
               <CommandItem
                 key={option.value}
                 value={[option.label, option.description, option.keywords].filter(Boolean).join(' ')}
@@ -182,7 +203,16 @@ export function SearchableSelect({
                   )}
                 </div>
               </CommandItem>
-            ))}
+              ));
+              // An ungrouped list renders bare, exactly as before.
+              return heading ? (
+                <CommandGroup key={heading} heading={heading}>
+                  {body}
+                </CommandGroup>
+              ) : (
+                <React.Fragment key="__ungrouped">{body}</React.Fragment>
+              );
+            })}
           </CommandList>
         </Command>
       </PopoverContent>

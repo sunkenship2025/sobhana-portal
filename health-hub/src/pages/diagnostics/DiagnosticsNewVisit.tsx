@@ -124,8 +124,6 @@ const DiagnosticsNewVisit = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-  const [externalLabs, setExternalLabs] = useState<{ id: string; name: string }[]>([]);
-  const [externalLabByProduct, setExternalLabByProduct] = useState<Record<string, string>>({});
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
     () => useVisitDefaults.getState().lastDiagPaymentMode,
   );
@@ -259,18 +257,16 @@ const DiagnosticsNewVisit = () => {
       const staleTime = 10 * 60 * 1000;
 
       try {
-        // Cached (react-query): the referral-doctor / diagnostic-centre / external-lab
-        // dropdowns rarely change; an edit invalidates them via the /api/events SSE.
-        // .catch keeps one failing from dropping the others (old per-.ok behavior).
-        const [doctors, centers, labs] = await Promise.all([
+        // Cached (react-query): the referral-doctor and partner dropdowns rarely
+        // change; an edit invalidates them via the /api/events SSE.
+        // .catch keeps one failing from dropping the other.
+        const [doctors, centers] = await Promise.all([
           apiFetchQuery<ReferralDoctor[]>(queryClient, qk.referralDoctors(), "/referral-doctors", activeBranch.id, { staleTime }).catch(() => null),
           apiFetchQuery<Partner[]>(queryClient, qk.diagnosticCenters(activeBranch.id), "/partners", activeBranch.id, { staleTime }).catch(() => null),
-          apiFetchQuery<{ id: string; name: string }[]>(queryClient, qk.externalLabs(activeBranch.id), "/external-labs", activeBranch.id, { staleTime }).catch(() => null),
         ]);
 
         if (doctors) setReferralDoctors(doctors);
         if (centers) setDiagnosticCenters(centers);
-        if (labs) setExternalLabs(labs);
       } catch (error) {
         console.error("Failed to fetch data:", error);
       } finally {
@@ -371,6 +367,13 @@ const DiagnosticsNewVisit = () => {
       className: "bg-amber-100 text-amber-700 border-transparent",
     },
   };
+  /** The deal, in words, for the option's second line. */
+  const KINDS_BY_DEAL: Record<string, string> = {
+    INBOUND_BILLED_THERE: "they send us patients, they bill",
+    INBOUND_BILLED_HERE: "they send us patients, we bill",
+    OUTBOUND_VENDOR: "we send them work",
+  };
+
   const partnerDealBadge = (center: Partner) => {
     const deals = (center.arrangements ?? []).filter((a) => a.isActive);
     if (deals.length === 0) return undefined;
@@ -1157,13 +1160,6 @@ const DiagnosticsNewVisit = () => {
               )
             : undefined,
           productIds: selectedProducts,
-          externalLabByProductId: Object.keys(externalLabByProduct).length
-            ? Object.fromEntries(
-                Object.entries(externalLabByProduct).filter(
-                  ([pid, labId]) => selectedProducts.includes(pid) && labId,
-                ),
-              )
-            : undefined,
           ...(paymentMode === "SPLIT"
             ? {
                 payments: [
@@ -2083,264 +2079,127 @@ const DiagnosticsNewVisit = () => {
               <CardTitle className="text-base font-semibold">Referrals</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
-              {/* Referral Doctor */}
+              {/* ONE control. A doctor and a partner both answer "who sent this
+                  patient", so asking twice made them look like separate
+                  questions and let you answer both.
+                  A partner is listed once PER DEAL: the deal is what you are
+                  actually choosing, so it is the option. That removes the
+                  follow-up question, and with it a form that could sit silently
+                  half-answered. An outbound-only partner is absent entirely —
+                  we post samples to them, they referred nobody. */}
               <div className="space-y-3">
-                <Label className="font-semibold">Referral Doctor (optional)</Label>
+                <Label className="font-semibold">Referred by (optional)</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <SearchableSelect
-                    id="referral-doctor"
-                    value={selectedDoctorId}
+                    id="referred-by"
+                    value={
+                      selectedDoctorId
+                        ? `doc:${selectedDoctorId}`
+                        : selectedCenterId
+                          ? `ptr:${selectedCenterId}:${partnerArrangement}`
+                          : ""
+                    }
                     onValueChange={(value) => {
-                      setSelectedDoctorId(value);
-                      const doctor = referralDoctors.find(
-                        (item) => item.id === value,
-                      );
-                      setReferralOverrides(
-                        buildOverridesForProducts(
-                          selectedProducts,
-                          (productId) =>
+                      const [kind, id, deal] = value.split(":");
+                      if (kind === "doc") {
+                        setSelectedCenterId("");
+                        setPartnerArrangement("");
+                        setDiagnosticCenterOverrides({});
+                        setSelectedDoctorId(id);
+                        const doctor = referralDoctors.find((d) => d.id === id);
+                        setReferralOverrides(
+                          buildOverridesForProducts(selectedProducts, (productId) =>
                             getEffectiveDoctorPayout(doctor, productId),
-                        ),
-                      );
-                      // Advance to the diagnostic center field after selection.
-                      goToStep(34);
+                          ),
+                        );
+                      } else {
+                        setSelectedDoctorId("");
+                        setReferralOverrides({});
+                        setSelectedCenterId(id);
+                        setPartnerArrangement(deal);
+                        const center = diagnosticCenters.find((c) => c.id === id);
+                        setDiagnosticCenterOverrides(
+                          buildOverridesForProducts(selectedProducts, (productId) =>
+                            getEffectivePartnerPayout(center, deal, productId),
+                          ),
+                        );
+                      }
+                      goToStep(38);
                     }}
-                    onSkip={() => goToStep(34)}
-                    onAdvance={() => goToStep(34)}
+                    onSkip={() => goToStep(38)}
+                    onAdvance={() => goToStep(38)}
                     focusStep={30}
-                    options={referralDoctors.map((doctor) => ({
-                      value: doctor.id,
-                      label: doctor.name,
-                      description: [doctor.doctorNumber, doctor.phone]
-                        .filter(Boolean)
-                        .join(" · "),
-                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone]
-                        .filter(Boolean)
-                        .join(" "),
-                    }))}
-                    placeholder="Search referral doctor (Enter to skip)"
-                    searchPlaceholder="Search by doctor name, phone or number"
-                    emptyText="No referral doctors found."
-                    ariaLabel="Referral doctor — Enter to skip, Space to open"
+                    options={[
+                      ...referralDoctors.map((doctor) => ({
+                        value: `doc:${doctor.id}`,
+                        label: doctor.name,
+                        group: "Referral doctors",
+                        description: [doctor.doctorNumber, doctor.phone].filter(Boolean).join(" · "),
+                        keywords: [doctor.name, doctor.doctorNumber, doctor.phone]
+                          .filter(Boolean)
+                          .join(" "),
+                      })),
+                      ...diagnosticCenters.flatMap((center) =>
+                        (center.arrangements ?? [])
+                          // Outbound is not a referral, and is chosen per test below.
+                          .filter((a) => a.isActive && a.kind !== "OUTBOUND_VENDOR")
+                          .map((a) => ({
+                            value: `ptr:${center.id}:${a.kind}`,
+                            label: center.name,
+                            badge: DEAL_CHIP[a.kind],
+                            group: "External partners",
+                            description: [
+                              center.partnerNumber,
+                              KINDS_BY_DEAL[a.kind],
+                              center.phone,
+                            ]
+                              .filter(Boolean)
+                              .join(" · "),
+                            keywords: [center.name, center.partnerNumber, center.phone]
+                              .filter(Boolean)
+                              .join(" "),
+                          })),
+                      ),
+                    ]}
+                    placeholder="Search doctor or partner (Enter to skip)"
+                    searchPlaceholder="Search by name, phone or number"
+                    emptyText="No doctors or partners found."
+                    ariaLabel="Referred by — Enter to skip, Space to open"
                     className="h-11"
                   />
-                  {selectedDoctorId && (
+                  {(selectedDoctorId || selectedCenterId) && (
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => {
                         setSelectedDoctorId("");
-                        setReferralOverrides({});
-                      }}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowAddDoctorDialog(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <Label className="font-semibold">External Partner (optional)</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <SearchableSelect
-                    id="diagnostic-center"
-                    value={selectedCenterId}
-                    onValueChange={(value) => {
-                      setSelectedCenterId(value);
-                      const center = diagnosticCenters.find(
-                        (item) => item.id === value,
-                      );
-                      const deals = (center?.arrangements ?? []).filter(
-                        (a) => a.isActive && a.kind !== "OUTBOUND_VENDOR",
-                      );
-                      // One deal needs no question; several do.
-                      setPartnerArrangement(deals.length === 1 ? deals[0].kind : "");
-                      setDiagnosticCenterOverrides(
-                        buildOverridesForProducts(
-                          selectedProducts,
-                          (productId) =>
-                            getEffectivePartnerPayout(
-                            center,
-                            partnerArrangement,
-                            productId,
-                            ),
-                        ),
-                      );
-                      // Advance to the test search after selection.
-                      goToStep(38);
-                    }}
-                    onSkip={() => goToStep(38)}
-                    onAdvance={() => goToStep(38)}
-                    focusStep={34}
-                    options={diagnosticCenters.map((center) => ({
-                      value: center.id,
-                      label: center.name,
-                      // Which way the money runs, on the option itself — same
-                      // tinted chip the test search uses for Panel.
-                      badge: partnerDealBadge(center),
-                      description: [
-                        center.partnerNumber,
-                        center.contactPerson,
-                        center.phone,
-                      ]
-                        .filter(Boolean)
-                        .join(" · "),
-                      keywords: [
-                        center.name,
-                        center.partnerNumber,
-                        center.contactPerson,
-                        center.phone,
-                      ]
-                        .filter(Boolean)
-                        .join(" "),
-                    }))}
-                    placeholder="Search partner (Enter to skip)"
-                    searchPlaceholder="Search by partner name, phone or number"
-                    emptyText="No partners found."
-                    ariaLabel="External partner — Enter to skip, Space to open"
-                    className="h-11"
-                  />
-                  {selectedCenterId && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
                         setSelectedCenterId("");
                         setPartnerArrangement("");
+                        setReferralOverrides({});
                         setDiagnosticCenterOverrides({});
                       }}
                     >
                       Clear
                     </Button>
                   )}
+                  {/* Adds a referral DOCTOR. A partner needs a deal and rates to
+                      mean anything, so it is created in Outside Labs, not here. */}
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setShowAddCenterDialog(true)}
+                    onClick={() => setShowAddDoctorDialog(true)}
+                    title="Add referral doctor"
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
 
-                {/* Which deal this visit came in under. "They bill" and "we bill"
-                    put the patient's money in completely different places, so a
-                    partner holding both must be told apart here, at the counter.
-                    A partner with one deal has it chosen already. */}
-                {selectedCenter && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(selectedCenter.arrangements ?? [])
-                      .filter((a) => a.isActive && a.kind !== "OUTBOUND_VENDOR")
-                      .map((a) => {
-                        const on = partnerArrangement === a.kind;
-                        const chip = DEAL_CHIP[a.kind];
-                        return (
-                          <button
-                            key={a.kind}
-                            type="button"
-                            onClick={() => setPartnerArrangement(a.kind)}
-                            aria-pressed={on}
-                          >
-                            <Badge
-                              variant="outline"
-                              className={`px-2.5 py-0.5 text-xs ${
-                                on ? chip.className : "bg-background text-muted-foreground"
-                              }`}
-                            >
-                              {chip.text}
-                            </Badge>
-                          </button>
-                        );
-                      })}
-                    {/* Outbound is not chosen here — it is decided per test, by
-                        routing one out below. Shown so the deal is visible, but
-                        deliberately not clickable. */}
-                    {(selectedCenter.arrangements ?? []).some(
-                      (a) => a.isActive && a.kind === "OUTBOUND_VENDOR",
-                    ) && (
-                      <>
-                        <Badge
-                          variant="outline"
-                          className={`px-2.5 py-0.5 text-xs ${DEAL_CHIP.OUTBOUND_VENDOR.className} opacity-70`}
-                        >
-                          {DEAL_CHIP.OUTBOUND_VENDOR.text}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          route a test below
-                        </span>
-                      </>
-                    )}
-                    {partnerArrangement === "INBOUND_BILLED_THERE" && (
-                      <span className="text-sm text-muted-foreground">
-                        Patient pays them — nothing is collected here.
-                      </span>
-                    )}
-                  </div>
+                {/* Said at the moment a biller would otherwise reach for the drawer. */}
+                {partnerArrangement === "INBOUND_BILLED_THERE" && (
+                  <p className="text-sm text-muted-foreground">
+                    Patient pays them — nothing is collected here.
+                  </p>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Select Tests */}
-        {(selectedPatient || showNewPatientForm) && (
-          <Card>
-            <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-base font-semibold">Select Tests</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-5 pt-3">
-              <div ref={testSelectorRef}>
-              <ProductSelector
-                products={products}
-                selectedProductIds={selectedProducts}
-                onQuickAddBillOnly={openQuickAddProductDialog}
-                onSelectionChange={(productIds) => {
-                  setSelectedProducts(productIds);
-                  setReferralOverrides((prev) => {
-                    if (!selectedDoctor) {
-                      return Object.fromEntries(
-                        Object.entries(prev).filter(([productId]) =>
-                          productIds.includes(productId),
-                        ),
-                      );
-                    }
-                    return buildOverridesForProducts(
-                      productIds,
-                      (productId) =>
-                        getEffectiveDoctorPayout(selectedDoctor, productId),
-                      prev,
-                    );
-                  });
-                  setDiagnosticCenterOverrides((prev) => {
-                    if (!selectedCenter) {
-                      return Object.fromEntries(
-                        Object.entries(prev).filter(([productId]) =>
-                          productIds.includes(productId),
-                        ),
-                      );
-                    }
-                    return buildOverridesForProducts(
-                      productIds,
-                      (productId) =>
-                        getEffectivePartnerPayout(
-                            selectedCenter,
-                            partnerArrangement,
-                            productId,
-                        ),
-                      prev,
-                    );
-                  });
-                }}
-                onDone={() => goToStep(showMeasurements ? 40 : 60)}
-                focusStep={38}
-                disabled={isSubmitting}
-              />
               </div>
             </CardContent>
           </Card>
@@ -2403,47 +2262,6 @@ const DiagnosticsNewVisit = () => {
                   </p>
                 </div>
               )}
-              {externalLabs.length > 0 && selectedProducts.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Outsource to outside lab (optional)</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Send a test to an outside lab — we'll owe them their rate, tracked under
-                    Outside-lab payables. The referring doctor still earns their commission
-                    (reduced if a lower rate is set for this lab).
-                  </p>
-                  <div className="space-y-2">
-                    {selectedProducts.map((pid) => {
-                      const product = products.find((p) => p.id === pid);
-                      if (!product) return null;
-                      return (
-                        <div key={pid} className="flex items-center gap-3">
-                          <span className="flex-1 text-sm">{product.name}</span>
-                          <select
-                            className="h-9 rounded-md border bg-white px-2 text-sm"
-                            value={externalLabByProduct[pid] ?? ""}
-                            onChange={(e) =>
-                              setExternalLabByProduct((prev) => {
-                                const next = { ...prev };
-                                if (e.target.value) next[pid] = e.target.value;
-                                else delete next[pid];
-                                return next;
-                              })
-                            }
-                          >
-                            <option value="">In-house</option>
-                            {externalLabs.map((lab) => (
-                              <option key={lab.id} value={lab.id}>
-                                {lab.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {selectedDoctorId && selectedProducts.length > 0 && (
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
