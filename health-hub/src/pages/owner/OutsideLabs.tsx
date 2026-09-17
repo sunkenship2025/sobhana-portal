@@ -155,6 +155,7 @@ const EMPTY_FORM = {
   contactPerson: "",
   phone: "",
   sendBill: false,
+  allowBillPrint: false,
   sendReport: true,
   arrangements: blankArrangements(),
 };
@@ -282,6 +283,7 @@ export default function OutsideLabs() {
       contactPerson: p.contactPerson || "",
       phone: p.phone || "",
       sendBill: p.sendBill,
+      allowBillPrint: p.allowBillPrint,
       sendReport: p.sendReport,
       arrangements,
     });
@@ -303,6 +305,7 @@ export default function OutsideLabs() {
         contactPerson: form.contactPerson,
         phone: form.phone,
         sendBill: form.sendBill,
+        allowBillPrint: form.allowBillPrint,
         sendReport: form.sendReport,
         arrangements: chosen.map((k) => {
           const a = form.arrangements[k.kind];
@@ -408,7 +411,7 @@ export default function OutsideLabs() {
           </span>
           {!p.sendBill && (
             <Badge variant="secondary" className="shrink-0 font-normal">
-              Bill held
+              {p.allowBillPrint ? "Print only" : "Bill held"}
             </Badge>
           )}
           <div className="flex shrink-0 items-center gap-1">
@@ -634,10 +637,27 @@ export default function OutsideLabs() {
                     <div>
                       <Label className="block">Send our bill to the patient</Label>
                       <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
-                        Off: the bill WhatsApp, its link and counter print all stay shut.
+                        Off: the bill WhatsApp and its QR link stay shut.
                       </p>
                     </div>
                   </div>
+                  {!form.sendBill && (
+                    <div className="flex items-start gap-3 py-2 pl-14">
+                      <Switch
+                        className="mt-0.5"
+                        checked={form.allowBillPrint}
+                        onCheckedChange={(v) => setForm({ ...form, allowBillPrint: v })}
+                      />
+                      <div>
+                        <Label className="block">Still print our bill at the counter</Label>
+                        <p className="mt-0.5 text-sm" style={{ color: TOKENS.textTertiary }}>
+                          {form.allowBillPrint
+                            ? "On: staff can hand over our bill; it is still never sent."
+                            : "Off: Print bill is greyed everywhere for this partner."}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-start gap-3 py-2">
                     <Switch
                       className="mt-0.5"

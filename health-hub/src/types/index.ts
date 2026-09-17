@@ -638,6 +638,12 @@ export interface VisitTimelineItem {
   patientLinkDisabledAt?: Date | string | null;
   patientLinkDisabledReason?: string | null;
   patientLinkDisabledBy?: string | null;
+  // A partner who billed the patient holds our bill doors shut: the name of the
+  // partner, or null when the door is open. Send = WhatsApp + link; print = the
+  // counter slip, which the partner's Allow-print toggle re-opens on its own.
+  // Viewing our bill is neither — that is the internal record and stays open.
+  billSendBlockedBy?: string | null;
+  billPrintBlockedBy?: string | null;
   // Nested discount object (mirrors the flat discount* fields above).
   discount?: VisitDiscount;
   // Refund rollups (per-order cancellation feature). Absent on legacy shapes.
@@ -1157,6 +1163,8 @@ export interface Partner {
   address: string | null;
   /** OFF closes the bill WhatsApp, the bill QR link, and greys counter print. */
   sendBill: boolean;
+  /** Re-opens the counter print alone while sendBill stays off. */
+  allowBillPrint: boolean;
   sendReport: boolean;
   isActive: boolean;
   arrangements: PartnerArrangement[];

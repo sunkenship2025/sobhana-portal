@@ -1956,11 +1956,15 @@ model Partner {
   address       String?
   isActive      Boolean @default(true)
 
-  /// Patient-facing doors. sendBill OFF also closes the bill QR/token link and
-  /// greys the counter Print button (owner may override with a logged reason) —
-  /// the partner already billed this patient, so our bill is a contradiction.
-  sendBill   Boolean @default(false)
-  sendReport Boolean @default(true)
+  /// Patient-facing doors. sendBill OFF closes the bill WhatsApp and the bill
+  /// QR/token link, and greys the counter Print button — the partner already
+  /// billed this patient, so handing over ours is a second bill for one test.
+  /// allowBillPrint re-opens the counter print ALONE, for the partner who is
+  /// happy for the patient to walk out with our slip. It means nothing while
+  /// sendBill is on, and never re-opens the WhatsApp or the link.
+  sendBill       Boolean @default(false)
+  allowBillPrint Boolean @default(false)
+  sendReport     Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

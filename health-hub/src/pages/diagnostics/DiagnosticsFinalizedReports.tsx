@@ -453,6 +453,10 @@ const DiagnosticsFinalizedReports = () => {
                   const testsLabel = formatTestList(testOrders) || formatBillOnlyList(testOrders);
                   const printedAt = isBillRow ? visit.billPrintedAt : visit.reportPrintedAt;
                   const sentAt = isBillRow ? visit.billWhatsappSentAt : visit.reportWhatsappSentAt;
+                  // A partner who billed the patient shuts our bill doors. Only
+                  // a bill row is affected — a report row's buttons are reports.
+                  const printBlockedBy = isBillRow ? visit.billPrintBlockedBy : null;
+                  const sendBlockedBy = isBillRow ? visit.billSendBlockedBy : null;
                   const paidModes = formatPaymentModes(visit.paymentBreakdown, visit.paymentType);
                   const paidPaise = visit.paidAmountInPaise ?? 0;
                   const duePaise = visit.dueAmountInPaise ?? 0;
@@ -543,11 +547,18 @@ const DiagnosticsFinalizedReports = () => {
                             'w-full sm:w-10',
                             printedAt && 'border-success text-success hover:text-success',
                           )}
+                          disabled={!!printBlockedBy}
                           onClick={() => {
                             markPrinted(visit.id, 'bill');
                             navigate(`/bill/print/DIAGNOSTICS/${visit.id}`);
                           }}
-                          title={printedAt ? `Printed · ${formatDateTime(printedAt)}` : 'Print bill'}
+                          title={
+                            printBlockedBy
+                              ? `${printBlockedBy} billed this patient — printing ours is off`
+                              : printedAt
+                                ? `Printed · ${formatDateTime(printedAt)}`
+                                : 'Print bill'
+                          }
                           aria-label="Print bill"
                         >
                           <Printer className="h-4 w-4" />
@@ -598,13 +609,15 @@ const DiagnosticsFinalizedReports = () => {
                           sentAt && 'border-success text-success hover:text-success',
                         )}
                         onClick={() => handleWhatsApp(visit.id, isBillRow)}
-                        disabled={sendingVisitIds.has(visit.id)}
+                        disabled={sendingVisitIds.has(visit.id) || !!sendBlockedBy}
                         title={
-                          sentAt
-                            ? `Sent · ${formatDateTime(sentAt)}`
-                            : isBillRow
-                              ? 'Send bill via WhatsApp'
-                              : 'Send report via WhatsApp'
+                          sendBlockedBy
+                            ? `${sendBlockedBy} billed this patient — our bill is not sent`
+                            : sentAt
+                              ? `Sent · ${formatDateTime(sentAt)}`
+                              : isBillRow
+                                ? 'Send bill via WhatsApp'
+                                : 'Send report via WhatsApp'
                         }
                         aria-label={isBillRow ? 'Send bill via WhatsApp' : 'Send report via WhatsApp'}
                       >

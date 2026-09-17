@@ -85,7 +85,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, contactPerson, phone, email, address, sendBill, sendReport } = req.body;
+    const { name, contactPerson, phone, email, address, sendBill, allowBillPrint, sendReport } = req.body;
     if (!name?.trim()) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Partner name is required' });
     }
@@ -96,6 +96,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       email,
       address,
       sendBill,
+      allowBillPrint,
       sendReport,
       arrangements: normalizeArrangements(req.body.arrangements),
       branchId: req.branchId!,
@@ -110,7 +111,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, contactPerson, phone, email, address, sendBill, sendReport, isActive } = req.body;
+    const { name, contactPerson, phone, email, address, sendBill, allowBillPrint, sendReport, isActive } =
+      req.body;
     const updated = await partnerService.updatePartner(
       req.params.id,
       {
@@ -120,6 +122,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
         email,
         address,
         sendBill,
+        allowBillPrint,
         sendReport,
         isActive,
         arrangements: normalizeArrangements(req.body.arrangements),

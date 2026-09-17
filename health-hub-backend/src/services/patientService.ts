@@ -13,6 +13,7 @@ import {
 } from './patient360Util';
 import crypto from 'crypto';
 import prisma from '../lib/prisma';
+import { billDoors } from './patientLinkService';
 
 
 /**
@@ -1017,7 +1018,9 @@ const TIMELINE_INCLUDE = {
     select: {
       kind: true,
       partnerBilledInPaise: true,
-      partner: { select: { id: true, name: true } },
+      partner: {
+        select: { id: true, name: true, sendBill: true, allowBillPrint: true },
+      },
     },
   },
   // Who switched the patient's online access off (inspector shows who/when/why).
@@ -1206,6 +1209,9 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       // us; the billed figure stays alongside it so the screen can show the real
       // number and keep the charged one visible but muted, rather than dropping
       // it — the patient WAS charged that, it just was not ours.
+      // Which bill doors this visit's partner holds shut (null = open), so the
+      // inspector can grey Print / Send without re-deriving the rule.
+      ...billDoors(visit.partnerVisit?.partner),
       partner: visit.partnerVisit
         ? {
             name: visit.partnerVisit.partner.name,

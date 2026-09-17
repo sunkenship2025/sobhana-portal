@@ -49,6 +49,7 @@ export interface CreatePartnerInput {
   email?: string | null;
   address?: string | null;
   sendBill?: boolean;
+  allowBillPrint?: boolean;
   sendReport?: boolean;
   arrangements?: PartnerArrangementInput[];
   branchId: string;
@@ -209,6 +210,7 @@ export async function createPartner(input: CreatePartnerInput) {
         email: input.email?.trim() || null,
         address: input.address?.trim() || null,
         sendBill: input.sendBill ?? false,
+        allowBillPrint: input.allowBillPrint ?? false,
         sendReport: input.sendReport ?? true,
       },
     });
@@ -283,6 +285,7 @@ export async function updatePartner(
         email: updates.email !== undefined ? updates.email?.trim() || null : undefined,
         address: updates.address !== undefined ? updates.address?.trim() || null : undefined,
         sendBill: updates.sendBill,
+        allowBillPrint: updates.allowBillPrint,
         sendReport: updates.sendReport,
         isActive: updates.isActive,
       },

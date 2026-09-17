@@ -34,6 +34,28 @@ function partnerShuts(
   return door === 'BILL' ? !partner.sendBill : !partner.sendReport;
 }
 
+/**
+ * The two bill doors a partner can shut, as the SCREENS need them: the name of
+ * the partner holding each shut, or null when it is open. Kept here beside
+ * `partnerShuts` so the counter and the patient's phone can never drift apart.
+ *
+ * Send = the WhatsApp and the /r/:token link. Print = the counter slip, which
+ * `allowBillPrint` re-opens on its own for a partner happy to let the patient
+ * walk out with ours. Viewing our bill in Patient 360 is neither — that is the
+ * internal record, and it stays open.
+ */
+export function billDoors(
+  partner: { name: string; sendBill: boolean; allowBillPrint: boolean } | null | undefined,
+): { billSendBlockedBy: string | null; billPrintBlockedBy: string | null } {
+  if (!partner || partner.sendBill) {
+    return { billSendBlockedBy: null, billPrintBlockedBy: null };
+  }
+  return {
+    billSendBlockedBy: partner.name,
+    billPrintBlockedBy: partner.allowBillPrint ? null : partner.name,
+  };
+}
+
 export async function patientLinkBlock(
   visitId: string,
   door?: PatientDoor,

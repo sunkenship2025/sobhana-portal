@@ -158,6 +158,10 @@ function InspectorBody({
   // visit, owner + lab incharge only. A cancelled visit's links are already
   // revoked by the refund flow, so the control stays hidden there.
   const linkDisabled = !!visit.patientLinkDisabledAt;
+  // A partner who billed the patient holds our bill doors shut. Viewing stays
+  // open — that is the internal record of what the visit is worth to us.
+  const billPrintBlockedBy = visit.billPrintBlockedBy ?? null;
+  const billSendBlockedBy = visit.billSendBlockedBy ?? null;
   const canToggleLink =
     isDiagnostic &&
     !isCancelledVisit &&
@@ -185,6 +189,16 @@ function InspectorBody({
         <Unlink className="h-4 w-4" aria-hidden="true" />
       )}
     </Button>
+  ) : null;
+
+  const billHeldNote = billSendBlockedBy ? (
+    <p className="flex items-center gap-1.5 text-xs text-amber-600">
+      <ReceiptText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>
+        {billSendBlockedBy} bills the patient
+        {billPrintBlockedBy ? " — our bill is a record only" : " — ours prints but is not sent"}
+      </span>
+    </p>
   ) : null;
 
   const linkOffNote = linkDisabled ? (
@@ -305,6 +319,12 @@ function InspectorBody({
                 ? " border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700"
                 : ""
             }`}
+            disabled={!!billPrintBlockedBy}
+            title={
+              billPrintBlockedBy
+                ? `${billPrintBlockedBy} billed this patient — printing ours is off`
+                : undefined
+            }
             onClick={() => {
               if (isDiagnostic) {
                 setLocalPrinted((p) => ({ ...p, bill: new Date().toISOString() }));
@@ -325,8 +345,14 @@ function InspectorBody({
               variant="outline"
               size="sm"
               className="justify-start text-green-600 hover:bg-green-50 hover:text-green-700 sm:col-span-2"
-              disabled={busy?.visitId === visit.visitId || linkDisabled}
-              title={linkDisabled ? "Online link is off for this visit" : undefined}
+              disabled={busy?.visitId === visit.visitId || linkDisabled || !!billSendBlockedBy}
+              title={
+                billSendBlockedBy
+                  ? `${billSendBlockedBy} billed this patient — our bill is not sent`
+                  : linkDisabled
+                    ? "Online link is off for this visit"
+                    : undefined
+              }
               onClick={() => sendBillWhatsApp(visit.visitId)}
             >
               {busy?.visitId === visit.visitId && busy.action === "whatsapp-bill" ? (
@@ -359,6 +385,7 @@ function InspectorBody({
             </span>
           </p>
         )}
+        {billHeldNote}
         <DeliveryStatusLine delivery={visit.billDelivery ?? null} />
         <SmartReportStatusLine smart={smart} />
         {smart && smart.status !== "SKIPPED" && (

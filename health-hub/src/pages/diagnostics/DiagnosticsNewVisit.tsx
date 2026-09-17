@@ -386,6 +386,9 @@ const DiagnosticsNewVisit = () => {
   const selectedCenter = diagnosticCenters.find(
     (center) => center.id === selectedCenterId,
   );
+  /** Their bill went to the patient, so ours is a record — not a counter slip. */
+  const billPrintHeld =
+    !!selectedCenter && !selectedCenter.sendBill && !selectedCenter.allowBillPrint;
 
   const buildOverridesForProducts = (
     productIds: string[],
@@ -1493,11 +1496,19 @@ const DiagnosticsNewVisit = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
+                  {/* The partner is still selected behind this screen, so the
+                      same rule the worklists use applies here at the counter,
+                      where handing over a second bill actually happens. */}
                   <Button
                     className="w-full sm:w-auto"
                     variant="outline"
                     onClick={handlePrint}
-                    disabled={!billLogoLoaded}
+                    disabled={!billLogoLoaded || billPrintHeld}
+                    title={
+                      billPrintHeld
+                        ? `${selectedCenter?.name} bills the patient — printing ours is off`
+                        : undefined
+                    }
                   >
                     <Printer className="mr-2 h-4 w-4" />
                     {billLogoLoaded ? "Print Bill" : "Preparing Print..."}

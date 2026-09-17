@@ -18,6 +18,7 @@ import { branchContextMiddleware } from "../middleware/branch";
 import { requireRole } from "../middleware/rbac";
 import { emitWorklistOnMutation } from "../lib/displayEvents";
 import { generateDiagnosticBillNumber } from "../services/numberService";
+import { billDoors } from "../services/patientLinkService";
 import { logAction } from "../services/auditService";
 import {
   evaluateDerivedTargets,
@@ -1037,6 +1038,12 @@ router.get("/", async (req: AuthRequest, res) => {
             referralDoctor: true,
           },
         },
+        // Whose bill doors are shut on this visit (worklist greys Print / Send).
+        partnerVisit: {
+          select: {
+            partner: { select: { name: true, sendBill: true, allowBillPrint: true } },
+          },
+        },
         testOrders: {
           include: {
             // Worklist reads only the test's name/code + reference range; select
@@ -1320,6 +1327,7 @@ router.get("/", async (req: AuthRequest, res) => {
         hasPartialReport,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
         referralDoctor: v.referrals[0]?.referralDoctor || null,
+        ...billDoors(v.partnerVisit?.partner),
         testOrders: (() => {
           const orders = v.testOrders.map((to) => {
             const panel =
@@ -1527,6 +1535,12 @@ router.get("/:id", async (req: AuthRequest, res) => {
           where: { deletedAt: null },
           include: {
             referralDoctor: true,
+          },
+        },
+        // Whose bill doors are shut on this visit (worklist greys Print / Send).
+        partnerVisit: {
+          select: {
+            partner: { select: { name: true, sendBill: true, allowBillPrint: true } },
           },
         },
         bill: { include: { transactions: true } },
@@ -2062,6 +2076,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
       nextAction: composition.nextAction,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
+      ...billDoors(visit.partnerVisit?.partner),
       testOrders: (() => {
         const orders = visit.testOrders.map((to) => {
           const orderCode =
