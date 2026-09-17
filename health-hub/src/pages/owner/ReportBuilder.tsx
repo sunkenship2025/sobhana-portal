@@ -588,9 +588,15 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard,
                     the 23 that no product includes — the ones that cannot be
                     sold or ordered at all. Amber, not red: an unsold report is
                     something to look at, not necessarily something broken. */}
-                {p.productCount === 0 && (
-                  <span className="shrink-0 rounded-full text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700" title="No billable product includes this report, so it cannot be ordered">Not sold</span>
-                )}
+                {/* The slot is always rendered, even when empty. Dropping the
+                    element entirely left the row one flex child short, so
+                    flex-1 on the name expanded and every column jumped left on
+                    exactly the rows carrying the badge. */}
+                <span className="w-[74px] shrink-0 flex justify-end">
+                  {p.productCount === 0 && (
+                    <span className="rounded-full text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 whitespace-nowrap" title="No billable product includes this report, so it cannot be ordered">Not sold</span>
+                  )}
+                </span>
               </button>
             ))}
           </div>
