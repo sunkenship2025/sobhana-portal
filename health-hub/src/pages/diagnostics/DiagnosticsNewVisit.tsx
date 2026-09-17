@@ -626,6 +626,50 @@ const DiagnosticsNewVisit = () => {
     }
   };
 
+  // Warm the cache three digits early. This server is ~250ms away from the
+  // counter, and the search itself costs 11-48ms — so what reads as a slow
+  // search is almost entirely the round trip, paid at the worst possible
+  // moment: the keystroke that finishes the number. Firing at digit 7 spends
+  // it while the last three are still being typed. A 7-digit prefix matches
+  // 1.31 patients on average and the (type, value) index serves it as a range
+  // scan, so it costs the same as the exact lookup it front-runs.
+  const prefetchByPrefix = (prefix: string) => {
+    if (!token || !activeBranch) return;
+    void queryClient.prefetchQuery<PatientSearchResult[]>({
+      queryKey: ["patientSearch", "diagnostic", activeBranch.id, `pfx:${prefix}`],
+      queryFn: async ({ signal }) => {
+        const res = await fetch(`${API_BASE}/patients/search?phonePrefix=${prefix}`, {
+          headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranch.id },
+          signal,
+        });
+        if (!res.ok) throw new Error("Prefix search failed");
+        return (await res.json()) as PatientSearchResult[];
+      },
+      staleTime: 30_000,
+    });
+  };
+
+  /** The prefetched candidates narrowed to a full number, or null if we have
+   *  none — in which case the caller falls back to the exact request. */
+  const narrowPrefetched = (fullPhone: string): PatientSearchResult[] | null => {
+    if (!activeBranch) return null;
+    const cached = queryClient.getQueryData<PatientSearchResult[]>([
+      "patientSearch", "diagnostic", activeBranch.id, `pfx:${fullPhone.slice(0, 7)}`,
+    ]);
+    if (!cached) return null;
+    // A capped prefix set may be missing matches, so it cannot be trusted to
+    // narrow — fall back rather than show an incomplete list.
+    if (cached.length >= 25) return null;
+    // identifiers hang off `patient`, not the search result — reading them off
+    // the wrapper type-checks and returns undefined, which would have narrowed
+    // every lookup to nothing and shown "no matches" for a patient who exists.
+    return cached.filter((p) =>
+      (p.patient?.identifiers ?? []).some(
+        (i: { type: string; value: string }) => i.type === "PHONE" && i.value === fullPhone,
+      ),
+    );
+  };
+
   // Search patients via API (Search button / explicit lookup).
   const handleSearch = async (): Promise<PatientSearchResult[]> => {
     const results = await fetchPatients(phone);
@@ -637,7 +681,13 @@ const DiagnosticsNewVisit = () => {
 
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    setMatchingPatients(value.length === 10 ? await fetchPatients(value) : []);
+    if (value.length === 7) prefetchByPrefix(value);
+    if (value.length !== 10) {
+      setMatchingPatients([]);
+      return;
+    }
+    const local = narrowPrefetched(value);
+    setMatchingPatients(local ?? (await fetchPatients(value)));
   };
 
   const handleCreateNewPatient = () => {

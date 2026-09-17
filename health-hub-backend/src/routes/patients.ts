@@ -56,10 +56,15 @@ router.post('/', async (req: AuthRequest, res) => {
 // GET /api/patients/search - Search patients
 router.get('/search', async (req: AuthRequest, res) => {
   try {
-    const { phone, email, name, patientNumber, page, pageSize, limit, branchId } = req.query;
+    const { phone, phonePrefix, email, name, patientNumber, page, pageSize, limit, branchId } = req.query;
 
     const result = await patientService.searchPatients({
       phone: phone as string,
+      // Typed-so-far prefix. The counter is ~250ms from this server, so the
+      // round trip is spent at digit 7 and the last three digits narrow the
+      // already-delivered candidates locally — the name is on screen the
+      // instant the number is finished instead of a third of a second later.
+      phonePrefix: phonePrefix as string,
       email: email as string,
       name: name as string,
       patientNumber: patientNumber as string,

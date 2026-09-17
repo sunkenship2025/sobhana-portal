@@ -244,8 +244,17 @@ export interface PaginatedSearch {
   hasMore: boolean;
 }
 
+/** Most a prefix lookup will return. One bad prefix (a placeholder number
+ *  reused across patients) matches 457 rows; the counter only ever needs the
+ *  handful that share a real number, and an uncapped set would be both slow to
+ *  ship and more patient data than the screen can use. */
+const PHONE_PREFIX_CAP = 25;
+/** Below this a prefix is not selective enough to be worth a round trip. */
+const PHONE_PREFIX_MIN = 6;
+
 export async function searchPatients(query: {
   phone?: string;
+  phonePrefix?: string;
   email?: string;
   name?: string;
   patientNumber?: string;
@@ -291,6 +300,41 @@ export async function searchPatients(query: {
     });
     results = patient ? [toSearchResult(patient)] : [];
     total = results.length;
+  } else if (query.phonePrefix && !query.phone) {
+    // Prefix lookup. The (type, value) btree serves this as a range scan —
+    // value >= '6309414' AND value < '6309415' — so it costs the same as the
+    // exact match it front-runs. Digits only: anything else would turn the
+    // range scan into a filter and hand back a pattern we never intended.
+    const prefix = query.phonePrefix.replace(/\D/g, '');
+    if (prefix.length < PHONE_PREFIX_MIN) {
+      results = [];
+      total = 0;
+    } else {
+      const ids = await prisma.patientIdentifier.findMany({
+        where: { type: 'PHONE', value: { startsWith: prefix } },
+        select: { patientId: true },
+        take: PHONE_PREFIX_CAP,
+      });
+      const patientIds = [...new Set(ids.map(i => i.patientId))];
+      const found = patientIds.length
+        ? await prisma.patient.findMany({
+            where: {
+              id: { in: patientIds },
+              ...(branchId ? { visits: { some: { branchId } } } : {}),
+            },
+            include: {
+              identifiers: true,
+              visits: {
+                include: { branch: { select: { id: true, name: true, code: true } } },
+                orderBy: { createdAt: 'desc' },
+                take: 5,
+              },
+            },
+          })
+        : [];
+      results = found.map(toSearchResult);
+      total = results.length;
+    }
   } else if (query.name && !query.phone && !query.email) {
     // NAME — rank ALL matches (exact name first) and page the ranked list, so
     // an exact-name match is never truncated out before it can be scored.

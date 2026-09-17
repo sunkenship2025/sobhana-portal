@@ -277,10 +277,10 @@ export default function ManageBillableProducts() {
 
   const fetchDependencies = useCallback(async () => {
     try {
-      // Sub-products offered as package line items: every active product
-      // (reportable, external-upload, bill-only), each tagged by kind in the
-      // picker. Nesting expands a child into its own report/upload orders, so
-      // any workflow is safe. EVENT products are excluded (₹0 coupon triggers).
+      // Sub-products offered as package line items: every active product, each
+      // tagged by kind in the picker. Nesting expands a child into its own
+      // order, so any workflow is safe — EVENT included, where the expansion
+      // mints the coupon just as billing it on its own would.
       const [panelsRes, branchRes, subProductsRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels`, { headers }),
         fetch(`${API_BASE}/branches`, { headers }),
@@ -291,7 +291,6 @@ export default function ManageBillableProducts() {
       if (subProductsRes.ok) {
         const items: any[] = await subProductsRes.json();
         setAvailableSubProducts(items
-          .filter((p) => p.workflowMode !== 'EVENT')
           .map((p) => ({
             id: p.id,
             code: p.code,

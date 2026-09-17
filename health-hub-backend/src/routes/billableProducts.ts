@@ -479,17 +479,12 @@ router.post('/', async (req: AuthRequest, res) => {
           message: `Sub-products not found: ${missing.join(', ')}`,
         });
       }
-      // Child products now expand into their own report/upload orders (nesting),
-      // so reportable / external-upload / package children are allowed. Only
-      // EVENT products are rejected — they're ₹0 coupon triggers, not
-      // investigations, and have no meaning as a package line item.
-      const eventChildren = found.filter((p) => p.workflowMode === DiagnosticWorkflowMode.EVENT);
-      if (eventChildren.length > 0) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: `Event products cannot be package line items: ${eventChildren.map((p) => p.code).join(', ')}.`,
-        });
-      }
+      // Every workflow is allowed as a child, EVENT included. A child expands
+      // into its own order when the parent is billed, so an EVENT line mints its
+      // coupon exactly as it would if billed on its own — which is what a
+      // package bundling a free-test voucher is supposed to do. It was rejected
+      // on the reasoning that a ₹0 coupon trigger is not an investigation; that
+      // is true and beside the point, since nesting is what decides this.
     }
 
     const product = await prisma.billableProduct.create({
@@ -657,15 +652,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         });
       }
 
-      // Child products expand into their own orders (nesting); only EVENT
-      // products are rejected as line items (₹0 coupon triggers, not tests).
-      const eventChildren = found.filter((p) => p.workflowMode === DiagnosticWorkflowMode.EVENT);
-      if (eventChildren.length > 0) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: `Event products cannot be package line items: ${eventChildren.map((p) => p.code).join(', ')}.`,
-        });
-      }
+      // Every workflow is allowed as a child, EVENT included — see the POST path.
 
       // Cycle check: each candidate child must not transitively contain `this`
       for (const childId of childProductIds) {
