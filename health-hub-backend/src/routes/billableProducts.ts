@@ -97,13 +97,39 @@ function normalizePayoutCategory(v: any): string | null {
   return t.length ? t : null;
 }
 
+/**
+ * The ONE definition of a product's type. It is derived, never stored — every
+ * input is already persisted (workflowMode, isBundle, and how many lines the
+ * product has), so a column would add no information and would need syncing on
+ * every line-item edit. This repo has three separate scars from storing a
+ * derived number and editing it in place; this is not going to be a fourth.
+ *
+ * The frontend used to re-derive this itself, which is why the admin list could
+ * not be paged: its type filter ran over the whole downloaded list.
+ */
+export function deriveProductType(input: {
+  workflowMode?: string | null;
+  isBundle?: boolean | null;
+  lineCount: number;
+}): 'EVENT' | 'CUSTOM_PACKAGE' | 'PANEL_BUNDLE' | 'INDIVIDUAL_TEST' {
+  if (input.workflowMode === 'EVENT') return 'EVENT';
+  if (input.lineCount > 1) return 'CUSTOM_PACKAGE';
+  if (input.isBundle) return 'PANEL_BUNDLE';
+  return 'INDIVIDUAL_TEST';
+}
+
 function transformProduct(product: any) {
+  const lineCount = product.panels?.length ?? product._count?.panels ?? 0;
   return {
     ...product,
     // Frontend-friendly derived fields
-    productType: product.isBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST',
+    productType: deriveProductType({
+      workflowMode: product.workflowMode,
+      isBundle: product.isBundle,
+      lineCount,
+    }),
     basePrice: (product.basePriceInPaise ?? 0) / 100,
-    panelCount: product.panels?.length ?? product._count?.panels ?? 0,
+    panelCount: lineCount,
     hasBranchPricing: (product._count?.branchPricing ?? 0) > 0,
     workflowMode: product.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE,
   };
@@ -141,7 +167,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List products ───────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, active, isBundle, workflowMode, page, pageSize } = req.query;
+    const { search, active, isBundle, workflowMode, type, page, pageSize } = req.query;
     const branchId = (req as any).branchId;
 
     const where: any = {};
@@ -167,6 +193,27 @@ router.get('/', async (req: AuthRequest, res) => {
 
     if (workflowMode && typeof workflowMode === 'string') {
       where.workflowMode = workflowMode;
+    }
+
+    // Type filter. Derived, so it cannot live in a Prisma `where` — the only
+    // awkward input is "how many lines does this product have", which needs a
+    // GROUP BY. Resolved to a set of ids first, then handed to Prisma as a
+    // plain id filter. The CASE below must stay identical to
+    // deriveProductType(); both are stated once, next to each other, rather
+    // than a column that drifts silently.
+    if (type && typeof type === 'string' && type !== 'all') {
+      const rows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT p.id FROM "BillableProduct" p
+        LEFT JOIN (
+          SELECT "productId", count(*) AS n FROM "BillableProductPanel" GROUP BY "productId"
+        ) l ON l."productId" = p.id
+        WHERE CASE
+          WHEN p."workflowMode" = 'EVENT' THEN 'EVENT'
+          WHEN COALESCE(l.n, 0) > 1       THEN 'CUSTOM_PACKAGE'
+          WHEN p."isBundle"               THEN 'PANEL_BUNDLE'
+          ELSE 'INDIVIDUAL_TEST'
+        END = ${type}`;
+      where.id = { in: rows.map((r) => r.id) };
     }
 
     // Pagination is OPT-IN, exactly like patient search: a request without

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
 import { API_BASE, API_BASE_URL } from '@/lib/api';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
@@ -137,12 +138,12 @@ function isBundleType(t: string): boolean {
   return t === 'CUSTOM_PACKAGE' || t === 'PANEL_BUNDLE';
 }
 
+// The server derives productType now (deriveProductType in billableProducts.ts)
+// and sends the finished value. Re-deriving it here is what kept this list
+// unpageable: the filter could only run over rows already downloaded, so the
+// page had to download all of them.
 function effectiveProductType(p: BillableProduct): string {
-  if (p.workflowMode === 'EVENT') return 'EVENT';
-  const lineCount = p.panelCount ?? p.panels?.length ?? 0;
-  if (lineCount > 1) return 'CUSTOM_PACKAGE';
-  if (p.productType === 'PANEL_BUNDLE') return 'PANEL_BUNDLE';
-  return 'INDIVIDUAL_TEST';
+  return p.productType;
 }
 
 // The kind of a package line item, for the at-a-glance badge: a clinical panel,
@@ -190,6 +191,14 @@ export default function ManageBillableProducts() {
   const [branchOptions, setBranchOptions] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // Search hits the server now, so it waits for a pause in typing rather than
+  // firing a query per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250);
+  // 20 rows is what the table shows without scrolling; the list was shipping
+  // 205 KB of catalogue to render that many.
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [filterType, setFilterType] = useState('all');
   const [filterWorkflow, setFilterWorkflow] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -262,18 +271,30 @@ export default function ManageBillableProducts() {
   const fetchProducts = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       if (selectedBranch?.id) params.set('branchId', selectedBranch.id);
-      params.set('active', 'all'); // Show active and inactive products in management view
+      if (filterType !== 'all') params.set('type', filterType);
+      if (filterWorkflow !== 'all') params.set('workflowMode', filterWorkflow);
+      // The server's `active` param IS the status filter; 'all' keeps the
+      // management view showing inactive rows too.
+      params.set('active', filterStatus === 'all' ? 'all' : filterStatus === 'active' ? 'true' : 'false');
+      params.set('page', String(page));
+      params.set('pageSize', String(PAGE_SIZE));
       const res = await fetch(`${API_BASE}/billable-products?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
-      setProducts(await res.json());
+      const body = await res.json();
+      // Envelope, because we asked for a page. Deliberately NOT cached: this is
+      // catalogue data that staff edit and must see change immediately, and
+      // every mutation below already refetches. A cache layer here would buy
+      // milliseconds and risk showing a price that is no longer real.
+      setProducts(body.results);
+      setTotalProducts(body.total);
     } catch {
       toast.error('Failed to load products');
     } finally {
       setLoading(false);
     }
-  }, [search, selectedBranch?.id]);
+  }, [debouncedSearch, selectedBranch?.id, filterType, filterWorkflow, filterStatus, page]);
 
   const fetchDependencies = useCallback(async () => {
     try {
@@ -307,6 +328,9 @@ export default function ManageBillableProducts() {
   }, []);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  // Any narrowing restarts at page 1 — otherwise a search that matches 3 rows
+  // while sitting on page 5 shows an empty table.
+  useEffect(() => { setPage(1); }, [debouncedSearch, filterType, filterWorkflow, filterStatus, selectedBranch?.id]);
   useEffect(() => { fetchDependencies(); }, []);
 
   // ─── Debounced code uniqueness check ──────────────────────────────────
@@ -638,16 +662,10 @@ export default function ManageBillableProducts() {
 
   // Client-side filters (Type / Workflow / Status) layered on top of the
   // server-side name/code search.
-  const filteredProducts = useMemo(
-    () => products.filter(p => {
-      if (filterType !== 'all' && effectiveProductType(p) !== filterType) return false;
-      if (filterWorkflow !== 'all' && p.workflowMode !== filterWorkflow) return false;
-      if (filterStatus === 'active' && !p.isActive) return false;
-      if (filterStatus === 'inactive' && p.isActive) return false;
-      return true;
-    }),
-    [products, filterType, filterWorkflow, filterStatus],
-  );
+  // Server-filtered, server-paged: `products` IS the current page, already
+  // narrowed. Filtering again here would be filtering one page and calling it
+  // the whole catalogue.
+  const filteredProducts = products;
   const filtersActive = filterType !== 'all' || filterWorkflow !== 'all' || filterStatus !== 'all';
   const clearFilters = () => {
     setFilterType('all');
@@ -655,15 +673,14 @@ export default function ManageBillableProducts() {
     setFilterStatus('all');
   };
 
-  const selectedProducts = useMemo(
-    () => products.filter(p => selected.has(p.id)),
-    [products, selected],
-  );
-  // Explicit selection wins; otherwise everything shown that is active
-  // (an inactive product doesn't belong on a customer price list).
-  const exportTargets = selectedProducts.length
-    ? selectedProducts
-    : filteredProducts.filter(p => p.isActive);
+  // Derived from the SELECTION, not from the page. `products` is one page now,
+  // so counting selected rows out of it would have reported only what happens
+  // to be on screen — tick five rows, turn the page, and Print would have said
+  // nothing was selected and quietly exported that page instead.
+  const selectedCount = selected.size;
+  // Empty selection means "everything active", and the export route already
+  // resolves that server-side when it receives no ids — so an unselected export
+  // stays the whole price list rather than the twenty rows currently rendered.
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -679,13 +696,12 @@ export default function ManageBillableProducts() {
   };
 
   const exportExcel = async () => {
-    if (exportTargets.length === 0) return;
     setExporting(true);
     try {
       const res = await fetch(`${API_BASE}/billable-products/export`, {
         method: 'POST',
         headers: selectedBranch?.id ? { ...headers, 'X-Branch-Id': selectedBranch.id } : headers,
-        body: JSON.stringify({ ids: exportTargets.map(p => p.id) }),
+        body: JSON.stringify(selectedCount ? { ids: [...selected] } : {}),
       });
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
@@ -728,24 +744,23 @@ export default function ManageBillableProducts() {
           <Button
             variant="outline"
             size="sm"
-            disabled={exportTargets.length === 0}
             onClick={() => window.print()}
-            title={selectedProducts.length ? `Print ${selectedProducts.length} selected` : 'Print all active products'}
+            title={selectedCount ? `Print ${selectedCount} selected` : 'Print all active products'}
           >
             <Printer className="h-4 w-4 mr-1" />
-            Print{selectedProducts.length ? ` (${selectedProducts.length})` : ''}
+            Print{selectedCount ? ` (${selectedCount})` : ''}
           </Button>
           <Button
             variant="outline"
             size="sm"
-            disabled={exporting || exportTargets.length === 0}
+            disabled={exporting}
             onClick={exportExcel}
-            title={selectedProducts.length ? `Export ${selectedProducts.length} selected` : 'Export all active products'}
+            title={selectedCount ? `Export ${selectedCount} selected` : 'Export all active products'}
           >
             {exporting
               ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-            Excel{selectedProducts.length ? ` (${selectedProducts.length})` : ''}
+            Excel{selectedCount ? ` (${selectedCount})` : ''}
           </Button>
           <Button onClick={openCreate} size="sm">
             <Plus className="h-4 w-4 mr-1" /> New Product
@@ -897,11 +912,40 @@ export default function ManageBillableProducts() {
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground text-right">
-        Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
-        {filtersActive && ` of ${products.length}`}
-        {selected.size > 0 && ` · ${selected.size} selected`}
-      </p>
+      {/* Counts describe the whole filtered set, not the page — "Showing 20"
+          on a 342-row catalogue reads as data loss. Buttons reuse the outline
+          size-sm shape already used by Select / Print / Excel above. */}
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          {totalProducts === 0
+            ? 'No products'
+            : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, totalProducts)} of ${totalProducts}`}
+          {selected.size > 0 && ` · ${selected.size} selected`}
+        </p>
+        {totalProducts > PAGE_SIZE && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Page {page} of {Math.max(1, Math.ceil(totalProducts / PAGE_SIZE))}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page * PAGE_SIZE >= totalProducts || loading}
+              onClick={() => setPage(p => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Print-only price list (visible only via @media print) */}
       <PriceListPrint rows={exportTargets} branchName={selectedBranch?.name} />
