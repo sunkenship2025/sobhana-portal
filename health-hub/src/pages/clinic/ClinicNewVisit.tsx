@@ -345,9 +345,52 @@ const ClinicNewVisit = () => {
     }
   };
 
+  // Same trick as the diagnostic counter: this server is ~250ms away and the
+  // lookup itself costs 11-48ms, so what reads as a slow search is the round
+  // trip, paid on the keystroke that finishes the number. Fire it at digit 7
+  // and the last three narrow the delivered candidates locally.
+  const prefetchByPrefix = (prefix: string) => {
+    if (!token || !activeBranch) return;
+    void queryClient.prefetchQuery<Patient[]>({
+      queryKey: ["patientSearch", "clinic", activeBranch.id, `pfx:${prefix}`],
+      queryFn: async ({ signal }) => {
+        const res = await fetch(`${API_BASE}/patients/search?phonePrefix=${prefix}`, {
+          headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranch.id },
+          signal,
+        });
+        if (!res.ok) throw new Error("Prefix search failed");
+        const results = await res.json();
+        return results.map((r: any) => r.patient) as Patient[];
+      },
+      staleTime: 30_000,
+    });
+  };
+
+  /** Prefetched candidates narrowed to a full number, or null when there are
+   *  none / the set was capped and so cannot be trusted to be complete. */
+  const narrowPrefetched = (fullPhone: string): Patient[] | null => {
+    if (!activeBranch) return null;
+    const cached = queryClient.getQueryData<Patient[]>([
+      "patientSearch", "clinic", activeBranch.id, `pfx:${fullPhone.slice(0, 7)}`,
+    ]);
+    if (!cached || cached.length >= 25) return null;
+    // Unwrapped to Patient here, so identifiers sit on the row itself.
+    return cached.filter((p) =>
+      ((p as { identifiers?: { type: string; value: string }[] }).identifiers ?? []).some(
+        (i) => i.type === "PHONE" && i.value === fullPhone,
+      ),
+    );
+  };
+
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    setMatchingPatients(value.length === 10 ? await runPatientSearch(value) : []);
+    if (value.length === 7) prefetchByPrefix(value);
+    if (value.length !== 10) {
+      setMatchingPatients([]);
+      return;
+    }
+    const local = narrowPrefetched(value);
+    setMatchingPatients(local ?? (await runPatientSearch(value)));
   };
 
   // Phone Enter: search, then branch on the fresh result. Existing patient(s)

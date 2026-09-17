@@ -141,7 +141,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List products ───────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, active, isBundle, workflowMode } = req.query;
+    const { search, active, isBundle, workflowMode, page, pageSize } = req.query;
     const branchId = (req as any).branchId;
 
     const where: any = {};
@@ -169,8 +169,20 @@ router.get('/', async (req: AuthRequest, res) => {
       where.workflowMode = workflowMode;
     }
 
+    // Pagination is OPT-IN, exactly like patient search: a request without
+    // `page` still gets the plain array every other caller expects (the visit
+    // screens load the whole catalogue on purpose and cache it). With `page`,
+    // the response becomes an envelope and only that page is sent — the admin
+    // list was shipping 205 KB per load, twice per page view, to show 20 rows.
+    const paged = page !== undefined;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const size = Math.min(100, Math.max(1, parseInt(pageSize as string) || 20));
+
+    const total = paged ? await prisma.billableProduct.count({ where }) : 0;
+
     const products = await prisma.billableProduct.findMany({
       where,
+      ...(paged ? { skip: (pageNum - 1) * size, take: size } : {}),
       include: {
         _count: { select: { panels: true, branchPricing: true } },
         // Just the panel ids, so the line-item picker can hide a panel that is
@@ -195,6 +207,15 @@ router.get('/', async (req: AuthRequest, res) => {
       };
     });
 
+    if (paged) {
+      return res.json({
+        results: result,
+        total,
+        page: pageNum,
+        pageSize: size,
+        hasMore: pageNum * size < total,
+      });
+    }
     return res.json(result);
   } catch (error: any) {
     console.error('Error listing billable products:', error);
