@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Asking the doctor — ambiguity UI</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink2:#475569; --ink3:#94a3b8;
+    --line:#e2e8f0; --line2:#cbd5e1; --bg:#f8fafc; --card:#fff;
+    --accent:#1e293b; --accentSoft:#f1f5f9;
+    --amber:#b45309; --amberSoft:#fffbeb; --green:#047857; --greenSoft:#ecfdf5;
+    --red:#b91c1c; --redSoft:#fef2f2; --blue:#1d4ed8; --blueSoft:#eff6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       font-variant-numeric:tabular-nums}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 96px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 10px;max-width:860px}
+  code{background:var(--accentSoft);padding:1px 5px;border-radius:4px;font-size:12.5px}
+
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 22px;margin:22px 0}
+  .sec > header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+  .sec h2{font-size:15px;margin:0}
+  .num{font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.06em}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accentSoft);color:var(--ink2)}
+  .tag.rec{background:var(--greenSoft);color:var(--green)}
+  .tag.bad{background:var(--redSoft);color:var(--red)}
+  .tag.new{background:var(--blueSoft);color:var(--blue)}
+  .why{color:var(--ink2);font-size:13px;margin:0 0 14px;max-width:880px}
+  .why b{color:var(--ink)}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:920px){.split{grid-template-columns:1fr}}
+
+  /* card mock */
+  .rx{border:1px solid var(--line2);border-radius:9px;padding:11px 12px;background:#fff}
+  .rx.warn{border-color:#fcd34d;background:var(--amberSoft)}
+  .rx.bad{border-color:#fecaca;background:var(--redSoft)}
+  .rx > header{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .rx .n{font-weight:650;font-size:14px}
+  .badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;
+         font-size:10.5px;font-weight:600;background:var(--accentSoft);color:var(--ink2)}
+  .badge.g{background:var(--greenSoft);color:var(--green)}
+  .badge.a{background:var(--amberSoft);color:var(--amber)}
+  .badge.r{background:var(--redSoft);color:var(--red)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:8px}
+  @media(max-width:600px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .f p{margin:0 0 3px;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600}
+  .box{height:31px;border:1px solid var(--line2);border-radius:7px;background:#fff;display:flex;
+       align-items:center;padding:0 8px;font-size:12.5px;gap:6px}
+  .box.unk{color:var(--ink3);font-style:italic}
+  .box .chev{margin-left:auto;color:var(--ink3)}
+  .btn{height:30px;border:1px solid var(--line2);border-radius:7px;background:#fff;
+       display:inline-flex;align-items:center;gap:6px;padding:0 10px;font-size:12.5px;white-space:nowrap}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.sm{height:26px;padding:0 8px;font-size:12px}
+  .btn.gho{border-color:transparent;color:var(--ink2)}
+  .opt{display:block;width:100%;text-align:left;border:1px solid var(--line2);border-radius:8px;
+       background:#fff;padding:8px 10px;margin-bottom:6px;font-size:13px}
+  .opt:hover{border-color:#7aa7d9;background:#f7fbff}
+  .opt .sub2{display:block;font-size:11.5px;color:var(--ink3);margin-top:1px}
+  .opt.pick{border-color:#7aa7d9;background:#f2f8ff;box-shadow:0 0 0 2px rgba(122,167,217,.22)}
+  .tx{font-size:11.5px;color:var(--ink2);background:var(--accentSoft);border-left:2px solid var(--line2);
+      padding:6px 9px;border-radius:0 6px 6px 0;margin-top:8px}
+  .tx b{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:2px}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+  .note{font-size:12.5px;color:var(--ink2);margin:12px 0 0;padding-left:18px}
+  .note li{margin:4px 0}
+  .note b{color:var(--ink)}
+  .q{border-left:3px solid var(--amber);background:var(--amberSoft);padding:11px 13px;border-radius:0 8px 8px 0;font-size:13px;margin:14px 0 0}
+  .q b{display:block;margin-bottom:3px}
+  .q.g{border-left-color:var(--green);background:var(--greenSoft)}
+  .q.r{border-left-color:var(--red);background:var(--redSoft)}
+  .q.b{border-left-color:var(--blue);background:var(--blueSoft)}
+  .cal{border:1px dashed var(--line2);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink2);background:#fcfdfe}
+  .cal b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);
+     font-weight:600;padding:7px 9px;border-bottom:1px solid var(--line)}
+  td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  .yes{color:var(--green);font-weight:600}
+  .no{color:var(--red);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Asking the doctor — four versions</h1>
+<p class="sub">
+  The resolver now asks in exactly three situations, and each has a different shape of answer. They are not the same
+  question, so they should not be the same control. Below: what actually triggers a question, four ways to render it,
+  and which I would ship.
+</p>
+
+<!-- ─────────────────── 01 WHEN ─────────────────── -->
+<div class="sec">
+  <header><span class="num">01</span><h2>When it asks — and it is rarer than it was</h2><span class="tag rec">3 triggers</span></header>
+  <p class="why">
+    After the resolver fixes, <b>37 of 37 benchmark cases resolve with zero wrong answers and zero questions.</b> The
+    common path asks nothing. What remains is genuinely uncertain, and the rate matters: severity-tiered alerting lifted
+    compliance from 10% to 100% on the top tier, while flat alerting decayed to noise. Every question spent on an
+    obvious answer devalues the one that isn't.
+  </p>
+  <table>
+    <thead><tr><th style="width:150px">Trigger</th><th>Example</th><th>Shape of the answer</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>AMBIGUOUS</b><br><span class="badge a">confirm medicine</span></td>
+        <td>“Pan D” → Pantoprazole, or Pantoprazole + Domperidone</td>
+        <td>Pick one of 2–5. A <b>closed</b> choice.</td>
+      </tr>
+      <tr>
+        <td><b>STRENGTH MISMATCH</b><br><span class="badge a">confirm strength</span></td>
+        <td>“Clonazepam 0.25” — catalogue has 0.5 only</td>
+        <td>Keep what was said, or pick a stocked strength. <b>Not</b> the same question.</td>
+      </tr>
+      <tr>
+        <td><b>UNRESOLVED</b><br><span class="badge">not in list</span></td>
+        <td>“zibblewotsit 200”</td>
+        <td>Search, or keep as written. An <b>open</b> choice.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="q r">
+    <b>The trap to design against</b>
+    A doctor asked to choose between two identical-looking entries learns the questions are noise — and then clicks
+    through the one that matters. That is why the resolver now prefers the single-molecule product and the oral solid
+    automatically: <b>a question with an obvious answer is worse than no question.</b>
+  </div>
+</div>
+
+<!-- ─────────────────── 02 VERSION A ─────────────────── -->
+<div class="sec">
+  <header><span class="num">02</span><h2>Version A — inline expansion</h2><span class="tag">what is built</span></header>
+  <div class="split">
+    <div>
+      <div class="rx warn">
+        <header><span class="n">2. Pan D</span><span class="badge a">confirm medicine</span>
+          <span style="margin-left:auto" class="row"><span class="btn sm gho">source</span><span class="btn sm gho">✕</span></span></header>
+        <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:9px 10px">
+          <div style="font-size:12.5px;margin-bottom:7px">Heard <b>“Pan D”</b>. Which one? Nothing is selected.</div>
+          <button class="opt"><b>Pantoprazole 40 mg</b> — tablet — oral<span class="sub2">Pantop 40</span></button>
+          <button class="opt"><b>Pantoprazole 40 mg + Domperidone 30 mg</b> — capsule — oral<span class="sub2">Pan-D</span></button>
+          <div class="row" style="margin-top:6px"><span class="btn sm">⌕ Search the list</span><span class="btn sm">Keep “Pan D” as written</span></div>
+        </div>
+        <div class="grid">
+          <div class="f"><p>Dose</p><div class="box">1 tablet</div></div>
+          <div class="f"><p>Freq</p><div class="box">Once daily <span class="chev">⌄</span></div></div>
+          <div class="f"><p>Timing</p><div class="box unk">not stated</div></div>
+          <div class="f"><p>Days</p><div class="box">10</div></div>
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>The question lives inside the card it belongs to.</b> No modal, no context switch, and the dose and
+          duration the doctor already dictated stay visible while they answer.</li>
+        <li>Full names on every option — generic, strength, form, route, and the brand underneath. Never truncated,
+          because the best-evidenced e-prescribing error is picking the entry next to the one you meant.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q g">
+        <b>Why this is the default</b>
+        It scales to any number of open questions without stacking modals, it never blocks the rest of the
+        prescription, and the doctor can answer them in whatever order they like. With two medicines and one question,
+        the other card is untouched and still editable.
+      </div>
+      <div class="q">
+        <b>Its weakness, stated plainly</b>
+        It is <b>skippable</b>. Nothing forces the doctor to look — they can scroll past and hit Review. The sign gate
+        catches it (signing is refused while anything is unresolved), but the catch happens at the end, which is the
+        worst moment to discover work remaining.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────── 03 VERSION B ─────────────────── -->
+<div class="sec">
+  <header><span class="num">03</span><h2>Version B — a queue at the commit bar</h2><span class="tag new">worth testing</span></header>
+  <div class="split">
+    <div>
+      <div class="rx" style="border-color:#fcd34d">
+        <div class="row" style="justify-content:space-between">
+          <span><b style="color:var(--amber)">1 of 2</b> <span style="color:var(--ink2)">·  needs your answer</span></span>
+          <span class="row"><span class="btn sm gho">Skip</span><span class="btn sm">Next ›</span></span>
+        </div>
+        <div style="margin-top:9px;font-size:13px">Heard <b>“Pan D”</b> — which medicine?</div>
+        <div class="tx"><b>spoken 00:12 – 00:17</b>“…aur Pan D once daily ten days…”</div>
+        <div style="margin-top:8px">
+          <button class="opt pick"><b>Pantoprazole 40 mg</b> — tablet<span class="sub2">Pantop 40 · your clinic uses this 43×</span></button>
+          <button class="opt"><b>Pantoprazole 40 mg + Domperidone 30 mg</b> — capsule<span class="sub2">Pan-D</span></button>
+        </div>
+        <div class="row" style="margin-top:8px"><span class="btn pri sm">Confirm</span><span class="btn sm">Keep as written</span></div>
+      </div>
+      <ul class="note">
+        <li><b>One question at a time, with the audio that produced it.</b> The doctor answers a focused thing rather
+          than scanning a form for amber borders.</li>
+        <li><b>“Your clinic uses this 43×”</b> is real data — the usage count the catalogue already learns. It is a
+          fact, not a recommendation, and it is the single most useful disambiguator a busy prescriber has.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q b">
+        <b>Why it might beat A</b>
+        Real multi-step interaction cost measurably cuts override rates — the classic security-warning study saw
+        dismissal fall from 90% on a one-click warning to 45% on a redesigned page with genuine friction. A queue is
+        friction of exactly the right kind: it is proportional to the number of real questions, and it is zero when
+        there are none.
+      </div>
+      <div class="q">
+        <b>Why it might not</b>
+        It is a mode. A doctor who wants to fix line 2 first has to get there, and a queue that appears for ONE
+        question is heavier than that question deserves. <b>Test it above a threshold</b> — inline for one, queue for
+        three or more.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────── 04 VERSION C ─────────────────── -->
+<div class="sec">
+  <header><span class="num">04</span><h2>Version C — the strength question, which is not a medicine question</h2><span class="tag rec">ship as its own control</span></header>
+  <div class="split">
+    <div>
+      <div class="rx warn">
+        <header><span class="n">1. Clonazepam</span><span class="badge a">confirm strength</span></header>
+        <div style="background:#fff;border:1px solid #fcd34d;border-radius:8px;padding:9px 10px">
+          <div style="font-size:12.5px">
+            You said <b>0.25 mg</b>. This clinic's list has Clonazepam at <b>0.5 mg</b> only.
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="opt pick" style="margin:0;flex:1"><b>Keep 0.25 mg</b><span class="sub2">prints exactly as you said it</span></button>
+            <button class="opt" style="margin:0;flex:1"><b>Use 0.5 mg</b><span class="sub2">the strength on the list</span></button>
+          </div>
+        </div>
+        <div class="tx"><b>why you are seeing this</b>We will never quietly change a strength you stated. The medicine matched; the number did not.</div>
+      </div>
+      <ul class="note">
+        <li><b>“Keep what I said” is the default and listed first.</b> The doctor is the prescriber; our catalogue being
+          incomplete is our problem, not theirs.</li>
+        <li>This is a <b>different question</b> from "which medicine", so it gets a different control — two options, not
+          a list, and no search box. Collapsing them into one generic "confirm" dialog is how a specific question
+          becomes a generic click.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q r">
+        <b>This question exists because of a real bug</b>
+        Before the fix, “Clonazepam 0.25” silently resolved to <b>Clonazepam 0.5 mg</b> — a twofold error on a
+        controlled drug, presented as a confident match with a green tick. The UI showed no question at all, because
+        the resolver did not think there was one.
+        <br><br>
+        Every decimal-dose medicine was affected: benzodiazepines, paediatric syrups, thyroid, digoxin. It is now
+        impossible for the system to resolve to a strength other than the one spoken — it asks instead.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────── 05 VERSION D ─────────────────── -->
+<div class="sec">
+  <header><span class="num">05</span><h2>Version D — the one I would not build</h2><span class="tag bad">anti-pattern</span></header>
+  <div class="split">
+    <div>
+      <div class="rx bad">
+        <header><span class="n">⚠ Please confirm medication</span></header>
+        <div style="font-size:12.5px;color:var(--ink2)">The AI is <b>72% confident</b> about this medicine.</div>
+        <div style="margin-top:8px">
+          <button class="opt"><b>Pantoprazole 40 mg</b> <span style="color:var(--green);font-weight:600">72%</span></button>
+          <button class="opt"><b>Pantoprazole + Domperidone</b> <span style="color:var(--amber);font-weight:600">61%</span></button>
+        </div>
+        <div class="row" style="margin-top:8px"><span class="btn sm">Accept AI suggestion</span><span class="btn sm gho">Dismiss</span></div>
+      </div>
+      <ul class="note">
+        <li>Looks more informative. Is measurably worse.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q r">
+        <b>Three things wrong with it</b>
+        <b>1 · The percentage is fiction.</b> Across 48 models, self-reported confidence exceeded accuracy in every
+        single one. And in a real clinical task, high numeric confidence caused overreliance that <i>reduced</i>
+        diagnostic accuracy. Gigerenzer's gynaecologists: 60% got a probability question wildly wrong in percentage
+        form; 87% got it right as natural frequencies. Google PAIR and Microsoft's own HCI guidelines both warn against
+        raw percentages.
+        <br><br>
+        <b>2 · “Accept AI suggestion” is a rubber stamp</b> with a default, which is the exact shape the habituation
+        literature shows decaying with exposure.
+        <br><br>
+        <b>3 · “Dismiss” must not exist here.</b> Published CDS override rates run 49–96%. A question a doctor can wave
+        away is not a control; it is a liability that looks like one.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────── 06 RECOMMENDATION ─────────────────── -->
+<div class="sec">
+  <header><span class="num">06</span><h2>What to ship</h2><span class="tag rec">A + C now, B as an experiment</span></header>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>Situation</th><th>Control</th><th style="width:70px">Blocks?</th></tr></thead>
+        <tbody>
+          <tr><td>One medicine ambiguous</td><td><b>A</b> — inline options in the card</td><td class="yes">yes</td></tr>
+          <tr><td>Strength not in the list</td><td><b>C</b> — two options, "keep what I said" first</td><td class="yes">yes</td></tr>
+          <tr><td>Not in the list at all</td><td><b>A</b> + search + "keep as written"</td><td class="yes">yes</td></tr>
+          <tr><td>Three or more questions</td><td><b>B</b> — queue, one at a time</td><td class="yes">yes</td></tr>
+          <tr><td>Controlled drug, remote</td><td>Hard block, no options offered</td><td class="no">final</td></tr>
+        </tbody>
+      </table>
+      <div class="cal" style="margin-top:12px">
+        <b>Everything that asks, blocks.</b> There is no dismissible tier anywhere in this design. A finding either
+        prevents signing or is not shown — which is only affordable because the questions are now rare.
+      </div>
+    </div>
+    <div>
+      <div class="q b">
+        <b>What to measure once doctors are using it</b>
+        <b>Questions per prescription.</b> If it climbs above roughly one in five, the resolver is asking too much and
+        the answer is better data, not a better dialog.
+        <br><br>
+        <b>Which option gets picked.</b> If the first option wins 95%+ of the time, the question had an obvious answer
+        and should become an automatic preference — exactly how "prefer the single molecule" and "prefer the oral
+        solid" were derived.
+        <br><br>
+        <b>Time-to-answer over tenure.</b> If it falls while the mix of questions stays constant, that is habituation
+        setting in, not fluency — and it is the signal to change the friction before someone clicks through a real one.
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
