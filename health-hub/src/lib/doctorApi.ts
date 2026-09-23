@@ -283,9 +283,14 @@ export const doctorApi = {
 
   capabilities: () => req<Capabilities>('/prescriptions/capabilities'),
   drafts: () => req<DraftRow[]>('/prescriptions/drafts'),
-  searchMedications: (q: string) =>
+  /**
+   * `mode: 'search'` browses the catalogue as the doctor types (ranked by how
+   * literally the text matches). Omitting it RESOLVES — "what did they mean" —
+   * which is what dictation needs. Two different questions, one endpoint.
+   */
+  searchMedications: (q: string, mode?: 'search') =>
     req<{ resolution: MedicationResolution; match: MedicationCandidate | null; candidates: MedicationCandidate[] }>(
-      `/prescriptions/medications?q=${encodeURIComponent(q)}`,
+      `/prescriptions/medications?q=${encodeURIComponent(q)}${mode ? `&mode=${mode}` : ''}`,
     ),
 
   /** Audio -> transcript -> structured proposal. Persists NOTHING. */

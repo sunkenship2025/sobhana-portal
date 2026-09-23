@@ -23,6 +23,7 @@
  * field at all, so an "allergy check passed" would be a lie.
  */
 import { getMedicationsByIds } from './resolver';
+import { screenTelemedicineProhibited } from './controlled';
 
 export type Severity = 'BLOCK' | 'ASK' | 'NOTE';
 
@@ -38,6 +39,10 @@ export interface Finding {
 export interface ValidatableItem {
   id?: string;
   canonicalName: string | null;
+  /** What the doctor actually said. Screened even when nothing resolved. */
+  spokenText?: string | null;
+  genericName?: string | null;
+  brandName?: string | null;
   medicationId: string | null;
   strength: string | null;
   strengthUnit: string | null;
@@ -60,6 +65,12 @@ export interface ValidatablePrescription {
   followUpDays?: number | null;
   /** In-person consultations are not telemedicine; the Schedule X gate is scoped. */
   isTelemedicine?: boolean;
+  /**
+   * The raw dictation, when there was one. Screened in full, because a
+   * controlled substance the EXTRACTOR dropped is still a controlled substance
+   * the doctor said out loud.
+   */
+  transcript?: string | null;
 }
 
 export interface ValidationResult {
@@ -119,25 +130,63 @@ export async function validatePrescription(rx: ValidatablePrescription): Promise
     }
   }
 
-  // --- legal prohibition ----------------------------------------------------
+  // --- legal prohibition ---------------------------------------------------
   // Telemedicine Practice Guidelines §3.7.4 forbids prescribing Schedule X drugs
   // and NDPS narcotics/psychotropics over telemedicine, absolutely, with no
-  // exception in any source found. UN-OVERRIDABLE, and scoped to the remote path
-  // because an in-person consultation is not telemedicine.
+  // exception in any source found. UN-OVERRIDABLE.
+  //
+  // Screening runs on the TEXT, not on resolved catalogue rows. The first
+  // version checked isScheduleX on the matched Medication, which meant a
+  // controlled drug we had not seeded carried no flags and passed the gate
+  // untouched — the safety of the block depended on the completeness of the
+  // catalogue. It fails CLOSED now: a token that looks like a controlled
+  // substance blocks whether or not we have ever heard of it.
   if (rx.isTelemedicine) {
-    const ids = rx.items.map((i) => i.medicationId).filter(Boolean) as string[];
-    const meds = await getMedicationsByIds(ids);
+    const seenMolecules = new Set<string>();
+
     for (const it of rx.items) {
-      const m = it.medicationId ? meds.get(it.medicationId) : null;
-      if (!m) continue;
-      if (m.isScheduleX || m.isNdps) {
+      // Everything the doctor said or wrote for this line, resolved or not.
+      const surfaces = [it.canonicalName, it.spokenText, it.genericName, it.brandName, it.instructions]
+        .filter(Boolean)
+        .join(' ');
+      for (const hit of screenTelemedicineProhibited(surfaces)) {
+        if (seenMolecules.has(hit.entry.molecule)) continue;
+        seenMolecules.add(hit.entry.molecule);
         add({
           severity: 'BLOCK',
           code: 'SCHEDULE_X_TELEMEDICINE',
           itemId: it.id,
-          message: `${m.canonicalName} cannot be prescribed remotely. Telemedicine Practice Guidelines §3.7.4 prohibits Schedule X and NDPS medicines in a teleconsultation — this requires an in-person visit.`,
+          message: `${hit.entry.molecule} (matched "${hit.matched}") cannot be prescribed remotely. Telemedicine Practice Guidelines §3.7.4 prohibits Schedule X and NDPS medicines in a teleconsultation — this needs an in-person visit.`,
         });
       }
+    }
+
+    // And the transcript itself, for anything extraction dropped.
+    for (const hit of screenTelemedicineProhibited(rx.transcript)) {
+      if (seenMolecules.has(hit.entry.molecule)) continue;
+      seenMolecules.add(hit.entry.molecule);
+      add({
+        severity: 'BLOCK',
+        code: 'SCHEDULE_X_IN_DICTATION',
+        message: `You mentioned ${hit.entry.molecule} ("${hit.matched}") in the dictation. Schedule X and NDPS medicines cannot be prescribed remotely (§3.7.4) — this needs an in-person visit.`,
+      });
+    }
+
+    // Belt and braces: the catalogue flags, for anything the text screen missed
+    // (a brand we have seeded and flagged but whose name shares no stem).
+    const ids = rx.items.map((i) => i.medicationId).filter(Boolean) as string[];
+    const meds = await getMedicationsByIds(ids);
+    for (const it of rx.items) {
+      const m = it.medicationId ? meds.get(it.medicationId) : null;
+      if (!m || (!m.isScheduleX && !m.isNdps)) continue;
+      if (seenMolecules.has(m.canonicalName)) continue;
+      seenMolecules.add(m.canonicalName);
+      add({
+        severity: 'BLOCK',
+        code: 'SCHEDULE_X_TELEMEDICINE',
+        itemId: it.id,
+        message: `${m.canonicalName} cannot be prescribed remotely. Telemedicine Practice Guidelines §3.7.4 prohibits Schedule X and NDPS medicines in a teleconsultation — this needs an in-person visit.`,
+      });
     }
   }
 
@@ -285,6 +334,54 @@ export async function demo(): Promise<void> {
 
   r = await validatePrescription({ items: [{ ...base, dosageForm: 'tablet', route: 'topical' }] });
   ok(!r.canSign && has(r, 'FORM_ROUTE_MISMATCH'), 'tablet by topical route asks');
+
+  // --- THE CATALOGUE-INDEPENDENCE TESTS ------------------------------------
+  // These are the regression for a real hole: the first version checked
+  // isScheduleX on the RESOLVED row, so a controlled drug we had never seeded
+  // carried no flags and passed the §3.7.4 gate untouched. Every case below has
+  // medicationId: null — nothing is in the catalogue — and every one must block.
+
+  r = await validatePrescription({
+    isTelemedicine: true,
+    items: [{ ...base, canonicalName: 'Alprax 0.5', medicationId: null, resolution: 'UNRESOLVED' }],
+  });
+  ok(!r.canSign && has(r, 'SCHEDULE_X_TELEMEDICINE'), 'unseeded controlled BRAND blocks');
+
+  r = await validatePrescription({
+    isTelemedicine: true,
+    items: [{ ...base, canonicalName: 'Tramadol 50 mg', medicationId: null, resolution: 'MANUAL' }],
+  });
+  ok(!r.canSign && has(r, 'SCHEDULE_X_TELEMEDICINE'), 'unseeded opioid blocks');
+
+  // Typed as something harmless, but SPOKEN as a controlled drug.
+  r = await validatePrescription({
+    isTelemedicine: true,
+    items: [{ ...base, canonicalName: 'Tablet', medicationId: null, spokenText: 'restyl point five', resolution: 'UNRESOLVED' }],
+  });
+  ok(!r.canSign && has(r, 'SCHEDULE_X_TELEMEDICINE'), 'spokenText alone is enough to block');
+
+  // Mentioned in the dictation but dropped by extraction entirely.
+  r = await validatePrescription({
+    isTelemedicine: true,
+    transcript: 'dolo 650 SOS aur etilaam point five raat ko',
+    items: [{ ...base, canonicalName: 'Paracetamol 650 mg', medicationId: null }],
+  });
+  ok(!r.canSign && has(r, 'SCHEDULE_X_IN_DICTATION'), 'controlled drug in the transcript blocks even if extraction dropped it');
+
+  // In PERSON, none of this applies — §3.7.4 is a telemedicine rule.
+  r = await validatePrescription({
+    isTelemedicine: false,
+    items: [{ ...base, canonicalName: 'Alprax 0.5', medicationId: null }],
+  });
+  ok(r.canSign, 'in-person consultation is not telemedicine — no block');
+
+  // And a safe prescription must not be caught by the screen.
+  r = await validatePrescription({
+    isTelemedicine: true,
+    transcript: 'paracetamol 650 TID and pantoprazole 40 OD',
+    items: [{ ...base, canonicalName: 'Paracetamol 650 mg', medicationId: null }],
+  });
+  ok(r.canSign, 'safe prescription over telemedicine still signs');
 
   // eslint-disable-next-line no-console
   console.log('validator.ts: all checks passed');

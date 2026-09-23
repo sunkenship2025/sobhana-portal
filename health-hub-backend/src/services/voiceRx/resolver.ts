@@ -324,6 +324,57 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   return { resolution: 'UNRESOLVED', match: null, candidates: [] };
 }
 
+/**
+ * Typeahead search — BROWSING, not resolution.
+ *
+ * resolveMedication answers "what did the doctor mean"; this answers "what could
+ * they mean, as they type". Different job, different ranking: a prefix hit on a
+ * brand outranks a substring hit in the middle of a molecule, because somebody
+ * typing "amo" wants Amoxicillin before Clavulanate-something.
+ *
+ * Matches across canonical name, generic, brand AND aliases, so typing a brand
+ * finds the molecule and typing a molecule finds the brands.
+ */
+export async function searchMedications(q: string, limit = 12): Promise<Candidate[]> {
+  const idx = await loadCatalog();
+  const needle = norm(q);
+  if (needle.length < 2) return [];
+
+  const scored: { c: Candidate; rank: number }[] = [];
+
+  for (const r of idx.rows) {
+    const surfaces = [r.canonicalName, r.genericName, r.brandName, ...(r.aliases ?? [])]
+      .filter(Boolean) as string[];
+
+    let best = 0;
+    let matchedOn: Candidate['matchedOn'] = 'fuzzy';
+    for (const surface of surfaces) {
+      const n = norm(surface);
+      if (!n) continue;
+      // 100 exact · 80 starts-with · 60 word-start · 40 contains
+      let rank = 0;
+      if (n === needle) { rank = 100; matchedOn = 'exact'; }
+      else if (n.startsWith(needle)) rank = 80;
+      else if (n.includes(` ${needle}`)) rank = 60;
+      else if (n.includes(needle)) rank = 40;
+      if (rank > best) best = rank;
+    }
+
+    // A typo still surfaces, just below every literal match.
+    if (best === 0) {
+      const sim = Math.max(...surfaces.map((x) => similarity(needle, norm(x))));
+      if (sim >= FUZZY_FLOOR) best = Math.round(sim * 30);
+    }
+
+    if (best > 0) scored.push({ c: toCandidate(r, best / 100, matchedOn), rank: best });
+  }
+
+  return scored
+    .sort((a, b) => b.rank - a.rank || a.c.canonicalName.localeCompare(b.c.canonicalName))
+    .slice(0, limit)
+    .map((x) => x.c);
+}
+
 /** Look up rows by id — used by the validator for the Schedule X / NDPS gate. */
 export async function getMedicationsByIds(ids: string[]): Promise<Map<string, MedicationRow>> {
   if (ids.length === 0) return new Map();

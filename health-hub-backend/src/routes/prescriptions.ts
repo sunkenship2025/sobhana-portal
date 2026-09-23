@@ -18,7 +18,7 @@ import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { transcribeWithFallback, availableProviders, AsrUnavailable } from '../services/voiceRx/asr';
 import { extractPrescription, extractionConfigured, ExtractionUnavailable } from '../services/voiceRx/extract';
-import { resolveMedication, buildAsrHint } from '../services/voiceRx/resolver';
+import { resolveMedication, searchMedications, buildAsrHint } from '../services/voiceRx/resolver';
 import {
   createDraft, updateDraft, sign, amend, getById, listDrafts, listForVisit,
   validateById, PrescriptionStateError,
@@ -116,6 +116,14 @@ router.get('/medications', requireRole(...PRESCRIBERS), async (req: AuthRequest,
   try {
     const q = String(req.query.q ?? '').trim();
     if (q.length < 2) { res.json({ resolution: 'UNRESOLVED', match: null, candidates: [] }); return; }
+
+    // Typeahead mode: browsing the catalogue as the doctor types. Ranked by how
+    // literally the text matches, not by what we guess they meant.
+    if (req.query.mode === 'search') {
+      const results = await searchMedications(q, Number(req.query.limit ?? 12));
+      res.json({ resolution: 'MANUAL', match: null, candidates: results });
+      return;
+    }
     const result = await resolveMedication({
       spoken: q,
       strength: req.query.strength ? String(req.query.strength) : null,

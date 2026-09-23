@@ -21,10 +21,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
-  Mic, Square, Plus, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check,
+  Mic, Square, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RxItemEditor } from '@/components/doctor/RxItemEditor';
+import { MedicineTypeahead } from '@/components/doctor/MedicineTypeahead';
 import { RxLetterpad, type RxProfile } from '@/components/doctor/RxLetterpad';
 import {
   doctorApi, DoctorApiError, itemSig, itemTitle,
@@ -94,7 +95,6 @@ export default function Consultation() {
   const [profile, setProfile] = useState<RxProfile>('digital');
   const [attested, setAttested] = useState(false);
   const [signing, setSigning] = useState(false);
-  const [newName, setNewName] = useState('');
 
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -249,28 +249,6 @@ export default function Consultation() {
   const removeItem = useCallback((idx: number) => {
     setItems((cur) => cur.filter((_, i) => i !== idx));
   }, []);
-
-  const addTyped = useCallback(async () => {
-    const name = newName.trim();
-    if (!name) return;
-    let item = { ...blankItem(), canonicalName: name };
-    try {
-      const r = await doctorApi.searchMedications(name);
-      if (r.resolution === 'RESOLVED' && r.match) {
-        item = {
-          ...item,
-          medicationId: r.match.medicationId, canonicalName: r.match.canonicalName,
-          genericName: r.match.genericName, brandName: r.match.brandName,
-          strength: r.match.strength, strengthUnit: r.match.strengthUnit,
-          dosageForm: r.match.dosageForm, route: r.match.route, resolution: 'MANUAL',
-        };
-      } else if (r.candidates.length > 0) {
-        item = { ...item, resolution: 'AMBIGUOUS', candidates: r.candidates };
-      }
-    } catch { /* offline is not a reason to block typing */ }
-    setItems((cur) => [...cur, item]);
-    setNewName('');
-  }, [newName]);
 
   const repeatLast = useCallback(() => {
     const last = ctx?.previousPrescriptions?.[0];
@@ -582,20 +560,24 @@ export default function Consultation() {
               />
             ))}
 
-            <div className="flex gap-2">
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addTyped(); } }}
-                placeholder="Add a medicine by name…"
-                className="h-9"
-                aria-label="Add a medicine"
-              />
-              <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={() => void addTyped()} disabled={!newName.trim()}>
-                <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                Add
-              </Button>
-            </div>
+            <MedicineTypeahead
+              onSelect={(c) => setItems((cur) => [...cur, {
+                ...blankItem(),
+                medicationId: c.medicationId, canonicalName: c.canonicalName,
+                genericName: c.genericName, brandName: c.brandName,
+                strength: c.strength, strengthUnit: c.strengthUnit,
+                dosageForm: c.dosageForm, route: c.route,
+                // Picked by a human: never re-resolved, never second-guessed.
+                resolution: 'MANUAL',
+              }])}
+              onFreeText={(text) => setItems((cur) => [...cur, {
+                ...blankItem(),
+                canonicalName: text,
+                // Flagged once so the validator asks, and "Keep as written"
+                // clears it in a click. The doctor is still the prescriber.
+                resolution: 'UNRESOLVED',
+              }])}
+            />
 
             <div className="grid gap-2.5 sm:grid-cols-2">
               <div>

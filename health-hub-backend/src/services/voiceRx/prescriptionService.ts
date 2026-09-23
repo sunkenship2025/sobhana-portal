@@ -100,6 +100,11 @@ const toValidatable = (items: any[]): ValidatableItem[] =>
   items.map((i) => ({
     id: i.id,
     canonicalName: i.canonicalName,
+    // Passed through so the controlled-substance screen can read what the doctor
+    // actually SAID, not only what we managed to resolve it to.
+    spokenText: i.spokenText,
+    genericName: i.genericName,
+    brandName: i.brandName,
     medicationId: i.medicationId,
     strength: i.strength,
     strengthUnit: i.strengthUnit,
@@ -121,13 +126,14 @@ const toValidatable = (items: any[]): ValidatableItem[] =>
 export async function validateById(prescriptionId: string, isTelemedicine = false): Promise<ValidationResult> {
   const rx = await prisma.prescription.findFirst({
     where: { id: prescriptionId, deletedAt: null },
-    select: { items: { select: ITEM_SELECT }, diagnosis: true, followUpDays: true },
+    select: { items: { select: ITEM_SELECT }, diagnosis: true, followUpDays: true, transcript: true },
   });
   if (!rx) throw new PrescriptionStateError('Prescription not found');
   return validatePrescription({
     items: toValidatable(rx.items),
     diagnosis: rx.diagnosis,
     followUpDays: rx.followUpDays,
+    transcript: rx.transcript,
     isTelemedicine,
   });
 }
@@ -380,6 +386,7 @@ export async function sign(
     where: { id, deletedAt: null },
     select: {
       id: true, status: true, branchId: true, visitId: true, clinicDoctorId: true,
+      transcript: true,
       items: { select: ITEM_SELECT },
     },
   });
@@ -390,6 +397,7 @@ export async function sign(
   // The gate. Refusing here, not in the UI, is what makes PART 29 real.
   const validation = await validatePrescription({
     items: toValidatable(rx.items),
+    transcript: rx.transcript,
     isTelemedicine: !!opts.isTelemedicine,
   });
   if (!validation.canSign) {

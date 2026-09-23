@@ -27,7 +27,7 @@
     "pulse:chain": "ts-node --transpile-only pulse-chain.ts",
     "pulse:artifacts": "ts-node --transpile-only pulse-artifact-fit.ts",
     "automations:check": "tsx automations-check.ts",
-    "voicerx:check": "tsx src/services/voiceRx/normalize.ts && tsx src/services/voiceRx/validator.ts && tsx src/services/voiceRx/resolver.check.ts",
+    "voicerx:check": "tsx src/services/voiceRx/normalize.ts && tsx src/services/voiceRx/controlled.ts && tsx src/services/voiceRx/validator.ts && tsx src/services/voiceRx/resolver.check.ts",
     "seed:medications": "tsx prisma/seed-medications.ts"
   },
   "keywords": [
