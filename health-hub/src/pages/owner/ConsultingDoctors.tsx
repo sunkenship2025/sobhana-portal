@@ -27,6 +27,8 @@ import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { cleanSignature } from '@/lib/signatureImage';
+import { useQueryClient } from '@tanstack/react-query';
+import { useDigitalRx } from '@/lib/digitalRx';
 
 interface Row {
   id: string;
@@ -74,6 +76,28 @@ export default function ConsultingDoctors() {
   const [revoking, setRevoking] = useState<Row | null>(null);
   const uploadFor = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // The module switch. Read through react-query rather than this page's own
+  // fetch helper so the sidebar — which hides the doctor nav off the same
+  // query — updates the instant this flips, instead of on the next reload.
+  const qc = useQueryClient();
+  const { enabled: moduleOn } = useDigitalRx();
+  const [moduleBusy, setModuleBusy] = useState(false);
+  const [confirmModule, setConfirmModule] = useState(false);
+
+  const setModule = useCallback(async (next: boolean) => {
+    setModuleBusy(true);
+    try {
+      await call<{ enabled: boolean }>('/app-settings/digital-prescriptions', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: next }),
+      });
+      await qc.invalidateQueries({ queryKey: ['digital-rx-enabled'] });
+      toast.success(next ? 'Digital prescriptions are on' : 'Digital prescriptions are off — the clinic is on the paper flow');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not change the setting');
+    } finally { setModuleBusy(false); }
+  }, [qc]);
 
   const load = useCallback(async () => {
     try { setRows(await call<Row[]>('/doctor-logins')); }
@@ -145,6 +169,31 @@ export default function ConsultingDoctors() {
           <p className="mt-0.5 text-sm text-muted-foreground">
             Who can sign in to write prescriptions, and whose signature prints on them.
           </p>
+        </div>
+
+        {/* The master switch. Everything below it — and the whole doctor portal —
+            is inert while this is off, and the clinic runs the paper flow it ran
+            before any of this was built. Deliberately first on the page: it is
+            the setting that decides whether the rest of the page means anything. */}
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Digital prescriptions</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {moduleOn
+                ? 'Doctors sign in to the portal, write prescriptions on screen and sign them.'
+                : 'Off. The clinic runs the paper flow: staff register the visit, the doctor writes on the pad. Doctor logins below stay set up, but the portal is closed.'}
+            </p>
+          </div>
+          <Button
+            variant={moduleOn ? 'outline' : 'default'}
+            size="sm"
+            className="shrink-0"
+            disabled={moduleOn === undefined || moduleBusy}
+            onClick={() => setConfirmModule(true)}
+          >
+            {moduleBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+            {moduleOn === undefined ? 'Checking…' : moduleOn ? 'Turn off' : 'Turn on'}
+          </Button>
         </div>
 
         <input
@@ -249,6 +298,41 @@ export default function ConsultingDoctors() {
               Copy
             </Button>
             <AlertDialogAction onClick={() => setCredential(null)}>Done</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmModule} onOpenChange={(o) => !o && setConfirmModule(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {moduleOn ? 'Turn digital prescriptions off?' : 'Turn digital prescriptions on?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {moduleOn ? (
+                <>
+                  The doctor portal closes for everyone immediately and the clinic goes back to the paper
+                  flow. Prescriptions already signed are untouched and links already sent to patients keep
+                  working &mdash; revoking one of those is a clinical decision, not a settings change.
+                  Any unsigned draft stays a draft until you turn this back on.
+                </>
+              ) : (
+                <>
+                  Doctors with a login will be able to open the portal, write prescriptions on screen and
+                  sign them. Nothing about the existing clinic queue changes.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={moduleBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={moduleOn ? 'bg-destructive text-destructive-foreground' : undefined}
+              disabled={moduleBusy}
+              onClick={() => { void setModule(!moduleOn); setConfirmModule(false); }}
+            >
+              {moduleOn ? 'Turn off' : 'Turn on'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

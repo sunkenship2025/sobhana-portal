@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
+import { logAction } from '../services/auditService';
+import { digitalRxEnabled, DIGITAL_RX_KEY } from '../lib/clinicModule';
 
 const router = Router();
 
@@ -50,6 +52,73 @@ router.put('/report-auto-sync', requireRole('lab_incharge'), async (req: AuthReq
     res.json({ orgDefault: enabled });
   } catch (error) {
     console.error('PUT /app-settings/report-auto-sync failed:', error);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to save setting' });
+  }
+});
+
+// ─── Digital prescriptions — the clinic module master switch ─────────
+//
+// One row decides whether the doctor portal, voice dictation and structured
+// prescriptions exist at all. Off (the shipped default) the clinic runs exactly
+// as it did before any of it was built.
+//
+// GET is deliberately open to every signed-in user, and deliberately NOT behind
+// requireDigitalRx: the UI has to be able to ask "is this on?" precisely when it
+// is off, or a doctor lands on a dead screen with no explanation instead of one
+// that says the module is switched off.
+
+// ─── GET /api/app-settings/digital-prescriptions ─────────────────────
+router.get('/digital-prescriptions', async (_req: AuthRequest, res) => {
+  try {
+    res.json({ enabled: await digitalRxEnabled() });
+  } catch (error) {
+    console.error('GET /app-settings/digital-prescriptions failed:', error);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to read setting' });
+  }
+});
+
+// ─── PUT /api/app-settings/digital-prescriptions ─────────────────────
+// Owner only. This turns a whole workflow on and off for every doctor in the
+// clinic, so it is logged like any other owner action — "who switched the
+// prescription module off last Tuesday" has to be answerable.
+router.put('/digital-prescriptions', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const { enabled } = req.body ?? {};
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'enabled (boolean) is required' });
+      return;
+    }
+    const was = await digitalRxEnabled();
+    const value = enabled ? 'true' : 'false';
+    await prisma.appSetting.upsert({
+      where: { key: DIGITAL_RX_KEY },
+      update: { value },
+      create: { key: DIGITAL_RX_KEY, value },
+    });
+    // AuditLog.branchId is a required FK and this router is org-wide by design
+    // (no branch middleware), so the row is anchored to the oldest active branch.
+    // The branch is not the signal here — who flipped it, and when, is.
+    const anchor =
+      req.branchId ??
+      (await prisma.branch.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'asc' },
+      }))?.id;
+    if (was !== enabled && anchor) {
+      await logAction({
+        branchId: anchor,
+        actionType: 'UPDATE',
+        entityType: 'AppSetting',
+        entityId: DIGITAL_RX_KEY,
+        userId: req.user?.id!,
+        oldValues: { enabled: was },
+        newValues: { enabled },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
+    res.json({ enabled });
+  } catch (error) {
+    console.error('PUT /app-settings/digital-prescriptions failed:', error);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to save setting' });
   }
 });

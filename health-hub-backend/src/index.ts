@@ -59,6 +59,7 @@ import billRoutes from './routes/bills';
 import billDownloadRoutes from './routes/billDownload';
 import daySheetDownloadRoutes from './routes/daySheetDownload';
 import statementDownloadRoutes from './routes/statementDownload';
+import prescriptionViewRoutes from './routes/prescriptionView';
 import reportGatewayRoutes from './routes/reportGateway';
 import displayRoutes from './routes/display';
 import displayAdminRoutes from './routes/displayAdmin';
@@ -239,7 +240,7 @@ app.options('*', cors(corsOptions));
 // `/fonts` mounted below are immutable assets used in report HTML — letting
 // browsers + the Puppeteer pool cache them is a real perf win.
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/reports') || req.path.startsWith('/webhooks') || req.path.startsWith('/r/')) {
+  if (req.path.startsWith('/api') || req.path.startsWith('/reports') || req.path.startsWith('/webhooks') || req.path.startsWith('/r/') || req.path.startsWith('/rx/')) {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
       'Pragma': 'no-cache',
@@ -378,6 +379,9 @@ app.use('/r', reportGatewayRoutes);
 app.use('/c', couponGatewayRoutes);
 // Payee-facing payout statement (JSON) for WhatsApp links: /statements/view/:token
 app.use('/statements/view', statementDownloadRoutes);
+// Patient-facing prescription (JSON) for WhatsApp links: /rx/view/:token. The
+// public page renders the same RxLetterpad the doctor signed, from this payload.
+app.use('/rx/view', prescriptionViewRoutes);
 
 // Legacy report API (JWT-based, for clinic/Patient360)
 app.use('/api/reports', reportRoutes);

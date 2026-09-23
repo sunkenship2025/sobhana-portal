@@ -17,6 +17,8 @@ import Consultation from "./pages/doctor/Consultation";
 import DoctorPatients from "./pages/doctor/DoctorPatients";
 import DoctorAccount from "./pages/doctor/DoctorAccount";
 import ConsultingDoctors from "./pages/owner/ConsultingDoctors";
+import { DigitalRxGate } from "./lib/digitalRx";
+import PublicPrescription from "./pages/PublicPrescription";
 import Dashboard from "./pages/Dashboard";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
 import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingResults";
@@ -100,6 +102,12 @@ function AppRoutes() {
       {/* DEV ONLY — every artifact type against mock evidence, so the gallery can be looked at
           without a backend, a model, or a login. Stripped from production builds by import.meta.env.DEV. */}
       {import.meta.env.DEV && <Route path="/dev/artifacts" element={<Suspense fallback={null}><ArtifactGallery /></Suspense>} />}
+      {/* Patient's prescription link. PUBLIC — outside ProtectedRoute on purpose:
+          the bearer token in the URL is the authorisation, exactly as it is for a
+          report or bill link. Declared before /login so an authenticated redirect
+          can never swallow it. */}
+      <Route path="/rx/:token" element={<PublicPrescription />} />
+
       <Route 
         path="/login" 
         element={
@@ -119,27 +127,27 @@ function AppRoutes() {
       } />
       <Route path="/doctor" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <DoctorQueue />
+          <DigitalRxGate><DoctorQueue /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/doctor/consult/:visitId" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <Consultation />
+          <DigitalRxGate><Consultation /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/doctor/patients" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <DoctorPatients />
+          <DigitalRxGate><DoctorPatients /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/doctor/patients/:patientId" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <DoctorPatients />
+          <DigitalRxGate><DoctorPatients /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/doctor/account" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <DoctorAccount />
+          <DigitalRxGate><DoctorAccount /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/" element={

@@ -24,11 +24,16 @@ import { logger } from '../lib/logger';
 import { logAction } from '../services/auditService';
 import { emitBranchChange, emitWorklistOnMutation } from '../lib/displayEvents';
 import { listForPatient, currentMedications } from '../services/voiceRx/prescriptionService';
+import { requireDigitalRx } from '../lib/clinicModule';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 router.use(requireRole('doctor', 'owner'));
+// The owner's master switch, same gate the prescriptions router carries. Off, and
+// the doctor portal does not exist as far as the API is concerned; the clinic runs
+// the old staff queue + pre-printed pad, which reads none of this.
+router.use(requireDigitalRx);
 // The doctor's queue is the SAME ClinicVisit rows the staff OP/IP queue and the
 // waiting-room TV read, so a transition made here has to wake them exactly as a
 // transition made there does. Without this the row moved and every other open

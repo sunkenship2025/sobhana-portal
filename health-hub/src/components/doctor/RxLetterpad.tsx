@@ -74,13 +74,46 @@ export function RxLetterpad({
       // for magnitude, and proportional digits do not align.
       style={{ fontVariantNumeric: 'tabular-nums' }}
     >
+      {/* Masthead. Same mark the reports and the waiting-room screen use, so the
+          patient recognises the sheet — but named SOBHANA CLINIC, because this is
+          the consulting side, not the lab.
+
+          The logo sits on white and the name sits on the blue: the mark is red
+          and navy artwork, and laying it directly on #1f3e6e would sink it into
+          the band. Ghosted on the physical profile with the rest of the header —
+          pre-printed paper already carries all of this. */}
+      <div
+        className={cn(
+          'mb-2.5',
+          physical && 'opacity-30 outline-dashed outline-1 outline-offset-4 outline-amber-500 print:hidden',
+        )}
+      >
+        <div className="flex items-center justify-center pb-2">
+          <img
+            src="/sobhana-logo-cropped.png"
+            alt="Sobhana"
+            className="h-9 w-auto"
+            // A letterhead that reflows when the logo 404s is worse than one
+            // without it; the blue band below still names the clinic.
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+        </div>
+        <div
+          className="rounded-[2px] px-3 py-1.5 text-center text-[13px] font-bold uppercase tracking-[0.22em] text-white"
+          style={{ backgroundColor: '#1f3e6e' }}
+        >
+          Sobhana Clinic
+        </div>
+      </div>
+
       {/* Header. Suppressed on the physical profile because the paper carries it —
           shown ghosted in preview so the doctor can see what the printer omits. */}
       <div
         className={cn(
-          'flex items-start justify-between gap-4 border-b-2 border-slate-800 pb-2.5',
-          physical && 'opacity-30 outline-dashed outline-1 outline-offset-4 outline-amber-500',
+          'flex items-start justify-between gap-4 border-b-2 pb-2.5',
+          physical && 'opacity-30 outline-dashed outline-1 outline-offset-4 outline-amber-500 print:hidden',
         )}
+        style={{ borderBottomColor: '#1f3e6e' }}
       >
         <div className="min-w-0">
           <p className="text-[17px] font-bold leading-tight text-slate-900">{doctor?.name ?? 'Consulting doctor'}</p>

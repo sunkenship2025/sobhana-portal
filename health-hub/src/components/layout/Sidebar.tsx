@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { useDigitalRx } from '@/lib/digitalRx';
 import {
   Activity,
   Banknote,
@@ -323,6 +324,8 @@ export function Sidebar() {
     navigate('/login');
   };
 
+  const { enabled: digitalRx } = useDigitalRx();
+
   const navSet =
     user?.role === 'doctor'
       ? doctorNavItems
@@ -331,7 +334,14 @@ export function Sidebar() {
         : user?.role === 'sales'
           ? salesNavItems
           : staffNavItems;
-  const navItems = navSet.filter((item) => (user ? item.roles.includes(user.role) : false));
+  // With the clinic module switched off the doctor portal does not exist, so its
+  // two nav items must not either — an owner clicking one would land on the
+  // "switched off" panel, which is an explanation, not a destination.
+  // `undefined` means we haven't heard back yet: keep the nav as it was rather
+  // than flicker items out and back in.
+  const navItems = navSet
+    .filter((item) => (user ? item.roles.includes(user.role) : false))
+    .filter((item) => digitalRx !== false || !item.href.startsWith('/doctor'));
 
   const isItemActive = (item: NavItem) =>
     item.exact

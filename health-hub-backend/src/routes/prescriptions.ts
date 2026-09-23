@@ -25,6 +25,8 @@ import {
   validateById, PrescriptionStateError,
 } from '../services/voiceRx/prescriptionService';
 import { putObject, deleteObject } from '../services/r2StorageService';
+import { requireDigitalRx } from '../lib/clinicModule';
+import { createPrescriptionAccessToken } from '../services/prescriptionAccessService';
 import { logAction } from '../services/auditService';
 import {
   transcribeBurstLimit, consumeBranchQuota, checkAudio, checkDuration, recordUsage,
@@ -34,6 +36,9 @@ import {
 const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+// The owner's master switch. Off = this whole module is unreachable and the
+// clinic runs its old paper flow, which reads none of this. See clinicModule.
+router.use(requireDigitalRx);
 // A queue row carries its prescription's status, so signing one changes what the
 // staff queue should show. Same hook the staff visit routes use.
 router.use(emitWorklistOnMutation);
@@ -430,6 +435,55 @@ router.post('/:id/sign', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
     if (stateError(res, err)) return;
     logger.error({ err }, 'prescriptions: sign failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not sign the prescription' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/prescriptions/:id/link — the patient's link to this prescription
+//
+// SIGNED only. A draft has no signer and no registration number on it, so a link
+// to one would be handing a patient something that is not a prescription.
+//
+// Re-callable: the token is minted against the ROOT, so asking twice after an
+// amendment yields two valid links to the SAME document, both resolving to the
+// latest signed version. Nothing to invalidate, nothing to keep in step.
+// ---------------------------------------------------------------------------
+router.post('/:id/link', requireRole(...PRESCRIBERS), async (req: AuthRequest, res) => {
+  try {
+    const rx = await prisma.prescription.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { clinicDoctorId: true, status: true, rootId: true },
+    });
+    if (!rx) { res.status(404).json({ error: 'NOT_FOUND', message: 'Prescription not found' }); return; }
+    if (!(await canAct(req, rx.clinicDoctorId))) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'Only the consulting doctor can share this' }); return;
+    }
+    if (rx.status !== 'SIGNED') {
+      res.status(409).json({ error: 'NOT_SIGNED', message: 'Sign the prescription before sharing it' }); return;
+    }
+
+    const token = await createPrescriptionAccessToken(rx.rootId);
+    // Same public origin the bill and report links already use; falls back to
+    // this host so a dev box produces a link that actually opens.
+    const base = (process.env.PUBLIC_BILL_BASE_URL || `${req.protocol}://${req.get('host')}`)
+      .replace(/\/+$/, '');
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'CREATE',
+      entityType: 'PrescriptionAccessToken',
+      entityId: rx.rootId,
+      userId: req.user?.id!,
+      // The raw token is deliberately absent — it is a bearer credential.
+      newValues: { prescriptionId: rx.rootId },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    res.json({ url: `${base}/rx/${token}` });
+  } catch (err) {
+    logger.error({ err }, 'prescriptions: link failed');
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not create the link' });
   }
 });
 

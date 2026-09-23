@@ -7,7 +7,16 @@ import { Pulse } from '@/components/pulse/Pulse';
 
 interface AppLayoutProps {
   children: React.ReactNode;
-  context: AppContext;
+  /**
+   * Vestigial. Neither of these is read by the body any more — ContextBanner
+   * works the context out for itself — but ~40 call sites still pass `context`,
+   * so the prop stays accepted rather than being ripped out of all of them.
+   *
+   * Optional because REQUIRING something nothing reads is how the doctor portal
+   * shipped with eleven type errors: every page there renders <AppLayout> bare,
+   * which is correct at runtime and was failing the typecheck for no reason.
+   */
+  context?: AppContext;
   subContext?: string;
   hideContextBanner?: boolean;
 }
