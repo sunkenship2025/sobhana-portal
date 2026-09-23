@@ -629,6 +629,14 @@ const REPORT_EDITOR_ASSETS = `
   .rb-addbtn:hover{background:rgba(43,100,171,.08);}
   .rb-addmethod{font:italic 11px/1.4 Arial,sans-serif;color:#2b64ab;cursor:pointer;margin:3px 0;opacity:.75;}
   .rb-addmethod:hover{opacity:1;text-decoration:underline;}
+  /* A rich region with nothing in it yet renders as a zero-height empty div, so
+     the canvas showed blank space with nothing to click — the narrative template
+     on an imaging report was unreachable unless you happened to click the void.
+     Same shape as + Add method above, and it disappears the moment you type.
+     Canvas-only: these styles are injected here, never into the real report. */
+  .rb-richedit:empty::before{content:attr(data-rb-hint);font:italic 11px/1.4 Arial,sans-serif;color:#2b64ab;opacity:.75;}
+  .rb-richedit:empty:hover::before{opacity:1;text-decoration:underline;}
+  .rb-richedit:empty{cursor:text;min-height:16px;}
   .rb-kv{font:600 10px/1 Arial;color:#5a6472;background:#fff;border:1px solid #d8dce2;border-radius:20px;padding:3px 9px;margin-left:10px;cursor:pointer;vertical-align:middle;}
   .rb-kv.on{color:#2b64ab;border-color:#2b64ab;background:rgba(43,100,171,.08);}
   .rb-rt-bar{position:fixed;z-index:9999;display:none;gap:2px;background:#1f2430;border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
@@ -675,9 +683,11 @@ const REPORT_EDITOR_ASSETS = `
     return rtbar;
   }
   function positionBar(el){ var b=ensureBar(); var r=el.getBoundingClientRect(); b.style.display='flex'; b.style.left=Math.max(6,r.left)+'px'; b.style.top=Math.max(6,r.top-40)+'px'; }
-  function wireRich(el,field){
+  function wireRich(el,field,hint){
     if(!el||el.__rb)return; el.__rb=1;
     el.classList.add('rb-richedit'); el.setAttribute('contenteditable','true');
+    // What an empty one says. Without it the region is invisible, not just blank.
+    if(hint) el.setAttribute('data-rb-hint',hint);
     el.__emit=function(){ post({type:'panel',field:field,value:el.innerHTML}); };
     el.addEventListener('mousedown',function(e){e.stopPropagation();});
     el.addEventListener('focus',function(){ rtEl=el; positionBar(el); });
@@ -753,9 +763,9 @@ const REPORT_EDITOR_ASSETS = `
     });
 
     // Clinical Notes / Interpretation boxes → rich-text editable
-    q('.interpretation-block').forEach(function(bl){ var strong=bl.querySelector('strong'); var lab=norm(strong?strong.textContent:''); var field=lab.indexOf('INTERPRET')>=0?'interpretation':'comments'; var body=bl.querySelector('.interpretation-body')||bl.querySelector('p'); if(body) wireRich(body,field); });
+    q('.interpretation-block').forEach(function(bl){ var strong=bl.querySelector('strong'); var lab=norm(strong?strong.textContent:''); var field=lab.indexOf('INTERPRET')>=0?'interpretation':'comments'; var body=bl.querySelector('.interpretation-body')||bl.querySelector('p'); if(body) wireRich(body,field,field==='interpretation'?'+ Add interpretation':'+ Add comments'); });
     // Narrative / text-only body → rich-text editable (saved as the panel narrative template)
-    q('.imaging-narrative, .text-only-result .result-text').forEach(function(el){ wireRich(el,'narrativeTemplateHtml'); });
+    q('.imaging-narrative, .text-only-result .result-text').forEach(function(el){ wireRich(el,'narrativeTemplateHtml','+ Add template'); });
 
     // Add affordances
     var tbl=document.querySelector('.results-table');
