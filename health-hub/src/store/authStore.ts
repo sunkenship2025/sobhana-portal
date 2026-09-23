@@ -26,7 +26,7 @@ import { useBranchStore } from './branchStore';
 import { API_BASE } from '@/lib/api';
 
 /** Available roles in the system. Mirrors the backend `UserRole` enum. */
-export type UserRole = 'owner' | 'staff' | 'lab_incharge' | 'sales';
+export type UserRole = 'owner' | 'staff' | 'lab_incharge' | 'sales' | 'doctor';
 
 /** Human-friendly labels for roles (raw enum values aren't display-ready). */
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -34,12 +34,16 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   staff: 'Staff',
   lab_incharge: 'Lab Incharge',
   sales: 'Sales',
+  doctor: 'Consulting Doctor',
 };
 
 /** Where each role lands after login / when hitting a route they can't access. */
 export function defaultRouteForRole(role: UserRole | undefined): string {
   if (role === 'owner') return '/owner';
   if (role === 'sales') return '/owner/payouts';
+  // A consulting doctor lands on their queue — the one question they have
+  // between two patients is "who is next".
+  if (role === 'doctor') return '/doctor';
   return '/';
 }
 

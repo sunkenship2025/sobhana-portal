@@ -1,0 +1,57 @@
+/**
+ * Resolver matching check — the safety-critical bit, without a database.
+ *
+ * Run: npx tsx src/services/voiceRx/resolver.check.ts
+ *
+ * These assert the two pure functions the whole matching ladder rests on. If
+ * sound-alike matching stops working, the system silently stops recognising
+ * mis-heard drug names and starts calling them UNRESOLVED — which is safe but
+ * useless. This file is the thing that fails when that happens.
+ */
+import { phoneticKey, similarity, norm } from './resolver';
+
+function main(): void {
+  const ok = (cond: boolean, label: string) => { if (!cond) throw new Error(`FAIL: ${label}`); };
+  const sameKey = (a: string, b: string) => phoneticKey(a) === phoneticKey(b);
+
+  // --- normalisation --------------------------------------------------------
+  ok(norm('Augmentin 625!') === 'augmentin 625', 'norm strips punctuation');
+  ok(norm('  AMOXI   CLAV ') === 'amoxi clav', 'norm collapses whitespace');
+
+  // --- phonetic: real ASR mishearings must collapse onto the real name -------
+  ok(sameKey('Azithral', 'Azithrale'), 'trailing vowel ignored');
+  ok(sameKey('Azithral', 'Azythral'), 'i/y equivalent');
+  ok(sameKey('Ciplox', 'Siplox'), 'c/s before a consonant-ish start');
+  ok(sameKey('Pantop', 'Panntop'), 'doubled letters collapse');
+  ok(sameKey('Zerodol', 'Serodol'), 'z/s equivalent');
+  ok(sameKey('Phexin', 'Fexin'), 'ph/f equivalent');
+  ok(sameKey('Wysolone', 'Vysolone'), 'w/v equivalent — a very Indian mishearing');
+
+  // --- phonetic MUST separate genuinely different drugs ---------------------
+  // This is the half that matters more. A key that collapses everything would
+  // pass the tests above and be actively dangerous.
+  ok(!sameKey('Azithral', 'Augmentin'), 'different drugs stay apart');
+  ok(!sameKey('Amlodipine', 'Amiodarone'), 'the classic look-alike pair stays apart');
+  ok(!sameKey('Metformin', 'Metronidazole'), 'met- prefix does not collapse');
+  ok(!sameKey('Losartan', 'Valsartan'), '-sartan family stays apart');
+  ok(!sameKey('Clonazepam', 'Clobazam'), 'benzodiazepines stay apart');
+
+  // --- similarity ordering --------------------------------------------------
+  const s1 = similarity('augmentin', 'augmentin');
+  const s2 = similarity('augmentin', 'agumentin');   // transposition
+  const s3 = similarity('augmentin', 'azithromycin'); // unrelated
+  ok(s1 === 1, 'identical scores 1');
+  ok(s2 > 0.5, `typo stays similar (got ${s2.toFixed(2)})`);
+  ok(s3 < 0.25, `unrelated scores low (got ${s3.toFixed(2)})`);
+  ok(s2 > s3, 'typo ranks above unrelated');
+
+  // A near-miss pair that MUST NOT auto-resolve. The resolver's confidence floor
+  // is 0.82 with a 0.12 margin, so anything scoring under that asks the doctor.
+  const lasa = similarity('amlodipine', 'amiodarone');
+  ok(lasa < 0.82, `look-alike pair scores below the auto-resolve floor (got ${lasa.toFixed(2)})`);
+
+  // eslint-disable-next-line no-console
+  console.log('resolver.check.ts: all checks passed');
+}
+
+main();

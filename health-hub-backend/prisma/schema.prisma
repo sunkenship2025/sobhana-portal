@@ -129,6 +129,14 @@ enum AuditActionType {
   PAYOUT_PAID
   PAYOUT_DELETE
   REPORT_ACCESS
+  /// Prescription signed — the irreversible transition. Distinct from FINALIZE,
+  /// which reports use, because a signature carries a named human and a reg number.
+  SIGN
+  /// A signed prescription superseded by a new revision (with a reason).
+  AMEND
+  /// A doctor opened a patient outside their own care relationship (break-glass),
+  /// with a stated reason. Rare by design; every row is meant to be read.
+  BREAK_GLASS
 }
 
 enum Gender {
@@ -207,6 +215,11 @@ enum MessageContextType {
   REMINDER
   CAMPAIGN
   PAYMENT
+  /// A signed prescription sent to the patient. The template MUST carry the
+  /// prescriber's registration number — Telemedicine Practice Guidelines §3.2.5
+  /// requires it on "prescriptions, website, electronic communication
+  /// (WhatsApp/email etc.)", not only on the printed sheet.
+  PRESCRIPTION
 }
 
 // E3-10: Panel layout types for report rendering
@@ -502,6 +515,19 @@ model ClinicDoctor {
   phone                   String?
   email                   String?
   letterheadNote          String?
+  /// The portal login this consulting doctor signs in as. Nullable: every existing
+  /// ClinicDoctor predates doctor logins and stays valid without one. UNIQUE because
+  /// one login must be exactly one doctor — a prescription signature has to be
+  /// attributable to a single human, and a shared row would destroy that.
+  userId                  String?            @unique
+  /// Signature image (base64 data URI), captured through the SAME SignatureEditor +
+  /// background-removal pipeline as SigningDoctor. Base64 rather than a path so it
+  /// survives a Render deploy, matching SigningDoctor/SigningLabIncharge.
+  signatureImageBase64    String?
+  /// ABDM Healthcare Professionals Registry id. Optional and stays optional: HPR
+  /// registration is voluntary, practice licensing runs through NMC/State Medical
+  /// Councils, and most clinic doctors do not hold one. Never gate login on it.
+  hprId                   String?
   roomLabel               String? // Optional room/cabin shown on the waiting-room display; blank = hidden
   consultationFeeInPaise  Int?
   commissionType          ReferralPayoutType @default(PERCENTAGE)
@@ -513,8 +539,10 @@ model ClinicDoctor {
   updatedAt               DateTime           @updatedAt
 
   /// Clinic visits (not referral-based)
-  clinicVisits ClinicVisit[]
-  payoutLedger DoctorPayoutLedger[]
+  clinicVisits  ClinicVisit[]
+  payoutLedger  DoctorPayoutLedger[]
+  user          User?                @relation("ClinicDoctorLogin", fields: [userId], references: [id], onDelete: SetNull)
+  prescriptions Prescription[]
 
   @@index([isActive])
   @@index([createdAt])
@@ -604,6 +632,7 @@ model Branch {
   conversations             Conversation[]
   displayScreens            DisplayScreen[]
   displayAds                DisplayAd[]
+  prescriptions             Prescription[]
 
   /// Per-branch referral rate overrides (null-branch rows on these tables are the global defaults)
   referralCategoryRates       ReferralCategoryRate[]
@@ -675,10 +704,16 @@ model User {
   role           UserRole
   activeBranchId String
   isActive       Boolean  @default(true)
+  /// Set when a member is invited to the portal; cleared the moment their sign-in
+  /// details are sent, on the reply that opens WhatsApp's 24h service window.
+  /// Non-null therefore means exactly "invited, hasn't replied yet".
+  portalInviteAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   activeBranch              Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  clinicDoctor              ClinicDoctor?          @relation("ClinicDoctorLogin")
+  signedPrescriptions       Prescription[]         @relation("PrescriptionSignedBy")
   PaymentTransaction        PaymentTransaction[]
   ExternalReportUpload      ExternalReportUpload[]
   TestResultEntered         TestResult[]           @relation("TestResultEnteredBy")
@@ -782,6 +817,7 @@ model Visit {
 
   /// Clinic data (if domain = CLINIC)
   clinicVisit ClinicVisit?
+  prescriptions Prescription[]
 
   /// Bill access tokens for WhatsApp bill PDF links
   billAccessTokens BillAccessToken[]
@@ -2844,4 +2880,241 @@ model PhoneOptOut {
   source     String // INBOUND_STOP | STAFF | IMPORT
   byUserId   String? // staff-initiated only
   reason     String?
+}
+
+// ============================================================================
+// VOICE RX — structured prescriptions
+//
+// The portal's FIRST structured prescription. Before this, a "prescription" was
+// a blank Rx sheet printed on letterhead (ClinicPrescriptionPrint in `rx` mode),
+// which stays working untouched: a visit with no Prescription row still prints
+// the blank sheet, exactly as every visit did before today.
+//
+// Design rules encoded here, each from a specific finding:
+//   - A signed prescription is IMMUTABLE and renders from a frozen snapshot, not
+//     live config. Reports learned this with the per-branch footer; a doctor
+//     editing their qualification must not rewrite a document they already signed.
+//   - Provenance is per FIELD, not per prescription. 54-86% of ambient-scribe
+//     errors are omissions, which nothing on a page prompts you to notice, so
+//     "the doctor did not say a timing" has to be a stored value, not an absence.
+//   - The LLM never decides what a drug IS. It reports spoken text; Medication
+//     resolves it; ambiguity asks the doctor.
+// ============================================================================
+
+enum PrescriptionStatus {
+  /// Created, editable. Voice-drafted or typed — no distinction is drawn, because
+  /// the doctor's obligation to review is identical either way.
+  DRAFT
+  /// Signed. Immutable. Renders from `snapshot` forever.
+  SIGNED
+  /// A later revision replaced this one. Kept, never deleted.
+  SUPERSEDED
+}
+
+/// How a spoken/typed medicine name was matched against the Medication table.
+enum MedicationResolution {
+  /// Exactly one confident match. Safe to print.
+  RESOLVED
+  /// Several plausible matches — the doctor MUST pick. Blocks signing.
+  AMBIGUOUS
+  /// No match. The doctor may still prescribe it as free text (they are the
+  /// authority, not our catalog), but it is flagged and blocks signing until
+  /// acknowledged.
+  UNRESOLVED
+  /// The doctor typed or corrected this themselves. Highest trust — never
+  /// re-resolved, never second-guessed.
+  MANUAL
+}
+
+/// Medication catalog. Deliberately NOT sourced from the LLM: this is the layer
+/// that decides what "Augmentin 625" means, and it must be inspectable and
+/// correctable by a human.
+model Medication {
+  id            String  @id @default(cuid())
+  canonicalName String // what prints, e.g. "Amoxicillin 500 mg + Clavulanic acid 125 mg"
+  genericName   String?
+  brandName     String?
+  manufacturer  String?
+  strength      String? // "500+125"
+  strengthUnit  String? // "mg"
+  dosageForm    String? // tablet | capsule | syrup | injection | drops | ointment
+  route         String? // oral | topical | IV | IM | ...
+
+  /// Spoken and written variants that should match this row: brand spellings,
+  /// clinic shorthand ("amoxiclav", "augmentin"), and known ASR mishearings.
+  /// Every doctor correction is a candidate for this list.
+  aliases       String[] @default([])
+  /// Double-metaphone-ish key for sound-alike matching. Populated at seed time.
+  phoneticKey   String?
+
+  /// Telemedicine Practice Guidelines §3.7.4 prohibits prescribing Schedule X
+  /// drugs and NDPS narcotics/psychotropics over telemedicine, absolutely, with
+  /// no exception found in any source. The validator treats these as an
+  /// UN-OVERRIDABLE block, not a dismissible warning — published CDS alert
+  /// override rates run 49-96%, so a warning here would be noise, not a control.
+  isScheduleX   Boolean @default(false)
+  isNdps        Boolean @default(false)
+  /// Schedule H/H1 drive pharmacist record-keeping, not a prescribing block.
+  scheduleClass String? // H | H1 | X | OTC | null
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items PrescriptionItem[]
+
+  @@index([canonicalName])
+  @@index([genericName])
+  @@index([brandName])
+  @@index([phoneticKey])
+  @@index([isActive, deletedAt])
+}
+
+model Prescription {
+  id             String             @id @default(cuid())
+  visitId        String
+  clinicDoctorId String
+  branchId       String
+
+  /// Revision chain. `rootId` groups every version of one prescription; the first
+  /// version's rootId is its own id. The patient link resolves rootId -> isLatest
+  /// SIGNED, never a pinned version — reports already learned that a token pinned
+  /// to one version keeps serving a superseded document.
+  rootId            String
+  version           Int     @default(1)
+  isLatest          Boolean @default(true)
+  previousVersionId String?
+  revisionReason    String? // required when superseding a SIGNED prescription
+
+  status PrescriptionStatus @default(DRAFT)
+
+  /// Clinical content the doctor typed/spoke. Free text by design: we have no
+  /// ICD/SNOMED anywhere in this database and inventing a coding layer to hold
+  /// one string would be the wrong trade.
+  diagnosis    String?
+  notes        String?
+  followUpDays Int?
+
+  // --- signature -----------------------------------------------------------
+  signedAt       DateTime?
+  signedByUserId String?
+  /// EVERYTHING the signed sheet renders from: doctor name, qualification,
+  /// registration number, signature image, branch letterhead, patient identity
+  /// at that moment. Immutability is a frozen payload, not a status column.
+  snapshot       Json?
+
+  // --- voice provenance ----------------------------------------------------
+  /// Null for a typed prescription. Voice is an accelerator; the typed path is
+  /// the product, and every failure mode falls back to it.
+  transcript         String?
+  /// [{ text, start, end }] — per-segment timings, so a field can point at the
+  /// seconds of speech that produced it. Without this, "view source" is theatre:
+  /// in production generative systems only ~74.5% of citations actually support
+  /// the claim they are attached to, and an uncheckable citation raises
+  /// acceptance without raising accuracy.
+  transcriptSegments Json?
+  asrProvider        String? // groq | sarvam
+  asrModel           String?
+  asrLanguage        String?
+  extractionModel    String?
+  /// R2 object key. Audio is NOT kept forever: retention is configurable and the
+  /// key is cleared when the object is deleted.
+  audioKey           String?
+  audioDurationSec   Float?
+  audioDeletedAt     DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  visit        Visit              @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  clinicDoctor ClinicDoctor       @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
+  branch       Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  signedBy     User?              @relation("PrescriptionSignedBy", fields: [signedByUserId], references: [id], onDelete: SetNull)
+  items        PrescriptionItem[]
+  tokens       PrescriptionAccessToken[]
+
+  @@index([visitId])
+  @@index([clinicDoctorId])
+  @@index([branchId])
+  @@index([rootId, isLatest])
+  @@index([status])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model PrescriptionItem {
+  id             String @id @default(cuid())
+  prescriptionId String
+  displayOrder   Int    @default(0)
+
+  /// What the doctor actually said, preserved verbatim even after normalisation.
+  /// "spoken as Augmentin 625" survives onto the printed sheet so a later reader
+  /// can tell dictation from normalisation.
+  spokenText String?
+
+  medicationId  String?
+  canonicalName String // what prints — free text if unresolved; the doctor is the authority
+  genericName   String?
+  brandName     String?
+  strength      String?
+  strengthUnit  String?
+  dosageForm    String?
+
+  doseQty       String?
+  doseUnit      String?
+  frequencyCode String? // OD | BD | TID | QID | HS | SOS | STAT | WEEKLY | ALT_DAY
+  frequencyText String? // what prints, e.g. "three times a day"
+  route         String?
+  timing        String? // before food | after food | with food | bedtime | empty stomach
+  durationValue Int?
+  durationUnit  String? // days | weeks | months
+  instructions  String?
+
+  resolution MedicationResolution @default(MANUAL)
+  /// Candidate matches when AMBIGUOUS: [{ medicationId, canonicalName, score }].
+  /// Rendered stacked and spelt out in full, never truncated and never
+  /// pre-selected — 18 of 23 prescribers in one study reported having picked the
+  /// entry next to the one they meant.
+  candidates Json?
+
+  /// Per-field provenance: { timing: "UNKNOWN", frequency: "SPOKEN", route: "NORMALIZED" }.
+  /// The whole point of PART 6: explicitly spoken, normalised, and unknown must
+  /// stay distinguishable. "not stated" is a VALUE, never a silent default.
+  fieldStates Json?
+
+  /// Where in the audio this came from. Nullable for typed items.
+  sourceText  String?
+  sourceStart Float?
+  sourceEnd   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medication   Medication?  @relation(fields: [medicationId], references: [id], onDelete: SetNull)
+
+  @@index([prescriptionId])
+  @@index([medicationId])
+}
+
+/// Public patient link for a signed prescription. Mirrors BillAccessToken exactly.
+/// Anchored on rootId, NOT on a version, so the link follows the latest signed
+/// revision instead of serving a superseded document.
+model PrescriptionAccessToken {
+  id             String    @id @default(cuid())
+  token          String    @unique // SHA-256 of the raw bearer token
+  prescriptionId String // the ROOT prescription id
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+  lastAccessedIp String?
+  createdAt      DateTime  @default(now())
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([prescriptionId])
+  @@index([expiresAt])
 }

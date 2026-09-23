@@ -48,6 +48,8 @@ import clinicDoctorRoutes from './routes/clinicDoctors';
 import doctorSearchRoutes from './routes/doctors';
 import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
+import prescriptionRoutes from './routes/prescriptions';
+import doctorPortalRoutes from './routes/doctorPortal';
 import payoutRoutes from './routes/payouts';
 import auditLogRoutes from './routes/auditLogs';
 import reportRoutes from './routes/reports';
@@ -394,6 +396,8 @@ app.use('/api/app-settings', appSettingsRoutes); // Org-wide settings (report cl
 app.use('/api/smart-reports', smartReportRoutes); // Smart Reports: staff preview, regenerate, config
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
+app.use('/api/prescriptions', prescriptionRoutes); // VoiceRx: draft/edit/validate/sign/revise
+app.use('/api/doctor', doctorPortalRoutes);        // Doctor portal: my queue, my patients, my account
 app.use('/api/display', displayRoutes); // PUBLIC — kiosk queue state, no user auth
 app.use('/api/events', eventsRoutes); // PUBLIC — catalog-change SSE signal (no data), for cross-device cache invalidation
 app.use('/api/display-screens', displayAdminRoutes); // owner: pair/manage TVs

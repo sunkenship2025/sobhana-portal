@@ -1,0 +1,1575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Clinic doctor login — wireframes</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink2:#475569; --ink3:#94a3b8;
+    --line:#e2e8f0; --line2:#cbd5e1; --bg:#f8fafc; --card:#fff;
+    --accent:#1e293b; --accentSoft:#f1f5f9; --amber:#b45309; --amberSoft:#fffbeb;
+    --green:#047857; --greenSoft:#ecfdf5; --red:#b91c1c; --redSoft:#fef2f2;
+    --blue:#1d4ed8; --blueSoft:#eff6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 96px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 8px;max-width:820px}
+  .sub code{background:var(--accentSoft);padding:1px 5px;border-radius:4px;font-size:12.5px}
+
+  /* section shell */
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:12px;
+       padding:18px 18px 22px;margin:22px 0}
+  .sec > header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+  .sec h2{font-size:15px;margin:0}
+  .num{font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.06em}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accentSoft);color:var(--ink2)}
+  .tag.rec{background:var(--greenSoft);color:var(--green)}
+  .tag.new{background:var(--blueSoft);color:var(--blue)}
+  .tag.open{background:var(--amberSoft);color:var(--amber)}
+  .why{color:var(--ink2);font-size:13px;margin:0 0 14px;max-width:840px}
+  .why b{color:var(--ink)}
+
+  /* app chrome mock */
+  .app{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:#fff;display:flex;min-height:420px}
+  .side{width:186px;flex:0 0 186px;border-right:1px solid var(--line);background:#fcfdfe;
+        display:flex;flex-direction:column;padding:12px 10px}
+  .brand{font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 8px 14px;color:var(--ink)}
+  .brand span{display:block;font-weight:500;font-size:10.5px;color:var(--ink3);letter-spacing:.04em;text-transform:uppercase;margin-top:2px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;
+         color:var(--ink2);text-decoration:none;font-size:13px}
+  .nav a.on{background:var(--accent);color:#fff;font-weight:500}
+  .nav a .ico{width:15px;text-align:center;font-size:12px;opacity:.85}
+  .nav a .b{margin-left:auto;background:var(--amber);color:#fff;border-radius:999px;font-size:10.5px;padding:0 6px;line-height:16px}
+  .nav a.on .b{background:#fff;color:var(--accent)}
+  .side footer{margin-top:auto;border-top:1px solid var(--line);padding:10px 8px 2px;font-size:11.5px;color:var(--ink3)}
+  .side footer b{display:block;color:var(--ink2);font-size:12.5px;font-weight:600}
+
+  .main{flex:1;min-width:0;padding:16px 18px;background:#fff}
+  .ph{display:flex;align-items:flex-end;gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px;flex-wrap:wrap}
+  .ph h3{margin:0;font-size:17px;font-weight:650}
+  .ph .meta{font-size:12.5px;color:var(--ink3)}
+  .ph .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+  /* controls that mirror shadcn shapes already in the app */
+  .btn{height:34px;border:1px solid var(--line2);border-radius:8px;background:#fff;
+       display:inline-flex;align-items:center;gap:7px;padding:0 12px;font-size:13px;color:var(--ink);white-space:nowrap}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+  .btn.sm{height:28px;padding:0 9px;font-size:12.5px}
+  .btn.gho{border-color:transparent;color:var(--ink2)}
+  .btn.dis{opacity:.45}
+  .sel{height:34px;border:1px solid var(--line2);border-radius:8px;background:#fff;
+       display:inline-flex;align-items:center;gap:8px;padding:0 10px;font-size:13px}
+  .sel .chev{color:var(--ink3);margin-left:auto}
+  .inp{height:34px;border:1px solid var(--line2);border-radius:8px;background:#fff;
+       display:flex;align-items:center;padding:0 10px;font-size:13px;color:var(--ink3)}
+  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;height:32px}
+  .seg span{display:flex;align-items:center;padding:0 12px;border-right:1px solid var(--line);color:var(--ink2);font-size:12.5px}
+  .seg span:last-child{border-right:0}
+  .seg span.on{background:var(--accent);color:#fff}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 7px;border-radius:5px;
+         font-size:11px;font-weight:600;letter-spacing:.01em;background:var(--accentSoft);color:var(--ink2)}
+  .badge.g{background:var(--greenSoft);color:var(--green)}
+  .badge.a{background:var(--amberSoft);color:var(--amber)}
+  .badge.r{background:var(--redSoft);color:var(--red)}
+  .badge.b{background:var(--blueSoft);color:var(--blue)}
+
+  /* strips + tables */
+  .strip{display:flex;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+  .strip .cell{flex:1;padding:10px 13px;border-right:1px solid var(--line)}
+  .strip .cell:last-child{border-right:0}
+  .strip .cell p{margin:0;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3)}
+  .strip .cell .v{font-size:17px;font-weight:650;margin-top:3px}
+  .strip .cell .v small{font-size:12px;font-weight:500;color:var(--ink2)}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);
+     font-weight:600;padding:7px 9px;border-bottom:1px solid var(--line)}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr.grp td{background:#fcfdfe;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+            color:var(--ink3);font-weight:600;padding:6px 9px}
+  tr.cur td{background:#fcfdff}
+  td .nm{font-weight:600}
+  td .s{color:var(--ink3);font-size:12px}
+  .tok{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;
+       background:var(--accentSoft);font-weight:650;font-size:12.5px;color:var(--ink)}
+  .ta-r{text-align:right}
+
+  /* two-pane */
+  .panes{display:flex;gap:14px;align-items:flex-start}
+  .pane{border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+  .pane.l{flex:1.15}
+  .pane.r{flex:1}
+  .pane h4{margin:0 0 9px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600}
+  .vrow{display:flex;gap:10px;align-items:flex-start;padding:9px 8px;border-radius:7px;border:1px solid transparent}
+  .vrow + .vrow{border-top:1px solid var(--line)}
+  .vrow.on{background:var(--accentSoft);border-color:var(--line2)}
+  .vrow .d{font-size:11.5px;color:var(--ink3);width:62px;flex:0 0 62px}
+  .vrow .body{flex:1;min-width:0}
+  .vrow .body .t{font-weight:600;font-size:13px}
+  .vrow .body .s{font-size:12px;color:var(--ink2)}
+
+  /* rx card */
+  .rx{border:1px solid var(--line2);border-radius:10px;padding:11px 12px;margin-bottom:10px;background:#fff}
+  .rx.warn{border-color:#fcd34d;background:var(--amberSoft)}
+  .rx > header{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .rx > header .n{font-weight:650;font-size:13.5px}
+  .rx > header .acts{margin-left:auto;display:flex;gap:5px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .f{min-width:0}
+  .f p{margin:0 0 3px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600}
+  .f .box{height:31px;border:1px solid var(--line2);border-radius:7px;background:#fff;display:flex;align-items:center;
+          padding:0 8px;font-size:12.5px;gap:6px}
+  .f .box .chev{margin-left:auto;color:var(--ink3)}
+  .f .box.amb{border-color:#fcd34d;background:#fff}
+  .f .box.unk{color:var(--ink3);font-style:italic}
+  .srcline{font-size:11.5px;color:var(--ink2);margin-top:9px;padding:7px 9px;background:var(--accentSoft);
+           border-radius:6px;border-left:2px solid var(--line2)}
+  .srcline b{color:var(--ink3);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.05em;display:block;margin-bottom:2px}
+
+  .mic{display:flex;align-items:center;gap:11px;border:1px solid var(--line2);border-radius:10px;padding:11px 13px;margin-bottom:12px;background:#fcfdfe}
+  .mic .dot{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 32px}
+  .mic .dot.live{background:var(--red)}
+  .wave{flex:1;height:22px;display:flex;align-items:center;gap:2px;overflow:hidden}
+  .wave i{display:block;width:2px;background:var(--line2);border-radius:2px}
+  .mic .tx{font-size:12.5px;color:var(--ink2);flex:1}
+
+  .bar{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);margin-top:14px;padding-top:12px;flex-wrap:wrap}
+  .bar .right{margin-left:auto;display:flex;gap:8px}
+
+  .cal{border:1px dashed var(--line2);border-radius:9px;padding:11px 12px;font-size:12.5px;color:var(--ink2);background:#fcfdfe}
+  .cal b{color:var(--ink)}
+
+  /* notes + verdict tables */
+  .note{font-size:12.5px;color:var(--ink2);margin:13px 0 0;padding-left:18px}
+  .note li{margin:4px 0}
+  .note b{color:var(--ink)}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:1fr}.panes{flex-direction:column}.app{flex-direction:column}.side{width:auto;flex:none;border-right:0;border-bottom:1px solid var(--line)}.nav{flex-direction:row;flex-wrap:wrap}.grid{grid-template-columns:repeat(2,1fr)}}
+  .vt th:last-child,.vt td:last-child{width:96px}
+  .yes{color:var(--green);font-weight:600}
+  .no{color:var(--red);font-weight:600}
+  .maybe{color:var(--amber);font-weight:600}
+  .q{border-left:3px solid var(--amber);background:var(--amberSoft);padding:11px 13px;border-radius:0 8px 8px 0;font-size:13px;margin:14px 0 0}
+  .q b{display:block;margin-bottom:3px}
+  hr.d{border:0;border-top:1px dashed var(--line2);margin:16px 0}
+  .kbd{display:inline-block;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;
+       padding:0 5px;font-size:11px;font-family:ui-monospace,Menlo,monospace;background:#fff;color:var(--ink2)}
+  /* lab values: tabular figures so a column of results can be scanned for magnitude */
+  .lab{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .lab .r{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .lab .r .an{flex:1;min-width:0}
+  .lab .r .vu{font-size:15px;font-weight:650;white-space:nowrap}
+  .lab .r .rng{font-size:11px;color:var(--ink3);white-space:nowrap;min-width:92px;text-align:right}
+  .lab .r.crit{background:var(--redSoft);margin:0 -8px;padding:7px 8px;border-radius:5px;border-bottom-color:#fecaca}
+  .spark{display:inline-flex;align-items:flex-end;gap:1.5px;height:14px;vertical-align:middle;margin-left:6px}
+  .spark i{display:block;width:3px;background:var(--line2);border-radius:1px}
+  .spark i.hi{background:var(--amber)}
+  /* digital letterpad — 1:1 with what prints */
+  .pad{background:#fff;border:1px solid var(--line2);box-shadow:0 1px 3px rgba(15,23,42,.06);
+       padding:22px 26px 18px;font-size:12.5px;color:#111}
+  .pad .ph1{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+            border-bottom:2px solid #1e3a5f;padding-bottom:10px}
+  .pad .dr{font-size:16px;font-weight:700;color:#1e3a5f;line-height:1.25}
+  .pad .drm{font-size:11.5px;color:#444;margin-top:1px}
+  .pad .clinic{text-align:right;font-size:11px;color:#444;line-height:1.45}
+  .pad .clinic b{display:block;font-size:13px;color:#1e3a5f}
+  .pad .pbox{display:grid;grid-template-columns:1fr 1fr;gap:2px 22px;border-bottom:1px dashed #bbb;
+             padding:9px 0;margin-bottom:12px;font-size:11.5px}
+  .pad .pbox span{color:#555}
+  .pad .pbox b{color:#111;font-weight:600}
+  .pad .rxm{font-size:21px;font-weight:700;color:#1e3a5f;line-height:1;margin:2px 0 10px}
+  .pad .med{padding:7px 8px;margin:0 -8px 4px;border-radius:5px;border:1px solid transparent}
+  .pad .med:hover{border-color:#cfe0f5;background:#f7fbff}
+  .pad .med .mn{font-weight:650;font-size:13px}
+  .pad .med .ms{color:#444;font-size:12px}
+  .pad .med .mx{color:#888;font-size:11px;font-style:italic}
+  .pad .med.sel{border-color:#7aa7d9;background:#f2f8ff;box-shadow:0 0 0 2px rgba(122,167,217,.25)}
+  .pad .sig{display:flex;justify-content:flex-end;margin-top:18px;text-align:center}
+  .pad .sig .blk{font-size:11px;color:#444}
+  .pad .sig .ink{width:118px;height:34px;border-bottom:1px solid #888;margin-bottom:3px}
+  .pad .foot{border-top:1px solid #ddd;margin-top:14px;padding-top:7px;font-size:10px;color:#777;text-align:center}
+  .padwrap{background:var(--accentSoft);padding:16px;border-radius:9px;border:1px solid var(--line)}
+  .ghosthdr{opacity:.28;outline:1px dashed #b45309;outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Clinic doctor login — wireframes</h1>
+<p class="sub">
+  Six screens for a new <code>doctor</code> login in the sobhana portal, designed around the prescription as the
+  reason the login exists. <b>Codebase reality this is built on:</b> <code>UserRole.doctor</code> already exists in the
+  enum but is never used — <code>requireRole</code> is never called with it and the frontend has no doctor routing, so
+  this is a clean slate. <code>ClinicDoctor</code> is a master record with <code>registrationNumber</code>,
+  <code>qualification</code>, <code>specialty</code> — and <code>commissionPercent</code> — and has
+  <b>no link to <code>User</code></b>. And there is no structured prescription anywhere: today's Rx is a
+  <b>blank sheet</b> printed on letterhead.
+</p>
+<p class="sub" style="color:var(--amber)">
+  Marked <span class="tag open">open</span> below are the calls I did not make unilaterally — two research passes on
+  clinician access scoping and doctor-portal UX are still running, and those specifics may move.
+</p>
+
+<!-- ─────────────────────────────  0. IDENTITY  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">00</span><h2>The join that has to exist first</h2><span class="tag new">schema</span></header>
+  <p class="why">
+    A doctor login is not a new role so much as a <b>binding between an auth identity and a clinical identity</b>.
+    Everything else on this page depends on which way that binding points, so it comes first.
+  </p>
+  <div class="split">
+    <div>
+      <div class="cal">
+        <b>Recommended</b> — <code>ClinicDoctor.userId String? @unique</code><br><br>
+        Nullable, so the 40-odd existing ClinicDoctor rows stay valid and unlogged-in. Unique, so one login is
+        one doctor and the audit trail cannot be shared. The <code>doctor</code> role on <code>User</code> becomes
+        meaningful only when this join resolves — a <code>role:'doctor'</code> user with no
+        <code>ClinicDoctor</code> gets a dead end, not a blank portal.
+      </div>
+      <ul class="note">
+        <li><b>Direction matters:</b> putting <code>clinicDoctorId</code> on <code>User</code> instead would let two
+          users point at one doctor. Rx signatures must be attributable to one human.</li>
+        <li><b>Gate before shipping:</b> confirm zero prod <code>User</code> rows already have
+          <code>role='doctor'</code>. The enum value is vestigial in code, which is not proof it is unused in data.</li>
+        <li><code>ClinicDoctor</code> is <b>not branch-scoped</b> — a doctor can hold visits at several branches while
+          <code>User.activeBranchId</code> is singular. The queue must scope by active branch and say which branch.</li>
+        <li><b>Add <code>hprId String?</code> — optional, and leave it optional.</b> ABDM's Healthcare Professionals
+          Registry is <b>voluntary</b>; practice licensing runs through NMC / State Medical Councils, which HPR
+          explicitly does not replace. HPR holds ~10.5&nbsp;lakh professionals across <i>all</i> categories against
+          1.3–1.5M registered allopathic doctors alone, so requiring an HPID would lock out most clinic doctors today.
+          Store it for the ABDM path later; never gate login on it. (NMC's draft National Medical Register regulation
+          of Aug 2026 may change this — worth re-checking before the ABDM work starts.)</li>
+      </ul>
+    </div>
+    <div>
+      <div class="cal" style="border-color:#fecaca;background:var(--redSoft)">
+        <b>The commission problem</b><br><br>
+        <code>ClinicDoctor</code> carries <code>commissionType</code>, <code>commissionPercent</code>,
+        <code>commissionAmountInPaise</code> and <code>consultationFeeInPaise</code> on the same row as the
+        doctor's name and qualification.<br><br>
+        The moment a doctor can read their own <code>ClinicDoctor</code> record, they can read their own
+        commission terms — and <code>GET /clinic-doctors/:id</code> returns the whole row today.
+      </div>
+      <ul class="note">
+        <li>Fix at the serialiser, not the query: a <code>doctorSafeClinicDoctor()</code> projection that drops the
+          four money fields, used by every doctor-scoped route.</li>
+        <li>Same class of leak in <code>GET /visits/clinic/:id</code>, which returns
+          <code>consultationFeeInPaise</code> — the very endpoint the existing prescription print page calls.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  0b. DATA INVENTORY  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">00b</span><h2>What we can actually show a doctor — the honest inventory</h2><span class="tag rec">read before designing anything</span></header>
+  <p class="why">
+    Before deciding what a doctor's screen <i>should</i> have, this is what the database can truthfully answer.
+    The split is sharper than I expected: <b>diagnostics are richly modelled and can be shown beautifully. The
+    consultation is empty.</b> Not thin — absent. That is not a gap to paper over; it is the reason the prescription
+    feature exists.
+  </p>
+  <div class="split">
+    <div>
+      <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin:0 0 9px">Have it, and it is good</h4>
+      <table>
+        <thead><tr><th>Data</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>Numeric &amp; text results, per analyte</td><td class="s"><code>TestResult.value</code> / <code>textValue</code></td></tr>
+          <tr><td><b>Five-level flag incl. critical</b></td><td class="s"><code>TestResultFlag</code>: NORMAL · HIGH · LOW · CRITICAL_HIGH · CRITICAL_LOW</td></tr>
+          <tr><td><b>Age- and sex-correct reference ranges</b></td><td class="s"><code>TestDefinitionRange</code> — <code>minAgeDays</code>/<code>maxAgeDays</code>, gender, plus labelled cases like "Pregnant"</td></tr>
+          <tr><td>Critical thresholds, per range</td><td class="s"><code>criticalMin</code> / <code>criticalMax</code></td></tr>
+          <tr><td>Units, sample type, method</td><td class="s"><code>TestDefinition.referenceUnit</code>, <code>sampleType</code>, <code>method</code></td></tr>
+          <tr><td><b>Trends across visits, safely</b></td><td class="s"><code>smartReport/trends.ts</code> — already built</td></tr>
+          <tr><td><b>“Due for retest in N days”</b></td><td class="s"><code>TestDefinition.retestIntervalDays</code></td></tr>
+          <tr><td>Derived values (e.g. A/G ratio)</td><td class="s"><code>formulaExpression</code>, <code>DerivedParameter</code></td></tr>
+          <tr><td>Interpretation text</td><td class="s"><code>InterpretationRule</code> / <code>InterpretationTemplate</code></td></tr>
+          <tr><td>Narrative / imaging reports</td><td class="s"><code>ReportVersion</code>, radiology text</td></tr>
+          <tr><td>Precise age for infants</td><td class="s"><code>Patient.ageUnit</code> DAYS · MONTHS · YEARS</td></tr>
+          <tr><td>Height, weight → BMI</td><td class="s"><code>Visit.heightCm</code> / <code>weightKg</code></td></tr>
+          <tr><td>Follow-up chains, revisits</td><td class="s"><code>ClinicVisit.isRevisit</code>, <code>originalVisitId</code></td></tr>
+          <tr><td>Consultation → tests link</td><td class="s"><code>Visit.sourceVisitId</code></td></tr>
+          <tr><td>Was the report sent / opened</td><td class="s"><code>MessageLog</code>, <code>ReportAccessLog</code></td></tr>
+          <tr><td><b>Patient deceased</b></td><td class="s"><code>Patient.deceasedAt</code></td></tr>
+        </tbody>
+      </table>
+      <ul class="note">
+        <li><b>The trend discipline already in the codebase is better than most products ship.</b>
+          <code>attachHistory</code> keeps a prior point only when the unit <i>and</i> the resolved reference range
+          match — because ranges are age- and sex-keyed, so a man's range at 49 can differ from his at 51, and
+          plotting both against one shaded band silently compares two different things. Reuse it; do not re-derive it.</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--red);margin:0 0 9px">Do not have it — an empty box here would be a lie</h4>
+      <table>
+        <thead><tr><th>Missing</th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td><b>Allergies</b></td><td class="s">A blank "Allergies —" reads as <i>none known</i> to a doctor scanning fast. That is a safety claim this DB cannot make.</td></tr>
+          <tr><td><b>Problem / diagnosis list</b></td><td class="s">No ICD, no SNOMED, no codes anywhere. Nothing to build a problem-oriented view on.</td></tr>
+          <tr><td><b>Vitals</b> (BP, pulse, temp, SpO₂)</td><td class="s">Only height and weight exist. "BP high hai" in the VoiceRx brief has nowhere to land.</td></tr>
+          <tr><td><b>Medications — any</b></td><td class="s">The feature. Today's Rx is a blank printed sheet.</td></tr>
+          <tr><td>Chief complaint / symptoms</td><td class="s">Never captured.</td></tr>
+          <tr><td>Consultation notes</td><td class="s">Only radiology narratives exist; OP/IP consults record nothing clinical.</td></tr>
+          <tr><td>Family / social history, immunisations</td><td class="s">Absent.</td></tr>
+        </tbody>
+      </table>
+      <div class="cal" style="border-color:#fecaca;background:var(--redSoft);margin-top:13px">
+        <b>The design rule this forces.</b> The research on chart review says a doctor scans <i>problems, active
+        medications, recent results</i> first. We have exactly one of those three. So the doctor's patient view cannot
+        be a thin imitation of a full EMR chart — it has to be <b>a superb diagnostics view plus a prescription
+        history</b>, and be honest that that is what it is. Omit the sections we cannot fill rather than render empty
+        ones. An empty "Allergies" row is worse than no allergies row, because it answers a question it never asked.
+      </div>
+      <div class="q">
+        <b>What this means for sequencing</b>
+        Vitals and a problem list are each a small table and a form. If a doctor is going to be in this screen anyway,
+        capturing BP and a complaint is cheap and makes the next visit's view genuinely clinical — and the VoiceRx
+        brief's own test sentence <i>“BP high hai, amlodipine 5 once daily”</i> assumes a vitals field exists.
+        Worth deciding deliberately rather than discovering during extraction.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  0c. DIAGNOSTICS TOGGLE  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">00c</span><h2>Diagnostics are OFF by default</h2><span class="tag new">reversal of my earlier ruling</span></header>
+  <p class="why">
+    I had ruled diagnostics in — "withholding a lab result from a treating doctor is the bigger risk." <b>Overruled,
+    and the default flips: a clinic doctor sees no test values and no list of tests done.</b> It is one org-wide
+    setting, shipped <code>false</code>, and the code path simply does not fetch.
+  </p>
+  <div class="split">
+    <div>
+      <div class="cal">
+        <b>Mechanism</b> — reuse <code>AppSetting</code>, the org-wide key/value table that already holds
+        <code>report_auto_sync_default</code>. One row:
+        <div style="margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#fff;
+                    border:1px solid var(--line2);border-radius:7px;padding:9px 11px">
+          key&nbsp;&nbsp; doctor_view_diagnostics<br>
+          value <b>"false"</b> &nbsp;← ships like this
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>Enforce on the server, not by hiding a panel.</b> When false, the doctor-scoped Patient 360 endpoint
+          must not <i>return</i> test orders or results — a hidden div is still a payload, and the payload is what
+          leaks. Same discipline as the money projection in §00.</li>
+        <li><b>What disappears with it:</b> the abnormal-result badge on queue rows, the lab lines in the consultation
+          left pane, the Reports and Abnormal-results glance cells, the results inspector, and the Results nav item
+          — which is why that nav item is gone entirely rather than conditionally rendered.</li>
+        <li><b>What survives:</b> everything about prescriptions and consultations. That is the doctor's own record of
+          their own work, and it is never gated.</li>
+        <li><b>The honest cost.</b> This is a real clinical trade-off, not a free one: a doctor prescribing for a
+          patient whose potassium came back at 6.8 will not see it here. Worth naming plainly, and worth revisiting
+          per-clinic rather than pretending the default is costless.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="cal" style="margin-bottom:11px"><b>What the inspector looks like if a clinic turns it ON.</b>
+        Built to the research, kept here rather than thrown away — three severity tiers, tabular figures, and a
+        distinct “range not reported” state.</div>
+      <div class="pane" style="background:#fff">
+        <h4>2 Sep 2026 · Lipid Profile, HbA1c</h4>
+        <div class="lab">
+          <div class="r crit">
+            <span class="an">Potassium <span class="badge r">CRITICAL HIGH</span></span>
+            <span class="vu">6.8 <span style="font-weight:500;font-size:12px;color:var(--ink2)">mmol/L</span></span>
+            <span class="rng">3.5 – 5.1</span>
+          </div>
+          <div class="r">
+            <span class="an">LDL Cholesterol <span class="badge a">H</span>
+              <span class="spark"><i style="height:6px"></i><i style="height:8px"></i><i style="height:11px"></i><i class="hi" style="height:14px"></i></span>
+            </span>
+            <span class="vu">168 <span style="font-weight:500;font-size:12px;color:var(--ink2)">mg/dL</span></span>
+            <span class="rng">&lt; 100</span>
+          </div>
+          <div class="r">
+            <span class="an">HbA1c <span class="badge a">H</span></span>
+            <span class="vu">7.4 <span style="font-weight:500;font-size:12px;color:var(--ink2)">%</span></span>
+            <span class="rng">4.0 – 5.6</span>
+          </div>
+          <div class="r">
+            <span class="an">Lipoprotein(a) <span class="badge">RANGE NOT REPORTED</span></span>
+            <span class="vu">42 <span style="font-weight:500;font-size:12px;color:var(--ink2)">mg/dL</span></span>
+            <span class="rng" style="font-style:italic">not coded</span>
+          </div>
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>Three tiers, not two.</b> A documented incident: haemoglobin 11.9 against a 12.0 threshold rendered in
+          the same alarm red as a genuinely critical value → portal message → phone call → visit, a cascade caused
+          purely by binary styling. <code>TestResultFlag</code> already separates <code>CRITICAL_HIGH</code>/<code>LOW</code>
+          from <code>HIGH</code>/<code>LOW</code>, so tiering costs nothing.</li>
+        <li><b>“Range not reported” is a third state.</b> <code>referenceMin</code>/<code>Max</code>/<code>referenceText</code>
+          are all nullable, so uncoded tests exist here — and rendered plainly they look <i>cleared</i>.</li>
+        <li><b>Colour never carries meaning alone</b> (≈1 in 12 men has a colour vision deficiency), and every value
+          column uses <code>tabular-nums</code> so a column can be scanned for magnitude.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  1. TODAY  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">01</span><h2>The queue — the existing OP/IP queue, scoped</h2><span class="tag rec">reuse, don't invent</span></header>
+  <p class="why">
+    Scrapped my own "Today", "Drafts" and "Results" pages. <code>ClinicVisitQueue.tsx</code> already exists and already
+    does exactly this: it fetches <code>?status=WAITING,IN_PROGRESS</code>, sorts waiting-before-in-progress, and
+    carries <b>Start</b> and <b>Mark Done</b> with optimistic update and reconcile. The doctor's screen is that page
+    with two changes — <b>filtered to their own <code>clinicDoctorId</code></b>, and the payment badge removed.
+    <b>Two nav items.</b> Unsigned prescriptions become a strip on this page, not a fourth concept to learn.
+  </p>
+
+  <div class="app">
+    <div class="side">
+      <div class="brand">Sobhana<span>Chintal</span></div>
+      <div class="nav">
+        <a class="on" href="#"><span class="ico">▦</span> OP / IP queue</a>
+        <a href="#"><span class="ico">⌕</span> Patients</a>
+      </div>
+      <footer>
+        <b>Dr Ramesh Kumar</b>
+        MBBS, MD · Gen Med<br>
+        <span style="color:var(--ink3)">Consulting doctor</span>
+      </footer>
+    </div>
+    <div class="main">
+      <div class="ph">
+        <div>
+          <h3>OP / IP queue</h3>
+          <div class="meta">Tue 23 Sep 2026 · Chintal · my patients</div>
+        </div>
+        <div class="right">
+          <span class="seg"><span class="on">Waiting 4</span><span>In progress 1</span><span>Done 12</span></span>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;border:1px solid #fcd34d;background:var(--amberSoft);
+                  border-radius:9px;padding:9px 12px;margin-bottom:13px;font-size:13px">
+        <b style="color:var(--amber)">2 prescriptions not signed</b>
+        <span class="s" style="color:var(--ink2)">Lakshmi Devi (today) · Ganesh Naik (yesterday, 17 h)</span>
+        <span class="btn sm" style="margin-left:auto">Review</span>
+      </div>
+
+      <table>
+        <thead><tr><th style="width:44px">Tok</th><th>Patient</th><th>Type</th><th>Waiting</th><th>Last seen</th><th class="ta-r"></th></tr></thead>
+        <tbody>
+          <tr class="grp"><td colspan="6">In progress</td></tr>
+          <tr class="cur">
+            <td><span class="tok">14</span></td>
+            <td><div class="nm">Lakshmi Devi</div><div class="s">42 F · P-004182</div></td>
+            <td><span class="badge">OP</span></td>
+            <td><span class="s">since 10:32</span></td>
+            <td><span class="s">14 Aug 2026</span></td>
+            <td class="ta-r"><span class="btn pri sm">Resume</span></td>
+          </tr>
+
+          <tr class="grp"><td colspan="6">Waiting</td></tr>
+          <tr>
+            <td><span class="tok">15</span></td>
+            <td><div class="nm">Srinivas Rao</div><div class="s">58 M · P-003914</div></td>
+            <td><span class="badge">OP</span></td>
+            <td><span class="s">18 min</span></td>
+            <td><span class="s">2 Sep 2026</span></td>
+            <td class="ta-r"><span class="btn sm">Start</span></td>
+          </tr>
+          <tr>
+            <td><span class="tok">16</span></td>
+            <td><div class="nm">Ayesha Begum</div><div class="s">7 F · P-004455</div></td>
+            <td><span class="badge">OP</span></td>
+            <td><span class="s">9 min</span></td>
+            <td><span class="s">—</span> <span class="badge b">first visit</span></td>
+            <td class="ta-r"><span class="btn sm">Start</span></td>
+          </tr>
+          <tr>
+            <td><span class="tok">—</span></td>
+            <td><div class="nm">Mohan Reddy</div><div class="s">64 M · P-002201</div></td>
+            <td><span class="badge">IP</span> <span class="s">Ward 2</span></td>
+            <td><span class="s">admitted 21 Sep</span></td>
+            <td><span class="s">21 Sep 2026</span></td>
+            <td class="ta-r"><span class="btn sm">Open</span></td>
+          </tr>
+
+          <tr class="grp"><td colspan="6">Done today · 12 <span style="text-transform:none;letter-spacing:0;font-weight:500">— collapsed</span></td></tr>
+        </tbody>
+      </table>
+
+      <ul class="note">
+        <li><b>What changed from the staff queue: two things.</b> The <code>paymentStatus</code> badge that
+          <code>ClinicVisitQueue</code> renders today is gone, and the fetch gains
+          <code>&amp;clinicDoctorId=me</code>. Everything else — the grouping, the sort, Start / Mark&nbsp;Done, the
+          optimistic update — is the code that already ships.</li>
+        <li><b>No "Drafts" page, no "Results" page.</b> Unsigned prescriptions are the amber strip above: they belong
+          to visits that are in or just left this queue, so a separate destination was a concept with no home.
+          The strip states the count, names who, and ages the old one — which is all the Drafts page was for.</li>
+        <li><b>No abnormal-result badge on the row.</b> That was diagnostics data, and diagnostics are off by
+          default — see §00c.</li>
+        <li>Tokens are the existing <code>ClinicVisit.tokenNumber</code> the waiting-room display already uses, so the
+          doctor and the TV agree on the number the patient heard called.</li>
+        <li>IP rows have no token and sort by ward, not wait time — an inpatient is not queuing.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  1b. FLOWS  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">01b</span><h2>Who moves the queue — every flow</h2><span class="tag rec">staff and doctor, never one or the other</span></header>
+  <p class="why">
+    The rule that makes all of this tractable: <b>the queue state and the prescription state are two separate
+    machines.</b> <code>WAITING → IN_PROGRESS → COMPLETED</code> is where the <i>patient</i> is. <code>DRAFT → …
+    → SIGNED</code> is what the <i>prescription</i> is. Signing may <b>nudge</b> the queue as a convenience, but
+    neither state ever requires the other — the moment they are coupled, a doctor cannot close a visit without
+    prescribing, and a patient cannot be moved along while a draft sits open.
+  </p>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>Trigger</th><th style="width:130px">Queue</th><th style="width:118px">Prescription</th></tr></thead>
+        <tbody>
+          <tr><td>Staff presses <b>Start</b> <span class="s">(exists today)</span></td><td class="s">WAITING → IN_PROGRESS</td><td class="s">—</td></tr>
+          <tr><td>Doctor presses <b>Call next</b></td><td class="s">next WAITING → IN_PROGRESS</td><td class="s">opens blank draft</td></tr>
+          <tr><td>Doctor opens a queue row directly</td><td class="s">WAITING → IN_PROGRESS</td><td class="s">opens blank draft</td></tr>
+          <tr><td>Doctor presses <b>Sign &amp; next</b></td><td class="s">→ COMPLETED, then calls next</td><td class="s">→ SIGNED</td></tr>
+          <tr><td>Doctor presses <b>Sign</b> only</td><td class="s">stays IN_PROGRESS</td><td class="s">→ SIGNED</td></tr>
+          <tr><td>Doctor presses <b>Done, no prescription</b></td><td class="s">→ COMPLETED</td><td class="s">none created</td></tr>
+          <tr><td>Staff presses <b>Mark Done</b> <span class="s">(exists today)</span></td><td class="s">→ COMPLETED</td><td class="s"><b>untouched</b></td></tr>
+          <tr><td>Doctor signs after visit COMPLETED</td><td class="s">unchanged</td><td class="s">→ SIGNED</td></tr>
+          <tr><td>Staff cancels the visit</td><td class="s">→ CANCELLED</td><td class="s">draft survives, nags</td></tr>
+          <tr><td>Doctor opens patient from <b>Patients</b> search</td><td class="s"><b>no change</b></td><td class="s">none</td></tr>
+        </tbody>
+      </table>
+      <ul class="note">
+        <li><b>“Call next” is not a new idea in this building.</b> The waiting-room display already calls tokens. The
+          doctor pressing Call&nbsp;next should be what makes the TV announce the number — one action, the patient
+          hears it, the row goes in-progress, the composer opens. That is the single highest-value button on the
+          whole screen.</li>
+        <li><b>Search never starts a visit.</b> Opening a chart to read is not the same act as beginning a
+          consultation, and conflating them would silently mark patients in-progress from across the building.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q">
+        <b>The four awkward cases, decided</b>
+        <b>1 · “Done, no prescription” must exist.</b> Not every consultation produces one. Without this button
+        doctors will create an empty prescription purely to close the visit, and the record fills with noise that
+        looks like clinical data.
+        <br><br>
+        <b>2 · Staff marking Done while a draft is open is allowed.</b> Front desk must be able to keep the queue
+        moving; blocking them on a doctor's unfinished work would jam the clinic. The draft is not destroyed — it
+        drops into the amber strip and ages there. Staff sees a quiet note, not a blocker: <i>“Dr Ramesh has an
+        unsigned prescription for this patient.”</i>
+        <br><br>
+        <b>3 · Signing after COMPLETED is allowed.</b> The patient has left, the doctor finishes writing. Refusing
+        this would mean either a lost prescription or a fake reopen. The prescription records its own signing time;
+        the queue does not care.
+        <br><br>
+        <b>4 · The signer is stored, never derived.</b> <code>ClinicVisit.clinicDoctorId</code> is <i>assigned</i>;
+        who actually signed goes on the prescription row. If a colleague covers, reassignment and authorship stay
+        independently true.
+      </div>
+      <div class="cal" style="margin-top:13px;border-color:#fcd34d;background:var(--amberSoft)">
+        <b>Accidental finalisation — the one to design against.</b> Sign&nbsp;&amp;&nbsp;next is fast by design, which
+        is exactly what makes a mis-tap expensive. Two cheap guards: the review screen in §03 is a <b>separate
+        screen</b> with its own attestation, and the signed prescription stays <b>amendable by revision</b> for the
+        rest of the session, which is a new version with a reason rather than an edit. No undo, no silent mutation.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  2. CONSULTATION  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">02</span><h2>Consultation — where the prescription is written</h2><span class="tag rec">the reason for the login</span></header>
+  <p class="why">
+    Patient context on the left, prescription on the right, one sticky commit bar. The mic is a <b>control in the
+    composer</b>, not a chat window: dictation fills the same fields the doctor would have typed, and every field
+    stays editable afterwards. Nothing here auto-sends.
+  </p>
+
+  <div class="app">
+    <div class="side">
+      <div class="brand">Sobhana<span>Chintal</span></div>
+      <div class="nav">
+        <a class="on" href="#"><span class="ico">▦</span> OP / IP queue</a>
+        <a href="#"><span class="ico">⌕</span> Patients</a>
+      </div>
+      <footer><b>Dr Ramesh Kumar</b>MBBS, MD · Gen Med</footer>
+    </div>
+    <div class="main">
+      <div class="ph">
+        <div>
+          <h3>Srinivas Rao <span style="font-weight:400;font-size:13px;color:var(--ink2)">58 M</span></h3>
+          <div class="meta">P-003914 · Token 15 · OP · today 10:51</div>
+        </div>
+        <div class="right">
+          <span class="badge a">Draft — not signed</span>
+          <span class="btn sm">Patient history</span>
+        </div>
+      </div>
+
+      <div class="panes">
+        <!-- LEFT: context -->
+        <div class="pane l">
+          <h4>Previous visits</h4>
+          <div class="vrow">
+            <div class="d">2 Sep<br>2026</div>
+            <div class="body">
+              <div class="t">OP consultation · Dr Ramesh Kumar</div>
+              <div class="s">Rx: Amlodipine 5 mg OD · 30 days</div>
+            </div>
+          </div>
+          <div class="vrow">
+            <div class="d">14 Aug<br>2026</div>
+            <div class="body">
+              <div class="t">OP consultation · Dr Anitha S</div>
+              <div class="s">Rx: Metformin 500 mg BD · 30 days</div>
+            </div>
+          </div>
+          <div class="vrow">
+            <div class="d">21 Jun<br>2026</div>
+            <div class="body">
+              <div class="t">OP consultation · Dr Ramesh Kumar</div>
+              <div class="s">Rx: Metformin 500 mg OD · 30 days</div>
+            </div>
+          </div>
+          <hr class="d">
+          <div class="cal">
+            <b>Prescriptions only — no diagnostics.</b> Tests and their values are off by default (§00c). What is left
+            is the one thing a prescriber most needs: <b>what this patient is already taking, and who started it.</b>
+            That is also the only clinical history this database will have once VoiceRx ships.
+          </div>
+          <div class="cal" style="margin-top:9px">
+            <b>Deliberately not shown:</b> allergies, problem list, vitals. The schema has none of them.
+            An empty "Allergies: —" box reads as <i>no known allergies</i> to a doctor scanning fast, which is a
+            safety claim this database cannot make. Omit until there is a field behind it.
+          </div>
+        </div>
+
+        <!-- RIGHT: composer -->
+        <div class="pane r">
+          <h4>Prescription</h4>
+
+          <div class="mic">
+            <div class="dot live">●</div>
+            <div class="wave">
+              <i style="height:6px"></i><i style="height:13px"></i><i style="height:19px"></i><i style="height:9px"></i>
+              <i style="height:16px"></i><i style="height:22px"></i><i style="height:11px"></i><i style="height:7px"></i>
+              <i style="height:17px"></i><i style="height:20px"></i><i style="height:8px"></i><i style="height:14px"></i>
+              <i style="height:5px"></i><i style="height:12px"></i><i style="height:18px"></i><i style="height:9px"></i>
+            </div>
+            <span class="btn sm">Stop</span>
+          </div>
+          <div class="srcline" style="margin-top:-4px;margin-bottom:12px">
+            <b>hearing</b>“…amlodipine five once daily continue, aur Augmentin six twenty five three times a day after food five days…”
+          </div>
+
+          <div class="rx">
+            <header>
+              <span class="n">Amlodipine 5 mg</span>
+              <span class="badge g">resolved</span>
+              <span class="acts"><span class="btn sm gho">source</span><span class="btn sm gho">✕</span></span>
+            </header>
+            <div class="grid">
+              <div class="f"><p>Dose</p><div class="box">1 tablet</div></div>
+              <div class="f"><p>Frequency</p><div class="box">Once daily <span class="chev">⌄</span></div></div>
+              <div class="f"><p>Timing</p><div class="box unk">not stated</div></div>
+              <div class="f"><p>Duration</p><div class="box">30 days</div></div>
+            </div>
+          </div>
+
+          <div class="rx warn">
+            <header>
+              <span class="n">Augmentin 625</span>
+              <span class="badge a">confirm medicine</span>
+              <span class="acts"><span class="btn sm gho">source</span><span class="btn sm gho">✕</span></span>
+            </header>
+            <div class="cal" style="background:#fff;margin-bottom:9px">
+              Heard <b>“Augmentin six twenty five”</b>. Two formulations match — neither is preselected:
+              <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+                <span class="btn sm" style="height:auto;padding:7px 10px;justify-content:flex-start;white-space:normal;text-align:left">Amoxicillin&nbsp;500&nbsp;mg + Clavulanic&nbsp;acid&nbsp;125&nbsp;mg — <b>tablet</b> — oral</span>
+                <span class="btn sm" style="height:auto;padding:7px 10px;justify-content:flex-start;white-space:normal;text-align:left">Amoxicillin&nbsp;400&nbsp;mg + Clavulanic&nbsp;acid&nbsp;57&nbsp;mg — <b>dry syrup</b> — oral</span>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="f"><p>Dose</p><div class="box">1 tablet</div></div>
+              <div class="f"><p>Frequency</p><div class="box">3× daily <span class="chev">⌄</span></div></div>
+              <div class="f"><p>Timing</p><div class="box">After food <span class="chev">⌄</span></div></div>
+              <div class="f"><p>Duration</p><div class="box">5 days</div></div>
+            </div>
+            <div class="srcline">
+              <b>spoken 00:14 – 00:21</b>“…Augmentin six twenty five three times a day after food five days…”
+            </div>
+          </div>
+
+          <span class="btn sm">+ Add medicine</span>
+          <span class="btn sm">★ Favourites</span>
+          <span class="btn sm">↻ Repeat 2 Sep Rx</span>
+
+          <div style="border:1px solid var(--line2);border-radius:9px;padding:9px 11px;margin-top:4px;font-size:12.5px;background:#fcfdfe">
+            <b style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3)">Not captured</b>
+            <div style="margin-top:5px;color:var(--ink2)">
+              Amlodipine — no <b>timing</b> spoken &nbsp;·&nbsp; no <b>diagnosis</b> stated for this visit
+            </div>
+          </div>
+
+          <div class="bar">
+            <span class="badge a">1 needs confirming</span>
+            <span class="right">
+              <span class="btn">Save draft</span>
+              <span class="btn pri dis">Review &amp; sign</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <ul class="note">
+        <li><b>“not stated” is a value.</b> Amlodipine has no timing because the doctor did not say one. The box shows
+          <i>not stated</i> in italic grey — never a helpfully invented "before breakfast". Unknown stays unknown.</li>
+        <li><b>The “Not captured” box is the most important thing on this screen, and the least obvious.</b>
+          Across published audits <b>54–86% of ambient-scribe errors are omissions</b> — and omissions are the class
+          nobody catches: automated reviewers score near coin-flip on them (AUC 0.50–0.63) for the blunt reason that
+          <i>an omission leaves no text to point at</i>. Aviation research puts humans at missing up to 55% of
+          omission errors versus ~0% for active wrong statements. A passive grey "not stated" inside a card is not
+          enough; what is <b>expected and absent</b> has to be stated out loud, in its own box, or it is invisible.</li>
+        <li><b>Tier the friction — do not spread it evenly.</b> The strongest causal result in all the research:
+          severity-tiered drug-interaction alerts lifted compliance from 10% under flat alerting to 29% overall, and
+          to <b>100% versus 34% on the most severe tier</b>. So a hard, active confirmation belongs on
+          <b>drug identity, strength, dose and route</b> only. Timing, duration and instructions get a light touch.
+          One uniform "approve all" is exactly the rubber-stamp shape that decays with use.</li>
+        <li><b>Sign is disabled while anything is unconfirmed</b> — and disabled in the API too, not just here.
+          The button being grey is a courtesy; the state machine is the control.</li>
+        <li><b>Source line per medicine</b>, with timestamps, collapsed by default behind <i>source</i>. The doctor
+          checks the machine by reading what they actually said.</li>
+        <li><b>“Repeat 2 Sep Rx” may matter more than the microphone.</b> Represcribe-from-last is the one speed
+          feature present in every product surveyed — US and Indian alike — and it targets the same bottleneck
+          dictation does, with none of the transcription risk. Build it alongside voice, not after.</li>
+        <li><b>Picker rules, from the strongest safety finding in the research.</b> 18 of 23 prescribers in one
+          qualitative study named <i>juxtaposition errors</i> — picking the entry next to the one intended in an
+          autocomplete list — as something they had actually done. So: full generic name + strength + form on every
+          candidate, never truncated; <b>never auto-select the top match on Enter or Tab</b>; and look-alike names
+          deliberately separated rather than left alphabetically adjacent. The two Augmentin options above are
+          stacked and spelt out for exactly this reason.</li>
+        <li>Keyboard: <span class="kbd">/</span> new medicine, <span class="kbd">⌥M</span> mic,
+          <span class="kbd">Tab</span> across fields, <span class="kbd">⌘↵</span> review. A doctor who never touches
+          the mouse must be able to finish — but <span class="kbd">Tab</span> moves between fields and never commits
+          a drug choice.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  3. REVIEW & SIGN  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">03</span><h2>Review &amp; sign — an editable preview of the real letterpad</h2><span class="tag rec">1:1 with what prints</span></header>
+  <p class="why">
+    Not an abstract summary card — <b>a digital version of the doctor's letterpad with the prescription on it</b>,
+    the same way report finalisation previews the actual report. And <b>editable in place</b>: click any line and
+    change it without leaving the sheet you are about to sign. The infrastructure exists —
+    <code>EditableReportFrame</code>, <code>ReportPreviewFrame</code> and <code>ItemInspector</code> in
+    <code>components/reportbuilder</code> are precisely this pattern, and
+    <code>ClinicPrescriptionPrint</code> already renders the Rx sheet.
+  </p>
+  <div class="split">
+    <div>
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+        <span class="seg"><span class="on">Digital</span><span>Physical letterhead</span></span>
+        <span class="s" style="color:var(--ink3);font-size:12px">what the patient receives</span>
+      </div>
+      <div class="padwrap">
+        <div class="pad">
+          <div class="ph1">
+            <div>
+              <div class="dr">Dr Ramesh Kumar</div>
+              <div class="drm">MBBS, MD (General Medicine)</div>
+              <div class="drm"><b>Reg. No. 54821</b> · Telangana State Medical Council</div>
+            </div>
+            <div class="clinic">
+              <b>Sobhana Diagnostics</b>
+              Chintal, Hyderabad 500054<br>
+              Mon–Sat 10 a.m. – 1 p.m.<br>
+              040 2345 6789
+            </div>
+          </div>
+
+          <div class="pbox">
+            <div><span>Patient</span> &nbsp;<b>Srinivas Rao</b></div>
+            <div><span>Date</span> &nbsp;<b>23 Sep 2026</b></div>
+            <div><span>Age / Sex</span> &nbsp;<b>58 / M</b></div>
+            <div><span>Visit</span> &nbsp;<b>OP · Token 15</b></div>
+            <div><span>Patient ID</span> &nbsp;<b>P-003914</b></div>
+            <div><span>Weight</span> &nbsp;<b>74 kg</b></div>
+          </div>
+
+          <div class="rxm">℞</div>
+
+          <div class="med">
+            <div class="mn">1. Amlodipine 5 mg — tablet</div>
+            <div class="ms">1 tablet · once daily · 30 days</div>
+          </div>
+          <div class="med sel">
+            <div class="mn">2. Amoxicillin 500 mg + Clavulanic acid 125 mg — tablet</div>
+            <div class="ms">1 tablet · three times a day · after food · 5 days</div>
+            <div class="mx">spoken as “Augmentin 625”</div>
+          </div>
+
+          <div style="margin-top:12px;font-size:12px;color:#333"><b>Follow-up:</b> after 5 days</div>
+
+          <div class="sig">
+            <div class="blk">
+              <div class="ink"></div>
+              <b>Dr Ramesh Kumar</b><br>
+              MBBS, MD · Reg. 54821
+            </div>
+          </div>
+          <div class="foot">This prescription was issued digitally by Sobhana Diagnostics, Chintal · verify at sobhana.in/rx</div>
+        </div>
+      </div>
+      <div class="bar">
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink2);max-width:390px">
+          <span style="width:15px;height:15px;border:1.5px solid var(--line2);border-radius:4px;flex:0 0 15px;margin-top:1px"></span>
+          I have reviewed every line above and I am prescribing it.
+        </label>
+        <span class="right"><span class="btn">Back to edit</span><span class="btn pri dis">Sign prescription</span></span>
+      </div>
+      <ul class="note">
+        <li><b>The selected medicine is editable right there</b> — the inspector opens beside it, the way
+          <code>ItemInspector</code> works against the report canvas. Editing never leaves the sheet, so what the
+          doctor attests to is literally what they were just looking at.</li>
+        <li><b>The signature line is empty until signed.</b> It fills with the stored signature image at the moment of
+          signing, not before — a preview showing a signature the doctor has not yet given is the wrong thing to
+          put on screen.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q" style="border-left-color:var(--blue);background:var(--blueSoft);margin-top:0">
+        <b>Why a DIGITAL letterpad has to exist at all</b>
+        Today's Rx sheet renders <b>no letterhead</b> — it prints onto pre-printed paper, so the app deliberately draws
+        nothing at the top. That is correct for the printer and <b>wrong for everything else</b>: the PDF sent over
+        WhatsApp, the patient's link, the copy a pharmacist is shown. Those have no pre-printed paper behind them, so
+        a prescription with no header, no clinic name and — critically — <b>no registration number</b> is not a valid
+        prescription under §3.2.5.
+        <br><br>
+        Reports already solved this with <code>RenderProfile = 'screen' | 'pdf-digital' | 'pdf-physical'</code>, where
+        physical suppresses the header because the paper carries it. <b>Prescriptions need the same three profiles</b>,
+        and the digital one needs a real letterpad drawn by us.
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <span class="btn sm" style="height:auto;padding:6px 9px"><b>screen</b> — this editable preview</span>
+          <span class="btn sm" style="height:auto;padding:6px 9px"><b>pdf-digital</b> — full letterpad + signature + QR</span>
+          <span class="btn sm" style="height:auto;padding:6px 9px"><b>pdf-physical</b> — body only</span>
+        </div>
+      </div>
+      <div class="cal" style="margin-top:12px">
+        <b>The physical profile, ghosted.</b> Same sheet, header and footer dropped because the paper already has
+        them — and the reason the patient box must stay <i>rendered content</i>: it is the only place a registration
+        number and QR can live that survives both profiles. Reports learned this exact lesson.
+        <div class="padwrap" style="margin-top:10px;padding:11px">
+          <div class="pad" style="padding:14px 16px 12px">
+            <div class="ph1 ghosthdr" style="padding-bottom:6px">
+              <div><div class="dr" style="font-size:13px">Dr Ramesh Kumar</div><div class="drm">pre-printed</div></div>
+              <div class="clinic"><b style="font-size:11px">Sobhana Diagnostics</b>pre-printed</div>
+            </div>
+            <div class="pbox" style="padding:7px 0;margin-bottom:8px;font-size:10.5px">
+              <div><span>Patient</span> <b>Srinivas Rao</b></div><div><span>Date</span> <b>23 Sep 2026</b></div>
+              <div><span>Reg. No.</span> <b>54821</b></div><div><span>Visit</span> <b>OP · 15</b></div>
+            </div>
+            <div class="rxm" style="font-size:16px;margin:0 0 6px">℞</div>
+            <div class="med" style="padding:3px 0;margin:0"><div class="mn" style="font-size:11.5px">1. Amlodipine 5 mg — tablet</div><div class="ms" style="font-size:10.5px">1 tablet · once daily · 30 days</div></div>
+            <div class="med" style="padding:3px 0;margin:0"><div class="mn" style="font-size:11.5px">2. Amoxicillin 500 + Clav 125 — tablet</div><div class="ms" style="font-size:10.5px">1 tab · TID · after food · 5 days</div></div>
+            <div class="foot ghosthdr" style="margin-top:9px">footer pre-printed on the paper</div>
+          </div>
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>The attestation is a sentence, not a legal wall.</b> One line the doctor can actually read at 11 a.m.
+          between patients. A paragraph gets clicked past and then means nothing.</li>
+        <li><b>“spoken as Augmentin 625”</b> survives onto the review sheet. The doctor said a brand; the record
+          carries the molecule <i>and</i> the words, so a later reader can tell normalisation from dictation.</li>
+        <li><b>Send is not on this screen.</b> Signing produces an immutable version. Print / WhatsApp are separate
+          actions afterwards, so a mis-tap cannot both finalise and transmit.</li>
+        <li><b>After signing the fields go read-only.</b> Correcting means a new revision with a reason — the pattern
+          the report module already uses for versioned clones.</li>
+      </ul>
+      <div class="q" style="border-left-color:var(--red);background:var(--redSoft)">
+        <b>The failure mode this screen exists to catch — and the one reviewers miss most</b>
+        A 2026 adversarial audit of three <i>deployed commercial</i> scribes over 565 notes found <b>31.3% carried at
+        least one verified failure</b>. The class adversarial reviewers caught least often — <b>4.5%</b> — was
+        <i>plans written as done</i>. Their own example is almost exactly our problem: <b>a choice between two drugs
+        recorded as two issued prescriptions.</b>
+        <br><br>
+        Say <i>“either azithromycin or amoxiclav, let's start with the azithro”</i> and a fluent extractor emits two
+        medicines. Both look perfect. Neither is flagged. The paper's line is the one to design against:
+        <i>“The failures easiest to miss are the fluent ones. A reviewer scanning for what looks odd will not catch
+        them.”</i>
+        <br><br>
+        Which is why the sheet shows <b>what was spoken</b> next to what was extracted, and why the count of medicines
+        deserves to be read out loud in the attestation — <i>“2 medicines”</i> — rather than left to be inferred from
+        a list the eye slides down.
+      </div>
+      <div class="q" style="border-left-color:var(--green);background:var(--greenSoft)">
+        <b>Signature — resolved, and the existing stack is the right answer</b>
+        Telemedicine Practice Guidelines §3.6.4.2 requires the RMP to provide a <i>“photo, scan, digital copy of a
+        signed prescription or e-Prescription.”</i> A <b>signature image is the one method the guideline expressly
+        names</b> — so the existing base64 per-(branch, department) signature stack is already the defensible
+        mechanism, not a stopgap. No Digital Signature Certificate is demanded by any health-sector rule found.
+        <br><br>
+        What to avoid is the opposite end: a <b>typed name alone satisfies neither IT Act §3 nor §3A</b>, so it gets
+        none of §5's deeming-equivalent-to-handwritten protection. It is the only option with zero primary-source
+        backing. If you want the strongest footing later, layer Aadhaar eSign (§3A-compliant) on top of the image.
+      </div>
+      <div class="q" style="border-left-color:var(--red);background:var(--redSoft)">
+        <b>Two hard requirements, not preferences</b>
+        <b>1 · Registration number.</b> §3.2.5, verbatim: <i>“Every RMP shall display the registration number accorded
+        to him/her by the State Medical Council/National Medical Commission, on prescriptions, website, electronic
+        communication (WhatsApp/&nbsp;email etc.) and receipts etc.”</i> So <code>Reg. 54821</code> is mandatory on the
+        sheet above — <b>and on the WhatsApp message that carries it</b>, which is a template change, not a UI change.
+        <br><br>
+        <b>2 · Schedule X and NDPS are a hard block.</b> §3.7.4 prohibits prescribing Schedule X drugs or any
+        NDPS-listed narcotic or psychotropic over telemedicine, absolutely, with no exception in any source found.
+        This belongs in the deterministic validator as an <b>un-overridable</b> gate on any non-in-person path — not a
+        warning the doctor can dismiss.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  4. DRAFTS  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">04</span><h2>Drafts — the safety net the AI makes necessary</h2><span class="tag new">no equivalent exists today</span></header>
+  <p class="why">
+    An unsigned prescription is the dangerous state: the patient has left, the doctor believes they prescribed, and
+    nothing was issued. This screen exists so that state is <b>visible and nagging</b> rather than silent.
+    It is also where an abandoned dictation goes to be finished or thrown away.
+  </p>
+  <div class="app" style="min-height:0">
+    <div class="main">
+      <div class="ph"><div><h3>Drafts</h3><div class="meta">Unsigned prescriptions · nothing here has been issued to a patient</div></div></div>
+      <table class="vt">
+        <thead><tr><th>Patient</th><th>Started</th><th>State</th><th>Contents</th><th class="ta-r"></th></tr></thead>
+        <tbody>
+          <tr>
+            <td><div class="nm">Lakshmi Devi</div><div class="s">42 F · P-004182</div></td>
+            <td><span class="s">today 10:38</span><div class="s" style="color:var(--amber)">21 min ago</div></td>
+            <td><span class="badge a">needs confirming</span></td>
+            <td class="s">2 medicines · 1 ambiguous</td>
+            <td class="ta-r"><span class="btn sm">Resume</span></td>
+          </tr>
+          <tr>
+            <td><div class="nm">Ganesh Naik</div><div class="s">33 M · P-004021</div></td>
+            <td><span class="s">yest 18:04</span><div class="s" style="color:var(--red)">17 h ago</div></td>
+            <td><span class="badge r">stale</span></td>
+            <td class="s">1 medicine</td>
+            <td class="ta-r"><span class="btn sm">Resume</span> <span class="btn sm gho">Discard</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <ul class="note">
+        <li><b>Ageing is the whole point of the column.</b> 21 min is a live consultation; 17 h is a mistake. Same row
+          shape, different colour, no separate concept to learn.</li>
+        <li><b>Stale drafts are never auto-signed and never auto-deleted.</b> Both would be decisions the software is
+          not entitled to make. They age, they nag, a human resolves them.</li>
+        <li>The badge count in the sidebar is this table's length — one number the doctor can trust to mean
+          "I owe someone a prescription".</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  5. CLINICAL PATIENT 360  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">05</span><h2>Patient history — Patient 360 with the money removed</h2><span class="tag rec">a subset, not a second page</span></header>
+  <p class="why">
+    Deliberately the <b>same skeleton</b> as the existing Patient 360 — sticky header, glance strip, timeline left,
+    inspector right — because it is the same page with panels withheld. Building a separate doctor page would
+    guarantee the two drift, and the existing one has already had the "never hide cancelled history" rule fought into it.
+  </p>
+  <div class="app">
+    <div class="main">
+      <div class="ph">
+        <div><h3>Srinivas Rao</h3><div class="meta">58 M · P-003914 · 98••••4417</div></div>
+        <div class="right"><span class="btn sm">New prescription</span></div>
+      </div>
+
+      <div class="strip">
+        <div class="cell"><p>Last consultation</p><div class="v" style="font-size:14px">2 Sep 2026<br><small>Dr Ramesh Kumar</small></div></div>
+        <div class="cell"><p>Consultations</p><div class="v">7</div></div>
+        <div class="cell"><p>Prescriptions</p><div class="v">4 <small>signed</small></div></div>
+        <div class="cell"><p>Currently on</p><div class="v" style="font-size:14px">2 <small>medicines</small></div></div>
+      </div>
+
+      <div class="panes">
+        <div class="pane l">
+          <h4>Timeline</h4>
+          <div class="vrow on">
+            <div class="d">2 Sep<br>2026</div>
+            <div class="body"><div class="t">OP consultation</div><div class="s">Dr Ramesh Kumar · prescription signed</div></div>
+          </div>
+          <div class="vrow" style="opacity:.6">
+            <div class="d">28 Aug<br>2026</div>
+            <div class="body"><div class="t">OP consultation <span class="badge">cancelled</span></div><div class="s">Dr Anitha S</div></div>
+          </div>
+          <div class="vrow">
+            <div class="d">14 Aug<br>2026</div>
+            <div class="body"><div class="t">OP consultation</div><div class="s">Dr Anitha S · prescription signed</div></div>
+          </div>
+          <div class="vrow">
+            <div class="d">21 Jun<br>2026</div>
+            <div class="body"><div class="t">OP consultation</div><div class="s">Dr Ramesh Kumar · prescription signed</div></div>
+          </div>
+        </div>
+        <div class="pane r">
+          <h4>2 Sep 2026 · prescription</h4>
+          <div style="font-size:13px">
+            <div style="padding:7px 0;border-bottom:1px solid var(--line)">
+              <div style="font-weight:600">Amlodipine 5 mg — tablet</div>
+              <div class="s" style="color:var(--ink2)">1 tablet · once daily · 30 days</div>
+            </div>
+            <div style="padding:7px 0;border-bottom:1px solid var(--line)">
+              <div style="font-weight:600">Metformin 500 mg — tablet</div>
+              <div class="s" style="color:var(--ink2)">1 tablet · twice daily · after food · 30 days</div>
+            </div>
+          </div>
+          <div class="bar" style="margin-top:12px;padding-top:10px">
+            <span class="btn sm">View / print</span><span class="btn sm gho">Repeat this Rx</span>
+          </div>
+          <hr class="d">
+          <div class="cal" style="border-color:#fecaca;background:var(--redSoft)">
+            <b>Withheld from this inspector</b> — the whole <code>FinancialDetailPanel</code>, the Bill section,
+            collect-payment, refund, discount, and edit-referral. Present for owner and staff on the same visit,
+            absent for the doctor. <b>Tests and results are withheld too</b>, by the default in §00c.
+          </div>
+        </div>
+      </div>
+
+      <ul class="note">
+        <li><b>“Outstanding due” is gone from the glance strip</b> and replaced by <i>Last consultation</i>. The other
+          three cells needed no change — the existing strip was already mostly clinical.</li>
+        <li><b>Cancelled visits stay on the timeline</b>, dimmed and badged, exactly as for the owner. A doctor
+          reading history must see that a visit was cancelled, not find a hole.</li>
+        <li><b>“Dr Anitha S” is named on other doctors' visits.</b> Withholding who prescribed the Metformin this
+          patient is still taking would be worse than showing a colleague's name.</li>
+        <li>Every open of this page writes an access row. <code>ReportAccessLog</code> and
+          <code>BillAccessLog</code> already exist as the pattern to copy.</li>
+        <li><b>The glance strip is now entirely about medication.</b> "Abnormal results" and "Reports" were
+          diagnostics cells and are gone; <i>Consultations</i>, <i>Prescriptions</i> and <b>Currently on</b> replace
+          them. "Currently on 2 medicines" — derived from signed prescriptions whose duration has not elapsed — is
+          the single most useful number a prescriber can be handed, and nothing in this portal can show it today.</li>
+        <li><b>“Repeat this Rx”</b> sits on the inspector, not just the composer. Reading last visit's prescription
+          and re-issuing it is one gesture — the represcribe pattern every surveyed product leads with.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  5b. RX AS A FIRST-CLASS ARTEFACT  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">05b</span><h2>A prescription is a third artefact, exactly like a bill and a report</h2><span class="tag rec">old and new workflow both keep working</span></header>
+  <p class="why">
+    Patient 360 already knows how to own a document: a bill and a report each have a token, a public link, an access
+    log, a cached PDF, a WhatsApp send and an inspector section. <b>A digital prescription is the third one and should
+    be built from the same parts</b> — no new concepts. And almost all of those parts turn out to be generic already.
+  </p>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>Capability</th><th>Report / Bill today</th><th>Prescription</th></tr></thead>
+        <tbody>
+          <tr><td>Public patient link</td><td class="s"><code>ReportAccessToken</code> · <code>BillAccessToken</code></td><td class="s">new <code>PrescriptionAccessToken</code>, same shape</td></tr>
+          <tr><td>Link click audit</td><td class="s"><code>LinkAccessLog.linkType</code></td><td class="yes">add <code>PRESCRIPTION</code> — <b>no new table</b></td></tr>
+          <tr><td>Disclosure audit</td><td class="s"><code>ReportAccessLog</code> / <code>BillAccessLog</code></td><td class="s">same append-only shape</td></tr>
+          <tr><td>WhatsApp send</td><td class="s"><code>MessageContextType</code> REPORT · BILL</td><td class="yes">add <code>PRESCRIPTION</code></td></tr>
+          <tr><td>PDF + cache</td><td class="s"><code>billPdfCache</code>, <code>mergedReportPdfCache</code></td><td class="s">same, incl. the <code>KEY_PREFIX vN</code> bump rule</td></tr>
+          <tr><td>Revoke on void</td><td class="s"><code>revokedAt</code> on the token</td><td class="s">set when a revision supersedes it</td></tr>
+          <tr><td>Per-visit link kill-switch</td><td class="s"><code>Visit.patientLinkDisabled</code></td><td class="yes">already covers it — one guard, all three</td></tr>
+          <tr><td>Inspector section</td><td class="s">Report · Bill</td><td class="s">Prescription — the block that already exists</td></tr>
+        </tbody>
+      </table>
+      <ul class="note">
+        <li><b>The token must follow the latest signed version, not be pinned to one.</b> This exact bug was already
+          fought and fixed for reports — a token pinned to a single version meant the patient's link kept serving a
+          superseded document. Anchor the prescription token on the prescription <i>root</i> and resolve to the
+          latest signed revision at request time. Do not re-learn this.</li>
+        <li><b>The existing per-visit link disable covers prescriptions for free</b> — but only if the new route
+          checks it. That guard blocks <code>/r/:token</code>, PDFs, the patient app and WhatsApp today; a new
+          <code>/rx/:token</code> that forgets it would quietly reopen a door the owner had closed.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q" style="border-left-color:var(--green);background:var(--greenSoft)">
+        <b>Old and new must both run — and they already can</b>
+        The existing Prescription block in <code>VisitInspector</code> renders one button,
+        <b>Print prescription</b>, which prints a <b>blank</b> Rx sheet on letterhead. That is the entire prescription
+        feature today, and it stays <b>exactly as it is</b>.
+        <br><br>
+        The section becomes conditional on <i>content</i>, never on a feature flag:
+        <br>• a signed digital prescription exists → render it, with view / print / send, like a report
+        <br>• none exists → the blank-sheet button, unchanged
+        <br>• both remain available — a doctor who wants a blank sheet to hand-write on still gets one, even on a
+        visit that has a digital Rx
+        <br><br>
+        <b>Nothing is migrated and nothing is retired.</b> Every visit before this ships has no prescription record
+        and correctly shows the blank-sheet button forever. A doctor with no login, or one who prefers paper, loses
+        nothing. Voice is an accelerator on top of a typed editor, which is itself an accelerator on top of a printed
+        blank sheet — and all three layers stay standing.
+      </div>
+      <div class="cal" style="margin-top:13px">
+        <b>Where it differs from a report, and must.</b> A report is authored by the lab and <i>released</i> to the
+        patient. A prescription is authored by the doctor and is <b>the doctor's own signed instrument</b>. So:
+        the signer is the consulting doctor, not a department rule (§07b); it may never be auto-sent (§29 of your
+        brief); and amendment creates a revision with a reason rather than a new report version cloned by staff.
+      </div>
+      <div class="cal" style="margin-top:11px;border-color:#fcd34d;background:var(--amberSoft)">
+        <b>Carry the registration number onto the WhatsApp template.</b> §3.2.5 requires it on prescriptions <i>and</i>
+        electronic communication. The REPORT and BILL templates never needed it; the PRESCRIPTION one does, and it is
+        the kind of requirement that gets missed precisely because it lives outside the UI.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  6. WHAT A DOCTOR MUST NOT SEE  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">06</span><h2>The denial list — every existing surface, ruled on</h2><span class="tag rec">you asked me to decide</span></header>
+  <p class="why">
+    The safe way to scope a new role is not to pick what to add but to walk the existing nav and rule on every item.
+    <b>Default deny.</b> Anything not ruled in below is unreachable for <code>role:'doctor'</code>, enforced by
+    <code>requireRole</code> on the route — not by hiding a sidebar link.
+  </p>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>Existing surface</th><th style="width:74px">Doctor</th><th>Because</th></tr></thead>
+        <tbody>
+          <tr><td>Clinic queue — <i>my</i> patients</td><td class="yes">yes</td><td class="s">The job.</td></tr>
+          <tr><td>Write / sign prescription</td><td class="yes">yes</td><td class="s">The job. Nobody else may.</td></tr>
+          <tr><td>Patient history — clinical</td><td class="yes">yes</td><td class="s">Cannot prescribe safely blind.</td></tr>
+          <tr><td>Diagnostic reports, incl. other doctors'</td><td class="yes">yes</td><td class="s">Withholding a lab result from a treating doctor is the bigger risk.</td></tr>
+          <tr><td>Own signature, Rx favourites, password</td><td class="yes">yes</td><td class="s">Own account, not config.</td></tr>
+          <tr><td>Patient phone number</td><td class="yes">yes</td><td class="s">Needed to call back about a result.</td></tr>
+          <tr><td>Consultation fee / bill / dues</td><td class="no">no</td><td class="s">Not a clinical input. Distorts prescribing.</td></tr>
+          <tr><td>Own commission &amp; payout ledger</td><td class="no">no</td><td class="s">Owner's negotiation. On the same row as their name — must be projected out.</td></tr>
+          <tr><td>Discounts, refunds, collect payment</td><td class="no">no</td><td class="s">Money mutations belong to staff/owner.</td></tr>
+          <tr><td>Money, Payouts, Owner dashboard, Pulse</td><td class="no">no</td><td class="s">Branch economics.</td></tr>
+          <tr><td>Audit &amp; Anomalies</td><td class="no">no</td><td class="s">A watched user does not hold the log.</td></tr>
+          <tr><td>Staff / roles / catalog / pricing</td><td class="no">no</td><td class="s">No admin at all — your instinct was right.</td></tr>
+          <tr><td>WhatsApp centre, campaigns, offers</td><td class="no">no</td><td class="s">Marketing to patients is not a clinical act.</td></tr>
+          <tr><td>Enter or finalize lab results</td><td class="no">no</td><td class="s">Lab incharge's signing authority; separate rule engine.</td></tr>
+          <tr><td>Patients of other doctors</td><td class="maybe">reason</td><td class="s">Break the glass — stated reason, audited. Not a toggle.</td></tr>
+          <tr><td>Register a patient / create a visit</td><td class="maybe">v2</td><td class="s">Front desk does this. Revisit if doctors ask.</td></tr>
+          <tr><td>Other branches</td><td class="maybe">scoped</td><td class="s">Only branches they actually hold visits at.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div class="q" style="border-left-color:var(--green);background:var(--greenSoft)">
+        <b>Cross-doctor access — resolved by the research: break the glass</b>
+        My first instinct was open-within-branch with a log. The evidence says tighter than that, and it is the
+        established pattern rather than my preference: <b>scope by care relationship</b> — a doctor sees the patients on
+        their own visits — and make any lookup outside that an explicit act that <b>demands a stated reason and is
+        audited</b>. Covering for a colleague on leave still works; it just costs one sentence.
+        <br><br>
+        So §01 has no casual "All" toggle. Searching a patient you have never seen returns the patient, tells you they
+        are outside your care relationship, and asks why before opening. The owner can read every one of those reasons.
+        <br><br>
+        <b>Why the evidence is one-sided.</b> Every documented clinical-privacy incident found was <i>standing access
+        misused</i>, never a break-in — UCLA staff browsing celebrity charts (US$865k settlement), 23 security guards
+        at one hospital opening 419 records with no job need (US$240k), ~50 employees fired at another for one
+        patient's ER record. All were caught by reading logs afterwards. Regulators' own remedy, imposed after the
+        fact, was to narrow access to what each role needs — which is the design decision in front of you now.
+        <br><br>
+        <span class="tag open">still open</span> Whether an Indian clinic will tolerate that friction at OPD volume is
+        the owner's call. But the default should start locked and be loosened deliberately, never the reverse.
+      </div>
+      <div class="cal" style="margin-top:13px;border-color:#fcd34d;background:var(--amberSoft)">
+        <b>DPDP does <i>not</i> hand you a continuity-of-care exemption.</b> Unlike HIPAA's treatment carve-out, the
+        DPDP Act's §7 "legitimate uses" cover only a <b>medical emergency</b> (threat to life or health) and
+        epidemic/public-health response. There is <b>no general treatment or continuity-of-care legitimate use</b>.
+        So routine internal doctor access rests entirely on the "specified purpose" in your §5 patient notice — which
+        means how broadly that notice is worded is load-bearing, and is a drafting decision, not an engineering one.
+        <br><br>
+        Timing buys room: DPDP's substantive duties commence around <b>13 May 2027</b> (Consent Manager registration
+        ~Nov 2026). Until then the 2011 SPDI Rules remain operative — and those <i>do</i> classify medical records as
+        sensitive personal data, where DPDP's own text notably does not.
+      </div>
+      <div class="cal" style="margin-top:14px">
+        <b>Enforcement note.</b> Every "no" above has to be a route guard. Three of the leaks are already live in
+        endpoints the doctor portal would legitimately need to call —
+        <code>GET /visits/clinic/:id</code> returns <code>consultationFeeInPaise</code>,
+        <code>GET /clinic-doctors/:id</code> returns commission, and the Patient 360 summary returns
+        <code>outstandingDueInPaise</code>. A doctor-scoped projection layer is not polish, it is the first task.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  7. MY ACCOUNT  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">07</span><h2>My account — the answer to “can they have admin”</h2><span class="tag rec">no admin, three own-account things</span></header>
+  <p class="why">
+    No. A doctor gets no Config, no roles, no catalog, no branch settings. What they do get is the small set of things
+    that are <b>theirs</b> and that nobody else can reasonably maintain for them — one page, reachable from their name
+    in the sidebar footer, not a section in the nav.
+  </p>
+  <div class="split">
+    <div class="app" style="min-height:0">
+      <div class="main">
+        <div class="ph"><div><h3>My account</h3><div class="meta">Dr Ramesh Kumar · MBBS, MD (Gen Med) · Reg. 54821</div></div></div>
+        <div style="font-size:13px">
+          <div style="padding:11px 0;border-bottom:1px solid var(--line)">
+            <div style="font-weight:600;margin-bottom:3px">Signature</div>
+            <div class="s" style="margin-bottom:8px">Appears on prescriptions you sign.</div>
+            <div style="display:flex;gap:9px;align-items:center">
+              <div style="width:150px;height:44px;border:1px solid var(--line2);border-radius:7px;background:#fff"></div>
+              <span class="btn sm">Replace</span>
+            </div>
+          </div>
+          <div style="padding:11px 0;border-bottom:1px solid var(--line)">
+            <div style="font-weight:600;margin-bottom:3px">Favourite medicines</div>
+            <div class="s" style="margin-bottom:8px">Your own shortcuts in the prescription editor. 18 saved.</div>
+            <span class="btn sm">Manage</span>
+          </div>
+          <div style="padding:11px 0;border-bottom:1px solid var(--line)">
+            <div style="font-weight:600;margin-bottom:3px">Letterhead note</div>
+            <div class="s" style="margin-bottom:8px">Timings / clinic line under your name. Owner can also set this.</div>
+            <div class="inp" style="max-width:340px">Mon–Sat 10 a.m. – 1 p.m.</div>
+          </div>
+          <div style="padding:11px 0">
+            <div style="font-weight:600;margin-bottom:3px">Password</div>
+            <span class="btn sm">Change password</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <ul class="note" style="margin-top:0">
+        <li><b>Name, qualification, specialty and registration number are read-only here</b>, shown but not editable.
+          They print on a legal document and they drive payouts; the owner owns them. A doctor who moves clinics
+          should not be able to retype their own registration number.</li>
+        <li><b>Favourites are per-doctor and are the real speed feature</b> — more so than dictation for a doctor whose
+          top 20 medicines cover most of their day. Worth building early, and it doubles as clinic vocabulary for the
+          medication resolver.</li>
+        <li><b>No branch switcher</b> unless they genuinely hold visits at more than one branch, in which case it
+          lists only those.</li>
+      </ul>
+      <div class="cal" style="margin-top:13px;border-color:#fcd34d;background:var(--amberSoft)">
+        <b>Session behaviour — the finding that surprised me most.</b> An anonymous survey of 299 healthcare workers
+        found <b>73.6% had used a colleague's password — and 100% of medical residents had</b>, averaging nearly five
+        episodes each. Credential sharing is not an edge case; it is what clinicians do when re-authentication is
+        slow, and it destroys every audit and break-the-glass control on this page at once.
+        <br><br>
+        So the mitigation is speed, not policy. Multi-hospital data puts <b>reconnect</b> — switching from the
+        reception PC to the exam-room tablet — as the biggest friction point, and ~70% of it removable. The shape to
+        copy without buying hospital-grade tooling: a short-lived device-trust token plus a PIN or biometric tap for
+        switching back in, full credentials only at shift start or after a long idle. <b>An unsaved prescription must
+        survive a lock</b> — a lock that discards work teaches doctors to share a login.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  7b. SIGNING + CONFIG  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">07b</span><h2>Signatures — reuse the signing stack, but not the rule engine</h2><span class="tag rec">one new column, no new concepts</span></header>
+  <p class="why">
+    The portal already has a complete signature stack: <code>SignatureEditor</code> with the background removal,
+    <code>signatureImage.ts</code>, base64 storage that survives a Render deploy, and the reveal animation. All of it
+    is reusable as-is. What must <b>not</b> be reused is <code>SigningRule</code> — and that distinction is the whole
+    design.
+  </p>
+  <div class="split">
+    <div>
+      <div class="cal" style="border-color:#fecaca;background:var(--redSoft)">
+        <b>Why a prescription gets no signing rule.</b> A <code>SigningRule</code> answers “which doctor signs this
+        <i>department's</i> reports” — it exists because a pathology report has no inherent author, so config has to
+        name one. <b>A prescription already knows its author.</b> It is
+        <code>ClinicVisit.clinicDoctorId</code> — the doctor who saw the patient.
+        <br><br>
+        Adding a rule layer would let configuration <i>contradict reality</i>: a rule could name Dr A while Dr B
+        actually consulted and signed. For a legal instrument carrying a registration number, that is the one failure
+        mode worth designing out entirely.
+      </div>
+      <div class="cal" style="margin-top:12px">
+        <b>The whole schema change</b>
+        <div style="margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#fff;
+                    border:1px solid var(--line2);border-radius:7px;padding:9px 11px">
+          model ClinicDoctor {<br>
+          &nbsp;&nbsp;…<br>
+          &nbsp;&nbsp;<b>signatureImageBase64  String?</b><br>
+          &nbsp;&nbsp;<b>userId                String? @unique</b><br>
+          &nbsp;&nbsp;<b>hprId                 String?</b><br>
+          }
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>A known wart, accepted deliberately.</b> <code>SigningDoctor</code> and <code>ClinicDoctor</code> both
+          carry a name, a registration number and qualifications. The same human who reads radiology <i>and</i> runs
+          an OP clinic is two rows, and updating a signature in one will not update the other. Merging them is a
+          migration with a "which row is canonical" problem for very little gain. Leave it; make the Config screen
+          say plainly which signature is being edited.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="app" style="min-height:0">
+        <div class="main">
+          <div class="ph"><div><h3>Config · Signing</h3><div class="meta">Owner only</div></div></div>
+          <div class="seg" style="margin-bottom:13px">
+            <span>Report signers</span><span>Lab incharges</span><span class="on">Consulting doctors</span>
+          </div>
+          <table>
+            <thead><tr><th>Doctor</th><th>Login</th><th>Signature</th><th class="ta-r"></th></tr></thead>
+            <tbody>
+              <tr>
+                <td><div class="nm">Dr Ramesh Kumar</div><div class="s">MBBS, MD · Reg. 54821 · CD-00007</div></td>
+                <td><span class="badge g">active</span></td>
+                <td><div style="width:86px;height:26px;border:1px solid var(--line2);border-radius:5px;background:#fff"></div></td>
+                <td class="ta-r"><span class="btn sm">Edit</span></td>
+              </tr>
+              <tr>
+                <td><div class="nm">Dr Anitha S</div><div class="s">MBBS, DGO · Reg. 61140 · CD-00011</div></td>
+                <td><span class="badge a">invited</span></td>
+                <td><span class="s" style="font-style:italic">none uploaded</span></td>
+                <td class="ta-r"><span class="btn sm">Add signature</span></td>
+              </tr>
+              <tr>
+                <td><div class="nm">Dr P. Venkatesh</div><div class="s">MBBS · Reg. 47702 · CD-00003</div></td>
+                <td><span class="s">no login</span></td>
+                <td><span class="s" style="font-style:italic">none uploaded</span></td>
+                <td class="ta-r"><span class="btn sm">Invite</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <ul class="note">
+            <li>A third tab on the existing Signing screen — <b>a list, not a rule editor</b>. No department column,
+              no branch column, no most-specific-wins resolution. There is nothing to resolve.</li>
+            <li><b>Invite reuses <code>User.portalInviteAt</code></b> and the WhatsApp invite flow that already exists
+              for staff. A clinic doctor with no login is a perfectly valid row — they just cannot sign digitally.</li>
+            <li>The signature control is <code>SignatureEditor</code> unchanged: upload, background removal, crop,
+              reveal. Same component, same pipeline, third caller.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="d">
+  <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin:0 0 9px">How the prescription's details get filled — and frozen</h4>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>On the sheet</th><th>Comes from</th></tr></thead>
+        <tbody>
+          <tr><td>Doctor name, qualification, specialty</td><td class="s"><code>ClinicDoctor</code></td></tr>
+          <tr><td><b>Registration number</b> <span class="badge r">mandatory</span></td><td class="s"><code>ClinicDoctor.registrationNumber</code></td></tr>
+          <tr><td>Signature image</td><td class="s"><code>ClinicDoctor.signatureImageBase64</code></td></tr>
+          <tr><td>Clinic line / timings</td><td class="s"><code>ClinicDoctor.letterheadNote</code></td></tr>
+          <tr><td>Branch header &amp; footer</td><td class="s"><code>Branch</code>, per-branch, as reports already do</td></tr>
+          <tr><td>Patient name, age, sex, ID</td><td class="s"><code>Patient</code> at visit time</td></tr>
+          <tr><td>Date, visit type, token</td><td class="s"><code>Visit</code> / <code>ClinicVisit</code></td></tr>
+          <tr><td>Medicines</td><td class="s">the prescription's own rows</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div class="q" style="border-left-color:var(--green);background:var(--greenSoft)">
+        <b>Freeze all of it at signature, the way reports already do</b>
+        Every field above except the medicines is <b>live config</b>. If a signed prescription renders from live
+        lookups, then a doctor correcting their own qualification next month silently rewrites a document they signed
+        in September — and a per-branch footer change rewrites every prescription ever issued there.
+        <br><br>
+        This portal already learned this: the report footer went DB-driven → <b>frozen into a snapshot</b> for exactly
+        this reason. A signed prescription must snapshot the doctor block, the registration number, the signature
+        image and the branch letterhead at the moment of signing, and render from the snapshot forever after.
+        <b>Immutability is not a status column — it is a frozen payload.</b>
+      </div>
+      <div class="cal" style="margin-top:13px">
+        <b>Which also solves a problem nobody asked about.</b> A doctor who leaves the clinic, or whose
+        <code>ClinicDoctor</code> row is deactivated, still has correctly-rendering prescriptions in the patient's
+        history — because nothing is resolved live. The same reason <code>signerNameOverride</code> and the
+        snapshotting on reports exist.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  8. ORDER OF WORK  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">08</span><h2>What I would build first</h2></header>
+  <p class="why">
+    The login is worth shipping <b>before</b> voice, and each step leaves something usable.
+  </p>
+  <ul class="note" style="margin-top:0">
+    <li><b>1 · The join and the deny list.</b> <code>ClinicDoctor.userId</code>, <code>requireRole('doctor')</code> on
+      everything, and the money projection. No new screens. Nothing works yet, nothing leaks.</li>
+    <li><b>2 · Today + clinical Patient 360.</b> A doctor can log in and read. Genuinely useful on its own, and it
+      surfaces the access-scoping decision against real users rather than in the abstract.</li>
+    <li><b>3 · Typed prescription, signed.</b> The structured Rx model, the state machine, the immutable signed
+      version, print onto the letterhead the portal already renders. <b>This is the feature</b> — it replaces a blank
+      printed sheet with a record. Voice is an accelerator on top of it.</li>
+    <li><b>4 · Drafts.</b> Falls out of the state machine, and is needed before dictation makes drafts common.</li>
+    <li><b>5 · Then voice</b>, into fields that already exist and are already editable and signable.</li>
+  </ul>
+  <div class="q">
+    <b>Why this order</b>
+    If voice comes first, the prescription model gets designed around what the extractor happens to emit. Building the
+    typed editor first forces the schema to be right for a doctor typing at 11 a.m. with no microphone — and that is
+    also the fallback every failure mode in the VoiceRx brief needs.
+  </div>
+</div>
+
+<!-- ─────────────────────────────  9. EVIDENCE  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">09</span><h2>What this is actually based on — and how good the evidence is</h2></header>
+  <p class="why">
+    Separating the measured from the merely conventional, because the two should not carry equal weight when you
+    disagree with one of them.
+  </p>
+  <div class="split">
+    <div>
+      <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin:0 0 9px">Measured — large-sample or controlled</h4>
+      <ul class="note" style="margin-top:0">
+        <li><b>EHRs score 46/100 on the System Usability Scale</b> (n≈870, replicated at n=848). 68 is "acceptable";
+          46 is a failing grade and the bottom decile of all benchmarked software. The bar to clear here is low.</li>
+        <li><b>Wrong-item-from-dropdown is a lived error, not hypothetical</b> — 18 of 23 prescribers reported making
+          juxtaposition errors. This is the single finding that most changed the wireframes (§02).</li>
+        <li><b>Computerised prescribing cuts prescribing errors ~48% vs paper</b> — the case for replacing the blank
+          printed Rx sheet at all, independent of any voice feature.</li>
+        <li><b>Clinicians prefer structured/tabular displays</b> over narrative summaries, rating them lower effort.
+          Drove the tabular results panel in §05.</li>
+        <li><b>Personalisation is one of four measured satisfaction drivers</b> across 35,000+ physicians (KLAS).
+          Favourites and persisted defaults are not polish.</li>
+        <li><b>Raw responsiveness outranks features</b> in physician complaints — 47% call response time inadequate.</li>
+        <li><b>~16 minutes of software time per outpatient encounter</b>, of which documentation and ordering are ~41%.
+          That is the budget this feature is competing for.</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--amber);margin:0 0 9px">Convention — strong, universal, but not a study</h4>
+      <ul class="note" style="margin-top:0">
+        <li><b>"Don't show doctors the money."</b> No study tested whether showing a bill amount changes prescribing.
+          What <i>is</i> evidenced is the underlying mechanism — visible referral economics altering ordering
+          behaviour is why Stark-type law exists. Every product surveyed keeps billing out of the clinical chart.
+          I am confident in the rule; I am not going to call it proven.</li>
+        <li><b>Three-list dashboard layout.</b> Universal across independently built competitors, which is real but
+          weak evidence. No vendor publishes usability data on it.</li>
+        <li><b>Break-the-glass.</b> Accepted practice, explicitly <i>not</i> a universal regulatory mandate.</li>
+      </ul>
+      <hr class="d">
+      <div class="cal">
+        <b>The India-specific divergence worth taking seriously.</b> Indian OPD products — HealthPlix, Eka Care,
+        DocOn, and the existing voice-Rx products already in this market — all market <b>prescription speed</b> as the
+        core differentiator, several claiming under a minute. HealthPlix's own finding from 6,000 clinics was that
+        Indian doctors wanted <i>one simplified view</i>, not more information. So the density model to copy is
+        theirs, not Epic's. That is also the honest competitive context for VoiceRx: structured voice-to-Rx in Indian
+        languages is an existing product category here, not an unclaimed idea.
+      </div>
+      <div class="cal" style="margin-top:13px;border-color:#fecaca;background:var(--redSoft)">
+        <b>Primary-source legal requirements — build these, don't debate them</b>
+        <ul class="note" style="margin-top:7px">
+          <li>Registration number on every prescription <b>and every electronic message carrying one</b> — TPG §3.2.5.</li>
+          <li>Schedule X / NDPS: <b>hard block</b> on any non-in-person path — TPG §3.7.4, no exception exists.</li>
+          <li>A signature <b>image</b> is expressly endorsed; a typed name alone has no statutory footing.</li>
+          <li>Individual logins are non-negotiable if any of the audit design is to mean anything.</li>
+          <li>Access logs: DPDP Rule 6 wants <b>visibility through logs, monitoring and review, retained one year</b>.</li>
+          <li>Breach notice has <b>no materiality threshold</b> — every affected patient, plus the Board, detail within 72&nbsp;h.</li>
+          <li>Erasure (§8(7)) yields to statutory medical retention — so keeping full history stays correct.</li>
+        </ul>
+      </div>
+      <div class="q" style="margin-top:13px">
+        <b>Needs a lawyer, not me — four that actually block things</b>
+        <b>1.</b> How broadly the patient notice defines "specified purpose", since that — not statute — is what makes a
+        second doctor's access lawful. <b>2.</b> Whether the NMC 2023 conduct regulations are still in abeyance, i.e.
+        whether the 2002 regime and the 2020 Telemedicine Guidelines are in fact today's operative rules.
+        <b>3.</b> Signature sufficiency for Schedule H/H1 dispensing — no Indian judgment or CDSCO/PCI circular was
+        found either way, an explicit negative finding. <b>4.</b> If psychiatry is ever in scope, the Mental Healthcare
+        Act 2017 runs its own confidentiality regime that can override the patterns on this page, and needs its own review.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────────  10. TOKENS  ───────────────────────────── -->
+<div class="sec">
+  <header><span class="num">10</span><h2>Adoptable rules — numbers a developer can implement today</h2><span class="tag rec">stop debating, copy these</span></header>
+  <p class="why">
+    There is no public design system from Epic, Cerner, Philips or GE — a real negative finding, not a failed search.
+    The only published, opinionated, numbers-bearing health design systems reachable are the <b>NHS Design System</b>
+    and <b>CMS.gov</b>. Everything below is from those plus WCAG, which is the one source here with legal force.
+  </p>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th>Rule</th><th style="width:150px">Value</th><th style="width:74px">Force</th></tr></thead>
+        <tbody>
+          <tr><td>Text contrast, normal</td><td class="s">≥ 4.5 : 1</td><td class="yes">law</td></tr>
+          <tr><td>Text contrast, large (≥24px, or ≥18.66px bold)</td><td class="s">≥ 3 : 1</td><td class="yes">law</td></tr>
+          <tr><td>UI component / meaningful graphic contrast</td><td class="s">≥ 3 : 1</td><td class="yes">law</td></tr>
+          <tr><td>Line height, body</td><td class="s">≥ 1.5 × font size</td><td class="yes">law</td></tr>
+          <tr><td>Touch target, floor</td><td class="s">24 × 24 CSS px</td><td class="yes">law</td></tr>
+          <tr><td>Touch target, what to actually use</td><td class="s">44 × 44 px</td><td class="maybe">conv.</td></tr>
+          <tr><td>Focus ring</td><td class="s">≥ 2px, ≥ 3 : 1</td><td class="maybe">conv.</td></tr>
+          <tr><td>Colour as sole encoder</td><td class="s">never</td><td class="yes">law</td></tr>
+          <tr><td>Body text</td><td class="s">16px small / 19px large</td><td class="maybe">NHS</td></tr>
+          <tr><td>Smallest usable text</td><td class="s">14px</td><td class="maybe">NHS</td></tr>
+          <tr><td>Max line length</td><td class="s">70–80 characters</td><td class="maybe">NHS</td></tr>
+          <tr><td>Spacing scale</td><td class="s">4px base → 56px</td><td class="maybe">NHS</td></tr>
+          <tr><td>Numerals in value columns</td><td class="s"><code>tabular-nums</code></td><td class="maybe">free</td></tr>
+          <tr><td>Severity tiers</td><td class="s">3+, never binary</td><td class="maybe">evidence</td></tr>
+          <tr><td>Alarm colour convention</td><td class="s">red high · amber medium · green normal</td><td class="maybe">IEC 60601-1-8</td></tr>
+        </tbody>
+      </table>
+      <div class="cal" style="margin-top:13px">
+        <b>Where we sit today.</b> The portal's body text is 14px — NHS's "smallest usable", not its body size. I would
+        not restyle the whole app for that. But <b>lab values and medicine names should be 15–16px</b> in these screens
+        specifically: they are the numbers a wrong reading actually harms someone over, and they are read in a hurry.
+      </div>
+    </div>
+    <div>
+      <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--red);margin:0 0 9px">Anti-patterns to avoid on purpose</h4>
+      <ul class="note" style="margin-top:0">
+        <li><b>Dismissible warnings.</b> The most important number in this research:
+          published clinical-decision-support <b>alert override rates run 49–96%</b>. A warning a doctor can wave away
+          becomes trained-out noise within weeks — so it is not a safety control, it is a liability that <i>looks</i>
+          like one. Design consequence for the validator: a rule either <b>blocks finalisation</b> or it is not worth
+          showing. The Schedule X block is the former. There should be very few of them.</li>
+        <li><b>Dark theme as the default.</b> Counterintuitively wrong for this room: dark backgrounds behave more like
+          a mirror under strong ambient light. A light theme with strong contrast is the better default in a sunlit
+          Indian clinic.</li>
+        <li><b>Clearing a field when validation fails.</b> Forces re-entry of data that was already correct. NHS calls
+          this out explicitly. Show errors <b>only on submit</b> — never while typing or on blur — with a summary at
+          the top linking to each invalid field.</li>
+        <li><b>One visual treatment for doctor and patient.</b> Direct evidence says these must differ in density
+          <i>and</i> in colour use: clinicians want tiers and trend, patients want plain language and calmer colour.
+          Relevant to us specifically — <b>Smart Reports must not inherit this page's palette.</b></li>
+        <li><b>Binary red/green flagging</b> and <b>sub-24px targets</b>, per §05 and the table opposite.</li>
+      </ul>
+      <div class="q" style="border-left-color:var(--green);background:var(--greenSoft)">
+        <b>A real conflict between two research passes, resolved</b>
+        Security says a shared clinic workstation should idle out in 2–5 minutes. NHS accessibility says if a
+        multi-step form has an inactivity limit it should be <b>≥ 20 hours</b>, so nobody loses work mid-shift.
+        <br><br>
+        Both are right about different objects. <b>Lock the screen fast; never discard the draft.</b> The session
+        expires in minutes, the prescription in progress survives until the doctor resolves it — which is also what
+        §04 and §07 already needed independently.
+      </div>
+      <div class="cal" style="margin-top:13px;border-color:#fcd34d;background:var(--amberSoft)">
+        <b>India accessibility — not binding on us yet, but moving.</b> The RPwD Act 2016 routes ICT duties at
+        GIGW 3.0 (WCAG 2.1 AA, 88 mandatory checkpoints), which binds <b>government and PSU</b> sites, not a private
+        clinic SaaS. But IS 17802 is harmonised with EN 301 549 and is trending mandatory for regulated private
+        sectors — SEBI has already imposed it across financial services — and a Nov 2024 Supreme Court ruling held
+        accessibility standards must become mandatory rather than advisory. Meeting WCAG 2.2 AA now is cheaper than
+        retrofitting it when healthcare's turn comes.
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

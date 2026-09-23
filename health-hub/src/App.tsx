@@ -12,6 +12,10 @@ import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { BranchConfirmModal } from "./components/layout/BranchConfirmModal";
 import { useBranchStore } from "./store/branchStore";
 import Login from "./pages/Login";
+import DoctorQueue from "./pages/doctor/DoctorQueue";
+import Consultation from "./pages/doctor/Consultation";
+import DoctorPatients from "./pages/doctor/DoctorPatients";
+import DoctorAccount from "./pages/doctor/DoctorAccount";
 import Dashboard from "./pages/Dashboard";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
 import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingResults";
@@ -105,6 +109,33 @@ function AppRoutes() {
       />
       
       {/* Staff routes */}
+      {/* Doctor portal. Owners can open it too — they run the clinic and must be
+          able to see what their doctors see. */}
+      <Route path="/doctor" element={
+        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
+          <DoctorQueue />
+        </ProtectedRoute>
+      } />
+      <Route path="/doctor/consult/:visitId" element={
+        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
+          <Consultation />
+        </ProtectedRoute>
+      } />
+      <Route path="/doctor/patients" element={
+        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
+          <DoctorPatients />
+        </ProtectedRoute>
+      } />
+      <Route path="/doctor/patients/:patientId" element={
+        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
+          <DoctorPatients />
+        </ProtectedRoute>
+      } />
+      <Route path="/doctor/account" element={
+        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
+          <DoctorAccount />
+        </ProtectedRoute>
+      } />
       <Route path="/" element={
         <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <Dashboard />

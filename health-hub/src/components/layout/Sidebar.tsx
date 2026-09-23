@@ -161,6 +161,32 @@ const ownerNavItems: NavItem[] = [
 // Staff and Lab Incharge share the same operational nav. The only difference
 // between them is enforced elsewhere: Lab Incharge can finalize reports (and
 // sees more Admin config tabs) while Staff cannot.
+/**
+ * The doctor's nav. TWO items, on purpose.
+ *
+ * Everything else an owner sees — money, payouts, audit, catalogue, campaigns,
+ * config — is not merely hidden here; the routes refuse the role. Unsigned
+ * prescriptions are a strip on the queue, not a third nav item, because a draft
+ * belongs to a visit that is in or has just left that queue.
+ */
+const doctorNavItems: NavItem[] = [
+  {
+    label: 'OP / IP queue',
+    icon: Stethoscope,
+    href: '/doctor',
+    roles: ['doctor', 'owner'],
+    exact: true,
+    matchPrefixes: ['/doctor/consult'],
+  },
+  {
+    label: 'Patients',
+    icon: Users,
+    href: '/doctor/patients',
+    roles: ['doctor', 'owner'],
+    matchPrefixes: ['/doctor/patients'],
+  },
+];
+
 const staffNavItems: NavItem[] = [
   {
     label: 'Dashboard',
@@ -294,11 +320,13 @@ export function Sidebar() {
   };
 
   const navSet =
-    user?.role === 'owner'
-      ? ownerNavItems
-      : user?.role === 'sales'
-        ? salesNavItems
-        : staffNavItems;
+    user?.role === 'doctor'
+      ? doctorNavItems
+      : user?.role === 'owner'
+        ? ownerNavItems
+        : user?.role === 'sales'
+          ? salesNavItems
+          : staffNavItems;
   const navItems = navSet.filter((item) => (user ? item.roles.includes(user.role) : false));
 
   const isItemActive = (item: NavItem) =>

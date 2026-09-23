@@ -1,0 +1,388 @@
+/**
+ * Transcript -> structured draft.
+ *
+ * WHAT THE MODEL IS AND IS NOT ASKED TO DO
+ * It segments a transcript and reports what was SAID. It does not decide what a
+ * drug is (resolver.ts does), it does not decide whether a prescription is safe
+ * (validator.ts does), and it is never the source of truth for anything that
+ * reaches the sheet. That is why a cheap non-reasoning model is sufficient — and
+ * why a reasoning model is actively wrong here: reasoning is inference, and
+ * inference is invention. A thinking model handed "Pantop 40 once daily" will
+ * reason its way to "before breakfast", which is precisely the forbidden move.
+ *
+ * PROMPT CACHING
+ * The static half (instructions + vocabulary + examples) is emitted FIRST and the
+ * transcript LAST, because DeepSeek charges ~50x less for cached input. Reordering
+ * these two halves is not cosmetic; it is most of the bill.
+ */
+import { logger } from '../../lib/logger';
+import {
+  parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength,
+  wordsToNumbers, FREQUENCY_TEXT, type FrequencyCode,
+} from './normalize';
+
+const BASE_URL = (
+  process.env.VOICE_RX_LLM_BASE_URL
+  || process.env.SMART_REPORT_LLM_BASE_URL
+  || 'https://api.deepseek.com'
+).replace(/\/+$/, '');
+
+const API_KEY =
+  process.env.VOICE_RX_LLM_API_KEY
+  || process.env.SMART_REPORT_LLM_API_KEY
+  || process.env.SARVAM_API_KEY
+  || '';
+
+const MODEL = process.env.VOICE_RX_LLM_MODEL || 'deepseek-chat';
+const TIMEOUT_MS = Number(process.env.VOICE_RX_LLM_TIMEOUT_MS || 45_000);
+
+export class ExtractionUnavailable extends Error {}
+
+/** Where a value came from. The distinction PART 6 of the brief turns on. */
+export type FieldState = 'SPOKEN' | 'NORMALIZED' | 'UNKNOWN';
+
+export interface ExtractedItem {
+  spokenText: string;
+  name: string;
+  strength: string | null;
+  strengthUnit: string | null;
+  dosageForm: string | null;
+  doseQty: string | null;
+  doseUnit: string | null;
+  frequencyCode: FrequencyCode | null;
+  frequencyText: string | null;
+  route: string | null;
+  timing: string | null;
+  durationValue: number | null;
+  durationUnit: string | null;
+  instructions: string | null;
+  fieldStates: Record<string, FieldState>;
+  sourceText: string | null;
+  sourceStart: number | null;
+  sourceEnd: number | null;
+  /**
+   * True when the doctor offered this as one of several OPTIONS rather than
+   * prescribing it. "Either azithromycin or amoxiclav" must never become two
+   * prescribed medicines — the single failure class adversarial reviewers caught
+   * least often (4.5%) in a 565-note audit of deployed commercial scribes.
+   */
+  isAlternative: boolean;
+}
+
+export interface ExtractionResult {
+  items: ExtractedItem[];
+  diagnosis: string | null;
+  notes: string | null;
+  followUpDays: number | null;
+  /** Things the doctor plausibly meant to say but did not. Surfaced, not inferred. */
+  missing: string[];
+  model: string;
+  rawJson: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt — STATIC HALF. Keep this stable; every edit invalidates the cache.
+// ---------------------------------------------------------------------------
+
+const SYSTEM_PROMPT = `You convert a doctor's dictated prescription into structured JSON.
+
+You are a TRANSCRIPTION STRUCTURER, not a clinician. You never decide what is
+medically correct, and you never add information the doctor did not say.
+
+ABSOLUTE RULES
+1. NEVER invent a field. If the doctor did not say a timing, dose, route or
+   duration, that field is null. Do not supply a "usual" value. "Pantop 40 once
+   daily" has NO timing — do not write "before breakfast".
+2. Report medicine names EXACTLY as spoken, in "spokenText". Do not correct
+   spelling, do not expand a brand into a generic, do not fix what sounds like a
+   mistake. A separate system resolves names against a catalogue.
+3. If the doctor offers a CHOICE ("either X or Y", "X or else Y", "start with X"),
+   mark every option with "isAlternative": true. Never emit a choice as two
+   separate prescribed medicines.
+4. If the doctor corrects themselves ("no, make that 500"), keep only the
+   corrected value.
+5. Output ONLY JSON. No prose, no markdown fence.
+
+FIELD PROVENANCE
+For each medicine include "fieldStates" marking every field as one of:
+  "SPOKEN"     - the doctor said it
+  "NORMALIZED" - you rewrote what was said into a standard form (e.g. "teen baar"
+                 -> frequency TID). The MEANING must be exactly what was said.
+  "UNKNOWN"    - not said. The field itself must be null.
+
+LANGUAGE
+The dictation is Indian English, Hindi, or a mix (Hinglish). Treat Hindi words as
+equal to English: "din me do baar" is a frequency, "khane ke baad" is a timing,
+"teen din" is a duration. Number words may be spoken digit-group-wise: "six
+twenty five" means 625, "six fifty" means 650.
+
+OUTPUT SHAPE
+{
+  "items": [{
+    "spokenText": "string - verbatim as heard",
+    "name": "string - the medicine token only, no strength",
+    "strength": "string|null", "strengthUnit": "string|null",
+    "dosageForm": "tablet|capsule|syrup|injection|drops|ointment|inhaler|null",
+    "doseQty": "string|null", "doseUnit": "string|null",
+    "frequencyCode": "OD|BD|TID|QID|HS|SOS|STAT|WEEKLY|ALT_DAY|QH|null",
+    "route": "oral|topical|IV|IM|SC|ophthalmic|otic|nasal|inhalation|null",
+    "timing": "before food|after food|with food|empty stomach|bedtime|null",
+    "durationValue": number|null, "durationUnit": "days|weeks|months|null",
+    "instructions": "string|null",
+    "isAlternative": boolean,
+    "sourceText": "string - the clause this came from",
+    "fieldStates": { "name":"SPOKEN", "strength":"SPOKEN|UNKNOWN", "doseQty":"...",
+                     "frequency":"...", "route":"...", "timing":"...", "duration":"..." }
+  }],
+  "diagnosis": "string|null",
+  "notes": "string|null",
+  "followUpDays": number|null,
+  "missing": ["short phrases naming what was expected but not said"]
+}
+
+EXAMPLES
+
+Input: "Augmentin six twenty five three times a day after food for five days"
+Output: {"items":[{"spokenText":"Augmentin six twenty five","name":"Augmentin",
+"strength":"625","strengthUnit":null,"dosageForm":null,"doseQty":null,"doseUnit":null,
+"frequencyCode":"TID","route":null,"timing":"after food","durationValue":5,
+"durationUnit":"days","instructions":null,"isAlternative":false,
+"sourceText":"Augmentin six twenty five three times a day after food for five days",
+"fieldStates":{"name":"SPOKEN","strength":"SPOKEN","doseQty":"UNKNOWN","frequency":"NORMALIZED",
+"route":"UNKNOWN","timing":"SPOKEN","duration":"SPOKEN"}}],
+"diagnosis":null,"notes":null,"followUpDays":null,
+"missing":["dose quantity not stated","route not stated"]}
+
+Input: "patient ko azithromycin 500 BD five days dena hai"
+Output: {"items":[{"spokenText":"azithromycin 500","name":"azithromycin",
+"strength":"500","strengthUnit":null,"dosageForm":null,"doseQty":null,"doseUnit":null,
+"frequencyCode":"BD","route":null,"timing":null,"durationValue":5,"durationUnit":"days",
+"instructions":null,"isAlternative":false,
+"sourceText":"patient ko azithromycin 500 BD five days dena hai",
+"fieldStates":{"name":"SPOKEN","strength":"SPOKEN","doseQty":"UNKNOWN","frequency":"SPOKEN",
+"route":"UNKNOWN","timing":"UNKNOWN","duration":"SPOKEN"}}],
+"diagnosis":null,"notes":null,"followUpDays":null,
+"missing":["timing not stated","dose quantity not stated"]}
+
+Input: "give her either azithromycin or amoxiclav, let's start with the azithro 500 OD three days"
+Output: {"items":[{"spokenText":"azithromycin","name":"azithromycin","strength":"500",
+"strengthUnit":null,"dosageForm":null,"doseQty":null,"doseUnit":null,"frequencyCode":"OD",
+"route":null,"timing":null,"durationValue":3,"durationUnit":"days","instructions":null,
+"isAlternative":true,"sourceText":"either azithromycin or amoxiclav, let's start with the azithro 500 OD three days",
+"fieldStates":{"name":"SPOKEN","strength":"SPOKEN","doseQty":"UNKNOWN","frequency":"SPOKEN",
+"route":"UNKNOWN","timing":"UNKNOWN","duration":"SPOKEN"}},
+{"spokenText":"amoxiclav","name":"amoxiclav","strength":null,"strengthUnit":null,
+"dosageForm":null,"doseQty":null,"doseUnit":null,"frequencyCode":null,"route":null,
+"timing":null,"durationValue":null,"durationUnit":null,"instructions":null,
+"isAlternative":true,"sourceText":"either azithromycin or amoxiclav",
+"fieldStates":{"name":"SPOKEN","strength":"UNKNOWN","doseQty":"UNKNOWN","frequency":"UNKNOWN",
+"route":"UNKNOWN","timing":"UNKNOWN","duration":"UNKNOWN"}}],
+"diagnosis":null,"notes":null,"followUpDays":null,
+"missing":["the doctor offered a choice between two medicines - confirm which one is prescribed"]}`;
+
+// ---------------------------------------------------------------------------
+
+interface ChatResult { content: string; inputTokens: number | null; outputTokens: number | null }
+
+async function chat(messages: { role: string; content: string }[]): Promise<ChatResult> {
+  if (!API_KEY) throw new ExtractionUnavailable('No extraction API key configured');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
+      // temperature 0: extraction must be repeatable. A sampled extraction is a
+      // different prescription on a retry, which is not a property medicine can have.
+      body: JSON.stringify({ model: MODEL, messages, temperature: 0, response_format: { type: 'json_object' } }),
+      signal: ctrl.signal,
+    });
+    const body = await res.text();
+    if (!res.ok) throw new ExtractionUnavailable(`${res.status} ${body.slice(0, 300)}`);
+    const json = JSON.parse(body);
+    return {
+      content: json?.choices?.[0]?.message?.content ?? '',
+      inputTokens: json?.usage?.prompt_tokens ?? null,
+      outputTokens: json?.usage?.completion_tokens ?? null,
+    };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw new ExtractionUnavailable(`Timed out after ${TIMEOUT_MS}ms`);
+    if (err instanceof ExtractionUnavailable) throw err;
+    throw new ExtractionUnavailable(err?.message || 'Extraction request failed');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Models fence JSON even when told not to. Recover rather than fail the doctor. */
+function parseLoose(raw: string): any {
+  const t = raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  try { return JSON.parse(t); } catch { /* fall through */ }
+  const a = t.indexOf('{');
+  const b = t.lastIndexOf('}');
+  if (a >= 0 && b > a) {
+    try { return JSON.parse(t.slice(a, b + 1)); } catch { /* fall through */ }
+  }
+  throw new ExtractionUnavailable('Model did not return parseable JSON');
+}
+
+/**
+ * Attach a timestamp range by finding the item's source clause in the segments.
+ *
+ * Deliberately conservative: if the clause cannot be located, timings stay NULL
+ * rather than being guessed. A source link that points at the wrong seconds is
+ * worse than none, because the whole value of "view source" is that a doctor can
+ * trust what it shows — and in production generative systems only ~74.5% of
+ * citations actually support the claim attached to them.
+ */
+function locate(
+  sourceText: string | null,
+  segments: { text: string; start: number; end: number }[],
+): { start: number | null; end: number | null } {
+  if (!sourceText || segments.length === 0) return { start: null, end: null };
+  const needle = sourceText.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!needle) return { start: null, end: null };
+  const words = needle.split(' ').filter((w) => w.length > 2);
+  if (words.length === 0) return { start: null, end: null };
+
+  let best: { start: number; end: number; hits: number } | null = null;
+  for (const seg of segments) {
+    const hay = seg.text.toLowerCase();
+    const hits = words.filter((w) => hay.includes(w)).length;
+    if (hits > 0 && (!best || hits > best.hits)) best = { start: seg.start, end: seg.end, hits };
+  }
+  // Require at least a third of the distinctive words to land in one segment.
+  if (!best || best.hits < Math.max(1, Math.ceil(words.length / 3))) return { start: null, end: null };
+  return { start: best.start, end: best.end };
+}
+
+/**
+ * Deterministic backstop over the model's output.
+ *
+ * Anything a regex can decide, a regex decides — and it OVERRIDES the model,
+ * because a fixed mapping cannot drift between runs and a model can. The model's
+ * value is segmentation; ours is that "six twenty five" is 625 every single time.
+ */
+function reconcile(item: any, fullText: string): ExtractedItem {
+  const spoken = String(item?.spokenText ?? '').trim();
+  const source = item?.sourceText ? String(item.sourceText) : spoken || null;
+  const scope = source || fullText;
+
+  const states: Record<string, FieldState> = {
+    name: 'SPOKEN', strength: 'UNKNOWN', doseQty: 'UNKNOWN',
+    frequency: 'UNKNOWN', route: 'UNKNOWN', timing: 'UNKNOWN', duration: 'UNKNOWN',
+    ...(item?.fieldStates ?? {}),
+  };
+
+  // Strength: prefer ours off the spoken text, since number words are our job.
+  let strength: string | null = item?.strength ? String(item.strength) : null;
+  let strengthUnit: string | null = item?.strengthUnit ? String(item.strengthUnit) : null;
+  const ps = parseStrength(spoken) ?? parseStrength(scope);
+  if (ps) {
+    strength = ps.strength;
+    strengthUnit = strengthUnit ?? ps.unit;
+    states.strength = 'SPOKEN';
+  } else if (!strength) {
+    states.strength = 'UNKNOWN';
+  }
+
+  const freqFromText = parseFrequency(scope);
+  const frequencyCode: FrequencyCode | null =
+    freqFromText ?? (item?.frequencyCode && FREQUENCY_TEXT[item.frequencyCode as FrequencyCode]
+      ? (item.frequencyCode as FrequencyCode)
+      : null);
+  if (frequencyCode) states.frequency = states.frequency === 'UNKNOWN' ? 'NORMALIZED' : states.frequency;
+  else states.frequency = 'UNKNOWN';
+
+  const timing = parseTiming(scope) ?? (item?.timing ? String(item.timing) : null);
+  states.timing = timing ? (states.timing === 'UNKNOWN' ? 'SPOKEN' : states.timing) : 'UNKNOWN';
+
+  const route = parseRoute(scope) ?? (item?.route ? String(item.route) : null);
+  states.route = route ? (states.route === 'UNKNOWN' ? 'NORMALIZED' : states.route) : 'UNKNOWN';
+
+  const dur = parseDuration(scope);
+  const durationValue = dur?.value ?? (item?.durationValue != null ? Number(item.durationValue) : null);
+  const durationUnit = dur?.unit ?? (item?.durationUnit ? String(item.durationUnit) : null);
+  states.duration = durationValue != null ? 'SPOKEN' : 'UNKNOWN';
+
+  const doseQty = item?.doseQty != null ? String(item.doseQty) : null;
+  states.doseQty = doseQty ? states.doseQty : 'UNKNOWN';
+
+  // The medicine token, stripped of a trailing strength the model left attached.
+  let name = String(item?.name ?? spoken).trim();
+  name = wordsToNumbers(name);
+  if (strength) {
+    name = name.replace(new RegExp(`\\s*\\b${strength.replace(/[+]/g, '\\+')}\\b\\s*(mg|mcg|ml|g|iu)?$`, 'i'), '').trim();
+  }
+
+  return {
+    spokenText: spoken || name,
+    name: name || spoken,
+    strength, strengthUnit,
+    dosageForm: item?.dosageForm ? String(item.dosageForm) : null,
+    doseQty,
+    doseUnit: item?.doseUnit ? String(item.doseUnit) : null,
+    frequencyCode,
+    frequencyText: frequencyCode ? FREQUENCY_TEXT[frequencyCode] : null,
+    route, timing,
+    durationValue, durationUnit,
+    instructions: item?.instructions ? String(item.instructions) : null,
+    fieldStates: states,
+    sourceText: source,
+    sourceStart: null,
+    sourceEnd: null,
+    isAlternative: !!item?.isAlternative,
+  };
+}
+
+export async function extractPrescription(
+  transcript: string,
+  segments: { text: string; start: number; end: number }[] = [],
+): Promise<ExtractionResult> {
+  const text = transcript.trim();
+  if (!text) {
+    return { items: [], diagnosis: null, notes: null, followUpDays: null, missing: [], model: MODEL, rawJson: null };
+  }
+
+  // Static content first (cacheable), the variable transcript last.
+  const { content, inputTokens, outputTokens } = await chat([
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: `Transcript:\n"""${text}"""` },
+  ]);
+
+  const parsed = parseLoose(content);
+  const rawItems: any[] = Array.isArray(parsed?.items) ? parsed.items : [];
+
+  const items = rawItems.map((it) => {
+    const built = reconcile(it, text);
+    const { start, end } = locate(built.sourceText, segments);
+    return { ...built, sourceStart: start, sourceEnd: end };
+  });
+
+  const missing = Array.isArray(parsed?.missing) ? parsed.missing.map(String) : [];
+  // Our own omission sweep, independent of the model. Omissions are 54-86% of
+  // ambient-scribe errors and the class both machines and humans are near-blind
+  // to (AUC 0.50-0.63) for the structural reason that nothing on the page points
+  // at them. So we state them rather than hoping anyone notices.
+  for (const it of items) {
+    if (!it.frequencyCode) missing.push(`${it.name}: no frequency stated`);
+    if (it.durationValue == null && it.frequencyCode !== 'STAT') missing.push(`${it.name}: no duration stated`);
+  }
+
+  logger.info({ model: MODEL, inputTokens, outputTokens, items: items.length }, 'voiceRx: extraction complete');
+
+  return {
+    items,
+    diagnosis: parsed?.diagnosis ? String(parsed.diagnosis) : null,
+    notes: parsed?.notes ? String(parsed.notes) : null,
+    followUpDays: parsed?.followUpDays != null ? Number(parsed.followUpDays) : null,
+    missing: Array.from(new Set(missing)),
+    model: MODEL,
+    rawJson: parsed,
+  };
+}
+
+export function extractionConfigured(): boolean {
+  return !!API_KEY;
+}
