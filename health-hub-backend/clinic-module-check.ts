@@ -18,7 +18,8 @@
 import 'dotenv/config';
 import prisma from './src/lib/prisma';
 import { digitalRxEnabled, DIGITAL_RX_KEY } from './src/lib/clinicModule';
-import { resolvePrescriptionToken } from './src/services/prescriptionAccessService';
+import { resolvePrescriptionToken, prescriptionLink } from './src/services/prescriptionAccessService';
+import { sendPrescriptionReady } from './src/services/notificationService';
 
 const BASE = process.env.CHECK_BASE_URL || 'http://localhost:3000';
 
@@ -47,6 +48,25 @@ async function main() {
   // ── the token ─────────────────────────────────────────────────────────────
   const bogus = await resolvePrescriptionToken('not-a-real-token-' + Date.now());
   assert('a garbage token resolves to null', bogus === null);
+
+  // ── the link the patient is sent ──────────────────────────────────────────
+  // /rx/:token is a CLIENT route. It resolves on the portal, where the SPA
+  // rewrite serves every path; the API host serves no SPA and 404s it. The first
+  // version built this on PUBLIC_BILL_BASE_URL — the API host — and every link
+  // would have opened to a 404.
+  const link = prescriptionLink('abc123');
+  assert(`link is on the portal host (${link})`, !link.includes('reports.sobhanaportal.com'));
+  assert('link ends in /rx/<token>', link.endsWith('/rx/abc123'));
+
+  // ── a failed send is a VALUE, not a throw ─────────────────────────────────
+  // A doctor who presses Send must be told it did not go out. A dispatcher that
+  // throws on "no such prescription" would surface as a generic 500 instead of
+  // the reason, and one that returned success would be worse.
+  let threw = false;
+  const sent = await sendPrescriptionReady('does-not-exist-' + Date.now()).catch(() => { threw = true; return null; });
+  assert('sending a missing prescription does not throw', !threw);
+  assert('…reports failure', sent?.success === false);
+  assert('…with a reason', !!sent?.error, sent?.error ?? '');
 
   // ── the public route is really mounted ────────────────────────────────────
   try {

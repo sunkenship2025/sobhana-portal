@@ -21,7 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
-  Mic, Square, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check,
+  Mic, Square, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check, Send,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RxItemEditor } from '@/components/doctor/RxItemEditor';
@@ -91,6 +91,30 @@ export default function Consultation() {
   const silenceTimer = useRef<number | undefined>(undefined);
 
   const signed = rx?.status === 'SIGNED';
+  const [sending, setSending] = useState(false);
+  const [sentAt, setSentAt] = useState<number | null>(null);
+
+  /** Send the patient their link. Never fired automatically — see the button. */
+  const doSend = useCallback(async () => {
+    if (!rx) return;
+    setSending(true);
+    try {
+      const r = await doctorApi.send(rx.id);
+      if (r.sent?.success) {
+        setSentAt(Date.now());
+        toast.success('Prescription sent to the patient on WhatsApp');
+      } else {
+        // The server's reason, verbatim: "not opted in", "no phone on file",
+        // "online access is switched off for this visit" are all different
+        // problems with different fixes, and a generic failure helps nobody.
+        toast.error(r.sent?.error || 'Could not send the prescription');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send the prescription');
+    } finally {
+      setSending(false);
+    }
+  }, [rx]);
 
   // --- load ----------------------------------------------------------------
   const load = useCallback(async () => {
@@ -378,10 +402,24 @@ export default function Consultation() {
               ))}
             </div>
             {signed && (
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
-                <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                Print
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={() => window.print()}>
+                  <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  Print
+                </Button>
+                {/* Explicit, never automatic on signing: a prescription is
+                    sometimes amended a minute later, and a patient who already
+                    has the first one on their phone must work out which is
+                    current. The link resolves to the latest signed version, so
+                    sending once, when the doctor is ready, is both simpler and
+                    safer than sending on every signature. */}
+                <Button variant="outline" size="sm" disabled={sending} onClick={() => void doSend()}>
+                  {sending
+                    ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />
+                    : <Send className="mr-1.5 h-4 w-4" aria-hidden="true" />}
+                  {sentAt ? 'Send again' : 'Send to patient'}
+                </Button>
+              </>
             )}
           </div>
 

@@ -39,6 +39,7 @@ import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 import { computeBillFinancialsFromPersisted } from './billFinancialService';
 import { createBillAccessToken } from './billAccessService';
+import { createPrescriptionAccessToken } from './prescriptionAccessService';
 import { issueCoupon } from './couponService';
 import { createStatementAccessToken } from './statementAccessService';
 import { getPayoutStatement, getPayoutPayeePhone } from './payoutService';
@@ -508,6 +509,95 @@ export async function sendPortalCredentials(
     `Password: ${password}\n\n` +
     `Please change your password after signing in. Do not share these details with anyone.`;
   return sendText(phone, text);
+}
+
+// ============================================================================
+// PRESCRIPTION — send the patient their link
+// ============================================================================
+
+/**
+ * Send a SIGNED prescription to the patient on WhatsApp.
+ *
+ * Reports "not sent, and why" as a VALUE rather than throwing, like the report
+ * dispatcher: a doctor who has just signed must be told the message did not go
+ * out, and a caller that only catches exceptions would show them a clean save.
+ *
+ * Refuses on anything unsigned. The template carries no clinical content at all
+ * — no drug, no dose, no diagnosis — only the patient's name and the doctor's;
+ * the prescription itself lives behind the token. A medicine list sitting in a
+ * WhatsApp notification on a lock screen is not something to do by default.
+ */
+export async function sendPrescriptionReady(
+  prescriptionId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!isWhatsAppEnabled()) return { success: false, error: 'WhatsApp messaging is not enabled' };
+
+    const rx = await prisma.prescription.findUnique({
+      where: { id: prescriptionId },
+      select: {
+        id: true, rootId: true, status: true, visitId: true, branchId: true,
+        clinicDoctor: { select: { name: true } },
+      },
+    });
+    if (!rx) return { success: false, error: 'No such prescription' };
+    if (rx.status !== 'SIGNED') return { success: false, error: 'Sign the prescription before sending it' };
+
+    const info = await getPatientNotificationInfo(rx.visitId);
+    if (!info) return { success: false, error: 'This patient has no phone number on file' };
+    if (!info.whatsappOptIn) return { success: false, error: 'This patient has not opted in to WhatsApp' };
+    // The same visit-level kill switch the report and bill sends honour.
+    if (info.visit.patientLinkDisabledAt) {
+      return { success: false, error: 'Online access is switched off for this visit' };
+    }
+
+    const formattedPhone = formatPhoneForWhatsApp(info.phone);
+    if (!formattedPhone) return { success: false, error: 'That phone number is not usable on WhatsApp' };
+
+    // Minted against the root, so a later amendment reaches the same link.
+    // The template's button carries the PORTAL origin (where the SPA renders
+    // /rx/:token), not the API host — see prescriptionLink.
+    const token = await createPrescriptionAccessToken(rx.rootId);
+    const patientDisplayName = info.patient.title
+      ? `${info.patient.title}. ${info.patient.name}`
+      : info.patient.name;
+    const doctorName = rx.clinicDoctor?.name ?? 'your doctor';
+
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName: 'prescription_ready',
+      templateParams: { patientName: info.patient.name, doctorName, prescriptionId: rx.rootId },
+      contextId: rx.visitId,
+      contextType: MessageContextType.REPORT,
+      branchId: rx.branchId,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: patientDisplayName },
+            { type: 'text', text: doctorName },
+          ],
+        },
+        {
+          // The base URL is baked into the Meta template; the parameter is just
+          // the token, exactly as bill_receipt does it.
+          type: 'button',
+          sub_type: 'url',
+          index: 0,
+          parameters: [{ type: 'text', text: token }],
+        },
+      ],
+    });
+
+    log.info({ prescriptionId: rx.id, visitId: rx.visitId }, 'prescription sent to patient');
+    return { success: true };
+  } catch (err: any) {
+    const meta = err?.response?.data?.error;
+    const reason: string = meta?.error_data?.details || meta?.message || err?.message || 'send failed';
+    log.warn({ err, prescriptionId }, 'prescription send failed');
+    return { success: false, error: reason };
+  }
 }
 
 // ============================================================================

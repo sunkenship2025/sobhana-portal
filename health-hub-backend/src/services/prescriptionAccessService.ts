@@ -27,6 +27,24 @@ function hashToken(token: string): string {
 }
 
 /**
+ * The patient-facing URL for a prescription token.
+ *
+ * NOT PUBLIC_BILL_BASE_URL. That is the API host (reports.sobhanaportal.com),
+ * which serves /bills/view and /reports itself and has no SPA behind it — only
+ * /css, /images and /fonts are static there. `/rx/:token` is a CLIENT route, so
+ * it resolves on the portal (www.sobhanaportal.com), where the SPA rewrite
+ * serves index.html for every path. Building this on the bill base produced a
+ * link that 404s, which is the sort of thing you only notice by opening it.
+ *
+ * One definition because two callers need it — the doctor's Share button and the
+ * WhatsApp send — and a link that differs between them is a support ticket.
+ */
+export function prescriptionLink(token: string): string {
+  const base = (process.env.PUBLIC_PORTAL_BASE_URL || 'https://www.sobhanaportal.com').replace(/\/+$/, '');
+  return `${base}/rx/${token}`;
+}
+
+/**
  * Mints a link for a prescription. `prescriptionId` may be any version — it is
  * normalised to the root, so re-issuing after an amendment cannot fork the link.
  */

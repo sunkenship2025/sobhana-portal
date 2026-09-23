@@ -26,7 +26,8 @@ import {
 } from '../services/voiceRx/prescriptionService';
 import { putObject, deleteObject } from '../services/r2StorageService';
 import { requireDigitalRx } from '../lib/clinicModule';
-import { createPrescriptionAccessToken } from '../services/prescriptionAccessService';
+import { createPrescriptionAccessToken, prescriptionLink } from '../services/prescriptionAccessService';
+import { sendPrescriptionReady } from '../services/notificationService';
 import { logAction } from '../services/auditService';
 import {
   transcribeBurstLimit, consumeBranchQuota, checkAudio, checkDuration, recordUsage,
@@ -463,10 +464,6 @@ router.post('/:id/link', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
     }
 
     const token = await createPrescriptionAccessToken(rx.rootId);
-    // Same public origin the bill and report links already use; falls back to
-    // this host so a dev box produces a link that actually opens.
-    const base = (process.env.PUBLIC_BILL_BASE_URL || `${req.protocol}://${req.get('host')}`)
-      .replace(/\/+$/, '');
 
     await logAction({
       branchId: req.branchId!,
@@ -480,10 +477,56 @@ router.post('/:id/link', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
       userAgent: req.get('user-agent'),
     });
 
-    res.json({ url: `${base}/rx/${token}` });
+    res.json({ url: prescriptionLink(token) });
   } catch (err) {
     logger.error({ err }, 'prescriptions: link failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not create the link' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/prescriptions/:id/send — WhatsApp the patient their link
+//
+// Explicit, never automatic on signing. A prescription is sometimes signed and
+// then amended a minute later, and a patient who has already had the first one
+// pushed to their phone has to work out which is current. The link resolves to
+// the latest signed version, so sending once after the dust settles is both
+// simpler and safer than sending on every signature.
+//
+// Delivery is REPORTED, not assumed — the dispatcher returns a reason rather
+// than throwing, so "sent" on screen always means sent.
+// ---------------------------------------------------------------------------
+router.post('/:id/send', requireRole(...PRESCRIBERS), async (req: AuthRequest, res) => {
+  try {
+    const rx = await prisma.prescription.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, clinicDoctorId: true, status: true, rootId: true },
+    });
+    if (!rx) { res.status(404).json({ error: 'NOT_FOUND', message: 'Prescription not found' }); return; }
+    if (!(await canAct(req, rx.clinicDoctorId))) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'Only the consulting doctor can send this' }); return;
+    }
+    if (rx.status !== 'SIGNED') {
+      res.status(409).json({ error: 'NOT_SIGNED', message: 'Sign the prescription before sending it' }); return;
+    }
+
+    const delivery = await sendPrescriptionReady(rx.id);
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'UPDATE',
+      entityType: 'Prescription',
+      entityId: rx.rootId,
+      userId: req.user?.id!,
+      newValues: { sentToPatient: delivery.success, ...(delivery.error ? { reason: delivery.error } : {}) },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    res.json({ sent: delivery });
+  } catch (err) {
+    logger.error({ err }, 'prescriptions: send failed');
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not send the prescription' });
   }
 });
 

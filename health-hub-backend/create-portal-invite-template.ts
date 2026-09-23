@@ -1,5 +1,5 @@
 /**
- * Submit the one WhatsApp template the portal invite needs.
+ * Submit the WhatsApp templates this portal needs, skipping any that exist.
  *
  * It carries NO credentials, deliberately: Meta rejects a utility template that
  * contains them (INCORRECT_CATEGORY), and the authentication category has a fixed
@@ -17,7 +17,9 @@
 import 'dotenv/config';
 import axios from 'axios';
 
-const TEMPLATE = {
+const PORTAL = (process.env.PUBLIC_PORTAL_BASE_URL || 'https://www.sobhanaportal.com').replace(/\/+$/, '');
+
+const TEMPLATES = [{
   name: 'portal_access_invite',
   category: 'UTILITY',
   language: 'en',
@@ -30,7 +32,39 @@ const TEMPLATE = {
       example: { body_text: [['Anusha']] },
     },
   ],
-};
+},
+{
+  // Prescription ready. Carries NO clinical content — no drug, no dose, no
+  // diagnosis. Only the patient's name and the doctor's; the prescription itself
+  // lives behind the token. A medicine list sitting in a WhatsApp notification on
+  // a lock screen is not something to do to somebody by default.
+  //
+  // The button's host is the PORTAL, where the SPA renders /rx/:token. The API
+  // host serves no SPA, so a link built there 404s.
+  name: 'prescription_ready',
+  category: 'UTILITY',
+  language: 'en',
+  components: [
+    {
+      type: 'BODY',
+      text:
+        'Hi {{1}},\n\nYour prescription from Dr {{2}} at Sobhana Clinic is ready.\n\n' +
+        'You can view and download it using the button below.\n\nPlease take the medicines as advised.',
+      example: { body_text: [['Anusha', 'Ramesh Kumar']] },
+    },
+    {
+      type: 'BUTTONS',
+      buttons: [
+        {
+          type: 'URL',
+          text: 'View Prescription',
+          url: `${PORTAL}/rx/{{1}}`,
+          example: [`${PORTAL}/rx/a1b2c3d4e5f6`],
+        },
+      ],
+    },
+  ],
+}];
 
 async function main() {
   const wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || process.env.WHATSAPP_WABA_ID;
@@ -45,21 +79,24 @@ async function main() {
   const existing = await axios.get(url, {
     params: { access_token: token, fields: 'name,status,category', limit: 200 },
   });
-  const found = (existing.data?.data ?? []).find((t: any) => t.name === TEMPLATE.name);
-  if (found) {
-    console.log(`already exists: ${found.name} · ${found.category} · ${found.status}`);
-    return;
-  }
+  const byName = new Map<string, any>((existing.data?.data ?? []).map((t: any) => [t.name, t]));
+  const submit = process.argv.includes('--submit');
 
-  if (!process.argv.includes('--submit')) {
-    console.log('would submit to', url);
-    console.log(JSON.stringify(TEMPLATE, null, 2));
-    console.log('\nre-run with --submit to send it to Meta for review');
-    return;
+  for (const tpl of TEMPLATES) {
+    const found = byName.get(tpl.name);
+    if (found) {
+      console.log(`already exists: ${found.name} · ${found.category} · ${found.status}`);
+      continue;
+    }
+    if (!submit) {
+      console.log(`would submit ${tpl.name} to ${url}`);
+      console.log(JSON.stringify(tpl, null, 2));
+      continue;
+    }
+    const res = await axios.post(url, tpl, { params: { access_token: token } });
+    console.log(`submitted ${tpl.name}:`, JSON.stringify(res.data));
   }
-
-  const res = await axios.post(url, TEMPLATE, { params: { access_token: token } });
-  console.log('submitted:', JSON.stringify(res.data));
+  if (!submit) console.log('\nre-run with --submit to send the missing ones to Meta for review');
 }
 
 main().catch((e) => {

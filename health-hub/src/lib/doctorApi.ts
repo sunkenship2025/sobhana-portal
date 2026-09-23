@@ -339,6 +339,11 @@ export const doctorApi = {
     req<Prescription>(`/prescriptions/${id}/sign`, { method: 'POST', json: { completeVisit } }),
   amend: (id: string, reason: string) => req<Prescription>(`/prescriptions/${id}/amend`, { method: 'POST', json: { reason } }),
   discard: (id: string) => req<{ ok: true }>(`/prescriptions/${id}`, { method: 'DELETE' }),
+  /** WhatsApp the patient their link. Delivery is REPORTED, never assumed —
+   *  the server returns a reason rather than throwing, so a failure shows as a
+   *  failure instead of a clean "sent". */
+  send: (id: string) =>
+    req<{ sent: { success: boolean; error?: string } }>(`/prescriptions/${id}/send`, { method: 'POST' }),
 };
 
 // ---------------------------------------------------------------------------
