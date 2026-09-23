@@ -72,9 +72,26 @@ export interface ResolveResult {
 // Normalisation
 // ---------------------------------------------------------------------------
 
-/** Lowercase, strip punctuation, collapse whitespace. */
+/**
+ * Lowercase, strip punctuation, collapse whitespace — but KEEP a decimal point
+ * that sits between digits.
+ *
+ * Stripping it turned "alprax 0.5" into "alprax 0 5", so the strength parsed as
+ * "5" and the stem became "alprax 0". The visible symptom was a twofold strength
+ * error on a controlled drug, reported as a confident match. Every decimal-dose
+ * medicine was affected: benzodiazepines (0.25, 0.5), paediatric syrups (2.5 ml),
+ * thyroid (12.5 mcg), digoxin (0.25).
+ *
+ * A dot anywhere else is still punctuation and still goes.
+ */
 export const norm = (s: string): string =>
-  s.toLowerCase().replace(/[^a-z0-9\s+]/g, ' ').replace(/\s+/g, ' ').trim();
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s+.]/g, ' ')
+    // A dot only survives with a digit on both sides.
+    .replace(/(?<!\d)\.|\.(?!\d)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /**
  * A crude phonetic key tuned for Indian pharmaceutical brand names rather than
@@ -333,6 +350,40 @@ function narrowByStrength(cands: Candidate[], strength: string | null): Candidat
   return hit.length > 0 ? hit : cands;
 }
 
+/**
+ * Prefer the SIMPLEST product when the doctor named one molecule.
+ *
+ * "Pantoprazole 40" matched both plain Pantoprazole and Pantoprazole +
+ * Domperidone and asked which — but a doctor who wanted the combination says so
+ * ("Pan D", "Pantop DSR"). Naming one molecule means the single-molecule product,
+ * and asking otherwise is a question with an obvious answer, which is the kind
+ * that teaches people to click through the questions that matter.
+ *
+ * Only applies when the SPOKEN text carries no combination marker, so "Pan D"
+ * and "Zerodol P" still reach their combinations.
+ */
+function preferSimplest(cands: Candidate[], spoken: string): Candidate[] {
+  if (cands.length < 2) return cands;
+  if (/\+|\bplus\b|\bd\b|\bsr\b|\bdsr\b|\bcv\b|\blb\b/i.test(spoken)) return cands;
+  const parts = (c: Candidate) => ((c.genericName ?? c.canonicalName).match(/\+/g) ?? []).length;
+  const fewest = Math.min(...cands.map(parts));
+  const simple = cands.filter((c) => parts(c) === fewest);
+  return simple.length > 0 ? simple : cands;
+}
+
+/**
+ * Prefer an oral solid when no form was spoken.
+ *
+ * "Pan top 40" matched the tablet, the injection and two capsules. An OPD
+ * prescription means the tablet unless the doctor said otherwise — nobody
+ * dictates an injection without saying "injection".
+ */
+function preferOralSolid(cands: Candidate[], spokenForm: string | null): Candidate[] {
+  if (cands.length < 2 || spokenForm) return cands;
+  const solid = cands.filter((c) => ['tablet', 'capsule'].includes((c.dosageForm ?? '').toLowerCase()));
+  return solid.length > 0 ? solid : cands;
+}
+
 /** Same rule for dosage form: only when it actually discriminates. */
 function narrowByForm(cands: Candidate[], form: string | null): Candidate[] {
   if (!form) return cands;
@@ -366,6 +417,14 @@ export interface ResolveInput {
  * The tiers keep their exact meaning and precedence: the caller takes the LOWEST
  * tier that returned anything, which is precisely what stopping at the first
  * decisive tier did before.
+ *
+ * EVERY TIER MUST ORDER BEFORE IT LIMITS. Without the ORDER BY, `LIMIT 40`
+ * returned an ARBITRARY forty rows — and since the importer files each molecule
+ * as an alias, "amlodipine" matches ~2,000 products at score 1.00, so the one
+ * curated row essentially never survived the cut. The effect was both false
+ * ambiguity (forty imported lookalikes and no formulary entry to prefer) and,
+ * worse, silent WRONG resolutions when exactly one arbitrary row happened to
+ * survive narrowing. "Pantoprazole 40" resolved to "Dutypan O 40mg/10mg".
  */
 async function queryAllTiers(needle: string, stem: string, pkey: string, limit = 40): Promise<(Raw & { tier: number })[]> {
   return prisma.$queryRawUnsafe<(Raw & { tier: number })[]>(
@@ -374,6 +433,7 @@ async function queryAllTiers(needle: string, stem: string, pkey: string, limit =
        FROM "Medication"
        WHERE ${WHERE_LIVE} AND (lower("canonicalName") = $1 OR lower("genericName") = $1
              OR lower("brandName") = $1 OR "searchText" LIKE $2)
+       ORDER BY CASE source WHEN 'CURATED' THEN 0 WHEN 'LEARNED' THEN 1 ELSE 2 END, "usageCount" DESC, length("canonicalName") ASC
        LIMIT 40
      ) t1
      UNION ALL SELECT * FROM (
@@ -381,18 +441,22 @@ async function queryAllTiers(needle: string, stem: string, pkey: string, limit =
        FROM "Medication"
        WHERE $3 <> $1 AND ${WHERE_LIVE} AND (lower("canonicalName") = $3 OR lower("genericName") = $3
              OR lower("brandName") = $3 OR "searchText" LIKE $4)
+       ORDER BY CASE source WHEN 'CURATED' THEN 0 WHEN 'LEARNED' THEN 1 ELSE 2 END, "usageCount" DESC, length("canonicalName") ASC
        LIMIT 40
      ) t2
      UNION ALL SELECT * FROM (
        SELECT ${SELECT_COLS}, 3 AS tier, 0.9::float8 AS score
        FROM "Medication"
        WHERE $5 <> '' AND ${WHERE_LIVE} AND "phoneticKey" = $5
+       ORDER BY CASE source WHEN 'CURATED' THEN 0 WHEN 'LEARNED' THEN 1 ELSE 2 END, "usageCount" DESC, length("canonicalName") ASC
        LIMIT 40
      ) t3
      UNION ALL SELECT * FROM (
        SELECT ${SELECT_COLS}, 4 AS tier, word_similarity($3, "searchText")::float8 AS score
        FROM "Medication"
        WHERE ${WHERE_LIVE} AND $3 <% "searchText"
+       ORDER BY word_similarity($3, "searchText") DESC,
+         CASE source WHEN 'CURATED' THEN 0 WHEN 'LEARNED' THEN 1 ELSE 2 END
        LIMIT 40
      ) t4`,
     needle, `% ${needle} %`, stem, `% ${stem} %`, pkey,
@@ -412,7 +476,13 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   // per-tier once let the alias path decide AMBIGUOUS across {5 mg, 10 mg} and
   // only then narrow the displayed list to one, which reads as "confirm which"
   // beside a single option.
-  const strengthMatch = q.match(/^(.*?)\s*(\d+(?:\s*\+\s*\d+)?)\s*(?:mg|mcg|ml|g|iu)?$/);
+  // Decimals are REQUIRED here. Without `(?:\.\d+)?` this split turned
+  // "alprax 0.5" into stem "alprax 0." and strength "5" — a corrupted drug name
+  // AND a tenfold strength error, on exactly the drugs where strength precision
+  // matters most: benzodiazepines (0.25, 0.5), paediatric syrups (2.5 ml),
+  // thyroid (12.5 mcg), digoxin (0.25). parseStrength always handled decimals;
+  // this second copy of the pattern did not.
+  const strengthMatch = q.match(/^(.*?)\s*(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(?:mg|mcg|ml|g|iu)?$/);
   const stem = strengthMatch ? strengthMatch[1].trim() : q;
   const spokenStrength = input.strength ?? (strengthMatch ? strengthMatch[2].replace(/\s+/g, '') : null);
 
@@ -423,9 +493,29 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
 
   const decide = (cands: Candidate[]): ResolveResult | null => {
     let narrowed = narrowByForm(narrowByStrength(dedupe(cands), spokenStrength), input.dosageForm ?? null);
+    // Clinical defaults before asking: a question with an obvious answer is worse
+    // than no question, because it trains people to click through.
+    narrowed = preferOralSolid(preferSimplest(narrowed, q), input.dosageForm ?? null);
     const rank = (c: Candidate) => (c.source === 'CURATED' ? 0 : c.source === 'LEARNED' ? 1 : 2);
     narrowed = narrowed.sort((a, b) => rank(a) - rank(b) || b.score - a.score).slice(0, MAX_CANDIDATES);
     if (narrowed.length === 0) return null;
+    // NEVER resolve to a DIFFERENT strength than the one spoken.
+    //
+    // narrowByStrength deliberately does not empty the list when nothing matches
+    // — our catalogue being incomplete is not the doctor being wrong. But the
+    // consequence was silent substitution: "Clonazepam 0.25" resolved to
+    // "Clonazepam 0.5 mg", a twofold error on a controlled drug, reported as a
+    // confident match. The molecule may well be right; the strength is not ours
+    // to change. So ask.
+    if (spokenStrength) {
+      const want = spokenStrength.replace(/[^0-9.]/g, '');
+      const agrees = narrowed.filter((c) => (c.strength ?? '').replace(/[^0-9.]/g, '') === want);
+      if (agrees.length === 0) {
+        return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed };
+      }
+      narrowed = agrees;
+    }
+
     if (narrowed.length === 1) return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
 
     // Exactly one curated row in the running: that is the clinic's formulary
