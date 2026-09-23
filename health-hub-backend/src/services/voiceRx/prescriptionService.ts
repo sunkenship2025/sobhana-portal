@@ -19,11 +19,13 @@
 import { Prisma } from '@prisma/client';
 import type { PrescriptionStatus } from '@prisma/client';
 import prisma from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { logAction } from '../auditService';
 import { resolveMedication } from './resolver';
 import { validatePrescription, type ValidatableItem, type ValidationResult } from './validator';
 import { FREQUENCY_TEXT, type FrequencyCode } from './normalize';
 import type { ExtractedItem } from './extract';
+import { learnFromSignedPrescription } from './learning';
 
 export class PrescriptionStateError extends Error {}
 
@@ -497,6 +499,27 @@ export async function sign(
       })),
     },
   });
+
+  // The catalogue learns from what was actually prescribed: free text becomes a
+  // findable row, a correction becomes an alias, and usage ranks the clinic's own
+  // vocabulary above the long tail. Deliberately AFTER the record is written and
+  // deliberately not awaited into the response — a catalogue improvement must
+  // never be able to fail a signature.
+  learnFromSignedPrescription(
+    rx.items.map((i) => ({
+      canonicalName: i.canonicalName,
+      spokenText: i.spokenText,
+      medicationId: i.medicationId,
+      genericName: i.genericName,
+      brandName: i.brandName,
+      strength: i.strength,
+      strengthUnit: i.strengthUnit,
+      dosageForm: i.dosageForm,
+      route: i.route,
+      resolution: i.resolution,
+    })),
+    userId,
+  ).catch((err) => logger.error({ err, prescriptionId: id }, 'voiceRx: learning failed'));
 
   return getById(id);
 }

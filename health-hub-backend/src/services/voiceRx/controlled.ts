@@ -27,114 +27,18 @@
  * "tramadol" and "cetirizine" cannot trip anything.
  */
 import { norm, phoneticKey } from './resolver';
+import { RESTRICTED_INDIA, type RestrictedEntry } from './controlled-data';
 
-export interface ControlledEntry {
-  /** Molecule, as it appears in the schedule. */
-  molecule: string;
-  /** Substrings that identify it. Matched at a word boundary on normalised text. */
-  stems: string[];
-  /** Indian brand names. Doctors dictate these, not molecules. */
-  brands: string[];
-  /** X = Schedule X, NDPS = narcotic/psychotropic, H1 = separate register only. */
-  schedule: 'X' | 'NDPS' | 'X+NDPS' | 'H1';
-  /**
-   * Whether §3.7.4 prohibits prescribing this over telemedicine. True for
-   * Schedule X and NDPS. H1 entries are false: they need a pharmacist register,
-   * not a prescribing ban.
-   */
-  blockTelemedicine: boolean;
-}
+/** The generated shape, re-exported under this file's original name. */
+export type ControlledEntry = RestrictedEntry;
 
 /**
- * Seed list. Schedule X of the Drugs and Cosmetics Rules plus the NDPS-scheduled
- * medicines a doctor might realistically write. Expanded from primary-source
- * research; anything uncertain is included rather than omitted, per the
- * asymmetry above.
+ * Primary-sourced: 83 molecules, 43 of which §3.7.4 prohibits remotely. Replaces
+ * the hand-written list, which had the right BLOCK outcomes for the common cases
+ * but the wrong schedule labels — it called alprazolam and diazepam Schedule X
+ * when they are legally Schedule H1 that block by virtue of being NDPS.
  */
-export const CONTROLLED: ControlledEntry[] = [
-  // --- Benzodiazepines (NDPS psychotropic; several also Schedule X) ---------
-  { molecule: 'Alprazolam', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['alprazolam', 'alprax', 'alzolam', 'zolam'],
-    brands: ['Alprax', 'Restyl', 'Trika', 'Zolax', 'Anxit', 'Alzolam', 'Alprocontin'] },
-  { molecule: 'Diazepam', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['diazepam', 'valium', 'calmpose'],
-    brands: ['Valium', 'Calmpose', 'Dizy', 'Placidox'] },
-  { molecule: 'Clonazepam', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['clonazepam', 'clonotril', 'lonazep', 'rivotril', 'zapiz'],
-    brands: ['Rivotril', 'Clonotril', 'Lonazep', 'Zapiz', 'Petril'] },
-  { molecule: 'Lorazepam', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['lorazepam', 'ativan', 'larpose', 'lorazep'],
-    brands: ['Ativan', 'Larpose', 'Lopez', 'Trapex'] },
-  { molecule: 'Nitrazepam', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['nitrazepam', 'nitrosun', 'sedamon'],
-    brands: ['Nitrosun', 'Sedamon', 'Nitravet'] },
-  { molecule: 'Etizolam', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['etizolam', 'etilaam', 'etizola', 'etisum'],
-    brands: ['Etilaam', 'Etizola', 'Etisum', 'Etizest'] },
-  { molecule: 'Chlordiazepoxide', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['chlordiazepoxide', 'librium', 'equilibrium'],
-    brands: ['Librium', 'Equirex'] },
-  { molecule: 'Midazolam', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['midazolam', 'fulsed', 'mezolam'],
-    brands: ['Fulsed', 'Mezolam', 'Midacip'] },
-
-  // --- Opioids (NDPS narcotic) ---------------------------------------------
-  { molecule: 'Morphine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['morphine', 'morcontin', 'mscontin'],
-    brands: ['Morcontin', 'MST Continus', 'Rilitin'] },
-  { molecule: 'Fentanyl', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['fentanyl', 'durogesic', 'fent'],
-    brands: ['Durogesic', 'Fentapatch', 'Trofentyl'] },
-  { molecule: 'Buprenorphine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['buprenorphine', 'buprigesic', 'tidigesic', 'addnok'],
-    brands: ['Tidigesic', 'Buprigesic', 'Addnok', 'Norphin'] },
-  { molecule: 'Tramadol', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['tramadol', 'tramazac', 'ultracet', 'contramal', 'domadol'],
-    brands: ['Ultracet', 'Tramazac', 'Contramal', 'Domadol', 'Tramacip'] },
-  { molecule: 'Codeine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['codeine', 'codein', 'corex', 'phensedyl', 'ascoril c'],
-    brands: ['Corex', 'Phensedyl', 'Codistar', 'Grilinctus CD'] },
-  { molecule: 'Pentazocine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['pentazocine', 'fortwin'],
-    brands: ['Fortwin', 'Pentawin'] },
-  { molecule: 'Tapentadol', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['tapentadol', 'tapal', 'tydol'],
-    brands: ['Tapal', 'Tydol', 'Nucynta'] },
-  { molecule: 'Oxycodone', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['oxycodone', 'oxycontin'],
-    brands: ['OxyContin', 'Ultracontin'] },
-  { molecule: 'Methadone', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['methadone'], brands: ['Methadose'] },
-  { molecule: 'Pethidine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['pethidine', 'meperidine'], brands: ['Pethidine'] },
-
-  // --- Stimulants -----------------------------------------------------------
-  { molecule: 'Methylphenidate', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['methylphenidate', 'inspiral', 'addwize'],
-    brands: ['Inspiral', 'Addwize', 'Ritalin'] },
-  { molecule: 'Amphetamine', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['amphetamine', 'dexamphetamine'], brands: [] },
-
-  // --- Barbiturates and other Schedule X ------------------------------------
-  { molecule: 'Phenobarbitone', schedule: 'X', blockTelemedicine: true,
-    stems: ['phenobarbitone', 'phenobarbital', 'gardenal'],
-    brands: ['Gardenal', 'Luminal'] },
-  { molecule: 'Barbiturates (general)', schedule: 'X', blockTelemedicine: true,
-    stems: ['barbitone', 'barbital', 'secobarbital', 'pentobarbital', 'amobarbital'],
-    brands: [] },
-  { molecule: 'Zolpidem', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['zolpidem', 'zolfresh', 'nitrest'],
-    brands: ['Zolfresh', 'Nitrest', 'Stilnoct'] },
-  { molecule: 'Zopiclone', schedule: 'NDPS', blockTelemedicine: true,
-    stems: ['zopiclone', 'eszopiclone', 'zopicon', 'zolium'],
-    brands: ['Zopicon', 'Zolium', 'Nunorm'] },
-  { molecule: 'Ketamine', schedule: 'X+NDPS', blockTelemedicine: true,
-    stems: ['ketamine', 'ketmin', 'aneket'],
-    brands: ['Ketmin', 'Aneket'] },
-  { molecule: 'Anabolic steroids', schedule: 'X', blockTelemedicine: true,
-    stems: ['nandrolone', 'oxymetholone', 'stanozolol', 'methandienone', 'deca durabolin'],
-    brands: ['Deca-Durabolin'] },
-];
+export const CONTROLLED: ControlledEntry[] = RESTRICTED_INDIA;
 
 export interface ControlledHit {
   /** The text that tripped the screen. */
@@ -229,9 +133,38 @@ export function demo(): void {
   ok(!blocked('dolo 650 SOS'), 'the SOS does not matter');
   ok(!blocked('shelcal 500'), 'calcium');
 
-  // H1 is record-keeping, never a prescribing block.
+  // --- SCHEDULE CORRECTIONS, from primary sources ---------------------------
+  // Each of these is a place the intuitive answer is wrong, and each would be a
+  // real bug — two over-blocking, one under-blocking.
+
+  // Tapentadol is H1 ONLY, confirmed by multiple High Court rulings, unlike its
+  // close cousin tramadol. The hand-written list blocked it. It must not.
+  ok(!blocked('tapentadol 50'), 'tapentadol is H1, not NDPS — does NOT block');
+  ok(blocked('tramadol 50'), 'tramadol IS NDPS since 2018 — blocks');
+
+  // H1 antibiotics need the pharmacist's register, not a prescribing ban.
+  // §3.7.4's list is Schedule X + NDPS only, and these are on neither.
+  ok(!blocked('levofloxacin 500 BD'), 'H1 antibiotic does not block telemedicine');
+  ok(!blocked('meropenem 1g'), 'H1 antibiotic does not block telemedicine');
+
+  // Banned outright since 2013 — should never appear as a legitimate prescription.
+  ok(blocked('dextropropoxyphene'), 'banned molecule blocks');
+
+  // Unconfirmed psychotropics fail CLOSED. Better to send a patient in person
+  // than to discover the schedule mattered after the fact.
+  ok(blocked('zopiclone 7.5'), 'unconfirmed psychotropic still blocks');
+
+  // H1 is record-keeping, never a prescribing block. This is the invariant that
+  // caught a cross-listed duplicate: Midazolam appeared twice, once labelled H1
+  // with block=true, because its real entry lives in the NDPS bucket.
   const h1 = CONTROLLED.filter((c) => c.schedule === 'H1');
   ok(h1.every((c) => !c.blockTelemedicine), 'H1 never blocks prescribing');
+  ok(h1.length > 30, 'the H1 list is actually populated');
+
+  // Schedule X really is small. The "~40 entries" figure online is a stale
+  // pre-1998 version; deletions moved most items out.
+  const x = CONTROLLED.filter((c) => c.schedule === 'X');
+  ok(x.length === 16, `Schedule X has 16 entries, got ${x.length}`);
 
   // eslint-disable-next-line no-console
   console.log(`controlled.ts: all checks passed (${CONTROLLED.length} molecules screened)`);

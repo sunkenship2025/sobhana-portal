@@ -714,6 +714,7 @@ model User {
   activeBranch              Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
   clinicDoctor              ClinicDoctor?          @relation("ClinicDoctorLogin")
   signedPrescriptions       Prescription[]         @relation("PrescriptionSignedBy")
+  learnedMedications        Medication[]           @relation("MedicationLearnedBy")
   PaymentTransaction        PaymentTransaction[]
   ExternalReportUpload      ExternalReportUpload[]
   TestResultEntered         TestResult[]           @relation("TestResultEnteredBy")
@@ -2946,6 +2947,11 @@ model Medication {
   aliases       String[] @default([])
   /// Double-metaphone-ish key for sound-alike matching. Populated at seed time.
   phoneticKey   String?
+  /// Lowercased, punctuation-stripped concatenation of every name this row can
+  /// be found by. Indexed with pg_trgm so fuzzy search is an indexed operation
+  /// in Postgres rather than a full scan in Node — the difference between a
+  /// 41-row seed and a 250,000-row catalogue on a 512MB instance.
+  searchText    String?
 
   /// Telemedicine Practice Guidelines §3.7.4 prohibits prescribing Schedule X
   /// drugs and NDPS narcotics/psychotropics over telemedicine, absolutely, with
@@ -2957,18 +2963,30 @@ model Medication {
   /// Schedule H/H1 drive pharmacist record-keeping, not a prescribing block.
   scheduleClass String? // H | H1 | X | OTC | null
 
+  /// CURATED (hand-written, carries clinic shorthand and ASR mishearings) ·
+  /// IMPORTED (bulk catalogue) · LEARNED (a doctor wrote it here; unverified).
+  source          String    @default("IMPORTED")
+  /// How often it has been prescribed HERE. Ranks the clinic's own vocabulary
+  /// above the long tail — the point of a 250k catalogue and a 40-drug reality.
+  usageCount      Int       @default(0)
+  lastUsedAt      DateTime?
+  learnedByUserId String?
+
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  items PrescriptionItem[]
+  learnedBy User?              @relation("MedicationLearnedBy", fields: [learnedByUserId], references: [id], onDelete: SetNull)
+  items     PrescriptionItem[]
 
   @@index([canonicalName])
   @@index([genericName])
   @@index([brandName])
   @@index([phoneticKey])
   @@index([isActive, deletedAt])
+  @@index([source])
+  @@index([usageCount, lastUsedAt])
 }
 
 model Prescription {

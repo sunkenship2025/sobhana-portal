@@ -55,6 +55,8 @@ export interface Candidate {
   route: string | null;
   score: number;
   matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy';
+  /** CURATED · LEARNED · IMPORTED. A ranking signal, and a decision one. */
+  source: string;
 }
 
 export interface ResolveResult {
@@ -136,64 +138,170 @@ export function similarity(a: string, b: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog cache
+// Catalogue access — in Postgres, not in memory
+//
+// The first version loaded every row into a Map and matched there. That is
+// correct and fast for a hand-written seed of 41, and an out-of-memory crash at
+// 250,000 rows on a 512MB instance that has already been OOM-remediated once.
+//
+// So matching is now SQL against pg_trgm indexes. Each tier below is one indexed
+// query that returns at most a handful of rows. The ladder, its ordering and its
+// refusal to auto-pick are unchanged — only where the work happens moved.
 // ---------------------------------------------------------------------------
 
-interface CatalogIndex {
-  rows: MedicationRow[];
-  byExact: Map<string, MedicationRow[]>;
-  byPhonetic: Map<string, MedicationRow[]>;
-  loadedAt: number;
+const SELECT_COLS = `
+  id, "canonicalName", "genericName", "brandName", strength, "strengthUnit",
+  "dosageForm", route, aliases, "phoneticKey", "isScheduleX", "isNdps", "scheduleClass",
+  source, "usageCount"
+`;
+
+type Raw = MedicationRow & { score?: number; source?: string; usageCount?: number };
+
+/**
+ * Where a row came from is a RANKING signal, and a strong one.
+ *
+ * The curated list is this clinic's actual formulary — a few hundred medicines
+ * its doctors really prescribe. The 242,000-row import is the long tail, there
+ * so that something unusual still resolves. Without this boost the tail drowns
+ * the formulary: "dolo" returned "Dolo Drops" ahead of Dolo 650, and "augmentin
+ * 625" went AMBIGUOUS across a dozen near-identical imported brands.
+ *
+ * LEARNED sits between them: a doctor here wrote it, so it beats an anonymous
+ * import, but nobody has verified it so it does not beat the curated list.
+ */
+const SOURCE_BOOST: Record<string, number> = { CURATED: 0.15, LEARNED: 0.08, IMPORTED: 0 };
+const boost = (r: Raw): number =>
+  (SOURCE_BOOST[r.source ?? 'IMPORTED'] ?? 0) + Math.min(0.05, (Number(r.usageCount ?? 0)) * 0.005);
+
+const WHERE_LIVE = `"isActive" = true AND "deletedAt" IS NULL`;
+
+/**
+ * Exact hit on any name or alias.
+ *
+ * The alias half is a word-boundary LIKE on the padded searchText rather than
+ * `= ANY(unnest(aliases))`. The unnest version cannot use an index and cost
+ * ~260ms across 242k rows while every other tier measured as free; this one
+ * rides the GIN trigram index. Padding is why it works — searchText is stored
+ * with a leading and trailing space so the first and last terms have boundaries.
+ */
+async function queryExact(needle: string, limit: number): Promise<Raw[]> {
+  return prisma.$queryRawUnsafe<Raw[]>(
+    `SELECT ${SELECT_COLS} FROM "Medication"
+     WHERE ${WHERE_LIVE} AND (
+       lower("canonicalName") = $1 OR lower("genericName") = $1 OR
+       lower("brandName") = $1 OR "searchText" LIKE $2
+     )
+     ORDER BY "usageCount" DESC LIMIT $3`,
+    needle, `% ${needle} %`, limit,
+  );
 }
 
-let CACHE: CatalogIndex | null = null;
-const TTL_MS = 10 * 60 * 1000;
-
-function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
-  const cur = m.get(k);
-  if (cur) cur.push(v);
-  else m.set(k, [v]);
+/** Sound-alike, via the precomputed phonetic key. */
+async function queryPhonetic(key: string, limit: number): Promise<Raw[]> {
+  return prisma.$queryRawUnsafe<Raw[]>(
+    `SELECT ${SELECT_COLS} FROM "Medication"
+     WHERE ${WHERE_LIVE} AND "phoneticKey" = $1 LIMIT $2`,
+    key, limit,
+  );
 }
 
-async function loadCatalog(): Promise<CatalogIndex> {
-  if (CACHE && Date.now() - CACHE.loadedAt < TTL_MS) return CACHE;
+/**
+ * Fuzzy, by WORD similarity against searchText.
+ *
+ * `<%` / word_similarity, NOT `%` / similarity. searchText is a concatenation of
+ * every name a row can be found by, so plain similarity() compares the needle
+ * against the WHOLE string and dilutes to nothing: "augmentin" against a real
+ * Augmentin row scores 0.169 — under the 0.3 threshold — while word_similarity
+ * scores it 1.0. With `%` the fuzzy tier silently returned zero rows for every
+ * query, which looked like "no typos found" rather than "the operator is wrong".
+ *
+ * `<%` uses the same GIN trigram index, so this is still an indexed lookup.
+ */
+async function queryFuzzy(needle: string, limit: number): Promise<Raw[]> {
+  return prisma.$queryRawUnsafe<Raw[]>(
+    `SELECT ${SELECT_COLS}, word_similarity($1, "searchText") AS score
+     FROM "Medication"
+     WHERE ${WHERE_LIVE} AND $1 <% "searchText"
+     ORDER BY score DESC, "usageCount" DESC LIMIT $2`,
+    needle, limit,
+  );
+}
 
-  const rows = (await prisma.medication.findMany({
-    where: { isActive: true, deletedAt: null },
-    select: {
-      id: true, canonicalName: true, genericName: true, brandName: true,
-      strength: true, strengthUnit: true, dosageForm: true, route: true,
-      aliases: true, phoneticKey: true,
-      isScheduleX: true, isNdps: true, scheduleClass: true,
-    },
-  })) as MedicationRow[];
+/**
+ * Typeahead — WORD-START anchored, not unanchored substring.
+ *
+ * `searchText LIKE '%amox%'` made the planner choose a Seq Scan over 242,000
+ * rows: it estimates a lot of matches, so the index looks unprofitable, and it
+ * only came back in 4ms because LIMIT 12 found twelve early. For a term whose
+ * matches sit late in the table that is a full scan.
+ *
+ * `LIKE '% amox%'` — note the space — is anchored to a word start. It is far more
+ * selective, so the planner uses the GIN trigram index, AND it is what a
+ * typeahead should do anyway: typing "amox" wants Amoxicillin, not Cefamoxin.
+ *
+ * Under three characters there are no trigrams to index, so short queries hit
+ * the btree prefix indexes on the name columns instead of touching searchText.
+ */
+async function queryLike(needle: string, limit: number): Promise<Candidate[]> {
+  // Ordered by match quality, then by how often THIS clinic has prescribed it.
+  // A 250,000-row catalogue against a forty-drug reality: without the usage tiebreak
+  // the picker surfaces the long tail ahead of what the doctor actually writes.
+  // TWO BRANCHES, EACH ABLE TO STOP EARLY.
+  //
+  // A single query with `ORDER BY CASE source ...` cost 103-261ms: the sort must
+  // find EVERY match before it can take twelve, so LIMIT stops terminating the
+  // scan early and a common prefix like "amox" walks thousands of rows.
+  //
+  // The two populations are nothing alike, so query them separately. CURATED is a
+  // few hundred rows — a human-chosen formulary — so it can be searched
+  // exhaustively for nothing. IMPORTED is the 242,000-row tail, which needs no
+  // ranking beyond "matched", and its LIMIT then terminates the scan early.
+  // Merged in JS, which is free at these sizes.
+  const pattern = needle.length < 3 ? `${needle}%` : `% ${needle}%`;
+  const col = needle.length < 3 ? 'lower("brandName")' : '"searchText"';
 
-  const byExact = new Map<string, MedicationRow[]>();
-  const byPhonetic = new Map<string, MedicationRow[]>();
+  const [curated, rest] = await Promise.all([
+    prisma.$queryRawUnsafe<Raw[]>(
+      `SELECT ${SELECT_COLS},
+         CASE WHEN lower("brandName") = $1 OR lower("canonicalName") = $1 THEN 1.0
+              WHEN lower("brandName") LIKE $2 THEN 0.9 ELSE 0.7 END AS score
+       FROM "Medication"
+       WHERE ${WHERE_LIVE} AND source <> 'IMPORTED' AND ${col} LIKE $3
+       ORDER BY score DESC, "usageCount" DESC LIMIT $4`,
+      needle, `${needle}%`, pattern, limit,
+    ),
+    prisma.$queryRawUnsafe<Raw[]>(
+      // No ORDER BY on purpose — this is the branch that must stop early.
+      `SELECT ${SELECT_COLS}, 0.5::float8 AS score
+       FROM "Medication"
+       WHERE ${WHERE_LIVE} AND source = 'IMPORTED' AND ${col} LIKE $1
+       LIMIT $2`,
+      pattern, limit * 3,
+    ),
+  ]);
 
-  for (const r of rows) {
-    const names = [r.canonicalName, r.genericName, r.brandName, ...(r.aliases ?? [])].filter(Boolean) as string[];
-    for (const n of names) {
-      push(byExact, norm(n), r);
-      push(byPhonetic, r.phoneticKey || phoneticKey(n), r);
-    }
+  const seen = new Set<string>();
+  const out: Candidate[] = [];
+  for (const r of curated) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(toCandidate(r, Number(r.score ?? 0.7), 'exact'));
   }
+  // Shortest name first: "Dolo 650 Tablet" before "Dolo 650 Plus Kit".
+  const tail = rest
+    .filter((r) => !seen.has(r.id))
+    .sort((a, b) => a.canonicalName.length - b.canonicalName.length)
+    .slice(0, Math.max(0, limit - out.length));
+  for (const r of tail) out.push(toCandidate(r, 0.5, 'exact'));
 
-  CACHE = { rows, byExact, byPhonetic, loadedAt: Date.now() };
-  logger.info({ medications: rows.length }, 'voiceRx: medication catalog cached');
-  return CACHE;
-}
-
-/** Called after any catalog write so a correction takes effect immediately. */
-export function invalidateCatalog(): void {
-  CACHE = null;
+  return out.slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
 // Resolution
 // ---------------------------------------------------------------------------
 
-const toCandidate = (r: MedicationRow, score: number, matchedOn: Candidate['matchedOn']): Candidate => ({
+const toCandidate = (r: Raw, score: number, matchedOn: Candidate['matchedOn']): Candidate => ({
   medicationId: r.id,
   canonicalName: r.canonicalName,
   genericName: r.genericName,
@@ -202,17 +310,19 @@ const toCandidate = (r: MedicationRow, score: number, matchedOn: Candidate['matc
   strengthUnit: r.strengthUnit,
   dosageForm: r.dosageForm,
   route: r.route,
-  score,
+  // Curated rows and drugs this clinic actually uses rank above the long tail.
+  score: Math.min(1, score + boost(r)),
   matchedOn,
+  source: r.source ?? 'IMPORTED',
 });
 
 /**
- * Narrow a candidate set by a spoken strength.
+ * Narrow by a spoken strength.
  *
  * "Augmentin 625" should not stay ambiguous between the 625 tablet and the 457
- * syrup when the doctor SAID 625. But a strength that matches nothing is never
- * used to empty the list — an unmatched strength means our catalog is incomplete,
- * not that the doctor is wrong.
+ * syrup when the doctor SAID 625. But a strength matching nothing never empties
+ * the list — an unmatched strength means our catalogue is incomplete, not that
+ * the doctor is wrong.
  */
 function narrowByStrength(cands: Candidate[], strength: string | null): Candidate[] {
   if (!strength) return cands;
@@ -222,10 +332,7 @@ function narrowByStrength(cands: Candidate[], strength: string | null): Candidat
   return hit.length > 0 ? hit : cands;
 }
 
-/**
- * Narrow by dosage form. Same rule: only when it actually discriminates.
- * A "syrup" heard for a child is a real signal; an unmatched form is not.
- */
+/** Same rule for dosage form: only when it actually discriminates. */
 function narrowByForm(cands: Candidate[], form: string | null): Candidate[] {
   if (!form) return cands;
   const want = norm(form);
@@ -234,31 +341,72 @@ function narrowByForm(cands: Candidate[], form: string | null): Candidate[] {
 }
 
 const MAX_CANDIDATES = 5;
-/** Below this, a fuzzy hit is noise rather than a near-miss worth showing.
- *  Tuned for Dice: a one-character transposition lands near 0.60, unrelated
- *  drug names near 0.20, and known look-alike pairs near 0.27. */
+/** A fuzzy hit below this is noise, not a near-miss worth showing. Tuned for Dice. */
 const FUZZY_FLOOR = 0.5;
-/** A fuzzy match this strong, and clear of the runner-up, resolves on its own. */
+/** This strong, and clear of the runner-up, resolves on its own. */
 const FUZZY_CONFIDENT = 0.82;
 const FUZZY_MARGIN = 0.12;
 
 export interface ResolveInput {
-  /** What the doctor said / typed, e.g. "augmentin 625" or "amoxi clav". */
+  /** What the doctor said or typed, e.g. "augmentin 625". */
   spoken: string;
   strength?: string | null;
   dosageForm?: string | null;
 }
 
+/**
+ * All four matching tiers in ONE query.
+ *
+ * The ladder used to be four sequential round trips — exact, stem, phonetic,
+ * fuzzy — each waiting on the last. Co-located with the database that is ~4ms
+ * and nobody notices; it is still four times the latency of one, and over any
+ * real network it is the difference between instant and sluggish.
+ *
+ * The tiers keep their exact meaning and precedence: the caller takes the LOWEST
+ * tier that returned anything, which is precisely what stopping at the first
+ * decisive tier did before.
+ */
+async function queryAllTiers(needle: string, stem: string, pkey: string, limit = 40): Promise<(Raw & { tier: number })[]> {
+  return prisma.$queryRawUnsafe<(Raw & { tier: number })[]>(
+    `SELECT * FROM (
+       SELECT ${SELECT_COLS}, 1 AS tier, 1.0::float8 AS score
+       FROM "Medication"
+       WHERE ${WHERE_LIVE} AND (lower("canonicalName") = $1 OR lower("genericName") = $1
+             OR lower("brandName") = $1 OR "searchText" LIKE $2)
+       LIMIT 40
+     ) t1
+     UNION ALL SELECT * FROM (
+       SELECT ${SELECT_COLS}, 2 AS tier, 0.98::float8 AS score
+       FROM "Medication"
+       WHERE $3 <> $1 AND ${WHERE_LIVE} AND (lower("canonicalName") = $3 OR lower("genericName") = $3
+             OR lower("brandName") = $3 OR "searchText" LIKE $4)
+       LIMIT 40
+     ) t2
+     UNION ALL SELECT * FROM (
+       SELECT ${SELECT_COLS}, 3 AS tier, 0.9::float8 AS score
+       FROM "Medication"
+       WHERE $5 <> '' AND ${WHERE_LIVE} AND "phoneticKey" = $5
+       LIMIT 40
+     ) t3
+     UNION ALL SELECT * FROM (
+       SELECT ${SELECT_COLS}, 4 AS tier, word_similarity($3, "searchText")::float8 AS score
+       FROM "Medication"
+       WHERE ${WHERE_LIVE} AND $3 <% "searchText"
+       LIMIT 40
+     ) t4`,
+    needle, `% ${needle} %`, stem, `% ${stem} %`, pkey,
+  );
+}
+
 export async function resolveMedication(input: ResolveInput): Promise<ResolveResult> {
-  const idx = await loadCatalog();
   const q = norm(input.spoken);
   if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [] };
 
-  // The spoken token usually carries the strength: "augmentin 625", "pantop 40",
-  // "amlodipine 5". Pull it out UP FRONT so every tier narrows by it — doing this
-  // per-tier let the alias path decide AMBIGUOUS on {5 mg, 10 mg} and only then
-  // narrow the displayed list to one, which reads as "confirm which" next to a
-  // single option. Nonsense, and exactly what live testing showed.
+  // The spoken token usually carries the strength: "augmentin 625", "pantop 40".
+  // Pull it out UP FRONT so every tier narrows by it consistently — doing this
+  // per-tier once let the alias path decide AMBIGUOUS across {5 mg, 10 mg} and
+  // only then narrow the displayed list to one, which reads as "confirm which"
+  // beside a single option.
   const strengthMatch = q.match(/^(.*?)\s*(\d+(?:\s*\+\s*\d+)?)\s*(?:mg|mcg|ml|g|iu)?$/);
   const stem = strengthMatch ? strengthMatch[1].trim() : q;
   const spokenStrength = input.strength ?? (strengthMatch ? strengthMatch[2].replace(/\s+/g, '') : null);
@@ -268,119 +416,76 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     return cs.filter((c) => (seen.has(c.medicationId) ? false : (seen.add(c.medicationId), true)));
   };
 
-  const decide = (cands: Candidate[], _tier: string): ResolveResult | null => {
+  const decide = (cands: Candidate[]): ResolveResult | null => {
     let narrowed = narrowByForm(narrowByStrength(dedupe(cands), spokenStrength), input.dosageForm ?? null);
-    narrowed = narrowed.sort((a, b) => b.score - a.score).slice(0, MAX_CANDIDATES);
+    const rank = (c: Candidate) => (c.source === 'CURATED' ? 0 : c.source === 'LEARNED' ? 1 : 2);
+    narrowed = narrowed.sort((a, b) => rank(a) - rank(b) || b.score - a.score).slice(0, MAX_CANDIDATES);
     if (narrowed.length === 0) return null;
     if (narrowed.length === 1) return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
-    // Several survive. Only a clear winner resolves; otherwise ASK.
+
+    // Exactly one curated row in the running: that is the clinic's formulary
+    // answering. Asking the doctor to choose between it and a dozen
+    // near-identical imported brands is noise dressed as caution — and noise is
+    // what trains people to click through the questions that matter.
+    const curated = narrowed.filter((c) => c.source === 'CURATED');
+    if (curated.length === 1) return { resolution: 'RESOLVED', match: curated[0], candidates: narrowed };
+
     if (narrowed[0].score >= FUZZY_CONFIDENT && narrowed[0].score - narrowed[1].score >= FUZZY_MARGIN) {
       return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
     }
     return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed };
   };
 
-  // --- 1 + 2. exact / alias -------------------------------------------------
-  const exact = idx.byExact.get(q);
-  if (exact?.length) {
-    const d = decide(exact.map((r) => toCandidate(r, 1, 'exact')), 'exact');
-    if (d) return d;
-  }
-
-  // Retry on the stem, with the strength stripped off — "amlodipine 5" finds
-  // "amlodipine" and the 5 then discriminates 5 mg from 10 mg.
-  if (stem && stem !== q) {
-    const viaStem = idx.byExact.get(stem);
-    if (viaStem?.length) {
-      const d = decide(viaStem.map((r) => toCandidate(r, 0.98, 'alias')), 'alias');
-      if (d) return d;
-    }
-  }
-
-  // --- 3. phonetic ----------------------------------------------------------
   const pk = phoneticKey(stem);
-  const phon = pk ? idx.byPhonetic.get(pk) : undefined;
-  if (phon?.length) {
-    const d = decide(phon.map((r) => toCandidate(r, 0.9, 'phonetic')), 'phonetic');
-    if (d) return d;
-  }
+  const rows = await queryAllTiers(q, stem, pk);
 
-  // --- 4. fuzzy -------------------------------------------------------------
-  const scored: Candidate[] = [];
-  for (const r of idx.rows) {
-    const names = [r.canonicalName, r.genericName, r.brandName, ...(r.aliases ?? [])].filter(Boolean) as string[];
-    let best = 0;
-    for (const n of names) {
-      const s = similarity(stem, norm(n));
-      if (s > best) best = s;
-    }
-    if (best >= FUZZY_FLOOR) scored.push(toCandidate(r, best, 'fuzzy'));
-  }
-  if (scored.length) {
-    const d = decide(scored, 'fuzzy');
+  const MATCHED_ON: Record<number, Candidate['matchedOn']> = { 1: 'exact', 2: 'alias', 3: 'phonetic', 4: 'fuzzy' };
+  for (const tier of [1, 2, 3, 4]) {
+    const inTier = rows.filter((r) => Number(r.tier) === tier);
+    if (inTier.length === 0) continue;
+
+    let cands = inTier.map((r) => toCandidate(r, Number(r.score ?? 0), MATCHED_ON[tier]));
+    // The fuzzy tier alone has a quality floor — the others are literal matches.
+    if (tier === 4) cands = cands.filter((c) => c.score >= FUZZY_FLOOR);
+    if (cands.length === 0) continue;
+
+    const d = decide(cands);
     if (d) return d;
   }
 
   return { resolution: 'UNRESOLVED', match: null, candidates: [] };
 }
 
-/**
- * Typeahead search — BROWSING, not resolution.
- *
- * resolveMedication answers "what did the doctor mean"; this answers "what could
- * they mean, as they type". Different job, different ranking: a prefix hit on a
- * brand outranks a substring hit in the middle of a molecule, because somebody
- * typing "amo" wants Amoxicillin before Clavulanate-something.
- *
- * Matches across canonical name, generic, brand AND aliases, so typing a brand
- * finds the molecule and typing a molecule finds the brands.
- */
 export async function searchMedications(q: string, limit = 12): Promise<Candidate[]> {
-  const idx = await loadCatalog();
   const needle = norm(q);
   if (needle.length < 2) return [];
 
-  const scored: { c: Candidate; rank: number }[] = [];
+  const literal = await queryLike(needle, limit);
+  if (literal.length >= limit || needle.length < 3) return literal;
 
-  for (const r of idx.rows) {
-    const surfaces = [r.canonicalName, r.genericName, r.brandName, ...(r.aliases ?? [])]
-      .filter(Boolean) as string[];
-
-    let best = 0;
-    let matchedOn: Candidate['matchedOn'] = 'fuzzy';
-    for (const surface of surfaces) {
-      const n = norm(surface);
-      if (!n) continue;
-      // 100 exact · 80 starts-with · 60 word-start · 40 contains
-      let rank = 0;
-      if (n === needle) { rank = 100; matchedOn = 'exact'; }
-      else if (n.startsWith(needle)) rank = 80;
-      else if (n.includes(` ${needle}`)) rank = 60;
-      else if (n.includes(needle)) rank = 40;
-      if (rank > best) best = rank;
-    }
-
-    // A typo still surfaces, just below every literal match.
-    if (best === 0) {
-      const sim = Math.max(...surfaces.map((x) => similarity(needle, norm(x))));
-      if (sim >= FUZZY_FLOOR) best = Math.round(sim * 30);
-    }
-
-    if (best > 0) scored.push({ c: toCandidate(r, best / 100, matchedOn), rank: best });
+  // Top up with typo-tolerant hits, always BELOW every literal match.
+  const fuzzy = await queryFuzzy(needle, limit - literal.length + 5);
+  const seen = new Set(literal.map((c) => c.medicationId));
+  for (const r of fuzzy) {
+    if (seen.has(r.id)) continue;
+    literal.push(toCandidate(r, Number(r.score ?? 0) * 0.3, 'fuzzy'));
+    if (literal.length >= limit) break;
   }
-
-  return scored
-    .sort((a, b) => b.rank - a.rank || a.c.canonicalName.localeCompare(b.c.canonicalName))
-    .slice(0, limit)
-    .map((x) => x.c);
+  return literal;
 }
 
 /** Look up rows by id — used by the validator for the Schedule X / NDPS gate. */
 export async function getMedicationsByIds(ids: string[]): Promise<Map<string, MedicationRow>> {
   if (ids.length === 0) return new Map();
-  const idx = await loadCatalog();
-  const want = new Set(ids);
-  return new Map(idx.rows.filter((r) => want.has(r.id)).map((r) => [r.id, r]));
+  const rows = (await prisma.medication.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, canonicalName: true, genericName: true, brandName: true,
+      strength: true, strengthUnit: true, dosageForm: true, route: true,
+      aliases: true, phoneticKey: true, isScheduleX: true, isNdps: true, scheduleClass: true,
+    },
+  })) as MedicationRow[];
+  return new Map(rows.map((r) => [r.id, r]));
 }
 
 /**
@@ -392,11 +497,16 @@ export async function getMedicationsByIds(ids: string[]): Promise<Map<string, Me
  * that matter. Capped because a prompt that is mostly noise biases nothing.
  */
 export async function buildAsrHint(limit = 120): Promise<string> {
-  const idx = await loadCatalog();
-  const names = idx.rows
-    .map((r) => r.brandName || r.genericName || r.canonicalName)
-    .filter(Boolean)
-    .slice(0, limit);
+  // The most common brands, not a slice of whatever the catalogue returns first.
+  // A hint that is mostly long-tail names biases nothing; one full of the drugs
+  // this clinic actually prescribes is the cheapest accuracy gain available.
+  const rows = await prisma.medication.findMany({
+    where: { isActive: true, deletedAt: null, brandName: { not: null } },
+    orderBy: { createdAt: 'asc' },
+    take: limit,
+    select: { brandName: true, genericName: true, canonicalName: true },
+  });
+  const names = rows.map((r) => r.brandName || r.genericName || r.canonicalName).filter(Boolean);
   if (names.length === 0) return '';
   return `Indian clinical prescription dictation, English and Hindi mixed. Medicines: ${names.join(', ')}.`;
 }

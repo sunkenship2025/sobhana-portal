@@ -17,6 +17,8 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { phoneticKey } from '../src/services/voiceRx/resolver';
+import { screenControlled } from '../src/services/voiceRx/controlled';
+import { INDIA_OPD_FORMULARY } from './seed-data-india';
 
 const prisma = new PrismaClient();
 
@@ -182,11 +184,78 @@ const MEDICATIONS: Seed[] = [
     scheduleClass: 'H1', isNdps: true, aliases: ['ultracet', 'tramadol paracetamol'] },
 ];
 
+/**
+ * Merge the hand-written rows with the curated formulary.
+ *
+ * The hand-written ones win on aliases, because they carry things the formulary
+ * never will: clinic shorthand and KNOWN ASR MISHEARINGS ("all mentum" for
+ * Augmentin, "as it real" for Azithral). Those are the entries that make
+ * dictation resolve, and they are the shape every future doctor correction
+ * should be appended in.
+ */
+function mergedSeed(): Seed[] {
+  const byName = new Map<string, Seed>();
+
+  /**
+   * Two sources naming the same product differently is a real duplicate, and it
+   * reaches the doctor as "confirm which medicine" beside two identical options.
+   * "Amoxicillin + Clavulanic acid 625 mg" and "Amoxicillin 500 mg + Clavulanic
+   * acid 125 mg" are the same tablet. So identity is the PRODUCT — molecule,
+   * strength, form — not the string someone happened to type.
+   */
+  const productKey = (m: { genericName?: string; strength?: string; dosageForm?: string }) => {
+    const molecules = (m.genericName ?? '')
+      .toLowerCase()
+      .split('+')
+      .map((x) => x.replace(/[^a-z]/g, '').trim())
+      .filter(Boolean)
+      .sort()
+      .join('+');
+    return `${molecules}|${(m.strength ?? '').replace(/[^0-9+]/g, '')}|${m.dosageForm ?? ''}`;
+  };
+
+  for (const f of INDIA_OPD_FORMULARY) {
+    byName.set(f.canonicalName.toLowerCase(), {
+      canonicalName: f.canonicalName,
+      genericName: f.genericName ?? undefined,
+      brandName: f.brandName ?? undefined,
+      strength: f.strength ?? undefined,
+      strengthUnit: f.strengthUnit ?? undefined,
+      dosageForm: f.dosageForm ?? undefined,
+      route: f.route ?? undefined,
+      aliases: f.aliases,
+    });
+  }
+
+  for (const m of MEDICATIONS) {
+    const key = m.canonicalName.toLowerCase();
+    const existing = byName.get(key);
+    byName.set(key, existing
+      ? { ...existing, ...m, aliases: [...new Set([...(existing.aliases ?? []), ...(m.aliases ?? [])])] }
+      : m);
+  }
+
+  // Collapse product duplicates, keeping the entry with the richer alias list —
+  // that is the hand-written one, and its aliases are what make dictation resolve.
+  const byProduct = new Map<string, Seed>();
+  for (const m of byName.values()) {
+    const key = productKey(m);
+    const prior = byProduct.get(key);
+    if (!prior) { byProduct.set(key, m); continue; }
+    const keep = (m.aliases?.length ?? 0) >= (prior.aliases?.length ?? 0) ? m : prior;
+    const drop = keep === m ? prior : m;
+    byProduct.set(key, { ...keep, aliases: [...new Set([...(keep.aliases ?? []), ...(drop.aliases ?? [])])] });
+  }
+
+  return [...byProduct.values()];
+}
+
 async function main() {
   let created = 0;
   let updated = 0;
+  const all = mergedSeed();
 
-  for (const m of MEDICATIONS) {
+  for (const m of all) {
     // The phonetic key is built from the BRAND where there is one — that is what
     // the doctor says, and therefore what the ASR mishears.
     const key = phoneticKey(m.brandName || m.genericName || m.canonicalName);
@@ -195,6 +264,13 @@ async function main() {
       where: { canonicalName: m.canonicalName },
       select: { id: true },
     });
+
+    // Controlled flags come from the SCREEN, not from hand-tagging, so the
+    // catalogue can never disagree with the gate that actually blocks. (The gate
+    // does not depend on these flags — it reads the text — but a row that says
+    // "safe" next to a molecule the screen blocks would be a confusing lie.)
+    const hits = screenControlled([m.canonicalName, m.genericName, m.brandName, ...(m.aliases ?? [])].filter(Boolean).join(' '));
+    const worst = hits.find((h) => h.entry.blockTelemedicine);
 
     const data = {
       canonicalName: m.canonicalName,
@@ -206,9 +282,14 @@ async function main() {
       route: m.route ?? null,
       aliases: m.aliases ?? [],
       phoneticKey: key,
-      scheduleClass: m.scheduleClass ?? null,
-      isScheduleX: m.isScheduleX ?? false,
-      isNdps: m.isNdps ?? false,
+      // Declared here, not inferred by a heuristic. An earlier migration guessed
+      // "CURATED" from alias count and tagged 36,000 imported rows — which
+      // poisoned ranking, because CURATED is what makes the clinic's own
+      // formulary outrank a quarter-million-row long tail.
+      source: 'CURATED',
+      scheduleClass: m.scheduleClass ?? (worst ? worst.entry.schedule : null),
+      isScheduleX: m.isScheduleX ?? !!worst?.entry.schedule.includes('X'),
+      isNdps: m.isNdps ?? !!worst?.entry.schedule.includes('NDPS'),
       isActive: true,
     };
 
@@ -221,8 +302,9 @@ async function main() {
     }
   }
 
+  const controlled = await prisma.medication.count({ where: { OR: [{ isScheduleX: true }, { isNdps: true }] } });
   // eslint-disable-next-line no-console
-  console.log(`medications: ${created} created, ${updated} updated, ${MEDICATIONS.length} total`);
+  console.log(`medications: ${created} created, ${updated} updated, ${all.length} total (${controlled} flagged controlled)`);
 }
 
 main()
