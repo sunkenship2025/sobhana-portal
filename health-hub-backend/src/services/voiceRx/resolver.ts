@@ -58,10 +58,33 @@ export interface Candidate {
   matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy';
   /** CURATED · LEARNED · IMPORTED. A ranking signal, and a decision one. */
   source: string;
+  /**
+   * How often THIS clinic has prescribed it. Shown in the picker, because it is
+   * the single most useful disambiguator a busy prescriber has — and it is a
+   * fact about their own history, not a recommendation from us.
+   */
+  usageCount: number;
 }
+
+/**
+ * WHY the resolver is asking. The three are different questions and the UI gives
+ * each a different control — collapsing them into one generic "confirm" dialog
+ * is how a specific question becomes a generic click.
+ */
+export type AskReason =
+  /** Several real products match what was said. A closed choice. */
+  | 'MULTIPLE_MATCHES'
+  /** The medicine matched but the spoken strength is not one we hold. */
+  | 'STRENGTH_NOT_STOCKED'
+  /** Nothing matched. An open choice: search, or keep as written. */
+  | 'NO_MATCH';
 
 export interface ResolveResult {
   resolution: Resolution;
+  /** Set whenever resolution is AMBIGUOUS or UNRESOLVED. */
+  askReason?: AskReason;
+  /** The strength the doctor actually said, when it drove the question. */
+  spokenStrength?: string | null;
   /** Set only when RESOLVED. */
   match: Candidate | null;
   /** Populated when AMBIGUOUS (and kept for UNRESOLVED as "nearest, still wrong"). */
@@ -332,6 +355,7 @@ const toCandidate = (r: Raw, score: number, matchedOn: Candidate['matchedOn']): 
   score: Math.min(1, score + boost(r)),
   matchedOn,
   source: r.source ?? 'IMPORTED',
+  usageCount: Number(r.usageCount ?? 0),
 });
 
 /**
@@ -469,7 +493,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   // the same answer. "Six fifty" is 650 everywhere or the system is inconsistent
   // about the one thing it cannot be inconsistent about.
   const q = norm(wordsToNumbers(input.spoken));
-  if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [] };
+  if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
 
   // The spoken token usually carries the strength: "augmentin 625", "pantop 40".
   // Pull it out UP FRONT so every tier narrows by it consistently — doing this
@@ -511,7 +535,10 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
       const want = spokenStrength.replace(/[^0-9.]/g, '');
       const agrees = narrowed.filter((c) => (c.strength ?? '').replace(/[^0-9.]/g, '') === want);
       if (agrees.length === 0) {
-        return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed };
+        return {
+          resolution: 'AMBIGUOUS', match: null, candidates: narrowed,
+          askReason: 'STRENGTH_NOT_STOCKED', spokenStrength,
+        };
       }
       narrowed = agrees;
     }
@@ -528,7 +555,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (narrowed[0].score >= FUZZY_CONFIDENT && narrowed[0].score - narrowed[1].score >= FUZZY_MARGIN) {
       return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
     }
-    return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed };
+    return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed, askReason: 'MULTIPLE_MATCHES', spokenStrength };
   };
 
   const pk = phoneticKey(stem);
@@ -548,7 +575,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (d) return d;
   }
 
-  return { resolution: 'UNRESOLVED', match: null, candidates: [] };
+  return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
 }
 
 export async function searchMedications(q: string, limit = 12): Promise<Candidate[]> {

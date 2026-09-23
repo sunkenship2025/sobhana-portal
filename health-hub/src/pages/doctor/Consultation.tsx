@@ -26,9 +26,10 @@ import {
 import { cn } from '@/lib/utils';
 import { RxItemEditor } from '@/components/doctor/RxItemEditor';
 import { MedicineTypeahead } from '@/components/doctor/MedicineTypeahead';
+import { RxQuestionQueue } from '@/components/doctor/RxQuestionQueue';
 import { RxLetterpad, type RxProfile } from '@/components/doctor/RxLetterpad';
 import {
-  doctorApi, DoctorApiError, itemSig, itemTitle,
+  doctorApi, DoctorApiError, itemSig, itemTitle, openQuestions,
   type Prescription, type RxItem, type Finding, type Capabilities, type ExtractedItem,
   type VisitContext,
 } from '@/lib/doctorApi';
@@ -307,6 +308,9 @@ export default function Consultation() {
   }, [visitId, navigate]);
 
   const blocking = useMemo(() => findings.filter((f) => f.severity !== 'NOTE'), [findings]);
+  // Gate on the QUEUE, not only on the validator: the point of the queue is that
+  // the refusal arrives while the doctor is still writing, not at the last step.
+  const unanswered = useMemo(() => openQuestions(items).length, [items]);
   const notesOnly = useMemo(() => findings.filter((f) => f.severity === 'NOTE'), [findings]);
   const canSign = blocking.length === 0 && items.length > 0;
 
@@ -598,11 +602,18 @@ export default function Consultation() {
               </section>
             )}
 
-            {blocking.length > 0 && (
+            {/* One question at a time, at the commit bar. Amber borders on cards
+                are skippable; this is not, and it carries the words that produced
+                each question. */}
+            <RxQuestionQueue items={items} onResolve={patchItem} />
+
+            {/* Findings the queue cannot answer — duplicates, an either/or, a
+                Schedule X block. Stated, never dismissible. */}
+            {blocking.filter((f) => !f.itemId).length > 0 && (
               <section className="rounded-lg border border-amber-300 bg-amber-50 p-3">
                 <h2 className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
                   <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  {blocking.length} thing{blocking.length === 1 ? '' : 's'} to resolve before signing
+                  Before signing
                 </h2>
                 <ul className="mt-1.5 space-y-0.5">
                   {blocking.filter((f) => !f.itemId).map((f) => (
@@ -621,7 +632,11 @@ export default function Consultation() {
                   {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
                   Save draft
                 </Button>
-                <Button onClick={() => void openReview()} disabled={saving || items.length === 0}>
+                <Button
+                  onClick={() => void openReview()}
+                  disabled={saving || items.length === 0 || unanswered > 0}
+                  title={unanswered > 0 ? `${unanswered} question${unanswered === 1 ? '' : 's'} left` : undefined}
+                >
                   Review &amp; sign
                 </Button>
               </div>

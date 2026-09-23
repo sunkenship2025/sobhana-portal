@@ -22,12 +22,19 @@ import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { logAction } from '../services/auditService';
+import { emitBranchChange, emitWorklistOnMutation } from '../lib/displayEvents';
 import { listForPatient, currentMedications } from '../services/voiceRx/prescriptionService';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 router.use(requireRole('doctor', 'owner'));
+// The doctor's queue is the SAME ClinicVisit rows the staff OP/IP queue and the
+// waiting-room TV read, so a transition made here has to wake them exactly as a
+// transition made there does. Without this the row moved and every other open
+// screen went on showing the old one — the link was real in the database and
+// invisible on the floor.
+router.use(emitWorklistOnMutation);
 
 /** Diagnostics are OFF by default. One org-wide row, shipped "false". */
 const DIAGNOSTICS_KEY = 'doctor_view_diagnostics';
@@ -207,6 +214,10 @@ router.post('/queue/next', async (req: AuthRequest, res) => {
       where: { id: next.visitId, status: 'WAITING' },
       data: { status: 'IN_PROGRESS' },
     });
+    // The TV listens on the branch channel, not the worklist one, and its 25s
+    // heartbeat carries no state. Without this the token the doctor just called
+    // stays off the screen the waiting patients are watching.
+    emitBranchChange(req.branchId!);
 
     res.json({ visitId: next.visitId, clinicVisitId: next.id });
   } catch (err) {
@@ -248,6 +259,7 @@ router.patch('/queue/:visitId', async (req: AuthRequest, res) => {
       },
     });
     await prisma.visit.updateMany({ where: { id: req.params.visitId }, data: { status: status as any } });
+    if (cv.status !== status) emitBranchChange(req.branchId!);
 
     res.json({ ok: true, status });
   } catch (err) {

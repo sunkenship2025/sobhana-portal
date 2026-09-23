@@ -46,7 +46,17 @@ export interface MedicationCandidate {
   route: string | null;
   score: number;
   matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy';
+  source: string;
+  /** How often THIS clinic has prescribed it — the best disambiguator there is. */
+  usageCount: number;
 }
+
+/**
+ * Why the resolver is asking. Three different questions, three different
+ * controls — collapsing them into one generic "confirm" is how a specific
+ * question becomes a generic click.
+ */
+export type AskReason = 'MULTIPLE_MATCHES' | 'STRENGTH_NOT_STOCKED' | 'NO_MATCH';
 
 export interface RxItem {
   id?: string;
@@ -300,7 +310,7 @@ export const doctorApi = {
    * which is what dictation needs. Two different questions, one endpoint.
    */
   searchMedications: (q: string, mode?: 'search') =>
-    req<{ resolution: MedicationResolution; match: MedicationCandidate | null; candidates: MedicationCandidate[] }>(
+    req<{ resolution: MedicationResolution; match: MedicationCandidate | null; candidates: MedicationCandidate[]; askReason?: AskReason; spokenStrength?: string | null }>(
       `/prescriptions/medications?q=${encodeURIComponent(q)}${mode ? `&mode=${mode}` : ''}`,
     ),
 
@@ -341,6 +351,34 @@ export function itemTitle(it: Pick<RxItem, 'canonicalName' | 'strength' | 'stren
   // Don't repeat a strength the canonical name already carries.
   if (it.canonicalName.includes(it.strength)) return it.canonicalName;
   return `${it.canonicalName} ${it.strength}${it.strengthUnit ?? ''}`.trim();
+}
+
+export interface OpenQuestion {
+  index: number;
+  item: RxItem;
+  reason: AskReason;
+  spokenStrength: string | null;
+}
+
+/**
+ * Which lines still need the doctor's answer, in prescription order.
+ *
+ * Derived from the items rather than held in state, so it cannot drift out of
+ * sync with what has already been fixed — answering a question makes it vanish
+ * because the item changed, not because a counter moved.
+ */
+export function openQuestions(items: RxItem[]): OpenQuestion[] {
+  return items.flatMap((item, index) => {
+    if (item.resolution === 'RESOLVED' || item.resolution === 'MANUAL') return [];
+    const states = (item.fieldStates ?? {}) as Record<string, unknown>;
+    return [{
+      index,
+      item,
+      reason: (states.askReason as AskReason | undefined)
+        ?? (item.resolution === 'UNRESOLVED' ? 'NO_MATCH' : 'MULTIPLE_MATCHES'),
+      spokenStrength: (states.spokenStrength as string | null | undefined) ?? item.strength ?? null,
+    }];
+  });
 }
 
 /** "1 tablet · three times a day · after food · 5 days" */

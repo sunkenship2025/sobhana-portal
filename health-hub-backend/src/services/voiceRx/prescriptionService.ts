@@ -202,7 +202,14 @@ async function buildItem(it: ExtractedItem, order: number): Promise<Prisma.Presc
     instructions: it.instructions,
     resolution: r.resolution,
     candidates: r.candidates.length ? (r.candidates as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
-    fieldStates: { ...it.fieldStates, isAlternative: it.isAlternative } as unknown as Prisma.InputJsonValue,
+    // askReason rides on fieldStates so the question survives a reload without a
+    // column of its own — the queue must be able to rebuild itself from the draft.
+    fieldStates: {
+      ...it.fieldStates,
+      isAlternative: it.isAlternative,
+      askReason: r.askReason ?? null,
+      spokenStrength: r.spokenStrength ?? null,
+    } as unknown as Prisma.InputJsonValue,
     sourceText: it.sourceText,
     sourceStart: it.sourceStart,
     sourceEnd: it.sourceEnd,
@@ -329,6 +336,8 @@ export async function updateDraft(
         data: patch.items.map((it, i) => {
           const was = it.id ? prior.get(it.id) : undefined;
           const freq = (it.frequencyCode ?? null) as FrequencyCode | null;
+          const res = (it.resolution as string) ?? 'MANUAL';
+          const resolved = res === 'MANUAL' || res === 'RESOLVED';
           return {
             prescriptionId: id,
             displayOrder: i,
@@ -350,6 +359,13 @@ export async function updateDraft(
             durationUnit: it.durationUnit ?? null,
             instructions: it.instructions ?? null,
             resolution: (it.resolution as any) ?? 'MANUAL',
+            // An UNANSWERED question must survive a draft save WITH ITS OPTIONS.
+            // Saving used to drop them, so the queue came back asking something it
+            // could no longer offer an answer to. Carried from the prior row rather
+            // than from the request: the client must not be able to invent options.
+            candidates: resolved
+              ? Prisma.DbNull
+              : ((was?.candidates as Prisma.InputJsonValue) ?? Prisma.DbNull),
             // Source spans survive an edit: provenance belongs to what was SAID,
             // not to whether the doctor later adjusted the value.
             sourceText: it.sourceText ?? was?.sourceText ?? null,

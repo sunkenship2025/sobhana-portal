@@ -1,7 +1,7 @@
 /**
  * Browser check for the doctor portal — through the REAL login.
  *
- *   npm run ui:check          (needs the API on :3000 and vite on :5173)
+ *   npm run ui:check          (needs the API on :3000 and vite on :8081)
  *
  * Drives the puppeteer Chrome that is already a dependency for PDFs.
  *
@@ -26,8 +26,10 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import bcrypt from 'bcryptjs';
 import prisma from './src/lib/prisma';
+import { createDraft } from './src/services/voiceRx/prescriptionService';
 
-const FE = 'http://localhost:5173';
+// Vite picks the port; this repo's dev server lands on 8081. Override with FE_URL.
+const FE = process.env.FE_URL ?? 'http://localhost:8081';
 const EMAIL = `uicheck.${Date.now()}@sobhana.local`;
 const PASSWORD = 'UiCheck@2026';
 
@@ -37,6 +39,7 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
   let userId: string | null = null;
   let clinicDoctorId: string | null = null;
   let priorUserId: string | null = null;
+  let draftId: string | null = null;
   let browser: Browser | null = null;
 
   try {
@@ -139,8 +142,56 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
     // The composer fires several queries (visit context, prior prescriptions,
     // current medications, existing draft, capabilities). Each is ~1.3s from this
     // machine to Oregon, so it needs a realistic window — on Render it is ~1ms.
-    if (cv) await visit(`/doctor/consult/${cv.visitId}`, 'consultation', 'Prescription', 30000);
-    else console.log('(this doctor has no visits — consultation page skipped)');
+    if (cv) {
+      await visit(`/doctor/consult/${cv.visitId}`, 'consultation', 'Prescription', 30000);
+
+      // --- the question queue, with a real unanswered question ----------------
+      // Seeded rather than dictated: the queue's job is to render what the
+      // resolver could not decide, and asserting that needs a draft that HAS an
+      // undecided line. Loading the page is the only way to know it renders —
+      // tsc has passed on a blank page from this repo before.
+      const seeded = await createDraft({
+        visitId: cv.visitId, branchId: branch.id, clinicDoctorId: doctor.id,
+        items: [
+          // Source spans included on purpose: the evidence blockquote is the part
+          // that lets a doctor CHECK the question instead of guessing at it, so a
+          // fixture without them would quietly stop testing it.
+          { name: 'pantop', strength: '55', spokenText: 'pantop fifty five',
+            sourceText: 'pantop fifty five once daily before breakfast', sourceStart: 12, sourceEnd: 17 } as any,
+          { name: 'amlodipine', spokenText: 'amlodipine',
+            sourceText: 'and amlodipine once daily', sourceStart: 18, sourceEnd: 21 } as any,
+        ],
+      });
+      draftId = seeded.id;
+
+      await page.goto(`${FE}/doctor/consult/${cv.visitId}`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 30000));
+      const q = await text();
+
+      // Is the sign path actually shut, or does it only LOOK shut?
+      const signDisabled = await page.$$eval('button', (bs) => {
+        const b = bs.find((x) => /review\s*&?\s*sign/i.test(x.textContent ?? ''));
+        return b ? (b as HTMLButtonElement).disabled : null;
+      }).catch(() => null);
+
+      const optionCount = await page.$$eval(
+        'section[aria-label="Questions to answer before signing"] button',
+        (bs) => bs.length,
+      ).catch(() => 0);
+
+      console.log('\nQUESTION QUEUE');
+      const qok = (label: string, cond: boolean, detail = '') =>
+        console.log(`  ${cond ? 'yes' : 'NO '}  ${label}${detail ? `  — ${detail}` : ''}`);
+      qok('queue is on the page', /needs your answer|thing needs your answer/i.test(q));
+      qok('it names the question', /which medicine|confirm the strength|not in the medicine list/i.test(q));
+      // The exact dictated phrase, not merely the word "spoken" somewhere.
+      qok('it quotes the words that were spoken', /pantop fifty five once daily|and amlodipine once daily/i.test(q));
+      qok('it timestamps them', /\d+s\s*[–-]\s*\d+s/.test(q));
+      qok('it offers options to pick', optionCount > 0, `${optionCount} controls`);
+      qok('Review & sign is DISABLED', signDisabled === true, `disabled=${signDisabled}`);
+
+      if (!/needs your answer/i.test(q)) console.log(`      got: ${q.slice(0, 700)}`);
+    } else console.log('(this doctor has no visits — consultation page skipped)');
 
     console.log('\nPAGE'.padEnd(20) + 'OK'.padEnd(6) + 'H1'.padEnd(26) + 'EXPECTED TO CONTAIN');
     for (const r of results) {
@@ -154,6 +205,7 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
   } finally {
     if (browser) await browser.close().catch(() => {});
     // Reverse every write, whatever happened above.
+    if (draftId) await prisma.prescription.deleteMany({ where: { id: draftId } }).catch(() => {});
     if (clinicDoctorId) await prisma.clinicDoctor.update({ where: { id: clinicDoctorId }, data: { userId: priorUserId } }).catch(() => {});
     if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => {});
     console.log('cleaned up: temp login removed, doctor re-linked as before');

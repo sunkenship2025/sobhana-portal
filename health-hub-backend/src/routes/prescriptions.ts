@@ -13,6 +13,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
+import { emitWorklistOnMutation } from '../lib/displayEvents';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
@@ -33,6 +34,9 @@ import {
 const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+// A queue row carries its prescription's status, so signing one changes what the
+// staff queue should show. Same hook the staff visit routes use.
+router.use(emitWorklistOnMutation);
 
 /** Doctors and owners. Staff never write prescriptions — that is the whole point. */
 const PRESCRIBERS = ['doctor', 'owner'] as const;
