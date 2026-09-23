@@ -23,6 +23,10 @@ import { resolveInbound } from '../services/automations/inbound';
 import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
 import { cleanWaReason } from '../services/whatsappErrors';
 import { emitCatalogChange } from '../lib/displayEvents';
+import bcrypt from 'bcryptjs';
+import { generatePassword } from '../lib/portalCredentials';
+import { sendPortalCredentials } from '../services/notificationService';
+import { invalidateAuthUser } from '../middleware/branch';
 
 const router = Router();
 
@@ -412,6 +416,48 @@ router.post(
               if (auto.optedOut || auto.optedIn || auto.stepIndex !== null) {
                 if (convo.branchId) emitCatalogChange(convo.branchId, 'inbox');
                 continue;
+              }
+
+              // A pending portal invite is answered next. This reply is the only
+              // moment credentials may legally be sent: a template cannot carry
+              // them (Meta rejects a utility template with INCORRECT_CATEGORY,
+              // and the authentication category has a fixed body and 15-char
+              // parameters), and free-form text is permitted only inside the 24h
+              // window this message just opened.
+              //
+              // It sits BELOW resolveInbound on purpose. A member who replies
+              // STOP to their invite has opted out, and honouring that matters
+              // more than delivering a password they can ask for again — putting
+              // this first would send the credentials and drop the STOP.
+              //
+              // The password is generated and hashed HERE, never earlier, so an
+              // invite that is never answered leaves no credential behind.
+              try {
+                const tail = from.replace(/\D/g, '').slice(-10);
+                const invitee = await prisma.user.findFirst({
+                  where: { portalInviteAt: { not: null }, isActive: true, phone: { endsWith: tail } },
+                  select: { id: true, name: true, email: true },
+                });
+                if (invitee) {
+                  const password = generatePassword(invitee.name);
+                  // Clear the flag in the SAME update that sets the hash, and only
+                  // for a row still marked pending, so two replies arriving together
+                  // cannot both send a password (the loser updates nothing).
+                  const claimed = await prisma.user.updateMany({
+                    where: { id: invitee.id, portalInviteAt: { not: null } },
+                    data: { passwordHash: await bcrypt.hash(password, 10), portalInviteAt: null },
+                  });
+                  if (claimed.count === 1) {
+                    // The old hash is cached on the auth row for 60s; drop it so
+                    // the new password works on their very first attempt.
+                    await invalidateAuthUser(invitee.id);
+                    await sendPortalCredentials(from, invitee.email, password);
+                    console.log(`[Webhook] portal credentials sent to ${invitee.email}`);
+                    continue; // no coupon or auto-reply on top of this
+                  }
+                }
+              } catch (inviteErr) {
+                console.error('[Webhook] portal invite reply handling failed for', from, inviteErr);
               }
 
               const isBook = /^\s*book\b/i.test(inboundBody);
