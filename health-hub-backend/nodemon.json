@@ -1,0 +1,6 @@
+{
+  "//": "Watch the SERVER, not the whole directory. Without this nodemon watches cwd, so writing or editing a root-level script — doctor-ui-check.ts, roles-ui-check.ts, any *-check.ts, a throwaway probe — restarts the API. That is not just slow: every boot rebuilds the Pulse knowledge index, which takes ~80s of queries against Neon and saturates the connection pool, so requests time out at 10s and return 500 while it runs. Editing a test and then watching that test fail against a server your edit knocked over is a confusing way to spend an afternoon.",
+  "watch": ["src", "prisma/schema.prisma"],
+  "ext": "ts,json",
+  "ignore": ["src/**/*.test.ts", "src/**/*.check.ts"]
+}

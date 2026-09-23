@@ -30,6 +30,7 @@
     "voicerx:check": "tsx src/services/voiceRx/normalize.ts && tsx src/services/voiceRx/controlled.ts && tsx src/services/voiceRx/validator.ts && tsx src/services/voiceRx/resolver.check.ts",
     "seed:medications": "tsx prisma/seed-medications.ts",
     "ui:check": "tsx doctor-ui-check.ts",
+    "roles:check": "tsx roles-ui-check.ts",
     "voicerx:bench": "tsx voicerx-bench.ts",
     "voicerx:queue-check": "tsx voicerx-queue-check.ts"
   },
