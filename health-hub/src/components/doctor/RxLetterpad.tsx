@@ -229,7 +229,10 @@ export function RxLetterpad({
       <p
         className={cn(
           'mt-3 border-t border-slate-200 pt-1.5 text-center text-[9.5px] text-slate-500',
-          physical && 'opacity-30 outline-dashed outline-1 outline-offset-2 outline-amber-500',
+          // print:hidden with the rest of the ghosted header furniture. Without it
+          // the words "Footer pre-printed on the letterhead" — a note to the doctor
+          // about what the PAPER carries — print onto the paper that carries it.
+          physical && 'opacity-30 outline-dashed outline-1 outline-offset-2 outline-amber-500 print:hidden',
         )}
       >
         {physical
