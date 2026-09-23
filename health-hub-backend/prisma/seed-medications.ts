@@ -211,7 +211,14 @@ function mergedSeed(): Seed[] {
       .filter(Boolean)
       .sort()
       .join('+');
-    return `${molecules}|${(m.strength ?? '').replace(/[^0-9+]/g, '')}|${m.dosageForm ?? ''}`;
+    // Combination strengths arrive in two shapes from two sources: "10+5" and a
+    // bare "10" (when the source wrote "10mg+5mg" and the parser stopped at the
+    // interleaved unit). Same tablet, two keys — and the doctor then gets asked
+    // "which medicine?" between two identical rows. Key on the FIRST component
+    // for combinations, which both shapes agree on.
+    const raw = (m.strength ?? '').replace(/[^0-9+.]/g, '');
+    const strength = molecules.includes('+') ? raw.split('+')[0] : raw;
+    return `${molecules}|${strength}|${m.dosageForm ?? ''}`;
   };
 
   for (const f of INDIA_OPD_FORMULARY) {

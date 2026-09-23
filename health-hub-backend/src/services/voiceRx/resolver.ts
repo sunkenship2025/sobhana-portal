@@ -25,6 +25,7 @@
  */
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { wordsToNumbers } from './normalize';
 
 export type Resolution = 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED';
 
@@ -399,7 +400,11 @@ async function queryAllTiers(needle: string, stem: string, pkey: string, limit =
 }
 
 export async function resolveMedication(input: ResolveInput): Promise<ResolveResult> {
-  const q = norm(input.spoken);
+  // Number words first: the extractor normalises before calling, but a doctor
+  // typing "dolo six fifty" or any other caller reaching this directly must get
+  // the same answer. "Six fifty" is 650 everywhere or the system is inconsistent
+  // about the one thing it cannot be inconsistent about.
+  const q = norm(wordsToNumbers(input.spoken));
   if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [] };
 
   // The spoken token usually carries the strength: "augmentin 625", "pantop 40".
