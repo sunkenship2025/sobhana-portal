@@ -30,20 +30,8 @@ import { RxLetterpad, type RxProfile } from '@/components/doctor/RxLetterpad';
 import {
   doctorApi, DoctorApiError, itemSig, itemTitle,
   type Prescription, type RxItem, type Finding, type Capabilities, type ExtractedItem,
+  type VisitContext,
 } from '@/lib/doctorApi';
-
-interface VisitContext {
-  visit: { id: string; status: string; date: string; visitType: string; ward: string | null; queueStatus: string; tokenNumber: number | null };
-  branch: { id: string; name: string; address: string | null; phone: string | null };
-  doctor: { id: string; name: string; qualification: string; specialty: string; registrationNumber: string; letterheadNote: string | null };
-  patient: { id: string; patientNumber: string; name: string; title: string | null; gender: string; ageLabel: string; phone: string | null; deceased: boolean };
-  previousPrescriptions: {
-    id: string; signedAt: string | null; diagnosis: string | null;
-    items: { canonicalName: string; strength: string | null; strengthUnit: string | null; doseQty: string | null; doseUnit: string | null; frequencyCode: string | null; frequencyText: string | null; timing: string | null; durationValue: number | null; durationUnit: string | null }[];
-    clinicDoctor: { name: string };
-  }[];
-  currentMedications: { name: string; since: string }[];
-}
 
 /** Turn an extracted item into an editable row. */
 const fromExtracted = (e: ExtractedItem): RxItem => ({
@@ -109,10 +97,12 @@ export default function Consultation() {
     try {
       setLoadError(null);
       const [context, existing, capabilities] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL ?? '/api'}/doctor/visits/${visitId}`, { credentials: 'include' }).then(async (r) => {
-          if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.message ?? 'Failed');
-          return r.json() as Promise<VisitContext>;
-        }),
+        // Through doctorApi like every other call: a hand-rolled fetch here used
+        // VITE_API_URL, which is not this app's variable (it is VITE_API_BASE_URL,
+        // read once in lib/api). The request 404'd and the page sat in its
+        // loading skeleton forever — invisible to typecheck, build and lint, and
+        // caught only by loading the page in a browser.
+        doctorApi.visitContext(visitId),
         doctorApi.forVisit(visitId).catch(() => [] as Prescription[]),
         doctorApi.capabilities().catch(() => null),
       ]);

@@ -28,7 +28,8 @@
     "pulse:artifacts": "ts-node --transpile-only pulse-artifact-fit.ts",
     "automations:check": "tsx automations-check.ts",
     "voicerx:check": "tsx src/services/voiceRx/normalize.ts && tsx src/services/voiceRx/controlled.ts && tsx src/services/voiceRx/validator.ts && tsx src/services/voiceRx/resolver.check.ts",
-    "seed:medications": "tsx prisma/seed-medications.ts"
+    "seed:medications": "tsx prisma/seed-medications.ts",
+    "ui:check": "tsx doctor-ui-check.ts"
   },
   "keywords": [
     "healthcare",

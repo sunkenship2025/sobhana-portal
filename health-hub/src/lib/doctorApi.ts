@@ -264,8 +264,19 @@ async function req<T>(path: string, init?: RequestInit & { json?: unknown }): Pr
 // Endpoints
 // ---------------------------------------------------------------------------
 
+export interface VisitContext {
+  visit: { id: string; status: string; date: string; visitType: string; ward: string | null; queueStatus: string; tokenNumber: number | null };
+  branch: { id: string; name: string; address: string | null; phone: string | null };
+  doctor: { id: string; name: string; qualification: string; specialty: string; registrationNumber: string; letterheadNote: string | null };
+  patient: { id: string; patientNumber: string; name: string; title: string | null; gender: string; ageLabel: string; phone: string | null; deceased: boolean };
+  previousPrescriptions: DoctorPatient['prescriptions'];
+  currentMedications: { name: string; since: string }[];
+}
+
 export const doctorApi = {
   me: () => req<DoctorMe>('/doctor/me'),
+  /** Doctor-safe consultation context — the money-free shape of a clinic visit. */
+  visitContext: (visitId: string) => req<VisitContext>(`/doctor/visits/${visitId}`),
   updateMe: (patch: { signatureImageBase64?: string | null; letterheadNote?: string }) =>
     req<DoctorMe['doctor']>('/doctor/me', { method: 'PATCH', json: patch }),
 
