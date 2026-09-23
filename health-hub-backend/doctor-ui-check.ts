@@ -26,6 +26,7 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import bcrypt from 'bcryptjs';
 import prisma from './src/lib/prisma';
+import { DIGITAL_RX_KEY } from './src/lib/clinicModule';
 import { createDraft } from './src/services/voiceRx/prescriptionService';
 
 // Vite picks the port; this repo's dev server lands on 8081. Override with FE_URL.
@@ -41,6 +42,10 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
   let priorUserId: string | null = null;
   let draftId: string | null = null;
   let browser: Browser | null = null;
+  // The clinic module switch, as found. `undefined` = we never touched it.
+  // Ships OFF, and while it is off every page below renders the switched-off
+  // panel instead of itself — so the run turns it on and this puts it back.
+  let priorModule: string | null | undefined = undefined;
 
   try {
     const branch = await prisma.branch.findFirst({ where: { isActive: true }, select: { id: true, name: true } });
@@ -65,6 +70,17 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
     clinicDoctorId = doctor.id;
     await prisma.clinicDoctor.update({ where: { id: doctor.id }, data: { userId: user.id } });
     console.log(`temp doctor login for ${doctor.name} at ${branch.name}\n`);
+
+    const moduleRow = await prisma.appSetting.findUnique({ where: { key: DIGITAL_RX_KEY } });
+    if (moduleRow?.value !== 'true') {
+      priorModule = moduleRow?.value ?? null;
+      await prisma.appSetting.upsert({
+        where: { key: DIGITAL_RX_KEY },
+        update: { value: 'true' },
+        create: { key: DIGITAL_RX_KEY, value: 'true' },
+      });
+      console.log('digital prescriptions switched ON for this run (restored afterwards)');
+    }
 
     browser = await puppeteer.launch({
       headless: true,
@@ -143,7 +159,10 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
     // current medications, existing draft, capabilities). Each is ~1.3s from this
     // machine to Oregon, so it needs a realistic window — on Render it is ~1ms.
     if (cv) {
-      await visit(`/doctor/consult/${cv.visitId}`, 'consultation', 'Prescription', 30000);
+      // 'Follow-up (days)' is a field only the composer renders. The old marker,
+      // 'Prescription', also matched "Digital prescriptions are switched off"
+      // and passed this row while the page showed nothing but that panel.
+      await visit(`/doctor/consult/${cv.visitId}`, 'consultation', 'Follow-up (days)', 30000);
 
       // --- the question queue, with a real unanswered question ----------------
       // Seeded rather than dictated: the queue's job is to render what the
@@ -208,7 +227,13 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
     if (draftId) await prisma.prescription.deleteMany({ where: { id: draftId } }).catch(() => {});
     if (clinicDoctorId) await prisma.clinicDoctor.update({ where: { id: clinicDoctorId }, data: { userId: priorUserId } }).catch(() => {});
     if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => {});
-    console.log('cleaned up: temp login removed, doctor re-linked as before');
+    if (priorModule !== undefined) {
+      await (priorModule === null
+        ? prisma.appSetting.delete({ where: { key: DIGITAL_RX_KEY } })
+        : prisma.appSetting.update({ where: { key: DIGITAL_RX_KEY }, data: { value: priorModule } })
+      ).catch((e) => console.error('COULD NOT RESTORE the digital prescription switch', e));
+    }
+    console.log('cleaned up: temp login removed, doctor re-linked, module switch as it was');
     await prisma.$disconnect();
   }
 })();

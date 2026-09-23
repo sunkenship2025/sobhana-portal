@@ -81,7 +81,7 @@ export default function ConsultingDoctors() {
   // fetch helper so the sidebar — which hides the doctor nav off the same
   // query — updates the instant this flips, instead of on the next reload.
   const qc = useQueryClient();
-  const { enabled: moduleOn } = useDigitalRx();
+  const { enabled: moduleOn, voiceEnabled } = useDigitalRx();
   const [moduleBusy, setModuleBusy] = useState(false);
   const [confirmModule, setConfirmModule] = useState(false);
 
@@ -183,6 +183,15 @@ export default function ConsultingDoctors() {
                 ? 'Doctors sign in to the portal, write prescriptions on screen and sign them.'
                 : 'Off. The clinic runs the paper flow: staff register the visit, the doctor writes on the pad. Doctor logins below stay set up, but the portal is closed.'}
             </p>
+            {/* Said up front so nobody switches the module on expecting a mic
+                that will not appear. Typed prescriptions work either way. */}
+            {voiceEnabled !== undefined && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {voiceEnabled
+                  ? 'Voice dictation is set up.'
+                  : 'Voice dictation is not set up on the server, so doctors will type instead of speak.'}
+              </p>
+            )}
           </div>
           <Button
             variant={moduleOn ? 'outline' : 'default'}

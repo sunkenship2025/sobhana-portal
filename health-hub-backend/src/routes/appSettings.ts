@@ -4,6 +4,8 @@ import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { logAction } from '../services/auditService';
 import { digitalRxEnabled, DIGITAL_RX_KEY } from '../lib/clinicModule';
+import { availableProviders } from '../services/voiceRx/asr';
+import { extractionConfigured } from '../services/voiceRx/extract';
 
 const router = Router();
 
@@ -70,7 +72,12 @@ router.put('/report-auto-sync', requireRole('lab_incharge'), async (req: AuthReq
 // ─── GET /api/app-settings/digital-prescriptions ─────────────────────
 router.get('/digital-prescriptions', async (_req: AuthRequest, res) => {
   try {
-    res.json({ enabled: await digitalRxEnabled() });
+    // Whether dictation will actually work once the module is on. Readable HERE,
+    // outside the module gate, because the owner deciding whether to switch it on
+    // needs to know if doctors will get a mic or only the typed editor — and
+    // /prescriptions/capabilities is unreachable while the module is off.
+    const voiceEnabled = availableProviders().some((p) => p.configured) && extractionConfigured();
+    res.json({ enabled: await digitalRxEnabled(), voiceEnabled });
   } catch (error) {
     console.error('GET /app-settings/digital-prescriptions failed:', error);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to read setting' });

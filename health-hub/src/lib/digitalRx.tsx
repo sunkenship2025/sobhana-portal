@@ -14,13 +14,15 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ShieldOff } from 'lucide-react';
 
-/** `undefined` while loading — callers must not treat that as "off". */
-export function useDigitalRx(): { enabled: boolean | undefined; isLoading: boolean } {
-  const { data, isLoading } = useApiQuery<{ enabled: boolean }>({
+/** `undefined` while loading — callers must not treat that as "off".
+ *  `voiceEnabled` says whether dictation is configured on the server; without
+ *  it the module still works, doctors just type instead of speak. */
+export function useDigitalRx(): { enabled: boolean | undefined; voiceEnabled: boolean | undefined; isLoading: boolean } {
+  const { data, isLoading } = useApiQuery<{ enabled: boolean; voiceEnabled?: boolean }>({
     queryKey: ['digital-rx-enabled'],
-    queryFn: () => apiCall<{ enabled: boolean }>('/app-settings/digital-prescriptions'),
+    queryFn: () => apiCall<{ enabled: boolean; voiceEnabled?: boolean }>('/app-settings/digital-prescriptions'),
   });
-  return { enabled: data?.enabled, isLoading };
+  return { enabled: data?.enabled, voiceEnabled: data?.voiceEnabled, isLoading };
 }
 
 /**
