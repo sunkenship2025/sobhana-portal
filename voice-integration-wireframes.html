@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice × editor — integration patterns</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink2:#475569; --ink3:#94a3b8;
+    --line:#e2e8f0; --line2:#cbd5e1; --bg:#f8fafc; --card:#fff;
+    --accent:#1e293b; --accentSoft:#f1f5f9;
+    --amber:#b45309; --amberSoft:#fffbeb; --green:#047857; --greenSoft:#ecfdf5;
+    --red:#b91c1c; --redSoft:#fef2f2; --blue:#1d4ed8; --blueSoft:#eff6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 24px 96px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 10px;max-width:860px}
+  code{background:var(--accentSoft);padding:1px 5px;border-radius:4px;font-size:12.5px}
+
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 22px;margin:22px 0}
+  .sec > header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+  .sec h2{font-size:15px;margin:0}
+  .num{font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.06em}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accentSoft);color:var(--ink2)}
+  .tag.rec{background:var(--greenSoft);color:var(--green)}
+  .tag.bad{background:var(--redSoft);color:var(--red)}
+  .tag.new{background:var(--blueSoft);color:var(--blue)}
+  .why{color:var(--ink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .why b{color:var(--ink)}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);
+     font-weight:600;padding:7px 9px;border-bottom:1px solid var(--line)}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top}
+  .yes{color:var(--green);font-weight:600}
+  .no{color:var(--red);font-weight:600}
+  .maybe{color:var(--amber);font-weight:600}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:920px){.split,.three{grid-template-columns:1fr}}
+
+  /* mock UI */
+  .ui{border:1px solid var(--line2);border-radius:10px;background:#fff;padding:12px;font-size:12.5px}
+  .ui h4{margin:0 0 9px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600}
+  .btn{height:30px;border:1px solid var(--line2);border-radius:7px;background:#fff;
+       display:inline-flex;align-items:center;gap:6px;padding:0 10px;font-size:12.5px;white-space:nowrap}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.sm{height:26px;padding:0 8px;font-size:12px}
+  .btn.gho{border-color:transparent;color:var(--ink2)}
+  .btn.dis{opacity:.45}
+  .mic{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;
+       display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 30px}
+  .mic.live{background:var(--red)}
+  .mic.sm{width:24px;height:24px;flex:0 0 24px;font-size:10px}
+  .badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;
+         font-size:10.5px;font-weight:600;background:var(--accentSoft);color:var(--ink2)}
+  .badge.g{background:var(--greenSoft);color:var(--green)}
+  .badge.a{background:var(--amberSoft);color:var(--amber)}
+  .badge.r{background:var(--redSoft);color:var(--red)}
+  .badge.b{background:var(--blueSoft);color:var(--blue)}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fld{border:1px solid var(--line2);border-radius:6px;padding:5px 8px;background:#fff;min-width:0}
+  .fld.unk{color:var(--ink3);font-style:italic}
+  .fld.hot{border-color:#fcd34d;background:var(--amberSoft)}
+  .fld.ok{border-color:#a7f3d0;background:var(--greenSoft)}
+  .card{border:1px solid var(--line2);border-radius:8px;padding:9px 10px;margin-bottom:8px;background:#fff}
+  .card.warn{border-color:#fcd34d;background:var(--amberSoft)}
+  .card.bad{border-color:#fecaca;background:var(--redSoft)}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:7px}
+  @media(max-width:560px){.grid4{grid-template-columns:repeat(2,1fr)}}
+  .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:600;display:block;margin-bottom:2px}
+  .tx{font-size:12px;color:var(--ink2);background:var(--accentSoft);border-left:2px solid var(--line2);
+      padding:6px 9px;border-radius:0 6px 6px 0;margin-top:7px}
+  .tx b{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:2px}
+  .wave{display:inline-flex;align-items:center;gap:2px;height:16px}
+  .wave i{display:block;width:2px;background:var(--line2);border-radius:2px}
+
+  .note{font-size:12.5px;color:var(--ink2);margin:12px 0 0;padding-left:18px}
+  .note li{margin:4px 0}
+  .note b{color:var(--ink)}
+  .q{border-left:3px solid var(--amber);background:var(--amberSoft);padding:11px 13px;border-radius:0 8px 8px 0;font-size:13px;margin:14px 0 0}
+  .q b{display:block;margin-bottom:3px}
+  .q.g{border-left-color:var(--green);background:var(--greenSoft)}
+  .q.r{border-left-color:var(--red);background:var(--redSoft)}
+  .q.b{border-left-color:var(--blue);background:var(--blueSoft)}
+  .cal{border:1px dashed var(--line2);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink2);background:#fcfdfe}
+  .cal b{color:var(--ink)}
+  hr.d{border:0;border-top:1px dashed var(--line2);margin:14px 0}
+  .score{display:inline-flex;align-items:baseline;gap:3px;font-weight:700;font-size:15px}
+  .score small{font-weight:500;font-size:11px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Voice × editor — where dictation fits, given it is never 100%</h1>
+<p class="sub">
+  You asked the right question. The interesting design problem is <b>not</b> how to put a microphone on the screen —
+  it is what the interface does when the microphone is <i>wrong</i>, which it will be. This page maps the failure
+  modes first, asks who actually catches each one, and only then proposes patterns. The wireframes are ordered by how
+  much of the error they can absorb, not by how impressive they look.
+</p>
+
+<!-- ───────────────────── 01 FAILURE MODES ───────────────────── -->
+<div class="sec">
+  <header><span class="num">01</span><h2>Where voice actually fails — and who catches it</h2><span class="tag rec">read this before the patterns</span></header>
+  <p class="why">
+    Every pattern further down is judged against this table. The column that matters is the last one: for several of
+    these, <b>nothing in the system catches it except the doctor's eyes</b>, and the research is blunt that the eyes
+    are unreliable — two deployed commercial scribes propagated <b>55% and 60%</b> of planted upstream errors into
+    finished notes.
+  </p>
+  <table>
+    <thead><tr>
+      <th style="width:150px">Failure</th><th>What it looks like</th>
+      <th style="width:96px">Resolver</th><th style="width:96px">Validator</th><th style="width:150px">Who actually catches it</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><b>Wrong drug, unknown word</b></td>
+        <td>“Azithral” heard as “as it real”</td>
+        <td class="yes">catches</td><td class="yes">blocks</td>
+        <td class="yes">System. Unresolved → asks.</td>
+      </tr>
+      <tr>
+        <td><b>Wrong drug, valid word</b></td>
+        <td>“Amlodipine” heard as “Amiodarone” — both real drugs</td>
+        <td class="maybe">may ask</td><td class="no">cannot</td>
+        <td class="maybe">Only if it stays ambiguous. Otherwise the doctor.</td>
+      </tr>
+      <tr>
+        <td><b>Wrong strength</b></td>
+        <td>“six fifty” heard as “six fifteen” — 650 → 615</td>
+        <td class="no">no</td><td class="maybe">only if invalid</td>
+        <td class="no">The doctor. Nothing else can.</td>
+      </tr>
+      <tr>
+        <td><b>Wrong frequency</b></td>
+        <td>BD heard as TID</td>
+        <td class="no">no</td><td class="no">both valid</td>
+        <td class="no">The doctor.</td>
+      </tr>
+      <tr>
+        <td><b>Omission</b></td>
+        <td>Third medicine simply not transcribed</td>
+        <td class="no">no</td><td class="no">no</td>
+        <td class="no"><b>Nobody.</b> 54–86% of scribe errors; detectors score near coin-flip.</td>
+      </tr>
+      <tr>
+        <td><b>Hallucination</b></td>
+        <td>A sentence nobody said, after a long pause</td>
+        <td class="maybe">often unresolved</td><td class="maybe">often</td>
+        <td class="maybe">Usually the resolver, by luck rather than design.</td>
+      </tr>
+      <tr>
+        <td><b>Either/or as two drugs</b></td>
+        <td>“azithro or amoxiclav” → both prescribed</td>
+        <td class="no">no</td><td class="yes">blocks</td>
+        <td class="yes">Validator — because we made it an explicit field.</td>
+      </tr>
+      <tr>
+        <td><b>Self-correction lost</b></td>
+        <td>“…500, no make it 250” → 500 kept</td>
+        <td class="no">no</td><td class="no">no</td>
+        <td class="no">The doctor.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="q r">
+    <b>The conclusion that should drive the design</b>
+    Of eight failure modes, the system reliably catches <b>two</b>. Four land entirely on the doctor, and one — omission —
+    lands on nobody at all. So the interface cannot be “dictate, glance, sign”. Its job is to make the four
+    doctor-caught failures <i>visible in the two seconds a doctor will actually spend</i>, and to shrink the window in
+    which they can happen at all.
+  </div>
+</div>
+
+<!-- ───────────────────── 02 PATTERN A ───────────────────── -->
+<div class="sec">
+  <header><span class="num">02</span><h2>Pattern A — dictate the whole prescription</h2><span class="tag">what is built today</span></header>
+  <p class="why">
+    One press, speak everything, structured cards appear. Fastest when it works, and the pattern every ambient-scribe
+    product ships.
+  </p>
+  <div class="split">
+    <div>
+      <div class="ui">
+        <h4>After stop</h4>
+        <div class="row" style="margin-bottom:9px">
+          <span class="mic">●</span>
+          <span style="flex:1">
+            <b style="font-size:12.5px">Heard 3 medicines</b>
+            <span style="display:block;color:var(--ink3);font-size:11.5px">18 seconds · groq · whisper-large-v3-turbo</span>
+          </span>
+        </div>
+        <div class="card"><div class="row"><b>1. Amlodipine 5 mg</b><span class="badge g">matched</span></div>
+          <div class="grid4">
+            <div><span class="lbl">Dose</span><div class="fld">1 tablet</div></div>
+            <div><span class="lbl">Freq</span><div class="fld">OD</div></div>
+            <div><span class="lbl">Timing</span><div class="fld unk">not stated</div></div>
+            <div><span class="lbl">Days</span><div class="fld">30</div></div>
+          </div>
+        </div>
+        <div class="card warn"><div class="row"><b>2. Augmentin 625</b><span class="badge a">confirm</span></div></div>
+        <div class="card"><div class="row"><b>3. Pantop 40 mg</b><span class="badge g">matched</span></div></div>
+      </div>
+      <ul class="note">
+        <li><b>Absorbs:</b> unknown-word errors and either/or. Both surface as badges before signing.</li>
+        <li><b>Misses:</b> everything in the doctor-only rows above. A wrong strength on line 1 looks exactly like a
+          right one.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q r">
+        <b>The structural weakness</b>
+        A 40-second dictation is <b>one long audio window</b>, and the Whisper research found fabrications are
+        disproportionately triggered by <b>long pauses</b> — which is exactly what a doctor does mid-prescription
+        while thinking about the next drug. Longer audio is not linearly riskier; it is where the worst failures live.
+      </div>
+      <div class="q">
+        <b>And the review it invites is the weakest kind</b>
+        Three finished-looking cards appear at once. The research on fluency is direct: a polished, complete-looking
+        draft <i>inflates</i> trust independent of whether it is correct. This is the layout most likely to be
+        rubber-stamped on a busy morning.
+      </div>
+      <div class="cal" style="margin-top:12px">
+        <b>Keep it, but not as the only mode.</b> For a two-line prescription from a doctor who dictates cleanly, it is
+        genuinely the fastest thing on this page. The error is treating it as the <i>default for everything</i>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 03 PATTERN B ───────────────────── -->
+<div class="sec">
+  <header><span class="num">03</span><h2>Pattern B — one medicine per press</h2><span class="tag rec">the highest-value change</span></header>
+  <p class="why">
+    The mic lives on the “add a medicine” row, not above the whole prescription. One press, one utterance,
+    <b>one card</b>. The doctor sees it land before speaking the next one.
+  </p>
+  <div class="split">
+    <div>
+      <div class="ui">
+        <h4>Mid-prescription</h4>
+        <div class="card"><div class="row"><b>1. Amlodipine 5 mg</b><span class="badge g">matched</span>
+          <span style="margin-left:auto" class="badge">confirmed by you</span></div></div>
+        <div class="card warn" style="border-color:#7aa7d9;background:#f2f8ff">
+          <div class="row"><span class="mic sm live">●</span>
+            <span class="wave"><i style="height:5px"></i><i style="height:11px"></i><i style="height:14px"></i><i style="height:7px"></i><i style="height:12px"></i><i style="height:16px"></i><i style="height:6px"></i><i style="height:9px"></i></span>
+            <span style="color:var(--ink2);font-size:12px">listening for one medicine…</span>
+            <span class="btn sm" style="margin-left:auto">Stop</span>
+          </div>
+          <div class="tx"><b>hearing</b>“Augmentin six twenty five three times a day after food five days”</div>
+        </div>
+        <div class="row" style="margin-top:9px">
+          <span class="btn sm">+ Type a medicine</span>
+          <span class="btn sm">★ Favourites</span>
+          <span class="btn sm">↻ Repeat last Rx</span>
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>Absorbs:</b> a lot. A 6-second utterance has a fraction of the hallucination surface of a 40-second one,
+          and there is no long thinking-pause inside it because the pause happens with the mic <i>off</i>.</li>
+        <li><b>Error scope is one line.</b> When something is wrong, it is wrong in the card the doctor is looking at,
+          not the second of three they already scrolled past.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q g">
+        <b>Why this is the one I would ship first</b>
+        It changes the two variables that actually drive accuracy — <b>utterance length</b> and <b>pause exposure</b> —
+        without asking the doctor to do anything differently. They still just talk. And it converts review from a
+        single end-of-dictation event into a rhythm: speak, see, speak, see.
+        <br><br>
+        It also happens to be cheaper. Sarvam and Groq both bill by audio duration, and dead air between medicines is
+        no longer recorded at all.
+      </div>
+      <div class="q">
+        <b>The cost, stated honestly</b>
+        Three medicines means three presses instead of one. For a doctor doing 40 consultations a day that is real
+        friction, and some will prefer Pattern A. <b>So both exist</b>, and the doctor's last choice is remembered —
+        personalisation is one of the four measured drivers of clinician satisfaction across 35,000 physicians.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 04 PATTERN C ───────────────────── -->
+<div class="sec">
+  <header><span class="num">04</span><h2>Pattern C — voice searches, never writes</h2><span class="tag new">eliminates the worst failure</span></header>
+  <p class="why">
+    The drug name spoken by the doctor never becomes a value. It becomes a <b>query</b>. The card stays empty until
+    the doctor taps one of the offered matches — so a wrong-drug error cannot survive to the sheet, by construction
+    rather than by vigilance.
+  </p>
+  <div class="split">
+    <div>
+      <div class="ui">
+        <h4>Voice → picker</h4>
+        <div class="tx" style="margin-top:0"><b>you said</b>“amlodipine five”</div>
+        <div class="card" style="margin-top:9px">
+          <div style="font-size:12px;color:var(--ink2);margin-bottom:7px">Tap the one you mean — nothing is selected.</div>
+          <div class="card" style="margin-bottom:6px"><b>Amlodipine 5 mg</b> — tablet — oral
+            <span style="display:block;color:var(--ink3);font-size:11px">Amlong 5</span></div>
+          <div class="card" style="margin-bottom:6px"><b>Amlodipine 10 mg</b> — tablet — oral
+            <span style="display:block;color:var(--ink3);font-size:11px">Amlong 10</span></div>
+          <div class="card bad" style="margin-bottom:0"><b>Amiodarone 200 mg</b> — tablet — oral
+            <span style="display:block;color:var(--red);font-size:11px">⚠ sounds alike · different drug entirely</span></div>
+        </div>
+        <div class="row"><span class="btn sm">Keep “amlodipine five” as typed</span></div>
+      </div>
+      <ul class="note">
+        <li><b>The look-alike is shown on purpose, and marked.</b> Hiding it would not make the doctor safer — they
+          would never learn the pair exists. Showing it separated and flagged is how a picker teaches instead of traps.</li>
+        <li><b>Dose, frequency, timing and duration still come straight from the same utterance</b> — those are cheap
+          to re-read and rarely catastrophic. Only IDENTITY gets the extra tap.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q g">
+        <b>This is tiered friction, applied exactly where the evidence says to</b>
+        Severity-tiered alerting lifted compliance from 10% under flat alerting to <b>100% on the top tier</b> — the
+        single cleanest causal result in the research. Drug identity is the top tier. Everything else is not.
+        <br><br>
+        And it directly answers your point: voice is not accurate enough to <i>choose a medicine</i>. It is easily
+        accurate enough to <i>narrow a list to three</i>.
+      </div>
+      <div class="q b">
+        <b>The variant worth testing against it</b>
+        Auto-select when the match is unambiguous AND exact (a single catalogue hit, score 1.0), and only fall back to
+        the picker otherwise. Faster, and arguably safe — an exact string match on a curated catalogue is not a guess.
+        <br><br>
+        I would <b>benchmark both</b> rather than argue. The measurable question is how often an exact-match
+        auto-selection is later corrected by the doctor. If that number is near zero, take the speed.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 05 PATTERN D ───────────────────── -->
+<div class="sec">
+  <header><span class="num">05</span><h2>Pattern D — transcript-first, structure derived</h2><span class="tag">good for the hard cases</span></header>
+  <p class="why">
+    Show the transcript as the primary editable object. The doctor fixes the <i>words</i>, and the structured cards
+    re-derive underneath. Fixing “as it real” to “Azithral” is a natural act; hunting for which field is wrong is not.
+  </p>
+  <div class="split">
+    <div>
+      <div class="ui">
+        <h4>Transcript, editable</h4>
+        <div style="border:1px solid var(--line2);border-radius:7px;padding:9px;font-size:13px;line-height:1.7">
+          patient ko <span style="background:#fef2f2;border-bottom:2px wavy #b91c1c;padding:1px 2px">as it real</span> five hundred BD five days dena hai,
+          aur <span style="background:var(--greenSoft);padding:1px 2px">pantop forty</span> subah khali pet
+        </div>
+        <div class="row" style="margin-top:8px"><span class="btn sm">▸ Re-structure</span>
+          <span style="color:var(--ink3);font-size:11.5px">1 word not recognised as a medicine</span></div>
+        <hr class="d">
+        <div class="card"><div class="row"><b>Pantoprazole 40 mg</b><span class="badge g">matched</span></div>
+          <div class="grid4">
+            <div><span class="lbl">Freq</span><div class="fld">OD</div></div>
+            <div><span class="lbl">Timing</span><div class="fld ok">empty stomach</div></div>
+            <div><span class="lbl">Days</span><div class="fld unk">not stated</div></div>
+            <div><span class="lbl">Route</span><div class="fld unk">not stated</div></div>
+          </div>
+        </div>
+      </div>
+      <ul class="note">
+        <li><b>Absorbs:</b> the self-correction failure, uniquely. “500, no make it 250” is visible <i>as text</i>, and
+          the doctor deletes three words rather than hunting for a field that silently kept the wrong number.</li>
+        <li>The squiggle marks a span the resolver could not place — not a spelling error. It is the honest signal:
+          “this looked like a medicine and I do not know it.”</li>
+      </ul>
+    </div>
+    <div>
+      <div class="q">
+        <b>Why this is a secondary mode, not the primary one</b>
+        Two representations of one prescription is a synchronisation problem, and the doctor now has to understand
+        which one is authoritative. That is a real cognitive cost for what is, most days, an unnecessary safety net.
+        <br><br>
+        It earns its place as an <b>escape hatch</b>: a “show what I said” toggle that appears when something did not
+        resolve, rather than the surface everyone starts on.
+      </div>
+      <div class="cal" style="margin-top:12px">
+        <b>Hinglish is the reason this matters more here than elsewhere.</b> Code-switched dictation is exactly where
+        ASR degrades, and where a doctor is most likely to want to see the raw words rather than argue with a field.
+        The research found in-domain adaptation worth 6 WER points against 1.9 for generic Hindi data — until we have
+        that adaptation, the escape hatch is doing real work.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 06 OMISSION ───────────────────── -->
+<div class="sec">
+  <header><span class="num">06</span><h2>The one nothing catches — and the only honest answer to it</h2><span class="tag bad">omission</span></header>
+  <p class="why">
+    If the doctor says four medicines and three are transcribed, <b>no badge appears, no validator fires, and the sheet
+    looks perfect.</b> This is the largest error class in the literature and the one both machines and humans are
+    near-blind to, for the blunt reason that an omission leaves no text to point at.
+  </p>
+  <div class="three">
+    <div>
+      <div class="ui">
+        <h4>Count, stated out loud</h4>
+        <div class="row" style="margin-bottom:8px"><span class="score">3<small> medicines heard</small></span></div>
+        <div style="color:var(--ink2);font-size:12px">You spoke for 22 seconds.</div>
+        <hr class="d">
+        <div style="font-size:12px;color:var(--ink2)">On the attestation:</div>
+        <div class="row" style="margin-top:6px;align-items:flex-start">
+          <span style="width:13px;height:13px;border:1.5px solid var(--line2);border-radius:3px;flex:0 0 13px;margin-top:2px"></span>
+          <span style="font-size:12px;color:var(--ink2)">I have reviewed all <b>3 medicines</b> and I am prescribing them.</span>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--ink2);margin-top:8px">
+        <b>Cheapest, and already built.</b> A number is harder to skim past than a list. It will not catch every
+        omission, and it is not pretending to.
+      </p>
+    </div>
+    <div>
+      <div class="ui">
+        <h4>Play back what was heard</h4>
+        <div class="row"><span class="mic sm">▶</span>
+          <span class="wave"><i style="height:4px"></i><i style="height:9px"></i><i style="height:14px"></i><i style="height:7px"></i><i style="height:11px"></i><i style="height:16px"></i><i style="height:5px"></i><i style="height:10px"></i><i style="height:13px"></i><i style="height:6px"></i></span>
+          <span style="font-size:11.5px;color:var(--ink3)">0:22</span>
+        </div>
+        <div class="tx" style="margin-top:9px"><b>full transcript</b>“patient ko azithral 500 BD five days dena hai, aur pantop forty subah khali pet, aur dolo 650 SOS…”</div>
+      </div>
+      <p style="font-size:12px;color:var(--ink2);margin-top:8px">
+        <b>The only thing that genuinely detects an omission.</b> Abridge ships exactly this. It also forces a decision
+        about audio retention — you cannot replay what you deleted.
+      </p>
+    </div>
+    <div>
+      <div class="ui">
+        <h4>Ask, before signing</h4>
+        <div class="card warn">
+          <b style="font-size:12.5px">Anything else?</b>
+          <div style="font-size:12px;color:var(--ink2);margin-top:4px">
+            You usually prescribe <b>3–4</b> medicines. This one has 2.
+          </div>
+          <div class="row" style="margin-top:7px"><span class="btn sm">That's all</span><span class="btn sm">Add one</span></div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--ink2);margin-top:8px">
+        <b>I would not build this.</b> It is a nudge based on a habit, not evidence, and it fires on every short
+        prescription. That is how a control becomes noise — the 49–96% override path.
+      </p>
+    </div>
+  </div>
+  <div class="q r">
+    <b>Say the limitation out loud rather than engineering around it</b>
+    There is no interface that makes omission safe. The honest posture is: keep the audio for a short retention window
+    so playback exists, state the count, and <b>tell the clinic plainly that dictation can drop a medicine and the
+    doctor is the only check</b>. A feature that quietly pretends otherwise is worse than one that says so.
+  </div>
+</div>
+
+<!-- ───────────────────── 07 RECOMMENDATION ───────────────────── -->
+<div class="sec">
+  <header><span class="num">07</span><h2>What I would actually ship, in order</h2><span class="tag rec">and what to measure</span></header>
+  <div class="split">
+    <div>
+      <table>
+        <thead><tr><th style="width:40px">#</th><th>Change</th><th style="width:110px">Absorbs</th></tr></thead>
+        <tbody>
+          <tr><td><b>1</b></td><td><b>Per-medicine dictation (B)</b> alongside whole-prescription (A), last choice remembered</td><td class="yes">hallucination, scope</td></tr>
+          <tr><td><b>2</b></td><td><b>Voice searches, never writes, for drug identity (C)</b> — with exact-match auto-select as the A/B arm</td><td class="yes">wrong drug</td></tr>
+          <tr><td><b>3</b></td><td><b>Audio playback + transcript escape hatch (D)</b>, shown when anything is unresolved</td><td class="maybe">omission, self-correction</td></tr>
+          <tr><td><b>4</b></td><td>Medicine <b>count on the attestation</b> <span class="badge g">done</span></td><td class="maybe">omission, weakly</td></tr>
+          <tr><td><b>5</b></td><td>Every doctor correction becomes a catalogue <b>alias</b></td><td class="yes">compounding</td></tr>
+        </tbody>
+      </table>
+      <div class="q g">
+        <b>Number 5 is the one that compounds</b>
+        When a doctor corrects “as it real” to Azithral, that correction is worth more than any model change: it is
+        in-domain adaptation, one row at a time, for free. The research put in-domain adaptation at <b>6 WER points</b>
+        against 1.9 for 1,800 hours of generic Hindi. The cheapest accuracy mechanism we have is the one that improves
+        without anyone retraining anything.
+      </div>
+    </div>
+    <div>
+      <div class="q b">
+        <b>What to measure while testing, per pattern</b>
+        Not “accuracy”. These four:
+        <br><br>
+        <b>1 · Correction rate per field.</b> How often the doctor changes drug / strength / frequency after
+        dictation. Per field, because a 5% drug-correction rate and a 5% duration-correction rate are not remotely the
+        same finding.
+        <br>
+        <b>2 · Time from stop to sign.</b> Pattern B will lose on raw dictation time and should win here.
+        <br>
+        <b>3 · Correction rate over tenure.</b> If it falls while nothing else changes, that is habituation, not
+        improvement — the PR-review study found approval rising 30% → 37% over seven months at flat difficulty.
+        <br>
+        <b>4 · Abandonment.</b> How often a doctor starts dictating and finishes by typing. The clearest signal that a
+        pattern is not working, and the one they will never tell you about.
+      </div>
+      <div class="cal" style="margin-top:13px">
+        <b>Test order.</b> Groq first — it is ~8× cheaper and a free tier likely covers your volume — on the same ten
+        recorded utterances through every pattern. Then Sarvam on the identical audio. The comparison is worthless
+        unless the audio is the same, which is why the <code>SpeechRecognizer</code> adapter exists and why the
+        prescription stores <code>asrProvider</code> and <code>asrModel</code> on every row.
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

@@ -59,23 +59,40 @@ export function wordsToNumbers(input: string): string {
       continue;
     }
 
-    // Collect a run of number words (skipping the whitespace tokens between them).
+    // Collect a run of number words, remembering which token index each came
+    // from so a capped run can hand the rest back untouched.
     const run: string[] = [];
+    const at: number[] = [];
     let j = i;
     while (j < tokens.length) {
       const ww = word(tokens[j]);
       if (!ww) {
-        // whitespace/separator: keep scanning only if a number word follows
         const nxt = tokens[j + 1] ? word(tokens[j + 1]) : '';
         if (nxt && (isUnit(nxt) || isTens(nxt) || isScale(nxt))) { j++; continue; }
         break;
       }
-      if (isUnit(ww) || isTens(ww) || isScale(ww)) { run.push(ww); j++; continue; }
+      if (isUnit(ww) || isTens(ww) || isScale(ww)) { run.push(ww); at.push(j); j++; continue; }
       break;
     }
 
-    out.push(String(evaluateRun(run)));
-    i = j;
+    // A strength read digit-group-wise ("six twenty five" = 625) is at most
+    // unit + tens + unit. Anything after that is a different clause —
+    // "...six twenty five THREE times a day" must keep its three.
+    let take = run.length;
+    if (run.length > 1 && UNITS[run[0]] !== undefined && UNITS[run[0]] < 10 && TENS[run[1]] !== undefined) {
+      take = run.length >= 3 && UNITS[run[2]] !== undefined && UNITS[run[2]] < 10 ? 3 : 2;
+    }
+
+    out.push(String(evaluateRun(run.slice(0, take))));
+    // Resume at the first token NOT consumed, so the remainder is re-scanned
+    // rather than dropped. The separators between were skipped while scanning,
+    // so put one back — without it "six twenty five three" joins as "6253".
+    if (take < run.length) {
+      out.push(' ');
+      i = at[take];
+    } else {
+      i = j;
+    }
   }
 
   return out.join('').replace(/\s+/g, ' ').trim();
@@ -205,7 +222,9 @@ export interface Duration { value: number; unit: 'days' | 'weeks' | 'months' }
 export function parseDuration(text: string): Duration | null {
   if (!text) return null;
   const t = wordsToNumbers(text.toLowerCase());
-  const m = t.match(/\b(\d+)\s*(day|days|din|week|weeks|hafta|hafte|month|months|mahina|mahine)\b/);
+  // `din me(in)` means "per day" — a frequency phrase. Without this negative
+  // lookahead "650 din me do baar" reads as a 650-day course.
+  const m = t.match(/\b(\d+)\s*(day|days|din|week|weeks|hafta|hafte|month|months|mahina|mahine)\b(?!\s*(me|mein)\b)/);
   if (!m) return null;
   const value = Number(m[1]);
   const u = m[2];
@@ -263,6 +282,28 @@ export function demo(): void {
   eq(parseStrength('500 mg'), { strength: '500', unit: 'mg' }, 'strength digits');
 
   eq(parseRoute('apply locally'), 'topical', 'route topical');
+
+  // --- REGRESSIONS. Every one of these was a real defect found by running the
+  // --- pipeline against the live catalogue, not a hypothetical.
+  //
+  // 1. A digit-group run swallowed the word after it: "six twenty five three
+  //    times a day" collapsed to 625 AND ate the "three", losing the frequency.
+  eq(wordsToNumbers('Augmentin six twenty five three times a day'),
+     'Augmentin 625 3 times a day', 'regression: run must not eat the next word');
+  eq(parseFrequency('Augmentin six twenty five three times a day'), 'TID',
+     'regression: frequency survives a digit-group strength');
+  // 2. Capping the run dropped the separator, joining "625" and "3" into "6253".
+  eq(wordsToNumbers('six twenty five three'), '625 3', 'regression: separator kept when a run is capped');
+  // 3. "din me" is "per day" — a FREQUENCY. It was being read as a duration, so
+  //    "dolo 650 din me do baar" prescribed a 650-DAY course.
+  eq(parseDuration('dolo 650 din me do baar khane ke baad teen din'),
+     { value: 3, unit: 'days' }, 'regression: "din me" is not a duration');
+  eq(parseFrequency('dolo 650 din me do baar'), 'BD', 'regression: din me do baar is BD');
+  // 4. The rule the whole feature turns on: a frequency is never invented from
+  //    a timing. "Pantop forty before breakfast" states WHEN, not HOW OFTEN.
+  eq(parseFrequency('Pantop forty before breakfast'), null,
+     'regression: timing must not imply a frequency');
+  eq(parseTiming('Pantop forty before breakfast'), 'before food', 'regression: timing still parsed');
 
   // eslint-disable-next-line no-console
   console.log('normalize.ts: all checks passed');

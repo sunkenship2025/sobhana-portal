@@ -254,13 +254,22 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   const q = norm(input.spoken);
   if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [] };
 
+  // The spoken token usually carries the strength: "augmentin 625", "pantop 40",
+  // "amlodipine 5". Pull it out UP FRONT so every tier narrows by it — doing this
+  // per-tier let the alias path decide AMBIGUOUS on {5 mg, 10 mg} and only then
+  // narrow the displayed list to one, which reads as "confirm which" next to a
+  // single option. Nonsense, and exactly what live testing showed.
+  const strengthMatch = q.match(/^(.*?)\s*(\d+(?:\s*\+\s*\d+)?)\s*(?:mg|mcg|ml|g|iu)?$/);
+  const stem = strengthMatch ? strengthMatch[1].trim() : q;
+  const spokenStrength = input.strength ?? (strengthMatch ? strengthMatch[2].replace(/\s+/g, '') : null);
+
   const dedupe = (cs: Candidate[]): Candidate[] => {
     const seen = new Set<string>();
     return cs.filter((c) => (seen.has(c.medicationId) ? false : (seen.add(c.medicationId), true)));
   };
 
   const decide = (cands: Candidate[], _tier: string): ResolveResult | null => {
-    let narrowed = narrowByForm(narrowByStrength(dedupe(cands), input.strength ?? null), input.dosageForm ?? null);
+    let narrowed = narrowByForm(narrowByStrength(dedupe(cands), spokenStrength), input.dosageForm ?? null);
     narrowed = narrowed.sort((a, b) => b.score - a.score).slice(0, MAX_CANDIDATES);
     if (narrowed.length === 0) return null;
     if (narrowed.length === 1) return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
@@ -278,18 +287,13 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (d) return d;
   }
 
-  // The spoken token often carries the strength: "augmentin 625", "pantop 40".
-  // Strip a trailing number and retry — that number is a strength signal, not
-  // part of the name, and it also narrows the candidate set below.
-  const m = q.match(/^(.*?)\s*(\d+(?:\s*\+\s*\d+)?)\s*(?:mg|mcg|ml|g|iu)?$/);
-  const stem = m ? m[1].trim() : q;
-  const spokenStrength = input.strength ?? (m ? m[2].replace(/\s+/g, '') : null);
-
+  // Retry on the stem, with the strength stripped off — "amlodipine 5" finds
+  // "amlodipine" and the 5 then discriminates 5 mg from 10 mg.
   if (stem && stem !== q) {
     const viaStem = idx.byExact.get(stem);
     if (viaStem?.length) {
       const d = decide(viaStem.map((r) => toCandidate(r, 0.98, 'alias')), 'alias');
-      if (d) return { ...d, candidates: narrowByStrength(d.candidates, spokenStrength) };
+      if (d) return d;
     }
   }
 
@@ -297,8 +301,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   const pk = phoneticKey(stem);
   const phon = pk ? idx.byPhonetic.get(pk) : undefined;
   if (phon?.length) {
-    const cands = phon.map((r) => toCandidate(r, 0.9, 'phonetic'));
-    const d = decide(narrowByStrength(cands, spokenStrength), 'phonetic');
+    const d = decide(phon.map((r) => toCandidate(r, 0.9, 'phonetic')), 'phonetic');
     if (d) return d;
   }
 
@@ -314,7 +317,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (best >= FUZZY_FLOOR) scored.push(toCandidate(r, best, 'fuzzy'));
   }
   if (scored.length) {
-    const d = decide(narrowByStrength(scored, spokenStrength), 'fuzzy');
+    const d = decide(scored, 'fuzzy');
     if (d) return d;
   }
 
