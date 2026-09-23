@@ -69,7 +69,11 @@ const ownerNavItems: NavItem[] = [
     icon: UserRound,
     href: '/people/doctors',
     roles: ['owner'],
-    matchPrefixes: ['/people/doctors'],
+    matchPrefixes: ['/people/doctors', '/owner/consulting-doctors'],
+    subItems: [
+      { label: 'Performance', href: '/people/doctors', matchPrefixes: ['/people/doctors'] },
+      { label: 'Consulting doctor logins', href: '/owner/consulting-doctors' },
+    ],
   },
   {
     label: 'Operations',

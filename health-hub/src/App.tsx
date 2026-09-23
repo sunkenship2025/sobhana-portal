@@ -16,6 +16,7 @@ import DoctorQueue from "./pages/doctor/DoctorQueue";
 import Consultation from "./pages/doctor/Consultation";
 import DoctorPatients from "./pages/doctor/DoctorPatients";
 import DoctorAccount from "./pages/doctor/DoctorAccount";
+import ConsultingDoctors from "./pages/owner/ConsultingDoctors";
 import Dashboard from "./pages/Dashboard";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
 import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingResults";
@@ -111,6 +112,11 @@ function AppRoutes() {
       {/* Staff routes */}
       {/* Doctor portal. Owners can open it too — they run the clinic and must be
           able to see what their doctors see. */}
+      <Route path="/owner/consulting-doctors" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <ConsultingDoctors />
+        </ProtectedRoute>
+      } />
       <Route path="/doctor" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
           <DoctorQueue />
