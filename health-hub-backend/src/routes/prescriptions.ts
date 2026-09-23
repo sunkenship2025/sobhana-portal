@@ -25,6 +25,10 @@ import {
 } from '../services/voiceRx/prescriptionService';
 import { putObject, deleteObject } from '../services/r2StorageService';
 import { logAction } from '../services/auditService';
+import {
+  transcribeBurstLimit, consumeBranchQuota, checkAudio, checkDuration, recordUsage,
+  DAILY_BRANCH_LIMIT, MAX_AUDIO_SECONDS,
+} from '../services/voiceRx/quota';
 
 const router = Router();
 router.use(authMiddleware);
@@ -87,6 +91,7 @@ router.get('/capabilities', async (_req: AuthRequest, res) => {
     asrConfigured: asr.some((p) => p.configured),
     extractionConfigured: extractionConfigured(),
     voiceEnabled: asr.some((p) => p.configured) && extractionConfigured(),
+    limits: { dailyPerBranch: DAILY_BRANCH_LIMIT, maxAudioSeconds: MAX_AUDIO_SECONDS },
   });
 });
 
@@ -146,11 +151,30 @@ router.get('/medications', requireRole(...PRESCRIBERS), async (req: AuthRequest,
 // record. The doctor gets a structured proposal; saving is a separate, deliberate
 // call.
 // ---------------------------------------------------------------------------
-router.post('/transcribe', requireRole(...PRESCRIBERS), upload.single('audio'), async (req: AuthRequest, res) => {
+router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, upload.single('audio'), async (req: AuthRequest, res) => {
   const started = Date.now();
   try {
     if (!req.file?.buffer?.length) {
       res.status(400).json({ error: 'NO_AUDIO', message: 'No audio received' }); return;
+    }
+
+    // Size and type, before anything is sent to a paid API.
+    const audioCheck = checkAudio(req.file.buffer.length, req.file.mimetype);
+    if (!audioCheck.ok) {
+      res.status(413).json({ error: 'AUDIO_REJECTED', message: audioCheck.reason }); return;
+    }
+
+    // The clinic's day. Exceeding it hides the mic; it never blocks prescribing,
+    // because an accelerator that can halt the car is a defect.
+    const quota = await consumeBranchQuota(req.branchId!);
+    if (quota.exceeded) {
+      logger.warn({ branchId: req.branchId, used: quota.used }, 'voiceRx: branch daily quota exceeded');
+      res.status(429).json({
+        error: 'VOICE_QUOTA_EXCEEDED',
+        message: `This clinic has used its ${quota.limit} dictations for today. You can still type the prescription.`,
+        quota,
+      });
+      return;
     }
 
     const provider = req.body?.provider ? String(req.body.provider) : undefined;
@@ -163,6 +187,13 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), upload.single('audio'), 
       prompt: hint || undefined,
     });
 
+    // Duration is the real cost control — both providers bill per second — and it
+    // is only knowable after the provider decodes the file.
+    const durationCheck = checkDuration(transcript.durationSec);
+    if (!durationCheck.ok) {
+      res.status(413).json({ error: 'AUDIO_TOO_LONG', message: durationCheck.reason }); return;
+    }
+
     if (!transcript.text.trim()) {
       res.status(422).json({
         error: 'EMPTY_TRANSCRIPT',
@@ -172,6 +203,13 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), upload.single('audio'), 
     }
 
     const extraction = await extractPrescription(transcript.text, transcript.segments);
+
+    // One attributable line per paid call, so spend has an owner.
+    recordUsage({
+      branchId: req.branchId!, userId: req.user!.id,
+      provider: transcript.provider, model: transcript.model,
+      durationSec: transcript.durationSec, extractionModel: extraction.model, quota,
+    });
 
     logger.info(
       { ms: Date.now() - started, provider: transcript.provider, items: extraction.items.length },
@@ -196,6 +234,7 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), upload.single('audio'), 
         model: extraction.model,
       },
       tookMs: Date.now() - started,
+      quota: { used: quota.used, limit: quota.limit, remaining: quota.remaining },
     });
   } catch (err: any) {
     if (err instanceof AsrUnavailable) {

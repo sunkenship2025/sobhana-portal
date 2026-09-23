@@ -44,6 +44,25 @@ export interface SpeechRecognizer {
   transcribe(audio: Buffer, filename: string, opts?: TranscribeOptions): Promise<Transcript>;
 }
 
+/**
+ * Groq rejects a prompt over 896 characters with a 400. Sarvam has no documented
+ * cap, but the same budget is a sane default: a hint that is mostly long-tail
+ * names biases nothing anyway.
+ */
+export const MAX_ASR_PROMPT_CHARS = 880;
+
+/**
+ * Trim a biasing hint to fit, cutting at a comma so a medicine name is never
+ * half-sent. Belt and braces — buildAsrHint already budgets — because a hint
+ * from anywhere else would otherwise fail the whole transcription.
+ */
+export function fitPrompt(prompt: string | undefined, max = MAX_ASR_PROMPT_CHARS): string | undefined {
+  if (!prompt || prompt.length <= max) return prompt;
+  const cut = prompt.slice(0, max);
+  const lastComma = cut.lastIndexOf(',');
+  return (lastComma > max * 0.5 ? cut.slice(0, lastComma) : cut).trim();
+}
+
 export interface TranscribeOptions {
   /**
    * A biasing hint. Both providers accept one, and for us it carries the clinic's
@@ -61,6 +80,30 @@ export interface TranscribeOptions {
 
 export class AsrUnavailable extends Error {}
 
+/** Thrown only while retrying; never escapes a recognizer. */
+class RateLimited extends Error {
+  constructor(public retryAfterMs: number, message: string) { super(message); }
+}
+
+/**
+ * Groq's free tier allows 20 requests per minute. Two doctors dictating in the
+ * same minute is not a hypothetical in a clinic, and without this a 429 surfaced
+ * to the doctor as "speech recognition is unavailable" — for a limit that clears
+ * in three seconds. Groq states the wait in its own error text, so honour it.
+ */
+const RETRY_ATTEMPTS = Number(process.env.VOICE_RX_ASR_RETRIES || 3);
+
+function parseRetryAfter(body: string, header: string | null): number {
+  if (header) {
+    const secs = Number(header);
+    if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 20_000);
+  }
+  // "Please try again in 3s" / "in 1.5s"
+  const m = body.match(/try again in ([\d.]+)s/i);
+  if (m) return Math.min(Number(m[1]) * 1000 + 250, 20_000);
+  return 3_000;
+}
+
 const TIMEOUT_MS = Number(process.env.VOICE_RX_ASR_TIMEOUT_MS || 60_000);
 
 /** Shared fetch with a hard timeout — a hung ASR must not hold a doctor's screen. */
@@ -70,6 +113,9 @@ async function postForm(url: string, headers: Record<string, string>, form: Form
   try {
     const res = await fetch(url, { method: 'POST', headers, body: form, signal: ctrl.signal });
     const body = await res.text();
+    if (res.status === 429) {
+      throw new RateLimited(parseRetryAfter(body, res.headers.get('retry-after')), body.slice(0, 200));
+    }
     if (!res.ok) {
       throw new AsrUnavailable(`${res.status} ${body.slice(0, 300)}`);
     }
@@ -80,11 +126,38 @@ async function postForm(url: string, headers: Record<string, string>, form: Form
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') throw new AsrUnavailable(`Timed out after ${TIMEOUT_MS}ms`);
-    if (err instanceof AsrUnavailable) throw err;
+    if (err instanceof AsrUnavailable || err instanceof RateLimited) throw err;
     throw new AsrUnavailable(err?.message || 'ASR request failed');
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * postForm, but waits out a rate limit instead of failing the doctor.
+ *
+ * A retry here is safe: transcription is idempotent and nothing has been written
+ * yet. Bounded attempts, because a doctor waiting indefinitely is its own
+ * failure — past the budget it raises and the typed editor takes over.
+ */
+async function postFormWithRetry(url: string, headers: Record<string, string>, makeForm: () => FormData): Promise<any> {
+  let lastMessage = '';
+  for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await postForm(url, headers, makeForm());
+    } catch (err) {
+      if (!(err instanceof RateLimited) || attempt === RETRY_ATTEMPTS) {
+        if (err instanceof RateLimited) {
+          throw new AsrUnavailable(`Rate limited after ${RETRY_ATTEMPTS + 1} attempts: ${err.message}`);
+        }
+        throw err;
+      }
+      lastMessage = err.message;
+      logger.warn({ waitMs: err.retryAfterMs, attempt: attempt + 1 }, 'voiceRx: ASR rate limited, waiting');
+      await new Promise((r) => setTimeout(r, err.retryAfterMs));
+    }
+  }
+  throw new AsrUnavailable(lastMessage || 'ASR rate limited');
 }
 
 /**
@@ -101,6 +174,7 @@ class GroqRecognizer implements SpeechRecognizer {
     const key = process.env.GROQ_API_KEY;
     if (!key) throw new AsrUnavailable('GROQ_API_KEY not set');
 
+    const makeForm = () => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(audio)]), filename);
     form.append('model', this.model);
@@ -109,13 +183,18 @@ class GroqRecognizer implements SpeechRecognizer {
     // Temperature 0: this is transcription, not composition. Any sampling here is
     // a chance to invent a drug name that was never said.
     form.append('temperature', '0');
-    if (opts.prompt) form.append('prompt', opts.prompt);
+    // Groq 400s on a prompt over 896 chars. Discovered the only way it could be:
+    // calling the real API with a real key. Every dictation would have failed.
+    const prompt = fitPrompt(opts.prompt);
+    if (prompt) form.append('prompt', prompt);
     if (opts.language) form.append('language', opts.language);
+    return form;
+    };
 
-    const json = await postForm(
+    const json = await postFormWithRetry(
       'https://api.groq.com/openai/v1/audio/transcriptions',
       { Authorization: `Bearer ${key}` },
-      form,
+      makeForm,
     );
 
     const segments: TranscriptSegment[] = Array.isArray(json.segments)
@@ -157,16 +236,21 @@ class SarvamRecognizer implements SpeechRecognizer {
     const key = process.env.SARVAM_API_KEY;
     if (!key) throw new AsrUnavailable('SARVAM_API_KEY not set');
 
-    const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(audio)]), filename);
-    form.append('model', this.model);
-    form.append('language_code', opts.language || 'unknown');
-    form.append('with_timestamps', 'true');
+    const makeForm = () => {
+      const form = new FormData();
+      form.append('file', new Blob([new Uint8Array(audio)]), filename);
+      form.append('model', this.model);
+      form.append('language_code', opts.language || 'unknown');
+      const hint = fitPrompt(opts.prompt);
+      if (hint) form.append('prompt', hint);
+      form.append('with_timestamps', 'true');
+      return form;
+    };
 
-    const json = await postForm(
+    const json = await postFormWithRetry(
       'https://api.sarvam.ai/speech-to-text',
       { 'api-subscription-key': key },
-      form,
+      makeForm,
     );
 
     const text = String(json.transcript ?? json.text ?? '').trim();

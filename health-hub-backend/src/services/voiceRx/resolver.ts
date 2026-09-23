@@ -501,7 +501,7 @@ export async function getMedicationsByIds(ids: string[]): Promise<Map<string, Me
  * available — far cheaper than a better model, and it targets exactly the tokens
  * that matter. Capped because a prompt that is mostly noise biases nothing.
  */
-export async function buildAsrHint(limit = 120): Promise<string> {
+export async function buildAsrHint(limit = 120, maxChars = 880): Promise<string> {
   // The most common brands, not a slice of whatever the catalogue returns first.
   // A hint that is mostly long-tail names biases nothing; one full of the drugs
   // this clinic actually prescribes is the cheapest accuracy gain available.
@@ -511,7 +511,19 @@ export async function buildAsrHint(limit = 120): Promise<string> {
     take: limit,
     select: { brandName: true, genericName: true, canonicalName: true },
   });
-  const names = rows.map((r) => r.brandName || r.genericName || r.canonicalName).filter(Boolean);
+  const names = rows.map((r) => r.brandName || r.genericName || r.canonicalName).filter(Boolean) as string[];
   if (names.length === 0) return '';
-  return `Indian clinical prescription dictation, English and Hindi mixed. Medicines: ${names.join(', ')}.`;
+
+  // Groq rejects a prompt over 896 characters outright, so the budget is spent
+  // deliberately: take names until it is full rather than building 2,100
+  // characters and having the whole transcription 400.
+  const head = 'Indian clinical prescription dictation, English and Hindi mixed. Medicines: ';
+  const kept: string[] = [];
+  let used = head.length + 1;
+  for (const n of names) {
+    if (used + n.length + 2 > maxChars) break;
+    kept.push(n);
+    used += n.length + 2;
+  }
+  return kept.length ? `${head}${kept.join(', ')}.` : '';
 }

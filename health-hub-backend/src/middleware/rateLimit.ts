@@ -52,7 +52,11 @@ function incrementInMemory(key: string, windowMs: number): RateLimitState {
   return existing;
 }
 
-async function incrementRateLimitKey(key: string, windowMs: number): Promise<RateLimitState> {
+/**
+ * Exported so features can meter their own spend (see voiceRx/quota.ts) rather
+ * than each inventing a counter. One Redis-backed counter, one set of semantics.
+ */
+export async function incrementRateLimitKey(key: string, windowMs: number): Promise<RateLimitState> {
   const redis = getSecurityRedisClient();
 
   if (!redis) {
