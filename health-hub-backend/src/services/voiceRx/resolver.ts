@@ -55,7 +55,9 @@ export interface Candidate {
   dosageForm: string | null;
   route: string | null;
   score: number;
-  matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy';
+  /** 'suggestion' = a near-miss offered for a word the catalogue does not
+   *  know. Never auto-selected; it only ever appears inside a question. */
+  matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy' | 'suggestion';
   /** CURATED · LEARNED · IMPORTED. A ranking signal, and a decision one. */
   source: string;
   /**
@@ -487,6 +489,97 @@ async function queryAllTiers(needle: string, stem: string, pkey: string, limit =
   );
 }
 
+/** Levenshtein distance. For re-ranking a handful of suggestions, not for search. */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * "Did you mean…" — for a word the catalogue does not know at all.
+ *
+ * WHY THIS EXISTS. A doctor said "Augmentin 625"; the recogniser wrote
+ * "Aumintin 625". Every tier missed — "aumintin" scores 0.357 against
+ * "augmentin" and pg_trgm's cut-off is 0.6 — so the doctor was told the drug is
+ * not in the list and offered nothing to pick. A mishearing of the most
+ * prescribed antibiotic in the country became a dead end.
+ *
+ * TWO PASSES, because each alone is wrong:
+ *   recall    — trigram at a LOW threshold (0.3), on the word and on its phonetic
+ *               key, still through the GIN index. Measured: this finds Augmentin
+ *               for "aumintin", but it also offers Qweb for "qwerty" and Xyzal
+ *               for "xyzzy" — trigram overlap alone is noise.
+ *   precision — keep only names within a small edit distance of what was heard,
+ *               compared on phonetic keys (so c/k, s/c, z/s, ph/f collisions cost
+ *               nothing): similarity >= 0.7. Measured: aumintin→Augmentin 0.78,
+ *               azithrel→Azithral 0.86, metformen→Metformin 0.89, while
+ *               qwerty→Qweb 0.50 and xyzzy→Xyzal 0.67 are dropped.
+ *
+ * NEVER A MATCH. These come back only as options inside a question the doctor
+ * must answer — the resolution stays UNRESOLVED and nothing is preselected. An
+ * auto-corrected drug name is exactly the fluent, confident error that nobody
+ * catches.
+ */
+export async function suggestSimilar(heard: string, spokenStrength: string | null, limit = 5): Promise<Candidate[]> {
+  const needle = norm(heard);
+  if (needle.length < 4) return [];
+  const key = phoneticKey(needle);
+
+  const rows = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL pg_trgm.word_similarity_threshold = 0.3`);
+    return tx.$queryRawUnsafe<Raw[]>(
+      `SELECT ${SELECT_COLS}, word_similarity($1, "searchText") AS score
+       FROM "Medication"
+       WHERE ${WHERE_LIVE} AND ($1 <% "searchText" OR ($2 <> $1 AND $2 <> '' AND $2 <% "searchText"))
+       ORDER BY score DESC,
+         CASE source WHEN 'CURATED' THEN 0 WHEN 'LEARNED' THEN 1 ELSE 2 END, "usageCount" DESC
+       LIMIT 80`,
+      needle, key,
+    );
+  });
+
+  const heardKey = key || needle;
+  const scored = rows
+    .map((r) => {
+      // Compare against the first word of each name the row goes by — the part a
+      // doctor says and a recogniser mangles — on phonetic keys.
+      let best = 0;
+      for (const name of [r.brandName, r.genericName, r.canonicalName]) {
+        if (!name) continue;
+        const w = phoneticKey(norm(String(name)).split(/[\s-]+/)[0] ?? '');
+        if (!w) continue;
+        best = Math.max(best, 1 - editDistance(heardKey, w) / Math.max(heardKey.length, w.length));
+      }
+      const strengthHit = !!spokenStrength && !!r.strength && String(r.strength).replace(/\s+/g, '').startsWith(spokenStrength);
+      return { r, best, strengthHit };
+    })
+    .filter((x) => x.best >= 0.7)
+    .sort((a, b) =>
+      b.best - a.best
+      || Number(b.strengthHit) - Number(a.strengthHit)
+      || (SOURCE_RANK[a.r.source ?? 'IMPORTED'] ?? 2) - (SOURCE_RANK[b.r.source ?? 'IMPORTED'] ?? 2));
+
+  const out: Candidate[] = [];
+  const seen = new Set<string>();
+  for (const x of scored) {
+    if (seen.has(x.r.id)) continue;
+    seen.add(x.r.id);
+    out.push(toCandidate(x.r, x.best * 0.5, 'suggestion'));
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+const SOURCE_RANK: Record<string, number> = { CURATED: 0, LEARNED: 1, IMPORTED: 2 };
+
 export async function resolveMedication(input: ResolveInput): Promise<ResolveResult> {
   // Number words first: the extractor normalises before calling, but a doctor
   // typing "dolo six fifty" or any other caller reaching this directly must get
@@ -575,7 +668,10 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (d) return d;
   }
 
-  return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
+  // Nothing matched. Still a question — but one with the near-misses on it, so
+  // "Aumintin 625" asks "did you mean Augmentin 625?" instead of offering nothing.
+  const nearMisses = await suggestSimilar(stem, spokenStrength).catch(() => []);
+  return { resolution: 'UNRESOLVED', match: null, candidates: nearMisses, askReason: 'NO_MATCH', spokenStrength };
 }
 
 export async function searchMedications(q: string, limit = 12): Promise<Candidate[]> {
@@ -593,6 +689,9 @@ export async function searchMedications(q: string, limit = 12): Promise<Candidat
     literal.push(toCandidate(r, Number(r.score ?? 0) * 0.3, 'fuzzy'));
     if (literal.length >= limit) break;
   }
+  // Still nothing: the near-misses, marked as such, so typing "aumintin" shows
+  // Augmentin rather than an empty list that reads as "we do not stock it".
+  if (literal.length === 0) return suggestSimilar(needle, null, Math.min(limit, 8)).catch(() => []);
   return literal;
 }
 
@@ -618,18 +717,47 @@ export async function getMedicationsByIds(ids: string[]): Promise<Map<string, Me
  * available — far cheaper than a better model, and it targets exactly the tokens
  * that matter. Capped because a prompt that is mostly noise biases nothing.
  */
-export async function buildAsrHint(limit = 120, maxChars = 880): Promise<string> {
-  // The most common brands, not a slice of whatever the catalogue returns first.
-  // A hint that is mostly long-tail names biases nothing; one full of the drugs
-  // this clinic actually prescribes is the cheapest accuracy gain available.
+export async function buildAsrHint(limit = 400, maxChars = 880): Promise<string> {
+  // WHAT THE DOCTOR ACTUALLY SAYS, not what the importer happened to load first.
+  //
+  // This used to take the first 120 rows by createdAt — the head of an
+  // alphabetical import — so every dictation primed the recogniser with sixty
+  // obscure brands that all begin with "A" (Assurans, Aclonac, Alerfix…) and not
+  // one of Augmentin, Dolo, Pantop or Crocin. A doctor said "Augmentin 625" and it
+  // came back "Aumintin 625": the hint was not merely useless, it pointed the
+  // decoder at the wrong vocabulary. The comment above the old query said "the
+  // most common brands"; the query did the opposite.
+  //
+  // So: the curated formulary and whatever doctors here have corrected to
+  // (LEARNED) — the drugs this clinic prescribes — ordered by how often they are
+  // actually signed (learnFromSignedPrescription bumps usageCount), so the hint
+  // drifts towards this clinic's own habits. The curated order breaks ties.
   const rows = await prisma.medication.findMany({
-    where: { isActive: true, deletedAt: null, brandName: { not: null } },
-    orderBy: { createdAt: 'asc' },
+    where: { isActive: true, deletedAt: null, source: { in: ['CURATED', 'LEARNED'] } },
+    orderBy: [{ usageCount: 'desc' }, { createdAt: 'asc' }],
     take: limit,
-    select: { brandName: true, genericName: true, canonicalName: true },
+    select: { brandName: true, genericName: true },
   });
-  const names = rows.map((r) => r.brandName || r.genericName || r.canonicalName).filter(Boolean) as string[];
-  if (names.length === 0) return '';
+
+  // One entry per BRAND, without its strength: "Augmentin 625" and "Augmentin
+  // 375" are one word to the recogniser, and the budget is tight enough that a
+  // duplicate costs a different drug its place. A hyphenated variant collapses
+  // onto its base when the base is already in ("Zerodol-SP" → "Zerodol"); the
+  // spoken suffix is letters Whisper spells fine on its own.
+  const stems: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    // First word only: "Asthalin Inhaler" and "Voveran Gel" are "Asthalin" and
+    // "Voveran" to the ear, and keeping both halves cost Calpol its place.
+    const raw = (r.brandName || r.genericName || '').replace(/\s*\d[\d.]*\s*(mg|mcg|ml|g|iu)?\b.*$/i, '').trim().split(/\s+/)[0];
+    if (raw.length < 3) continue;
+    const base = raw.split('-')[0].trim();
+    const key = (seen.has(base.toLowerCase()) ? base : raw).toLowerCase();
+    if (seen.has(key) || seen.has(base.toLowerCase())) continue;
+    seen.add(key);
+    stems.push(raw);
+  }
+  if (stems.length === 0) return '';
 
   // Groq rejects a prompt over 896 characters outright, so the budget is spent
   // deliberately: take names until it is full rather than building 2,100
@@ -637,7 +765,7 @@ export async function buildAsrHint(limit = 120, maxChars = 880): Promise<string>
   const head = 'Indian clinical prescription dictation, English and Hindi mixed. Medicines: ';
   const kept: string[] = [];
   let used = head.length + 1;
-  for (const n of names) {
+  for (const n of stems) {
     if (used + n.length + 2 > maxChars) break;
     kept.push(n);
     used += n.length + 2;
