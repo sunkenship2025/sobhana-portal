@@ -7,7 +7,8 @@
  * screen is not acceptable — so the SIGNED state is the real API response with a
  * signed summary written into it in the browser. Nothing signed is ever stored.
  * The only write is one temp owner login, removed in finally. No button that
- * sends or corrects is pressed.
+ * sends, corrects or marks done is pressed. The switch-OFF pass answers the
+ * switch's question in the browser — prod's switch is never touched.
  *
  *   FE_URL=https://sobhanaportal.com npx tsx rx-staff-ui-check.ts
  */
@@ -170,6 +171,50 @@ const SIGNED = (id: string) => ({
       const dlg = await page.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? '');
       assert('details dialog: one Prescription line with Printed and Sent', /Prescription/.test(dlg) && /Printed/.test(dlg) && /Sent · Read/.test(dlg), dlg.slice(0, 200));
       await page.screenshot({ path: '/tmp/claude-501/rx-finalized-dialog.png' });
+    }
+
+    // ── Switch OFF (answered in the browser; prod's switch is not touched) ────
+    // Only what was signed stays; drafts and the module's chips go; the rows and
+    // the panel read exactly as they did before the module existed.
+    rewrites.unshift({ match: /\/app-settings\/digital-prescriptions/, edit: (j) => ({ ...j, enabled: false }) });
+    await page.evaluate((id: string) => localStorage.setItem('branch-storage',
+      JSON.stringify({ state: { branches: [], activeBranchId: id }, version: 0 })), rx.branchId);
+    await page.goto(`${FE}/clinic/patient-360/${rx.visit.patientId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle('Visit timeline');
+    await new Promise((r) => setTimeout(r, 2500));
+    const offTimeline = await body();
+    assert('OFF · timeline: no "Rx draft" chip', !offTimeline.includes('Rx draft'));
+    if (other) assert('OFF · timeline: the signed one still shows', offTimeline.includes('Rx signed v2'));
+    await clickText('button[aria-pressed]', rx.visit.billNumber ?? '');
+    await settle('Prescription', 20000);
+    await new Promise((r) => setTimeout(r, 1000));
+    const offPanel = await body();
+    assert('OFF · panel: plain "Print prescription", no draft line, no Discard',
+      offPanel.includes('Print prescription') && !offPanel.includes('Draft · not signed') && !offPanel.includes('Discard'));
+    if (other) {
+      await clickText('button[aria-pressed]', other.billNumber ?? '');
+      await settle('View prescription', 20000);
+      const offSigned = await body();
+      assert('OFF · panel: signed one still viewable / printable / sendable, no Correct',
+        offSigned.includes('View prescription') && offSigned.includes('Send again on WhatsApp') && !offSigned.includes('Correct…'));
+    }
+    await page.goto(`${FE}/clinic/queue`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await settle('Visit Queue');
+    await new Promise((r) => setTimeout(r, 3000));
+    const offQueue = await body();
+    assert('OFF · live queue: no "Rx draft" chip', !offQueue.includes('Rx draft'));
+    if (done) {
+      await page.evaluate((id: string) => localStorage.setItem('branch-storage',
+        JSON.stringify({ state: { branches: [], activeBranchId: id }, version: 0 })), done.visit.branchId);
+      await page.goto(`${FE}/clinic/finalized`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await settle('Rx signed v2', 30000);
+      const rows = await page.evaluate(() => ({
+        disabledSends: document.querySelectorAll('button[aria-label="No digital prescription"]').length,
+        signedSends: document.querySelectorAll('button[aria-label^="Sent · Read"]').length,
+      }));
+      assert('OFF · Finalized: rows without a signed Rx are back to three buttons', rows.disabledSends === 0, JSON.stringify(rows));
+      assert('OFF · Finalized: the signed one keeps its send button', rows.signedSends === 1, JSON.stringify(rows));
+      await page.screenshot({ path: '/tmp/claude-501/rx-finalized-off.png' });
     }
 
     assert('no page errors', errors.length === 0, errors.join(' | '));
