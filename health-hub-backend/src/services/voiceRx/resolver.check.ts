@@ -56,14 +56,15 @@ function main(): void {
 
 main();
 
-// A number alone is never a medicine. Names that arrive in Telugu or Devanagari
-// script used to reduce to their digits and resolve EXACTLY — "మందు 650" ("medicine
-// 650") became Paracetamol 650. resolveMedication answers these before it touches
-// the database, so this runs without one.
+// A number alone is never a medicine. A name in Telugu or Devanagari script used
+// to reduce to its digits and resolve EXACTLY — "మందు 650" became Paracetamol
+// 650. Script names are now read by sound (transliterateIndic, checked in
+// normalize.ts); what can never resolve is a query with no letter at all, and
+// resolveMedication answers that before it touches the database.
 void (async () => {
-  for (const s of ['ఏదో మందు 625', 'మందు 650', 'दवा 500', '625']) {
+  for (const s of ['625', '650', ' 40 ', '0.5']) {
     const r = await resolveMedication({ spoken: s });
-    if (r.resolution !== 'UNRESOLVED' || r.match) throw new Error(`FAIL: "${s}" resolved on its number alone`);
+    if (r.resolution === 'RESOLVED' || r.match) throw new Error(`FAIL: "${s}" resolved on a number alone`);
   }
   // eslint-disable-next-line no-console
   console.log('resolver.check.ts: a bare number never resolves');

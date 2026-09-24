@@ -186,9 +186,15 @@ async function transcribeAll(cases: Case[]): Promise<Record<string, Record<strin
       const [model, lang] = v.split(':');
       const form = new FormData();
       form.append('audio', new Blob([fs.readFileSync(wav)], { type: 'audio/wav' }), `${c.id}.wav`);
-      form.append('provider', 'groq');
-      form.append('model', model === 'v3' ? 'whisper-large-v3' : 'whisper-large-v3-turbo');
-      if (lang && lang !== 'auto') form.append('language', lang);
+      if (model === 'prod') {
+        // Exactly what the dictation card sends: the doctor's language, nothing
+        // else — the server picks the recogniser, model and language hint.
+        form.append('dictation', lang);
+      } else {
+        form.append('provider', 'groq');
+        form.append('model', model === 'v3' ? 'whisper-large-v3' : 'whisper-large-v3-turbo');
+        if (lang && lang !== 'auto') form.append('language', lang);
+      }
       const r = await fetch(`${API}/api/prescriptions/transcribe`, { method: 'POST', headers: H, body: form });
       const b = await r.json().catch(() => ({ message: `non-JSON ${r.status}` })) as any;
       (cache[v] ??= {})[c.id] = r.ok ? b.transcript.text : `[error ${r.status}] ${b?.message ?? ''}`;

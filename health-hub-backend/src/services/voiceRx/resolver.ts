@@ -25,7 +25,7 @@
  */
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
-import { wordsToNumbers } from './normalize';
+import { wordsToNumbers, transliterateIndic } from './normalize';
 
 export type Resolution = 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED';
 
@@ -597,7 +597,9 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   // typing "dolo six fifty" or any other caller reaching this directly must get
   // the same answer. "Six fifty" is 650 everywhere or the system is inconsistent
   // about the one thing it cannot be inconsistent about.
-  const q = norm(wordsToNumbers(input.spoken));
+  // A name the recogniser wrote in Devanagari or Telugu is read by sound, not
+  // discarded (transliterateIndic); what is left after that must have a letter.
+  const q = norm(wordsToNumbers(transliterateIndic(input.spoken)));
   // A number is never a medicine. norm() keeps only Latin letters and digits, so a
   // name that arrived in Telugu or Devanagari script ("ఏదో మందు 625" — "some
   // medicine 625") used to reach the tiers as a bare "625" and resolve, EXACTLY,

@@ -34,6 +34,73 @@ const TENS: Record<string, number> = {
 const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, sau: 100, hazaar: 1000 };
 
 /**
+ * Indian scripts -> English letters, by sound.
+ *
+ * The recogniser writes a medicine name in Devanagari, Telugu — once even Tamil or
+ * Gurmukhi — when it hears it inside Hindi or Telugu speech: "कमबे फलम" for
+ * Combiflam. The matcher reads Latin letters only, so such a name used to vanish.
+ * This gives it "kambe phalam" to match by sound (a question, never a decision —
+ * approximate matches always ask).
+ *
+ * One table serves every script: the Unicode blocks for Devanagari, Bengali,
+ * Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada and Malayalam share the ISCII
+ * layout, so a letter's offset inside its block means the same sound in all.
+ * Rough on purpose — it only has to get a name close enough to be recognised.
+ */
+const INDIC_BLOCKS = [0x0900, 0x0980, 0x0a00, 0x0a80, 0x0b00, 0x0b80, 0x0c00, 0x0c80, 0x0d00];
+// Long vowels come out single: brand names in English letters are never spelled
+// with them doubled, and "paan" matched a paan-flavoured nicotine gum for Pan 40.
+const INDIC_VOWELS: Record<number, string> = {
+  0x05: 'a', 0x06: 'a', 0x07: 'i', 0x08: 'i', 0x09: 'u', 0x0a: 'u', 0x0b: 'ru', 0x0e: 'e', 0x0f: 'e',
+  0x10: 'ai', 0x11: 'o', 0x12: 'o', 0x13: 'o', 0x14: 'au',
+};
+const INDIC_CONSONANTS: Record<number, string> = {
+  0x15: 'k', 0x16: 'kh', 0x17: 'g', 0x18: 'gh', 0x19: 'ng', 0x1a: 'ch', 0x1b: 'chh', 0x1c: 'j', 0x1d: 'jh', 0x1e: 'ny',
+  0x1f: 't', 0x20: 'th', 0x21: 'd', 0x22: 'dh', 0x23: 'n', 0x24: 't', 0x25: 'th', 0x26: 'd', 0x27: 'dh', 0x28: 'n',
+  0x29: 'n', 0x2a: 'p', 0x2b: 'ph', 0x2c: 'b', 0x2d: 'bh', 0x2e: 'm', 0x2f: 'y', 0x30: 'r', 0x31: 'r', 0x32: 'l',
+  0x33: 'l', 0x34: 'l', 0x35: 'v', 0x36: 'sh', 0x37: 'sh', 0x38: 's', 0x39: 'h',
+  0x58: 'q', 0x59: 'kh', 0x5a: 'g', 0x5b: 'z', 0x5c: 'r', 0x5d: 'rh', 0x5e: 'f', 0x5f: 'y',
+};
+const INDIC_SIGNS: Record<number, string> = {
+  0x3e: 'a', 0x3f: 'i', 0x40: 'i', 0x41: 'u', 0x42: 'u', 0x43: 'ru', 0x45: 'e', 0x46: 'e', 0x47: 'e', 0x48: 'ai',
+  0x49: 'o', 0x4a: 'o', 0x4b: 'o', 0x4c: 'au',
+};
+const NUKTA_SHIFT: Record<string, string> = { j: 'z', ph: 'f', k: 'q', g: 'g', d: 'r' };
+
+export function transliterateIndic(input: string): string {
+  if (!/[ऀ-ൿ]/.test(input)) return input;
+  const off = (ch: string): number | null => {
+    const c = ch.codePointAt(0)!;
+    const base = INDIC_BLOCKS.find((b) => c >= b && c < b + 0x80);
+    return base === undefined ? null : c - base;
+  };
+  const chars = [...input];
+  let out = '';
+  for (let i = 0; i < chars.length; i++) {
+    const o = off(chars[i]);
+    if (o === null) { out += chars[i]; continue; }
+    if (o >= 0x66 && o <= 0x6f) { out += String(o - 0x66); continue; }        // digits
+    if (o === 0x01 || o === 0x02) { out += 'n'; continue; }                     // candrabindu, anusvara
+    if (o === 0x03) { out += 'h'; continue; }                                    // visarga
+    if (INDIC_VOWELS[o]) { out += INDIC_VOWELS[o]; continue; }
+    let cons = INDIC_CONSONANTS[o];
+    if (!cons) continue;                                                         // anything else: drop
+    let j = i + 1;
+    if (off(chars[j] ?? '') === 0x3c) { cons = NUKTA_SHIFT[cons] ?? cons; j++; } // nukta
+    const next = off(chars[j] ?? '');
+    if (next === 0x4d) { out += cons; i = j; continue; }                        // virama: no vowel
+    if (next !== null && INDIC_SIGNS[next]) { out += cons + INDIC_SIGNS[next]; i = j; continue; }
+    // Inherent 'a' — except at the end of a word, where Hindi drops it ("फलम" is
+    // phalam, not phalama).
+    const after = chars[j];
+    const wordEnds = after === undefined || off(after) === null;
+    out += wordEnds ? cons : cons + 'a';
+    i = j - 1;
+  }
+  return out;
+}
+
+/**
  * Convert spoken number words inside a string to digits.
  *
  * The hard case is the one Indian doctors use constantly: "six twenty five" means
@@ -276,6 +343,10 @@ export function demo(): void {
   eq(wordsToNumbers('subah ek teen din'), 'subah 1 3 din', '…inside a sentence too');
   eq(wordsToNumbers('two hundred fifty'), '250', 'a scale still joins');
   eq(wordsToNumbers('chawda din'), '14 din', 'Hindi fourteen');
+  eq(transliterateIndic('कमबे फलम'), 'kamabe phalam', 'Devanagari brand, by sound');
+  eq(transliterateIndic('ఆగ్మెంటిన్ 625'), 'agmentin 625', 'Telugu brand, virama and anusvara');
+  eq(transliterateIndic('Augmentin 625'), 'Augmentin 625', 'Latin is left alone');
+  eq(transliterateIndic('पान 40'), 'pan 40', 'Pan, in Devanagari');
   eq(wordsToNumbers('teen din'), '3 din', 'hindi teen');
 
   eq(parseFrequency('BD five days'), 'BD', 'BD');

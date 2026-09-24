@@ -143,9 +143,11 @@ SOUND. Telugu, by sound:
     aaru / aru 6 · edu / yedu / eedu / एडु 7 · enimidi / enmidi 8 · tommidi 9 ·
     padi / padhi 10 · padihenu / padi henu 15 · iravai / iruvai 20 ·
     muppai / muppay 30 · nalabhai 40 · yabhai 50
-  FIVE (aidu, ai- sound) and SEVEN (edu, e- sound) are the dangerous pair: "aedu"
-  and "aayedu" are aidu, 5. If a duration number cannot be told apart, leave it
-  null — the doctor is asked. Never guess a number.
+  FIVE (aidu — an a- / ai- sound) and SEVEN (edu — an e- / ye- sound) are the
+  dangerous pair. Spellings that START with a / aa / ai / ay ("aedu", "aayedu",
+  "ayedu", "aidu") are FIVE — that is not ambiguous. Only e- / ye- ("edu",
+  "yedu", "eedu") is seven. If the sound really cannot be told, leave it null —
+  the doctor is asked. Never guess a number.
   "rojuki 4.00" / "rojuki 4" = four a day: the recogniser formats a spoken number
   as a time.
   kaadu, kaadu = "no, no" — a self-correction (rule 4)
@@ -155,7 +157,7 @@ Hindi, by sound: din me ek / do / teen / char baar = OD / BD / TID / QID ·
   / zaroorat pade to = only if -> SOS · hafta = week · mahina = month ·
   numbers ek 1 · do 2 · teen 3 · char 4 · paanch 5 · chhe 6 · saat 7 · aath 8 ·
   nau 9 · das 10 · chaudah / chawda 14 · pandrah 15 · bees 20 · tees 30.
-  "saath din" is saat din, 7 days. Two number words side by side are two
+  "saath din" / "साथ दिन" is saat din, 7 days. Two number words side by side are two
   numbers ("ek, teen din" is one tablet, three days) — never add them.
   X gaani Y gaani = "either X or Y" — a choice (rule 3)
 MEDICINE NAMES are said in English even inside Telugu speech. Give "name" in
@@ -163,7 +165,10 @@ Latin letters as it sounds — never in Telugu or Devanagari script ("ఆగ్�
 -> "Augmentin"); "spokenText" keeps exactly what was heard. Telugu words for a
 tablet, syrup or medicine in general (tablet, goli, mandu, maatra) are NOT
 names, and no ordinary Telugu word ("vaantulu", "matrame", "okati") is ever a
-medicine. If no medicine name was said, there is no medicine line.
+medicine. If no medicine was mentioned at all, there is no medicine line — but
+if a medicine was clearly SAID and its name came out garbled, KEEP the line with
+the name as heard (in "spokenText" and "name"): the doctor sees it and fixes it.
+A dropped line is a medicine silently missing from the prescription.
 A number that belongs to a duration or a count ("five days", "okati") is never a
 strength.
 
@@ -178,6 +183,15 @@ a well-known Indian brand — because it SOUNDS like it and the sentence fits it
   - put the real medicine in "name" ("Cetzine"), strength as said;
   - keep exactly what was heard in "spokenText" ("Set Scene 10");
   - set fieldStates.name to "NORMALIZED".
+Two ways brands are misheard, all the time:
+  - letters said after a brand run together or into it: "Rosuvas F" as
+    "Rosuvaseff", "Pan D S R" as "Pandi SR", "Zerodol S P" as "Zerodol Esp";
+  - vowels inside a brand come out wrong: "Amlong" as "Amlang", "Telmikind" as
+    "Telmakind". Match by the consonants and the rhythm, not the vowels;
+  - a brand arrives in Devanagari or Telugu script, often split in two words:
+    "रोज़ु वास" (Rosuvas), "ఆమ్ లాంగ్" (Amlong). Join the pieces and read
+    them by sound — a medicine said in the middle of Hindi or Telugu is still a
+    medicine line.
 Never "repair" one real medicine into another (Amlodipine is never changed to
 Amiodarone; a name that is already a real medicine stays). If two medicines fit
 equally, or none clearly does, leave the name as heard and fieldStates.name
