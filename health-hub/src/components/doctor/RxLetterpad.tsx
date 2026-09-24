@@ -115,7 +115,11 @@ export function RxLetterpad({
         )}
         style={{ borderBottomColor: '#1f3e6e' }}
       >
-        <div className="min-w-0">
+        {/* The prescriber's name is the most important thing in this header, so
+            it gets the width. The branch block used to be shrink-0, and a long
+            address (Chintal's is one line of 90 characters) crushed the name onto
+            three lines: "Dr. / SURENDER / SINGH". */}
+        <div className="min-w-0 flex-1">
           <p className="text-[17px] font-bold leading-tight text-slate-900">{doctor?.name ?? 'Consulting doctor'}</p>
           <p className="text-[11px] text-slate-600">{doctor?.qualification}</p>
           <p className="text-[11px] text-slate-600">
@@ -129,7 +133,7 @@ export function RxLetterpad({
             ) : null}
           </p>
         </div>
-        <div className="shrink-0 text-right text-[11px] leading-snug text-slate-600">
+        <div className="max-w-[50%] text-right text-[11px] leading-snug text-slate-600">
           <p className="text-[13px] font-bold text-slate-900">{branch?.name ?? ''}</p>
           {branch?.address && <p>{branch.address}</p>}
           {branch?.phone && <p>{branch.phone}</p>}
