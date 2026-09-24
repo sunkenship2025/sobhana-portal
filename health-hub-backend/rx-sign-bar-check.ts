@@ -63,11 +63,36 @@ async function signBarAs(email: string, visitId: string, shot: string) {
     await settle('can sign|signature on file|I have reviewed', 30000);
 
     const body = (await page.evaluate(() => document.body.innerText)) as string;
+    // The masthead logo must actually paint. The letterpad hides the <img> on
+    // error, so a broken logo is not an error on screen — just blank paper above
+    // the SOBHANA CLINIC band, on a document that goes to a patient.
+    await page.waitForFunction(() => {
+      const img = document.querySelector('img[alt="Sobhana"]') as HTMLImageElement | null;
+      return !img || img.complete;
+    }, { timeout: 15000 }).catch(() => {});
+    const logo = await page.evaluate(() => {
+      const img = document.querySelector('img[alt="Sobhana"]') as HTMLImageElement | null;
+      return img ? { src: img.currentSrc || img.src, complete: img.complete, width: img.naturalWidth, hidden: img.style.display === 'none' } : null;
+    });
     const sign = await page.evaluate(() => [...document.querySelectorAll('button')]
       .filter((b) => /^\s*Sign( & next)?\s*$/.test(b.textContent ?? ''))
       .map((b) => ({ label: b.textContent?.trim(), disabled: b.disabled })));
     await page.screenshot({ path: shot });
-    return { opened, body, sign, errors };
+
+    // The sheet is the editor: click the first medicine on the letterpad and the
+    // same RxItemEditor must open beside it. Nothing is changed or saved here.
+    const clicked = await page.evaluate(() => {
+      const line = [...document.querySelectorAll('ol li button')].find((b) => !(b as HTMLButtonElement).disabled) as HTMLButtonElement | undefined;
+      line?.click();
+      return !!line;
+    });
+    await page.waitForFunction(() => /Editing line 1/.test(document.body.innerText), { timeout: 15000 }).catch(() => {});
+    const inspector = await page.evaluate(() => ({
+      open: /Editing line 1/.test(document.body.innerText),
+      fields: !!document.querySelector('[aria-label="Dose quantity"]') && !!document.querySelector('[aria-label="Strength"]'),
+    }));
+    await page.screenshot({ path: shot.replace('.png', '-inspect.png') });
+    return { opened, body, sign, errors, clicked, inspector, logo };
   } finally {
     await browser.close();
   }
@@ -183,6 +208,10 @@ async function signatureEditorAs(email: string, doctorName: string, imagePath: s
     assert('both Sign buttons are there', o.sign.length === 2, JSON.stringify(o.sign));
     assert('…and disabled for the owner', o.sign.length > 0 && o.sign.every((b) => b.disabled), JSON.stringify(o.sign));
     assert('no page errors (owner)', o.errors.length === 0, o.errors.join(' | '));
+    assert('the masthead logo paints on the letterpad', !!o.logo && o.logo.width > 0 && !o.logo.hidden, JSON.stringify(o.logo));
+    assert('a medicine on the review sheet is clickable', o.clicked);
+    assert('…and opens the editor beside the sheet', o.inspector.open, JSON.stringify(o.inspector));
+    assert('…with its fields (strength, dose) editable there', o.inspector.fields);
 
     // ── the fix the doctor is sent to make: Add signature → SignatureEditor ──
     // A real signature image from a report signer, written to a temp file only.
