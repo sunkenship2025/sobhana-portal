@@ -32,10 +32,15 @@ interface Props {
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
+  /** Start with this already typed — used when REPLACING a medicine, so the
+   *  near matches for what was heard are on screen before the doctor types. */
+  initialQuery?: string;
+  /** Escape with nothing typed. Lets a "change this medicine" box close. */
+  onCancel?: () => void;
 }
 
-export function MedicineTypeahead({ onSelect, onFreeText, placeholder, autoFocus, className }: Props) {
-  const [q, setQ] = useState('');
+export function MedicineTypeahead({ onSelect, onFreeText, placeholder, autoFocus, className, initialQuery, onCancel }: Props) {
+  const [q, setQ] = useState(initialQuery ?? '');
   const [results, setResults] = useState<MedicationCandidate[]>([]);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
@@ -98,7 +103,7 @@ export function MedicineTypeahead({ onSelect, onFreeText, placeholder, autoFocus
         setCursor((c) => Math.max(c - 1, -1));
         return;
       }
-      if (e.key === 'Escape') { setOpen(false); setCursor(-1); return; }
+      if (e.key === 'Escape') { setOpen(false); setCursor(-1); onCancel?.(); return; }
       if (e.key === 'Enter') {
         e.preventDefault();
         // Only a DELIBERATELY highlighted row is selected. Otherwise Enter takes
@@ -108,7 +113,7 @@ export function MedicineTypeahead({ onSelect, onFreeText, placeholder, autoFocus
       }
       // Tab is left alone entirely — it moves focus, it does not commit a drug.
     },
-    [cursor, results, take, takeTyped],
+    [cursor, results, take, takeTyped, onCancel],
   );
 
   const typed = q.trim();
@@ -164,7 +169,12 @@ export function MedicineTypeahead({ onSelect, onFreeText, placeholder, autoFocus
                   >
                     {/* Full name, never truncated — two similar entries must be
                         told apart by reading, not by position in a list. */}
-                    <span className="block font-medium leading-snug">{c.canonicalName}</span>
+                    <span className="block font-medium leading-snug">
+                      {c.matchedOn === 'suggestion' && (
+                        <span className="mr-1.5 text-xs font-normal text-amber-700">did you mean</span>
+                      )}
+                      {c.canonicalName}
+                    </span>
                     <span className="block text-xs text-muted-foreground">
                       {[c.brandName, c.dosageForm, c.route].filter(Boolean).join(' · ') || 'no form recorded'}
                     </span>

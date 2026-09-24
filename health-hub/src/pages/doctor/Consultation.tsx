@@ -505,7 +505,10 @@ export default function Consultation() {
           </Badge>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        {/* Patient context narrow on the left, the prescription wide on the right —
+            the wireframe's proportions. At 0.9fr / 1.1fr the history panel took
+            half the screen and the medicine card got one field per row. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]">
           {/* Context */}
           <div className="space-y-3">
             {ctx.currentMedications.length > 0 && (
@@ -675,7 +678,14 @@ export default function Consultation() {
               <Button variant="ghost" size="sm" onClick={() => void finishWithout()}>
                 Done, no prescription
               </Button>
-              <div className="ml-auto flex gap-2">
+              <div className="ml-auto flex items-center gap-2">
+                {/* Said out loud, not hidden in a tooltip on a disabled button:
+                    how many answers stand between this draft and a signature. */}
+                {unanswered > 0 && (
+                  <span className="text-sm font-medium text-amber-700">
+                    {unanswered} need{unanswered === 1 ? 's' : ''} confirming
+                  </span>
+                )}
                 <Button variant="outline" onClick={() => void save()} disabled={saving}>
                   {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
                   Save draft

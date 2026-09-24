@@ -135,7 +135,10 @@ export function RxQuestionQueue({ items, onResolve, className }: Props) {
       </div>
 
       <p className="mt-2 text-[15px] font-medium text-amber-950">
-        {HEADLINE[reason]}
+        {/* A no-match WITH near misses is a different question — "did you mean"
+            — and saying "not in the list" above a list of candidates reads as a
+            contradiction. */}
+        {reason === 'NO_MATCH' && candidates.length > 0 ? 'Did you mean…?' : HEADLINE[reason]}
         <span className="ml-2 font-normal text-amber-900">
           {reason === 'STRENGTH_NOT_STOCKED'
             ? <>You said <b>{spokenStrength}</b> for {itemTitle(item)}.</>

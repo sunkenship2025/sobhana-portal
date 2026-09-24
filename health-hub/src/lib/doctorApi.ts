@@ -45,7 +45,7 @@ export interface MedicationCandidate {
   dosageForm: string | null;
   route: string | null;
   score: number;
-  matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy';
+  matchedOn: 'exact' | 'alias' | 'phonetic' | 'fuzzy' | 'suggestion';
   source: string;
   /** How often THIS clinic has prescribed it — the best disambiguator there is. */
   usageCount: number;
