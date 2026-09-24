@@ -452,7 +452,16 @@ export async function updateDraft(
             sourceText: it.sourceText ?? was?.sourceText ?? null,
             sourceStart: it.sourceStart ?? was?.sourceStart ?? null,
             sourceEnd: it.sourceEnd ?? was?.sourceEnd ?? null,
-            fieldStates: (was?.fieldStates as Prisma.InputJsonValue) ?? Prisma.DbNull,
+            // The server's flags (askReason, spokenStrength) are carried from the
+            // prior row. The one the doctor may change is settling an either/or:
+            // picking one option clears its isAlternative — without this the pick
+            // was dropped on save and the choice blocked signing forever.
+            fieldStates: was?.fieldStates
+              ? ({
+                  ...(was.fieldStates as Record<string, unknown>),
+                  ...(it.fieldStates?.isAlternative === false ? { isAlternative: false } : {}),
+                } as Prisma.InputJsonValue)
+              : Prisma.DbNull,
           };
         }),
       });
