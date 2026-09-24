@@ -147,7 +147,9 @@ async function login(email: string) {
     const pBody = await patched.json() as any;
     assert("doctor edits their own profile", patched.ok && pBody?.qualification === `${doctor.qualification} (check)`, `${patched.status} ${JSON.stringify(pBody).slice(0, 120)}`);
     const auditRow = await prisma.auditLog.findFirst({ where: { entityType: 'ClinicDoctor', entityId: doctor.id, userId: doc.id }, orderBy: { createdAt: 'desc' }, select: { oldValues: true, newValues: true } });
-    assert('…and the change is audited with before and after', (auditRow?.oldValues as any)?.qualification === doctor.qualification);
+    const parse = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : v) as any;
+    assert('…and the change is audited with before and after',
+      parse(auditRow?.oldValues)?.qualification === doctor.qualification && parse(auditRow?.newValues)?.qualification === `${doctor.qualification} (check)`);
     const blank = await fetch(`${API}/api/doctor/me`, { method: 'PATCH', headers: DH, body: JSON.stringify({ registrationNumber: '  ' }) });
     assert('a blank registration number is refused', blank.status === 400);
   } catch (err: any) {

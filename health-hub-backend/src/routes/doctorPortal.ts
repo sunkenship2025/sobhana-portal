@@ -680,7 +680,9 @@ router.patch('/me', async (req: AuthRequest, res) => {
       userAgent: req.get('user-agent'),
     });
 
-    res.json(await meAsDoctor(req));
+    // Read it again, not meAsDoctor(): that is memoised per request and would
+    // answer with the row as it was BEFORE this save.
+    res.json(await loadClinicDoctor(req.user!.id));
   } catch (err) {
     logger.error({ err }, 'doctorPortal: update me failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not save' });
