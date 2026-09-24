@@ -34,6 +34,33 @@ router.use(requireRole('doctor', 'owner'));
 // the doctor portal does not exist as far as the API is concerned; the clinic runs
 // the old staff queue + pre-printed pad, which reads none of this.
 router.use(requireDigitalRx);
+
+/**
+ * A `doctor` login must actually BE a doctor.
+ *
+ * Every ownership check below reads `if (doctor && ...)` — enforce only once we
+ * know WHICH doctor — which quietly means a `doctor`-role user with no
+ * ClinicDoctor row behind it skips the check and sees the owner's whole-branch
+ * view: every consultation, every patient, no care relationship. Owners reach
+ * these routes with no ClinicDoctor row BY DESIGN, so the null is legitimate for
+ * them and only for them.
+ *
+ * Refused here, once, rather than at each endpoint: a per-endpoint check is a
+ * list that rots, and the next route added would be the one that forgot.
+ * prescriptions.ts already gets this right by testing the role explicitly.
+ */
+router.use(async (req: AuthRequest, res, next) => {
+  try {
+    if (req.user?.role !== 'doctor' || (await meAsDoctor(req))) return next();
+    res.status(409).json({
+      error: 'NO_CLINIC_DOCTOR',
+      message: 'This login is not linked to a consulting doctor',
+    });
+  } catch (err) {
+    logger.error({ err }, 'doctorPortal: clinic-doctor guard failed');
+    res.status(503).json({ error: 'UNAVAILABLE', message: 'Could not verify the doctor account' });
+  }
+});
 // The doctor's queue is the SAME ClinicVisit rows the staff OP/IP queue and the
 // waiting-room TV read, so a transition made here has to wake them exactly as a
 // transition made there does. Without this the row moved and every other open
@@ -49,7 +76,20 @@ async function diagnosticsVisible(): Promise<boolean> {
   return row?.value === 'true';
 }
 
-async function meAsDoctor(userId: string) {
+/**
+ * The ClinicDoctor behind this login, or null for an owner.
+ *
+ * Memoised per request. Nearly every handler below needs it, and without this a
+ * single page load asked Postgres the same question five times.
+ */
+const perRequest = new WeakMap<AuthRequest, Awaited<ReturnType<typeof loadClinicDoctor>>>();
+
+async function meAsDoctor(req: AuthRequest) {
+  if (!perRequest.has(req)) perRequest.set(req, await loadClinicDoctor(req.user!.id));
+  return perRequest.get(req)!;
+}
+
+async function loadClinicDoctor(userId: string) {
   return prisma.clinicDoctor.findFirst({
     where: { userId, isActive: true },
     // NOTE the absent fields: commissionType, commissionPercent,
@@ -82,7 +122,7 @@ function ageLabel(p: { yearOfBirth: number; dateOfBirth: Date | null; ageUnit: s
 // ---------------------------------------------------------------------------
 router.get('/me', async (req: AuthRequest, res) => {
   try {
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     if (!doctor && req.user!.role === 'doctor') {
       // A doctor login with no ClinicDoctor is a configuration gap, not a crash.
       // Say so plainly instead of rendering an empty portal.
@@ -107,7 +147,7 @@ router.get('/me', async (req: AuthRequest, res) => {
 // ---------------------------------------------------------------------------
 router.get('/queue', async (req: AuthRequest, res) => {
   try {
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     // An owner opening the doctor portal sees every consultation; a doctor sees
     // only their own.
     const doctorFilter = doctor ? { clinicDoctorId: doctor.id } : {};
@@ -197,7 +237,7 @@ router.get('/queue', async (req: AuthRequest, res) => {
 // ---------------------------------------------------------------------------
 router.post('/queue/next', async (req: AuthRequest, res) => {
   try {
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     if (!doctor) { res.status(409).json({ error: 'NO_CLINIC_DOCTOR', message: 'Not linked to a consulting doctor' }); return; }
 
     const next = await prisma.clinicVisit.findFirst({
@@ -250,7 +290,7 @@ router.patch('/queue/:visitId', async (req: AuthRequest, res) => {
     });
     if (!cv) { res.status(404).json({ error: 'NOT_FOUND', message: 'Visit not found' }); return; }
 
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     if (doctor && cv.clinicDoctorId !== doctor.id) {
       res.status(403).json({ error: 'FORBIDDEN', message: 'This is another doctor’s consultation' }); return;
     }
@@ -307,7 +347,7 @@ router.get('/visits/:visitId', async (req: AuthRequest, res) => {
     });
     if (!visit || !visit.clinicVisit) { res.status(404).json({ error: 'NOT_FOUND', message: 'Consultation not found' }); return; }
 
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     if (doctor && visit.clinicVisit.clinicDoctor.id !== doctor.id) {
       res.status(403).json({ error: 'FORBIDDEN', message: 'This is another doctor\u2019s consultation' }); return;
     }
@@ -374,7 +414,7 @@ router.get('/patients', async (req: AuthRequest, res) => {
       },
     });
 
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     // Flag the care relationship rather than hiding the row. A doctor searching
     // for a patient they have not seen should be told so and asked why — not
     // met with a silent empty result that teaches them to distrust search.
@@ -423,7 +463,7 @@ router.get('/patients/:id', async (req: AuthRequest, res) => {
     });
     if (!patient) { res.status(404).json({ error: 'NOT_FOUND', message: 'Patient not found' }); return; }
 
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
 
     // Care relationship, or an explicit break-glass reason on this request.
     let related = true;
@@ -542,7 +582,7 @@ router.get('/patients/:id', async (req: AuthRequest, res) => {
 // ---------------------------------------------------------------------------
 router.patch('/me', async (req: AuthRequest, res) => {
   try {
-    const doctor = await meAsDoctor(req.user!.id);
+    const doctor = await meAsDoctor(req);
     if (!doctor) { res.status(409).json({ error: 'NO_CLINIC_DOCTOR', message: 'Not linked to a consulting doctor' }); return; }
 
     const data: Record<string, unknown> = {};
@@ -564,7 +604,7 @@ router.patch('/me', async (req: AuthRequest, res) => {
       newValues: { fields: Object.keys(data) },
     });
 
-    res.json(await meAsDoctor(req.user!.id));
+    res.json(await meAsDoctor(req));
   } catch (err) {
     logger.error({ err }, 'doctorPortal: update me failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not save' });

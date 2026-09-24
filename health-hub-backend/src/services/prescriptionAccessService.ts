@@ -101,7 +101,28 @@ export async function resolvePrescriptionToken(rawToken: string) {
       // immutable by the same rule that forbids editing a signed row at all. So
       // the sheet needs both halves; returning only the snapshot renders a
       // letterhead with an empty ℞, which is the one thing worse than an error.
-      items: { orderBy: { displayOrder: 'asc' } },
+      //
+      // PROJECTED, not the whole row. This endpoint is unauthenticated — the
+      // token is the only credential — so the payload is exactly what the sheet
+      // prints and nothing else. Whole-row would have shipped `candidates`, the
+      // OTHER medicines the resolver weighed and the doctor did not prescribe,
+      // onto a patient's prescription page, plus `sourceText`, `fieldStates` and
+      // `resolution`, which are our workings and not the patient's document.
+      items: {
+        orderBy: { displayOrder: 'asc' },
+        select: {
+          id: true, displayOrder: true,
+          canonicalName: true, genericName: true, brandName: true,
+          strength: true, strengthUnit: true, dosageForm: true,
+          doseQty: true, doseUnit: true,
+          frequencyCode: true, frequencyText: true,
+          route: true, timing: true,
+          durationValue: true, durationUnit: true,
+          instructions: true,
+          // Rendered on the sheet as 'spoken as "…"', so it stays.
+          spokenText: true,
+        },
+      },
     },
   });
 }

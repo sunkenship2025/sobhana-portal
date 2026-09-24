@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiQuery, apiCall } from '@/lib/query';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, Lock, Crown, FlaskConical, Users, Megaphone, GripVertical,
+  ShieldCheck, Lock, Crown, FlaskConical, Users, Megaphone, GripVertical, Stethoscope,
   UserMinus, UserX, UserPlus, Copy, Check, MessageCircle, TriangleAlert, Send, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -38,7 +38,13 @@ interface TeamMember {
 }
 
 /** Roles an owner can assign here, in display order. `owner` is assignable now;
- *  the server refuses any change that would remove the last active owner. */
+ *  the server refuses any change that would remove the last active owner.
+ *
+ *  `doctor` is deliberately ABSENT. A consulting doctor is a ClinicDoctor row
+ *  that a User is linked to, and setting the role alone would produce a login
+ *  with no doctor behind it — which the portal's own ownership checks read as
+ *  "this must be an owner" and answer with every consultation in the branch.
+ *  The link is made in Consulting doctors, where both halves are created. */
 const ASSIGNABLE_ROLES: UserRole[] = ['owner', 'lab_incharge', 'staff', 'sales'];
 
 /** Every lane shown on the board (owner first, then the assignable roles). */
@@ -52,6 +58,10 @@ const LANES: {
   { role: 'lab_incharge', icon: FlaskConical, blurb: 'Full lab workflow, and the only non-owner who can finalize.', accent: 'text-emerald-600' },
   { role: 'staff', icon: Users, blurb: 'Operations and billing. Cannot finalize reports.', accent: 'text-sky-600' },
   { role: 'sales', icon: Megaphone, blurb: 'Referrals and payouts only. No WhatsApp.', accent: 'text-violet-600' },
+  // Shown, never assigned. Doctors were previously filtered off this board
+  // entirely, which left an active one invisible here while a deactivated one
+  // still appeared below offering a Reactivate — in the lane, and in the strip.
+  { role: 'doctor', icon: Stethoscope, blurb: 'Their own queue and prescriptions. Added in Consulting doctors.', accent: 'text-rose-600' },
 ];
 
 /* ───────── Component ───────── */
@@ -77,15 +87,13 @@ export default function ManageRoles() {
   >(null);
   const [copied, setCopied] = useState(false);
 
-  // Consulting doctors are Users too, but they belong to Consulting Doctors, not
-  // here — there is no lane for them, so an active one was invisible while a
-  // deactivated one still turned up in the Deactivated strip below, offering a
-  // Reactivate that would quietly hand back a doctor-portal login from a screen
-  // that never showed the account in the first place. Out of both, or in both.
+  // Consulting doctors are Users too, and they appear here — in their own lane,
+  // read-only. They were filtered out entirely before, which meant an active one
+  // was invisible while a deactivated one still turned up in the Deactivated
+  // strip below offering a Reactivate. Out of both, or in both; this is in both.
   const { data: members = [], isLoading } = useApiQuery<TeamMember[]>({
     queryKey: ['users'],
-    queryFn: () =>
-      apiCall<{ data: TeamMember[] }>('/users').then((r) => r.data.filter((m) => m.role !== 'doctor')),
+    queryFn: () => apiCall<{ data: TeamMember[] }>('/users').then((r) => r.data),
   });
 
   // Optimistic role change — the card jumps to its new lane immediately and
@@ -258,13 +266,19 @@ export default function ManageRoles() {
       {isLoading ? (
         <p className="text-muted-foreground py-8 text-center text-sm">Loading team…</p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {/* Five lanes, five columns. At four the Consulting Doctor lane wrapped
+              onto a second row below a tall Staff column — rendered, and off the
+              bottom of the screen, which is indistinguishable from missing. */}
           {LANES.map((lane) => {
             const Icon = lane.icon;
             const laneMembers = members.filter((m) => m.role === lane.role && m.isActive);
             const isOwnerLane = lane.role === 'owner';
+            // Dropping here would set the role without creating the ClinicDoctor
+            // row it has to point at. See ASSIGNABLE_ROLES.
+            const isDoctorLane = lane.role === 'doctor';
             const isDropTarget = overRole === lane.role;
-            const canDropHere = !isOwnerLane;
+            const canDropHere = !isOwnerLane && !isDoctorLane;
 
             return (
               <div
@@ -285,7 +299,7 @@ export default function ManageRoles() {
                 className={cn(
                   'flex flex-col rounded-xl border bg-muted/20 transition-colors',
                   isDropTarget && 'border-primary bg-primary/5 ring-2 ring-primary/20',
-                  isOwnerLane && dragId && 'opacity-60',
+                  (isOwnerLane || isDoctorLane) && dragId && 'opacity-60',
                 )}
               >
                 {/* Lane header */}
@@ -294,7 +308,7 @@ export default function ManageRoles() {
                     <div className="flex items-center gap-2">
                       <Icon className={cn('h-4 w-4', lane.accent)} />
                       <span className="text-sm font-semibold">{ROLE_LABELS[lane.role]}</span>
-                      {isOwnerLane && <Lock className="h-3 w-3 text-muted-foreground" />}
+                      {(isOwnerLane || isDoctorLane) && <Lock className="h-3 w-3 text-muted-foreground" />}
                     </div>
                     <span className="text-muted-foreground rounded-full bg-background px-2 py-0.5 text-xs font-medium">
                       {laneMembers.length}
@@ -309,11 +323,16 @@ export default function ManageRoles() {
                 <div className="flex flex-1 flex-col gap-2 p-2">
                   {laneMembers.length === 0 ? (
                     <div className="text-muted-foreground/70 flex flex-1 items-center justify-center rounded-lg border border-dashed py-6 text-center text-xs">
-                      {isOwnerLane ? 'No owners' : 'Drop a member here'}
+                      {/* Never "Drop a member here" on a lane that refuses drops. */}
+                      {isOwnerLane
+                        ? 'No owners'
+                        : isDoctorLane
+                          ? 'No doctor has a login yet'
+                          : 'Drop a member here'}
                     </div>
                   ) : (
                     laneMembers.map((m) => {
-                      const locked = m.role === 'owner';
+                      const locked = m.role === 'owner' || m.role === 'doctor';
                       const dragging = dragId === m.id;
                       return (
                         <div
@@ -419,6 +438,14 @@ export default function ManageRoles() {
                           {/* Fallback toggle — same action as dragging. Rendered for
                               owners too: the lane now accepts them, so without it a
                               promotion could be made and never undone. */}
+                          {/* No selector on a doctor: every option would be a
+                              demotion that severs a login from its ClinicDoctor
+                              row, and none of them is what this screen is for. */}
+                          {m.role === 'doctor' ? (
+                            <p className="mt-2 text-[11px] text-muted-foreground">
+                              Managed in Consulting doctors
+                            </p>
+                          ) : (
                           <Select
                             value={m.role}
                             onValueChange={(role) => changeRole(m, role as UserRole)}
@@ -434,6 +461,7 @@ export default function ManageRoles() {
                               ))}
                             </SelectContent>
                           </Select>
+                          )}
                         </div>
                       );
                     })

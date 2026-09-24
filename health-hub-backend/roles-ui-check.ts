@@ -97,8 +97,14 @@ interface Probe { label: string; ok: boolean; detail: string }
     for (const lane of ['Full access', 'Cannot finalize', 'Referrals and payouts']) {
       add(`lane blurb: "${lane}"`, roles.includes(lane));
     }
-    // Consulting doctors are Users too and must NOT appear on this board.
-    add('no Consulting Doctor on the Roles board', !/Consulting Doctor/.test(roles));
+    // Consulting doctors are Users too and DO belong on this board — asked for
+    // explicitly. They were filtered off it entirely, which is why an owner
+    // looking for the role found nothing. Own lane, read-only: assignable here
+    // would mint a doctor login with no ClinicDoctor row behind it.
+    // NOT /Consulting Doctor/ — the sidebar carries "Consulting doctor logins",
+    // so that matches with no lane on the board at all. The blurb is the lane's
+    // own text and exists nowhere else.
+    add('Consulting Doctor lane is on the board', /Added in Consulting doctors/.test(roles));
 
     // The row of icon buttons that replaced a single one — this is the thing that
     // went "so shabby" last time, so it is asserted by aria-label, not by eye.
@@ -107,7 +113,7 @@ interface Probe { label: string; ok: boolean; detail: string }
     ).catch(() => 0);
     add('every member card offers Resend', sendButtons > 0, `${sendButtons} buttons`);
 
-    await page.screenshot({ path: '/tmp/claude-501/roles-board.png', fullPage: false });
+    await page.screenshot({ path: '/tmp/claude-501/roles-board.png', fullPage: true });
 
     // ── Consulting doctors + the module switch ───────────────────────────────
     await page.goto(`${FE}/owner/consulting-doctors`, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -123,13 +129,13 @@ interface Probe { label: string; ok: boolean; detail: string }
     const doctorNav = await page.$$eval('a[href^="/doctor"]', (els) => els.length).catch(() => 0);
     add('doctor nav hidden while off', doctorNav === 0, `${doctorNav} links`);
 
-    await page.screenshot({ path: '/tmp/claude-501/consulting-doctors.png', fullPage: false });
+    await page.screenshot({ path: '/tmp/claude-501/consulting-doctors.png', fullPage: true });
 
     // ── the gate itself ──────────────────────────────────────────────────────
     await page.goto(`${FE}/doctor`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const gated = await settle(/switched off/i);
     add('/doctor shows the switched-off panel', /switched off/i.test(gated), gated.slice(0, 80).replace(/\n/g, ' · '));
-    await page.screenshot({ path: '/tmp/claude-501/doctor-gated.png', fullPage: false });
+    await page.screenshot({ path: '/tmp/claude-501/doctor-gated.png', fullPage: true });
 
     add('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   } catch (err: any) {
