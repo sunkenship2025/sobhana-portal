@@ -47,6 +47,25 @@ interface TeamMember {
  *  The link is made in Consulting doctors, where both halves are created. */
 const ASSIGNABLE_ROLES: UserRole[] = ['owner', 'lab_incharge', 'staff', 'sales'];
 
+/** Roles the Add-member dialog offers. `doctor` is here and NOT in
+ *  ASSIGNABLE_ROLES on purpose: it can be CREATED (picking the ClinicDoctor it
+ *  attaches to, so both halves exist) but never REASSIGNED, which would leave a
+ *  login with no doctor behind it. */
+const ADDABLE_ROLES: UserRole[] = [...ASSIGNABLE_ROLES, 'doctor'];
+
+/** A row of GET /doctor-logins. Active doctors only — the server filters. */
+interface ClinicDoctorRow {
+  id: string;
+  doctorNumber: string;
+  name: string;
+  qualification: string;
+  specialty: string;
+  registrationNumber: string;
+  phone: string | null;
+  hasSignature: boolean;
+  login: { id: string; email: string } | null;
+}
+
 /** Every lane shown on the board (owner first, then the assignable roles). */
 const LANES: {
   role: UserRole;
@@ -76,14 +95,14 @@ export default function ManageRoles() {
   // first. An unanswered invite has nothing to lose and goes straight out.
   const [resetTarget, setResetTarget] = useState<TeamMember | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState<{ name: string; phone: string; role: UserRole }>({
-    name: '', phone: '', role: 'staff',
+  const [form, setForm] = useState<{ name: string; phone: string; role: UserRole; clinicDoctorId: string }>({
+    name: '', phone: '', role: 'staff', clinicDoctorId: '',
   });
   // Shown after creation. There is no password to show: it is generated only when
   // the invitee replies on WhatsApp, which is the one moment credentials may be
   // sent (a template cannot carry them). So this reports the invite, not a secret.
   const [issued, setIssued] = useState<
-    { name: string; email: string; delivered: boolean; error?: string } | null
+    { name: string; email: string; delivered: boolean; error?: string; password?: string | null } | null
   >(null);
   const [copied, setCopied] = useState(false);
 
@@ -153,6 +172,47 @@ export default function ManageRoles() {
 
   // Add a member. Only a name and a mobile: the login and the password are both
   // generated, so there is nothing here for an operator to get wrong.
+  // Consulting doctors who could be given a login: active, no User yet, and
+  // carrying a registration number — without one they could never sign, so the
+  // login would be a dead end. Only fetched when the dialog needs it.
+  const { data: linkable = [] } = useApiQuery<ClinicDoctorRow[]>({
+    queryKey: ['doctor-logins'],
+    queryFn: () => apiCall<ClinicDoctorRow[]>('/doctor-logins'),
+    enabled: addOpen && form.role === 'doctor',
+  });
+  const unlinked = linkable.filter((d) => !d.login && d.registrationNumber);
+
+  const addDoctorMutation = useMutation<
+    { login: { id: string; email: string }; password: string | null } & InviteResult,
+    Error,
+    { clinicDoctorId: string; name: string }
+  >({
+    // NOT /users. That endpoint makes a person; this one attaches a login to a
+    // ClinicDoctor that already exists and sets ClinicDoctor.userId in the same
+    // transaction, which is the whole point — an unlinked doctor login is a dead
+    // end, and the portal reads a doctor with no ClinicDoctor as an owner.
+    mutationFn: (b) =>
+      apiCall(`/doctor-logins/${b.clinicDoctorId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deliver: 'whatsapp' }),
+      }),
+    onSuccess: (r, vars) => {
+      setAddOpen(false);
+      setForm({ name: '', phone: '', role: 'staff', clinicDoctorId: '' });
+      setIssued({
+        name: vars.name,
+        email: r.login.email,
+        delivered: !!r.invite?.success,
+        error: r.invite?.error,
+        password: r.password,
+      });
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['doctor-logins'] });
+    },
+    onError: (e) => toast.error(e.message || 'Could not create the login'),
+  });
+
   const addMutation = useMutation<
     { data: TeamMember } & InviteResult,
     Error,
@@ -166,7 +226,7 @@ export default function ManageRoles() {
       }),
     onSuccess: (r) => {
       setAddOpen(false);
-      setForm({ name: '', phone: '', role: 'staff' });
+      setForm({ name: '', phone: '', role: 'staff', clinicDoctorId: '' });
       setCopied(false);
       setIssued({
         name: r.data.name,
@@ -631,22 +691,64 @@ export default function ManageRoles() {
               >
                 <SelectTrigger id="member-role"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ASSIGNABLE_ROLES.map((r) => (
+                  {ADDABLE_ROLES.map((r) => (
                     <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="member-name">Full name</Label>
-              <Input
-                id="member-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Anusha Reddy"
-                autoFocus
-              />
-            </div>
+            {form.role === 'doctor' ? (
+              /* A doctor is PICKED, never typed. The name is not the identity —
+                 the ClinicDoctor row is, and it carries the registration number
+                 the prescription has to print. Typing a name here would make a
+                 second, unlinked record with the same name and no registration. */
+              <div className="space-y-1.5">
+                <Label htmlFor="member-doctor">Consulting doctor</Label>
+                {unlinked.length === 0 ? (
+                  <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                    Every consulting doctor with a registration number already has a login.
+                    Add the doctor first under Config → Referrals → Clinic Doctors.
+                  </p>
+                ) : (
+                  <Select
+                    value={form.clinicDoctorId}
+                    onValueChange={(v) => {
+                      const d = unlinked.find((x) => x.id === v);
+                      setForm((f) => ({
+                        ...f,
+                        clinicDoctorId: v,
+                        name: d?.name ?? '',
+                        // Their number comes from the doctor record, so the invite
+                        // and the reply match without anyone retyping it.
+                        phone: (d?.phone ?? '').replace(/\D/g, ''),
+                      }));
+                    }}
+                  >
+                    <SelectTrigger id="member-doctor">
+                      <SelectValue placeholder="Choose a doctor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unlinked.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name} · {d.specialty}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="member-name">Full name</Label>
+                <Input
+                  id="member-name"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Anusha Reddy"
+                  autoFocus
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="member-phone">WhatsApp number</Label>
               <Input
@@ -655,10 +757,15 @@ export default function ManageRoles() {
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 placeholder="9849000000"
                 inputMode="tel"
+                readOnly={form.role === 'doctor'}
+                disabled={form.role === 'doctor' && !form.clinicDoctorId}
               />
               <p className="text-muted-foreground text-xs">
-                Their sign-in details are sent here once they reply, so this must be the
-                WhatsApp they actually use.
+                {form.role === 'doctor'
+                  ? form.clinicDoctorId && !form.phone
+                    ? 'This doctor has no number on file. Add one under Config → Referrals → Clinic Doctors, or their password cannot be sent.'
+                    : 'Taken from the doctor record. Change it there, not here.'
+                  : 'Their sign-in details are sent here once they reply, so this must be the WhatsApp they actually use.'}
               </p>
             </div>
           </div>
@@ -667,14 +774,18 @@ export default function ManageRoles() {
             <Button
               disabled={
                 addMutation.isPending ||
-                form.name.trim().length < 2 ||
-                form.phone.replace(/\D/g, '').length < 10
+                addDoctorMutation.isPending ||
+                (form.role === 'doctor'
+                  ? !form.clinicDoctorId || form.phone.length < 10
+                  : form.name.trim().length < 2 || form.phone.replace(/\D/g, '').length < 10)
               }
               onClick={() =>
-                addMutation.mutate({ name: form.name.trim(), phone: form.phone.trim(), role: form.role })
+                form.role === 'doctor'
+                  ? addDoctorMutation.mutate({ clinicDoctorId: form.clinicDoctorId, name: form.name })
+                  : addMutation.mutate({ name: form.name.trim(), phone: form.phone.trim(), role: form.role })
               }
             >
-              {addMutation.isPending ? 'Adding…' : 'Add member'}
+              {addMutation.isPending || addDoctorMutation.isPending ? 'Adding…' : 'Add member'}
             </Button>
           </DialogFooter>
         </DialogContent>

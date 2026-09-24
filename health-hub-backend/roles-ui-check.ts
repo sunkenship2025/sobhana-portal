@@ -115,26 +115,96 @@ interface Probe { label: string; ok: boolean; detail: string }
 
     await page.screenshot({ path: '/tmp/claude-501/roles-board.png', fullPage: true });
 
+    // ── Add member → Consulting Doctor picks a ClinicDoctor ──────────────────
+    // The point of the whole lane: a doctor login is CREATED here by choosing the
+    // ClinicDoctor it attaches to, so the User and ClinicDoctor.userId are made
+    // together. Typing a name would make a second, unlinked record.
+    const clickText = async (sel: string, text: RegExp) => {
+      const els = await page.$$(sel);
+      for (const el of els) {
+        const t = await el.evaluate((n) => n.textContent ?? '');
+        if (text.test(t)) { await el.click(); return true; }
+      }
+      return false;
+    };
+
+    const dlReqs: string[] = [];
+    page.on('response', (r) => {
+      if (r.url().includes('doctor-logins')) dlReqs.push(`${r.request().method()} ${r.status()}`);
+    });
+    await page.click('button ::-p-text(Add member)').catch(() => {});
+    await new Promise((r) => setTimeout(r, 900));
+    add('the Add member dialog opens', /Add a team member/.test(await text()));
+
+    // Open the Role select and choose Consulting Doctor.
+    await page.click('#member-role').catch(() => {});
+    await new Promise((r) => setTimeout(r, 500));
+    const pickedRole = await clickText('[role="option"]', /Consulting Doctor/);
+    add('Consulting Doctor is offered as a role', pickedRole);
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const dlg = await text();
+    add('the name field became a doctor picker', /Consulting doctor/.test(dlg) && !/Full name/.test(dlg));
+
+    // And the picker lists a real, unlinked ClinicDoctor.
+    await page.click('#member-doctor').catch(() => {});
+    let opts: string[] = [];
+    for (let i = 0; i < 20 && opts.length === 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 500));
+      opts = await page.$$eval('[role="option"]', (els) => els.map((e) => e.textContent ?? ''));
+      // The list is fetched when the role is chosen, so the first look can land
+      // before it resolves — which reported an empty picker that was only slow.
+      if (opts.length === 0) await page.click('#member-doctor').catch(() => {});
+    }
+    add('the picker lists clinic doctors', opts.length > 0,
+      `${opts.slice(0, 3).join(' | ')} — /doctor-logins calls: ${dlReqs.join(', ') || 'NONE MADE'}`);
+    add('the demo doctor is selectable', opts.some((o) => /Pranav Reddy/.test(o)));
+
+    if (opts.length) {
+      await clickText('[role="option"]', /Pranav Reddy/);
+      await new Promise((r) => setTimeout(r, 700));
+      // Their number comes from the doctor record — nobody retypes it.
+      const phone = await page.$eval('#member-phone', (el) => (el as HTMLInputElement).value).catch(() => '');
+      add('the phone fills in from the doctor record', /\d{10}/.test(phone), phone || '(empty)');
+    }
+    await page.screenshot({ path: '/tmp/claude-501/add-doctor.png', fullPage: false });
+    await page.keyboard.press('Escape');
+    await new Promise((r) => setTimeout(r, 400));
+
     // ── Consulting doctors + the module switch ───────────────────────────────
     await page.goto(`${FE}/owner/consulting-doctors`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const cd = await settle(/Turn on|Turn off/);  // the button's resolved label, not the card title
 
     add('Consulting doctors renders', /Consulting doctors/i.test(cd));
     add('the switch is on the page', /Digital prescriptions/i.test(cd));
-    // Shipped off, so it must offer to turn it ON and say the clinic is on paper.
-    add('switch reads OFF', /Turn on/i.test(cd), cd.includes('Turn off') ? 'says "Turn off" — module is ON' : '');
-    add('and explains the paper flow', /paper flow/i.test(cd));
 
-    // Module off ⇒ the doctor nav must not be offered.
+    // The module is an OWNER's setting, so this asserts CONSISTENCY, not a fixed
+    // value. Hard-coding "off" made three checks fail the moment the owner turned
+    // it on — a check that breaks on a legitimate setting change is a check that
+    // gets ignored. The button offers the opposite of the current state.
+    const moduleOn = /Turn off/i.test(cd);
+    add(`switch reads ${moduleOn ? 'ON' : 'OFF'}`, /Turn on|Turn off/i.test(cd));
+    add('and explains what that means',
+      moduleOn ? /sign in to the portal|write prescriptions/i.test(cd) : /paper flow/i.test(cd));
+
+    // This session is an OWNER, and an owner is served ownerNavItems — the doctor
+    // portal's nav belongs to a doctor session whatever the switch says. So the
+    // invariant here is "never", not "only while off"; the original check read as
+    // proof the gate worked and would have passed with the gate deleted.
+    // The switch's effect on a doctor's own sidebar is doctor-ui-check's job.
     const doctorNav = await page.$$eval('a[href^="/doctor"]', (els) => els.length).catch(() => 0);
-    add('doctor nav hidden while off', doctorNav === 0, `${doctorNav} links`);
+    add('an owner is never shown the doctor portal nav', doctorNav === 0, `${doctorNav} links`);
 
     await page.screenshot({ path: '/tmp/claude-501/consulting-doctors.png', fullPage: true });
 
     // ── the gate itself ──────────────────────────────────────────────────────
     await page.goto(`${FE}/doctor`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    const gated = await settle(/switched off/i);
-    add('/doctor shows the switched-off panel', /switched off/i.test(gated), gated.slice(0, 80).replace(/\n/g, ' · '));
+    const gated = await settle(moduleOn ? /queue|Consultation|OP \/ IP/i : /switched off/i);
+    add(
+      moduleOn ? '/doctor opens the portal' : '/doctor shows the switched-off panel',
+      moduleOn ? !/switched off/i.test(gated) : /switched off/i.test(gated),
+      gated.slice(0, 90).replace(/\n/g, ' · '),
+    );
     await page.screenshot({ path: '/tmp/claude-501/doctor-gated.png', fullPage: true });
 
     add('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
@@ -156,6 +226,6 @@ interface Probe { label: string; ok: boolean; detail: string }
     console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.label}${r.detail ? `  — ${r.detail}` : ''}`);
   }
   console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILED`);
-  console.log('screenshots: /tmp/claude-501/roles-board.png, consulting-doctors.png, doctor-gated.png');
+  console.log('screenshots: /tmp/claude-501/roles-board.png, add-doctor.png, consulting-doctors.png, doctor-gated.png');
   process.exit(bad === 0 ? 0 : 1);
 })();

@@ -26,6 +26,8 @@ import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { logAction } from '../services/auditService';
 import { deriveLogin, generatePassword } from '../lib/portalCredentials';
+import { sendPortalInvite } from '../services/notificationService';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 router.use(authMiddleware);
@@ -82,7 +84,7 @@ router.post('/:id', async (req: AuthRequest, res) => {
   try {
     const doctor = await prisma.clinicDoctor.findUnique({
       where: { id: req.params.id },
-      select: { id: true, name: true, userId: true, registrationNumber: true, isActive: true },
+      select: { id: true, name: true, userId: true, registrationNumber: true, isActive: true, phone: true },
     });
     if (!doctor) { res.status(404).json({ error: 'NOT_FOUND', message: 'Doctor not found' }); return; }
     if (doctor.userId) { res.status(409).json({ error: 'ALREADY_LINKED', message: 'This doctor already has a login' }); return; }
@@ -99,7 +101,18 @@ router.post('/:id', async (req: AuthRequest, res) => {
 
     const existing = await prisma.user.findMany({ select: { email: true }, orderBy: { createdAt: 'asc' } });
     const email = deriveLogin(doctor.name, existing.map((u) => u.email));
-    const password = generatePassword(doctor.name);
+
+    // Two ways to hand over a login, and the doctor's number decides which.
+    //
+    //   whatsapp — the staff flow exactly: NO usable password is created here, an
+    //     invite goes out, and replying is what mints one (the 24h window a reply
+    //     opens is the only moment Meta permits sending a credential as free text).
+    //     An invite never answered therefore leaves no credential anywhere.
+    //   show — the old behaviour, for a doctor with no WhatsApp on file: the
+    //     password is returned once and never again.
+    const phone = (doctor.phone ?? '').replace(/\D/g, '');
+    const viaWhatsapp = String(req.body?.deliver ?? 'whatsapp') === 'whatsapp' && phone.length >= 10;
+    const password = viaWhatsapp ? null : generatePassword(doctor.name);
 
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -107,7 +120,13 @@ router.post('/:id', async (req: AuthRequest, res) => {
           email,
           name: doctor.name,
           role: 'doctor',
-          passwordHash: await bcrypt.hash(password, 10),
+          // The webhook matches an invite reply on the LAST TEN DIGITS of the
+          // User's phone, so a doctor invited this way must carry it — without it
+          // the reply falls through to the generic auto-reply and no password is
+          // ever minted.
+          phone: phone || null,
+          passwordHash: await bcrypt.hash(password ?? randomUUID(), 10),
+          portalInviteAt: viaWhatsapp ? new Date() : null,
           activeBranchId: req.branchId!,
           isActive: true,
         },
@@ -127,7 +146,12 @@ router.post('/:id', async (req: AuthRequest, res) => {
       newValues: { email: user.email, role: 'doctor', linkedClinicDoctorId: doctor.id },
     });
 
-    res.status(201).json({ login: { id: user.id, email: user.email }, password });
+    // Delivery is reported, never assumed — same as the staff invite.
+    const invite = viaWhatsapp
+      ? await sendPortalInvite({ userId: user.id, name: doctor.name, phone, branchId: req.branchId })
+      : null;
+
+    res.status(201).json({ login: { id: user.id, email: user.email }, password, invite });
   } catch (err) {
     logger.error({ err }, 'doctorLogins: create failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not create the login' });
