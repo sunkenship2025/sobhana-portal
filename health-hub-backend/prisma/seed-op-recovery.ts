@@ -174,8 +174,12 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(async (e) => {
-  console.error(e);
-  await prisma.$disconnect();
-  process.exit(1);
-});
+// Only when run directly. automations-check used to require this file, and importing
+// it upserted the live automation's definition in production on every harness run.
+if (require.main === module) {
+  main().catch(async (e) => {
+    console.error(e);
+    await prisma.$disconnect();
+    process.exit(1);
+  });
+}

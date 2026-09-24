@@ -697,8 +697,6 @@ async function main() {
   });
 
   await check('a check can branch, which is how one journey says two things', () => {
-    const seedDef = require('./prisma/seed-op-recovery');
-    void seedDef; // the definition is asserted through its shape below
     const split = { kind: 'CHECK', condition: { fn: 'couponState' }, onTrue: 7, onFalse: 8 };
     assert.strictEqual(typeof split.onTrue, 'number');
     assert.strictEqual(typeof split.onFalse, 'number');
