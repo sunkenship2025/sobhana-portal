@@ -11,7 +11,9 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { CheckCircle2, Search, Eye, Printer, FileText, Phone, Stethoscope, Loader2 } from 'lucide-react';
+import { CheckCircle2, Search, Eye, Printer, FileText, Phone, Stethoscope, Loader2, MessageCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { rxChip, rxDeliveryLine, rxRecords, rxSendBlock, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
@@ -51,6 +53,38 @@ interface ClinicVisit {
   completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  patientLinkDisabledAt?: string | null;
+  /** Signed / draft / how it closed without one — see lib/rxRecords. */
+  prescription?: RxSummary | null;
+}
+
+const fmtTime = (v: string | null | undefined) =>
+  v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '';
+
+/** One line in the details dialog: what the prescription is, and where it has been. */
+function RxStatusLine({ visit }: { visit: ClinicVisit }) {
+  const rx = visit.prescription;
+  const chip = rxChip(rx);
+  if (!chip) return null;
+  const sent = rxDeliveryLine(rx?.delivery);
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">Prescription</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={RX_CHIP_CLASS[chip.tone]}>{chip.label}</span>
+        {rx?.signed && (
+          <span className="text-sm text-muted-foreground">
+            {rx.signed.doctorName} · {fmtTime(rx.signed.signedAt)}
+          </span>
+        )}
+      </div>
+      {(rx?.signed?.printedAt || sent) && (
+        <p className="mt-1 text-xs text-green-600">
+          {[rx?.signed?.printedAt && `✓ Printed ${fmtTime(rx.signed.printedAt)}`, sent && `✓ ${sent}`].filter(Boolean).join(' · ')}
+        </p>
+      )}
+    </div>
+  );
 }
 
 
@@ -72,6 +106,7 @@ const ClinicFinalizedVisits = () => {
   // the search box and dropped focus on every keystroke).
   const [everLoaded, setEverLoaded] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   // A new date range, visit-type, or search term always restarts on page 1 —
   // otherwise a narrower filter could land on a now-nonexistent page.
@@ -142,6 +177,47 @@ const ClinicFinalizedVisits = () => {
     enabled: Boolean(token && activeBranchId),
     pollMs: 60_000,
   });
+
+  // Send the signed prescription on WhatsApp. Reception can, the same as a bill;
+  // a draft never goes. Green once it has gone, with how far it got on hover.
+  const sendRx = async (visit: ClinicVisit) => {
+    const id = visit.prescription?.signed?.id;
+    if (!id) return;
+    setSendingId(visit.id);
+    try {
+      const { sent } = await rxRecords.send(id);
+      if (sent.success) toast.success('Prescription sent on WhatsApp');
+      else toast.error(sent.error ?? 'Could not send the prescription');
+      void fetchVisits({ silent: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send the prescription');
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const rxSendButton = (visit: ClinicVisit, labelled = false) => {
+    const phone = visit.patient.identifiers.some((i) => i.type === 'PHONE' && i.value);
+    const block = rxSendBlock(visit.prescription, { linkDisabled: !!visit.patientLinkDisabledAt, hasPhone: phone });
+    const sent = rxDeliveryLine(visit.prescription?.delivery);
+    const wentOut = !!sent && visit.prescription?.delivery?.status !== 'FAILED';
+    const busy = sendingId === visit.id;
+    const title = block ?? (sent ? `${sent} — send again` : 'Send prescription on WhatsApp');
+    return (
+      <Button
+        variant="outline"
+        size={labelled ? 'default' : 'icon'}
+        onClick={() => void sendRx(visit)}
+        disabled={!!block || busy}
+        title={title}
+        aria-label={title}
+        className={`${labelled ? '' : 'w-full sm:w-10'}${wentOut ? ' border-green-600 text-green-600 hover:text-green-700' : ''}`}
+      >
+        {busy ? <Loader2 className={`h-4 w-4 animate-spin${labelled ? ' mr-2' : ''}`} /> : <MessageCircle className={`h-4 w-4${labelled ? ' mr-2' : ''}`} />}
+        {labelled && (wentOut ? 'Send again' : 'Send on WhatsApp')}
+      </Button>
+    );
+  };
 
   // Server already applied every filter, the search ranking, and pagination.
   const hasData = Boolean(search.trim()) || visitTypeFilter !== 'all' || dateRange.preset !== 'today';
@@ -264,9 +340,15 @@ const ClinicFinalizedVisits = () => {
                           </span>
                           <span>Visit Ref: <span className="font-mono">{visit.visitRef}</span></span>
                         </div>
-                        <StatusBadge status={visit.status} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge status={visit.status} />
+                          {(() => {
+                            const chip = rxChip(visit.prescription);
+                            return chip ? <span className={RX_CHIP_CLASS[chip.tone]}>{chip.label}</span> : null;
+                          })()}
+                        </div>
                       </div>
-                      <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:items-center">
+                      <div className="grid w-full grid-cols-4 gap-2 sm:flex sm:w-auto sm:items-center">
                         <Button
                           variant="outline"
                           size="icon"
@@ -280,13 +362,14 @@ const ClinicFinalizedVisits = () => {
                         <Button
                           variant="outline"
                           size="icon"
-                          className="w-full sm:w-10"
+                          className={`w-full sm:w-10${visit.prescription?.signed?.printedAt ? ' border-green-600 text-green-600 hover:text-green-700' : ''}`}
                           onClick={() => window.open(`/prescription/print/${visit.id}`, '_blank')}
-                          title="Print prescription"
-                          aria-label="Print prescription"
+                          title={visit.prescription?.signed ? 'View / print prescription' : 'Print blank prescription sheet'}
+                          aria-label="View or print prescription"
                         >
                           <FileText className="h-4 w-4" />
                         </Button>
+                        {rxSendButton(visit)}
                         <Button
                           variant="outline"
                           size="icon"
@@ -355,10 +438,12 @@ const ClinicFinalizedVisits = () => {
                 <p className="text-sm text-muted-foreground">Status</p>
                 <StatusBadge status={selectedVisit.status} />
               </div>
+              <RxStatusLine visit={selectedVisit} />
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button variant="outline" onClick={() => window.open(`/prescription/print/${selectedVisit.id}`, '_blank')}>
-                  <FileText className="mr-2 h-4 w-4" /> Print prescription
+                  <FileText className="mr-2 h-4 w-4" /> {selectedVisit.prescription?.signed ? 'View / print prescription' : 'Print prescription'}
                 </Button>
+                {selectedVisit.prescription?.signed && rxSendButton(selectedVisit, true)}
                 {selectedVisit.hasBill && (
                   <Button variant="outline" onClick={() => navigate(`/bill/print/CLINIC/${selectedVisit.id}`)}>
                     <Printer className="mr-2 h-4 w-4" /> Print bill

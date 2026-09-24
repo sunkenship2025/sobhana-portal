@@ -36,6 +36,7 @@ import type { VisitTimelineItem } from "@/types";
 const REASON_PRESETS = [
   "Payment pending",
   "Report under correction",
+  "Prescription under correction",
   "Doctor asked to hand over in person",
   "Wrong patient / identity issue",
   "Other",
@@ -109,8 +110,8 @@ export function PatientLinkDialog({
           </DialogTitle>
           <DialogDescription>
             {disabling
-              ? "The report link, the bill QR and the patient app stop opening this visit — the patient is asked to collect at the centre and given the branch phone number. WhatsApp sends are blocked. Staff printing is unaffected."
-              : "The report link, the bill QR and the patient app start working again for this visit."}
+              ? `The ${visit.domain === "CLINIC" ? "prescription link" : "report link"}, the bill QR and the patient app stop opening this visit — the patient is asked to collect at the centre and given the branch phone number. WhatsApp sends are blocked. Staff printing is unaffected.`
+              : `The ${visit.domain === "CLINIC" ? "prescription link" : "report link"}, the bill QR and the patient app start working again for this visit.`}
           </DialogDescription>
         </DialogHeader>
 

@@ -3,7 +3,8 @@
  *
  *   owner                      → "Only Dr X can sign…", no "I am prescribing"
  *                                attestation, both Sign buttons disabled
- *   the doctor, no signature   → "…has no signature on file", Sign disabled
+ *   the doctor, no signature   → "You haven't added your signature yet" + a link to
+ *                                My profile, Sign disabled
  *
  * ui:check stops before this bar on purpose (its seeded question keeps Review &
  * sign shut), so this seeds a draft with nothing open instead: one item marked
@@ -60,7 +61,7 @@ async function signBarAs(email: string, visitId: string, shot: string) {
       b?.click();
       return !!b;
     });
-    await settle('can sign|signature on file|I have reviewed', 30000);
+    await settle("can sign|signature on file|added your signature|I have reviewed", 30000);
 
     const body = (await page.evaluate(() => document.body.innerText)) as string;
     // The masthead logo must actually paint. The letterpad hides the <img> on
@@ -237,7 +238,8 @@ async function signatureEditorAs(email: string, doctorName: string, imagePath: s
     await prisma.clinicDoctor.update({ where: { id: doctor.id }, data: { userId: doc.id } });
     const dr = await signBarAs(doc.email, cv.visitId, '/tmp/claude-501/signbar-doctor.png');
     assert('doctor reached the review screen', dr.opened);
-    assert('doctor is told the signature is missing', /no signature on file/.test(dr.body), dr.body.slice(0, 160));
+    assert('doctor is told the signature is missing', /added your signature yet/.test(dr.body), dr.body.slice(0, 160));
+    assert('…and pointed at My profile, not an editor here', /Add it in My profile/.test(dr.body));
     assert('…and Sign is disabled until it is added', dr.sign.length > 0 && dr.sign.every((b) => b.disabled), JSON.stringify(dr.sign));
     assert('no page errors (doctor)', dr.errors.length === 0, dr.errors.join(' | '));
   } catch (err: any) {

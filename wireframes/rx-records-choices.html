@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prescription records — design choices</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --line: #e3e7ee; --text: #0f172a; --muted: #64748b; --soft: #f1f4f8;
+    --ink: #111827; --green: #16a34a; --green-bg: #dcfce7; --amber: #d97706; --amber-bg: #fef3c7;
+    --grey: #64748b; --grey-bg: #eef1f5; --blue: #1f3e6e; --wa: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .lede { color: var(--muted); margin: 0 0 28px; max-width: 760px; }
+  h2 { font-size: 17px; margin: 44px 0 4px; }
+  .sec-lede { color: var(--muted); margin: 0 0 16px; max-width: 760px; }
+  .opt { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 14px 0 22px; }
+  .opt-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .tag { font-weight: 700; font-size: 13px; background: var(--ink); color: #fff; border-radius: 6px; padding: 2px 8px; }
+  .opt-title { font-weight: 600; font-size: 15px; }
+  .rec { font-size: 11px; font-weight: 600; color: var(--green); background: var(--green-bg); border-radius: 999px; padding: 2px 8px; }
+  .pitch { color: var(--muted); margin: 0 0 10px; }
+  .pc { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 14px; font-size: 13px; }
+  .pc div { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+  .pc b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
+  @media (max-width: 640px) { .pc { grid-template-columns: 1fr; } }
+
+  /* app-like surfaces */
+  .app { border: 1px solid var(--line); border-radius: 12px; background: #fbfcfd; padding: 12px; }
+  .app-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; margin: 2px 4px 10px; }
+  .row { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; flex-wrap: wrap; }
+  .who { min-width: 0; }
+  .name { font-weight: 600; }
+  .dim { color: var(--muted); }
+  .vt { font-size: 11px; background: var(--soft); border-radius: 4px; padding: 1px 6px; font-weight: 600; margin-left: 6px; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .p-done { background: var(--green-bg); color: var(--green); }
+  .p-signed { background: var(--green-bg); color: var(--green); }
+  .p-draft { background: var(--amber-bg); color: var(--amber); }
+  .p-none { background: var(--grey-bg); color: var(--grey); }
+  .p-paper { background: transparent; color: var(--grey); border: 1px solid #cbd3dd; }
+  .p-off { background: var(--amber-bg); color: var(--amber); }
+  .acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .ib { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: inline-flex; align-items: center; justify-content: center; color: var(--text); position: relative; }
+  .ib.sent { border-color: #86efac; color: var(--green); background: #f0fdf4; }
+  .ib.dis { opacity: .38; }
+  .ib svg, .btn svg { width: 16px; height: 16px; }
+  .tip { position: absolute; bottom: 40px; right: 0; background: var(--ink); color: #fff; font-size: 11.5px; border-radius: 6px; padding: 4px 8px; white-space: nowrap; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 13px; font-weight: 500; color: var(--text); }
+  .btn.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .btn.wa { color: var(--wa); }
+  .btn.wa.sent { background: #f0fdf4; border-color: #86efac; }
+  .btn.dis { opacity: .4; }
+  .grp { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px dashed #d5dbe4; border-radius: 10px; }
+  .grp > span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tile { width: 188px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; }
+  .tile .t1 { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 13px; }
+  .tile .t2 { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tile.sig { border-color: #bbf7d0; background: #f7fdf9; }
+  .tile.drf { border-color: #fde68a; background: #fffbeb; }
+  .tile.nil { background: var(--soft); }
+  .tick { color: var(--green); }
+  .x { color: var(--amber); }
+  .exp { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+  .exp .row { border: 0; margin: 0; border-radius: 10px 10px 0 0; }
+  .exp-body { border-top: 1px solid var(--line); padding: 10px 14px 12px 14px; display: grid; gap: 10px; background: #fcfdfe; border-radius: 0 0 10px 10px; }
+  .line { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .line .lbl { font-weight: 600; font-size: 13px; min-width: 96px; }
+  .small { font-size: 12px; color: var(--muted); }
+  .dialog { max-width: 520px; margin: 14px auto 2px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.10); padding: 16px; }
+  .dialog h4 { margin: 0 0 10px; font-size: 15px; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+  .kv b { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+  .note { font-size: 12.5px; color: var(--muted); border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 10px 0 0; }
+  .caption { font-size: 12px; color: var(--muted); text-align: center; margin-top: 6px; }
+  .states { font-size: 12.5px; color: var(--muted); margin: 10px 2px 0; }
+  .states b { color: var(--text); font-weight: 600; }
+
+  /* sign bar + profile */
+  .sheet-bar { border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .warn { color: #b45309; font-size: 13.5px; }
+  .modal { max-width: 460px; margin: 12px auto 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.10); padding: 16px; }
+  .sigbox { height: 92px; border: 1px dashed #cbd3dd; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-family: 'Brush Script MT', cursive; font-size: 34px; color: #1e293b; background: repeating-linear-gradient(45deg,#fafbfc,#fafbfc 8px,#f4f6f9 8px,#f4f6f9 16px); }
+  .slider { height: 4px; background: var(--line); border-radius: 4px; position: relative; margin: 14px 0 4px; }
+  .slider::after { content: ''; position: absolute; left: 60%; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .inp { height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; display: flex; align-items: center; background: #fff; font-size: 13px; }
+  .inp.lock { background: var(--soft); color: var(--muted); justify-content: space-between; }
+  .inp.lock i { font-style: normal; font-size: 11px; }
+  @media (max-width: 640px) { .form { grid-template-columns: 1fr; } }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 820px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="rx" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></symbol>
+  <symbol id="wa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.6 7.3L3 21l2.3-5.3A8.5 8.5 0 1 1 21 11.5z"/></symbol>
+  <symbol id="print" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+</svg>
+
+<div class="wrap">
+  <h1>Prescription records: design choices</h1>
+  <p class="lede">Every option uses the same six visits so you can compare them. The six cover every state: signed and sent · revised and printed · draft · <b>No Rx given</b> (the doctor closed it without one) · <b>Paper</b> (reception closed it) · signed but the online link is off.</p>
+
+  <!-- ───────────────────────── A ───────────────────────── -->
+  <h2>1 · Finalized OP / IP rows</h2>
+  <p class="sec-lede">Where reception finds a finished visit and hands over the prescription and the bill.</p>
+
+  <div class="opt">
+    <div class="opt-head"><span class="tag">A</span><span class="opt-title">Icon buttons: today's row with a Send button added</span><span class="rec">closest to what staff know</span></div>
+    <p class="pitch">The status chip sits next to Completed. 📄 opens the prescription sheet (preview + Print). 💬 sends it and turns green once sent. 👁 is the details dialog, which gets one status line.</p>
+    <div class="pc"><div><b>Good</b>Almost nothing changes for staff. Narrow rows, works on a phone.</div><div><b>Weak</b>Icons need tooltips to be understood. "Sent" is only a green tint.</div></div>
+    <div class="app">
+      <div class="app-title">Finalized (6)</div>
+      <div class="row"><div class="who"><span class="name">SAIPRANAV REDDY CHINTAKUNTA</span> <span class="dim">20 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-IDPL-000005</span></span><span>☎ 6309414582</span><span>🩺 pranav</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-signed">Rx signed v1</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib"><svg><use href="#rx"/></svg></span><span class="ib sent"><svg><use href="#wa"/></svg><span class="tip">Sent · Read 4:15 pm, tap to resend</span></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">ANAND KUMAR</span> <span class="dim">40 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001150</span></span><span>🩺 Dr. Surender Singh</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-signed">Rx signed v2 · revised</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib" style="border-color:#86efac;color:var(--green)"><svg><use href="#rx"/></svg></span><span class="ib"><svg><use href="#wa"/></svg></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">LAKSHMI DEVI</span> <span class="dim">58 | F</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001151</span></span><span>🩺 Dr. Surender Singh</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-draft">Rx draft · not signed</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib"><svg><use href="#rx"/></svg></span><span class="ib dis"><svg><use href="#wa"/></svg><span class="tip">Not signed yet</span></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">RAVI TEJA</span> <span class="dim">31 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001152</span></span><span>🩺 Dr. Surender Singh</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-none">No Rx given</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib"><svg><use href="#rx"/></svg></span><span class="ib dis"><svg><use href="#wa"/></svg></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">SWATHI</span> <span class="dim">26 | F</span><span class="vt">IP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001153</span></span><span>🩺 Dr. G. Dasarathi</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-paper">Paper</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib"><svg><use href="#rx"/></svg></span><span class="ib dis"><svg><use href="#wa"/></svg></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">MOHAN RAO</span> <span class="dim">67 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001154</span></span><span>🩺 Dr. G. Dasarathi</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-signed">Rx signed v1</span><span class="pill p-off">Online link off</span></div></div>
+        <div class="acts"><span class="ib"><svg><use href="#eye"/></svg></span><span class="ib"><svg><use href="#rx"/></svg></span><span class="ib dis"><svg><use href="#wa"/></svg><span class="tip">Online link is off for this visit</span></span><span class="ib"><svg><use href="#print"/></svg></span></div></div>
+    </div>
+    <div class="dialog"><h4>👁 Visit details</h4>
+      <div class="kv"><div><b>Patient</b>SAIPRANAV REDDY CHINTAKUNTA<br><span class="small">20 | Male · 6309414582</span></div><div><b>Visit reference</b><span class="mono">C-IDPL-000005</span></div><div><b>Visit type</b>OP</div><div><b>Doctor</b>pranav</div></div>
+      <p class="note"><b style="color:var(--text)">Prescription</b> · Rx signed v1 · 4:10 pm<br><span class="tick">✓</span> Printed 4:12 pm · <span class="tick">✓</span> Sent · Read 4:15 pm</p>
+      <div class="acts" style="margin-top:12px"><span class="btn"><svg><use href="#rx"/></svg>View / print prescription</span><span class="btn wa sent"><svg><use href="#wa"/></svg>Send again</span><span class="btn"><svg><use href="#print"/></svg>Print bill</span></div>
+    </div>
+    <p class="caption">The details dialog. No medicine list: 📄 shows the sheet itself.</p>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head"><span class="tag">B</span><span class="opt-title">Labelled groups: "Prescription" and "Bill" spelled out</span></div>
+    <p class="pitch">The same actions, but in words and grouped by document. Nobody has to guess what an icon means. The Send button says "Sent ✓" once sent.</p>
+    <div class="pc"><div><b>Good</b>Clearest for new or part-time staff. Sent status is readable, not just a colour.</div><div><b>Weak</b>Wider rows. On a phone the groups wrap under the patient.</div></div>
+    <div class="app">
+      <div class="app-title">Finalized (6)</div>
+      <div class="row"><div class="who"><span class="name">SAIPRANAV REDDY CHINTAKUNTA</span> <span class="dim">20 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-IDPL-000005</span></span><span>🩺 pranav</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-signed">Rx signed v1</span></div></div>
+        <div class="acts"><div class="grp"><span>Rx</span><span class="btn">View</span><span class="btn wa sent">Sent ✓</span></div><div class="grp"><span>Bill</span><span class="btn">Print</span></div><span class="ib"><svg><use href="#eye"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">LAKSHMI DEVI</span> <span class="dim">58 | F</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001151</span></span><span>🩺 Dr. Surender Singh</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-draft">Rx draft · not signed</span></div></div>
+        <div class="acts"><div class="grp"><span>Rx</span><span class="btn">Blank sheet</span><span class="btn wa dis">Send</span></div><div class="grp"><span>Bill</span><span class="btn">Print</span></div><span class="ib"><svg><use href="#eye"/></svg></span></div></div>
+      <div class="row"><div class="who"><span class="name">SWATHI</span> <span class="dim">26 | F</span><span class="vt">IP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001153</span></span><span>🩺 Dr. G. Dasarathi</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-paper">Paper</span></div></div>
+        <div class="acts"><div class="grp"><span>Rx</span><span class="btn">Blank sheet</span></div><div class="grp"><span>Bill</span><span class="btn">Print</span></div><span class="ib"><svg><use href="#eye"/></svg></span></div></div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head"><span class="tag">C</span><span class="opt-title">Document tiles: each document is a small card</span></div>
+    <p class="pitch">No chip. The prescription and the bill each get a tile showing their own state, and tapping a tile opens that document. Send and Print are inside the opened sheet.</p>
+    <div class="pc"><div><b>Good</b>Status and action in one place, so you see "signed, sent, read" at a glance. Scales if a third document (reports) joins later.</div><div><b>Weak</b>Tallest rows, fewer visits per screen. Sending takes one extra tap (open, then Send).</div></div>
+    <div class="app">
+      <div class="app-title">Finalized (6)</div>
+      <div class="row"><div class="who"><span class="name">SAIPRANAV REDDY CHINTAKUNTA</span> <span class="dim">20 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-IDPL-000005</span></span><span>🩺 pranav</span></div></div>
+        <div class="tiles"><div class="tile sig"><div class="t1"><span>℞ Prescription</span><span class="tick">v1</span></div><div class="t2"><span class="tick">✓</span> Signed 4:10 · <span class="tick">✓</span> Read 4:15</div></div><div class="tile"><div class="t1"><span>Bill · ₹300</span><span class="small">Paid</span></div><div class="t2">Printed 4:12 pm</div></div></div></div>
+      <div class="row"><div class="who"><span class="name">LAKSHMI DEVI</span> <span class="dim">58 | F</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001151</span></span><span>🩺 Dr. Surender Singh</span></div></div>
+        <div class="tiles"><div class="tile drf"><div class="t1"><span>℞ Prescription</span><span class="x">draft</span></div><div class="t2">Not signed by the doctor</div></div><div class="tile"><div class="t1"><span>Bill · ₹300</span><span class="small">Paid</span></div><div class="t2">Not printed</div></div></div></div>
+      <div class="row"><div class="who"><span class="name">RAVI TEJA</span> <span class="dim">31 | M</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001152</span></span><span>🩺 Dr. Surender Singh</span></div></div>
+        <div class="tiles"><div class="tile nil"><div class="t1"><span>℞ No Rx given</span></div><div class="t2">Doctor closed without one</div></div><div class="tile"><div class="t1"><span>Bill · ₹300</span><span class="small">Paid</span></div><div class="t2">Printed 11:02 am</div></div></div></div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-head"><span class="tag">D</span><span class="opt-title">Expand in place: the row opens like the Patient 360 panel</span></div>
+    <p class="pitch">The row stays short, with just the chip. Tapping it expands a Prescription line and a Bill line, with the same buttons and "Printed / Sent" lines as the Patient 360 panel. No dialog.</p>
+    <div class="pc"><div><b>Good</b>Same layout as Patient 360, so staff learn it once. Full status only when you want it.</div><div><b>Weak</b>Every action takes a tap to expand first. The busiest counter action (send) is one level down.</div></div>
+    <div class="app">
+      <div class="app-title">Finalized (6)</div>
+      <div class="exp">
+        <div class="row"><div class="who"><span class="name">SAIPRANAV REDDY CHINTAKUNTA</span> <span class="dim">20 | M</span><span class="vt">OP</span>
+          <div class="meta"><span>Bill # <span class="mono">C-IDPL-000005</span></span><span>🩺 pranav</span></div>
+          <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-signed">Rx signed v1</span></div></div>
+          <span class="ib" style="transform:rotate(180deg)"><svg><use href="#chev"/></svg></span></div>
+        <div class="exp-body">
+          <div class="line"><span class="lbl">Prescription</span><span class="small" style="flex:1">v1 · signed 4:10 pm · <span class="tick">✓</span> Printed 4:12 · <span class="tick">✓</span> Sent · Read 4:15</span><span class="acts"><span class="btn"><svg><use href="#rx"/></svg>View / print</span><span class="btn wa sent"><svg><use href="#wa"/></svg>Send again</span></span></div>
+          <div class="line"><span class="lbl">Bill · ₹300</span><span class="small" style="flex:1">Paid · printed 4:12 pm</span><span class="acts"><span class="btn"><svg><use href="#print"/></svg>Print bill</span><span class="btn wa"><svg><use href="#wa"/></svg>Send bill</span></span></div>
+        </div>
+      </div>
+      <div class="row"><div class="who"><span class="name">LAKSHMI DEVI</span> <span class="dim">58 | F</span><span class="vt">OP</span>
+        <div class="meta"><span>Bill # <span class="mono">C-CNT-001151</span></span><span>🩺 Dr. Surender Singh</span></div>
+        <div class="chips"><span class="pill p-done">Completed</span><span class="pill p-draft">Rx draft · not signed</span></div></div>
+        <span class="ib"><svg><use href="#chev"/></svg></span></div>
+    </div>
+  </div>
+
+  <p class="states"><b>Switch OFF, in every option:</b> visits signed while it was on keep their chip and can still be viewed, printed and sent. New visits show <b>Paper</b> and print the blank sheet.</p>
+
+  <!-- ───────────────────────── sign bar ───────────────────────── -->
+  <h2>2 · Doctor with no signature yet</h2>
+  <p class="sec-lede">The signature is managed in the doctor's profile, once. The doctor's screens only point there.</p>
+  <div class="two">
+    <div class="opt" style="margin:0">
+      <div class="opt-head"><span class="tag">N1</span><span class="opt-title">Note on the sign bar only</span></div>
+      <div class="sheet-bar"><span class="warn">You haven't added your signature yet, so this can't be signed.</span><span class="btn">Add it in My profile →</span></div>
+      <p class="pitch" style="margin-top:10px">Shown only at review time, where it matters. The draft is saved first, so nothing is lost on the way to the profile and back.</p>
+    </div>
+    <div class="opt" style="margin:0">
+      <div class="opt-head"><span class="tag">N2</span><span class="opt-title">Also a line on the queue</span><span class="rec">recommended</span></div>
+      <div class="sheet-bar" style="background:#fffbeb;border-color:#fde68a"><span class="warn">Add your signature in My profile so your prescriptions can be signed.</span><span class="btn">Open My profile →</span></div>
+      <p class="pitch" style="margin-top:10px">One line at the top of the doctor's queue until a signature exists, so they find out before the first patient rather than mid-consultation. The sign bar gets N1's note as well.</p>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── profile ───────────────────────── -->
+  <h2>3 · The doctor's profile: everything about them in one place</h2>
+  <p class="sec-lede">Details, signature, letterhead note and password, all on one page. The details print on a legal document, so the only open question is who may change them.</p>
+  <div class="two">
+    <div class="opt" style="margin:0">
+      <div class="opt-head"><span class="tag">P1</span><span class="opt-title">Doctor edits, owner is notified</span><span class="rec">recommended</span></div>
+      <div class="form">
+        <div class="field"><label>Name on prescription</label><div class="inp">Dr. Pranav Reddy</div></div>
+        <div class="field"><label>Qualification</label><div class="inp">MBBS, MD</div></div>
+        <div class="field"><label>Specialty</label><div class="inp">General Medicine</div></div>
+        <div class="field"><label>Registration number</label><div class="inp">TSMC/12234</div></div>
+        <div class="field"><label>Phone (WhatsApp)</label><div class="inp">98xxxxxx10</div></div>
+        <div class="field"><label>Letterhead note</label><div class="inp">Mon–Sat 10 am – 1 pm</div></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="width:150px"><div class="sigbox" style="height:60px;font-size:26px">Pranav</div></div>
+        <div><div style="font-weight:600;font-size:13px">Signature</div><div class="small">Printed on every prescription you sign</div>
+          <div class="acts" style="margin-top:6px"><span class="btn">Replace</span><span class="btn">Remove</span></div></div>
+      </div>
+      <div class="small" style="margin-top:10px">Password · <u>Change password</u></div>
+      <p class="note">Every change is audited. The owner sees "Dr. Pranav changed Registration number" in Audit. Prescriptions already signed keep what they were signed with.</p>
+    </div>
+    <div class="opt" style="margin:0">
+      <div class="opt-head"><span class="tag">P2</span><span class="opt-title">Identity locked, the rest editable</span></div>
+      <div class="form">
+        <div class="field"><label>Name on prescription</label><div class="inp lock">Dr. Pranav Reddy <i>owner</i></div></div>
+        <div class="field"><label>Registration number</label><div class="inp lock">TSMC/12234 <i>owner</i></div></div>
+        <div class="field"><label>Qualification</label><div class="inp">MBBS, MD</div></div>
+        <div class="field"><label>Specialty</label><div class="inp">General Medicine</div></div>
+        <div class="field"><label>Phone (WhatsApp)</label><div class="inp">98xxxxxx10</div></div>
+        <div class="field"><label>Letterhead note</label><div class="inp">Mon–Sat 10 am – 1 pm</div></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="width:150px"><div class="sigbox" style="height:60px;font-size:26px">Pranav</div></div>
+        <div><div style="font-weight:600;font-size:13px">Signature</div><div class="small">Printed on every prescription you sign</div>
+          <div class="acts" style="margin-top:6px"><span class="btn">Replace</span><span class="btn">Remove</span></div></div>
+      </div>
+      <div class="small" style="margin-top:10px">Password · <u>Change password</u></div>
+      <p class="note">Name and registration number prove who signed, so only the owner changes those. The doctor can "Ask the owner to change this", which sends the owner a note.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

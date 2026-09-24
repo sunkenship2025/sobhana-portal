@@ -12,7 +12,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useConfirm } from '@/hooks/use-confirm';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,15 @@ export default function DoctorQueue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** A doctor login with no signature yet — told here, before the first patient. */
+  const [noSignature, setNoSignature] = useState(false);
+  const { confirm, ConfirmDialog } = useConfirm();
+
+  useEffect(() => {
+    doctorApi.me()
+      .then((r) => setNoSignature(!!r.doctor && !r.doctor.signatureImageBase64))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -188,6 +198,15 @@ export default function DoctorQueue() {
           </div>
         </div>
 
+        {noSignature && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 sm:px-4">
+            <p className="text-sm text-amber-900">Add your signature in My profile so your prescriptions can be signed.</p>
+            <Button asChild variant="outline" size="sm" className="ml-auto bg-white">
+              <Link to="/doctor/account">Open My profile →</Link>
+            </Button>
+          </div>
+        )}
+
         {/* Unsigned prescriptions. Ageing is the whole point of this strip: 20
             minutes is a live consultation, 17 hours is a mistake. */}
         {drafts.length > 0 && (
@@ -217,6 +236,28 @@ export default function DoctorQueue() {
                         <span className="text-xs text-amber-700">
                           {d.items.length} medicine{d.items.length === 1 ? '' : 's'}
                         </span>
+                        <button
+                          type="button"
+                          className="text-xs text-amber-800 underline underline-offset-2 hover:text-red-700"
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: 'Discard this draft?',
+                              description: `${d.visit.patient.name}'s unsigned prescription is thrown away, with its recording. A version you signed before, if any, stays as it is.`,
+                              confirmText: 'Discard',
+                              destructive: true,
+                            });
+                            if (!ok) return;
+                            try {
+                              await doctorApi.discard(d.id);
+                              toast.success('Draft discarded');
+                              void load();
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : 'Could not discard the draft');
+                            }
+                          }}
+                        >
+                          Discard
+                        </button>
                       </li>
                     );
                   })}
@@ -251,6 +292,7 @@ export default function DoctorQueue() {
           </>
         )}
       </div>
+      {ConfirmDialog}
     </AppLayout>
   );
 }

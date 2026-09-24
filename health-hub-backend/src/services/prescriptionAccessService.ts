@@ -96,6 +96,9 @@ export async function resolvePrescriptionToken(rawToken: string) {
     select: {
       id: true, rootId: true, version: true, signedAt: true,
       diagnosis: true, notes: true, followUpDays: true, snapshot: true,
+      // The visit's online-access switch, which the view route honours. Not sent
+      // to the patient — the route builds its response field by field.
+      visit: { select: { patientLinkDisabledAt: true, branch: { select: { name: true } } } },
       // The snapshot freezes WHO and FOR WHOM — doctor, branch, patient, visit —
       // but the medicines are a relation, and a signed prescription's items are
       // immutable by the same rule that forbids editing a signed row at all. So

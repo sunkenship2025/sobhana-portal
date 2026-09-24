@@ -8,7 +8,7 @@
  * `mapReportStateToChip` is the SINGLE place the ReportState discriminated union
  * is decoded into a renderable chip — no other component branches on `kind`.
  *
- * Kinds: payment | report | abnormal | cancelled.
+ * Kinds: payment | report | abnormal | cancelled | rx.
  */
 import { cva, type VariantProps } from "class-variance-authority";
 import {
@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/patientDisplay";
+import { rxChip, type RxSummary } from "@/lib/rxRecords";
 import type {
   ReportState,
   VisitPaymentStatus,
@@ -42,6 +43,7 @@ const chipVariants = cva(
         abnormal:
           "bg-destructive/15 text-destructive",
         muted: "bg-muted text-muted-foreground",
+        outline: "border border-border text-muted-foreground",
       },
     },
     defaultVariants: {
@@ -60,11 +62,11 @@ export interface ChipDescriptor {
   role?: "status";
 }
 
-export type ChipKind = "payment" | "report" | "abnormal" | "cancelled";
+export type ChipKind = "payment" | "report" | "abnormal" | "cancelled" | "rx";
 
 interface StatusChipProps {
   kind: ChipKind;
-  value?: VisitPaymentStatus | ReportState | boolean | null;
+  value?: VisitPaymentStatus | ReportState | RxSummary | boolean | null;
   /** Required by `payment` kind to render "Due ₹…"; ignored otherwise. */
   dueAmountInPaise?: number;
   /** Required by `payment` kind to detect partial payment; ignored otherwise. */
@@ -168,6 +170,18 @@ function describe(props: StatusChipProps): ChipDescriptor | null {
         : null;
     case "cancelled":
       return { label: "Cancelled", icon: Ban, tone: "muted" };
+    case "rx": {
+      // The clinic visit's prescription — the same words as Finalized OP/IP.
+      const chip = rxChip(props.value as RxSummary | null | undefined);
+      if (!chip) return null;
+      const look = {
+        signed: { icon: CheckCircle2, tone: "finalized" },
+        draft: { icon: Clock, tone: "draft" },
+        none: { icon: Ban, tone: "muted" },
+        paper: { icon: FileText, tone: "outline" },
+      } as const;
+      return { label: chip.label, ...look[chip.tone] };
+    }
     default:
       return null;
   }

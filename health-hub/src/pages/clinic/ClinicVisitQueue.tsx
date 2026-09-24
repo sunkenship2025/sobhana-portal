@@ -26,7 +26,7 @@ import { usePagedList } from '@/hooks/usePagedList';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 import { useConfirm } from '@/hooks/use-confirm';
-import { useDigitalRx } from '@/lib/digitalRx';
+import { rxChip, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
@@ -59,8 +59,8 @@ interface QueueVisit {
   } | null;
   /** When the consultation was started — by reception or by the doctor. */
   startedAt?: string | null;
-  /** The doctor's side: latest digital prescription for this visit, if any. */
-  prescription?: { status: string; signedAt: string | null; version: number } | null;
+  /** The doctor's side: signed / draft / how it closed without one. */
+  prescription?: RxSummary | null;
   totalAmount: number;
   consultationFee: number;
   isRevisit: boolean;
@@ -75,19 +75,17 @@ interface QueueVisit {
 }
 
 // What the doctor's side of a visit looks like to reception: how long the patient
-// has been in, and — when digital prescriptions are on — whether the doctor has
-// written one and signed it. Nothing shows for the paper flow.
+// has been in, and whether the doctor has written a prescription and signed it.
+// Nothing shows for the paper flow.
 function DoctorSide({ visit }: { visit: QueueVisit }) {
-  const { enabled } = useDigitalRx();
   const since = visit.status === 'IN_PROGRESS' && visit.startedAt
     ? new Date(visit.startedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
     : null;
-  const rx = enabled ? visit.prescription : null;
+  const chip = rxChip(visit.prescription);
   return (
     <>
       {since && <span className="text-xs text-muted-foreground">with the doctor since {since}</span>}
-      {rx?.status === 'DRAFT' && <span className="status-badge status-draft">Prescription draft</span>}
-      {rx?.status === 'SIGNED' && <span className="status-badge status-finalized">Prescription signed</span>}
+      {chip && <span className={RX_CHIP_CLASS[chip.tone]}>{chip.label}</span>}
     </>
   );
 }
@@ -241,7 +239,7 @@ const ClinicVisitQueue = () => {
   // doctor has a digital prescription open and unsigned, closing the visit leaves
   // it unsigned with nobody told, so that one case asks first.
   const markDone = async (visit: QueueVisit) => {
-    if (visit.prescription?.status === 'DRAFT') {
+    if (visit.prescription?.draft && !visit.prescription.signed) {
       const ok = await confirm({
         title: 'The prescription is not signed yet',
         description: `${visit.doctor?.name ?? 'The doctor'} has a digital prescription for this visit that is still a draft. Marking the visit done will not sign it — it stays an unsigned draft.`,

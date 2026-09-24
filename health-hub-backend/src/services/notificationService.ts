@@ -569,7 +569,9 @@ export async function sendPrescriptionReady(
       templateName: 'prescription_ready',
       templateParams: { patientName: info.patient.name, doctorName, prescriptionId: rx.rootId },
       contextId: rx.visitId,
-      contextType: MessageContextType.REPORT,
+      // Its own context, so Patient 360 shows it on the prescription's delivery
+      // line and not the report's.
+      contextType: MessageContextType.PRESCRIPTION,
       branchId: rx.branchId,
       components: [
         {

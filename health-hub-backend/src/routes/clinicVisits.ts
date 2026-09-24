@@ -20,6 +20,8 @@ import {
   duplicateVisitLockId,
 } from "../lib/duplicateGuard";
 import { getPatientAge, getPatientAgeDisplay } from "../utils/validation";
+import { rxSummaries } from "../services/prescriptionRecords";
+import { digitalRxEnabled } from "../lib/clinicModule";
 
 const router = Router();
 
@@ -295,6 +297,8 @@ function transformClinicVisit(
     visitRef: visit.billNumber,
     billNumber: visit.bill?.billNumber || null,
     hasBill: Boolean(visit.bill),
+    // The visit's online-access switch — it holds back the prescription link too.
+    patientLinkDisabledAt: visit.patientLinkDisabledAt ?? null,
     patientId: visit.patientId,
     patient: {
       ...visit.patient,
@@ -521,20 +525,10 @@ router.get("/", async (req: AuthRequest, res) => {
       );
     }
 
-    // The doctor's side of each visit, so reception can see it from the queue:
-    // whether a digital prescription exists and whether it is signed. ONE query
-    // for every visit on the page, latest version only. When the prescription
-    // module is off there are simply no rows, and every visit reads as null —
-    // the old paper flow, unchanged.
-    const rxRows = filteredVisits.length
-      ? await prisma.prescription.findMany({
-          where: { visitId: { in: filteredVisits.map((v) => v.id) }, isLatest: true, deletedAt: null },
-          select: { visitId: true, status: true, signedAt: true, version: true },
-          orderBy: { createdAt: "desc" },
-        })
-      : [];
-    const rxByVisit = new Map<string, { status: string; signedAt: Date | null; version: number }>();
-    for (const r of rxRows) if (!rxByVisit.has(r.visitId)) rxByVisit.set(r.visitId, { status: r.status, signedAt: r.signedAt, version: r.version });
+    // The doctor's side of each visit — draft or signed, printed, sent, or how it
+    // closed without one — for the live queue and Finalized OP/IP. One batched
+    // lookup for the whole page; no rows at all when the module was never used.
+    const rxByVisit = await rxSummaries(filteredVisits.map((v) => v.id));
 
     const transformed = filteredVisits.map((visit) => ({
       ...transformClinicVisit(visit, originalVisitMap),
@@ -1063,6 +1057,16 @@ router.patch("/:id", async (req: AuthRequest, res) => {
             where: { id: existing.clinicVisit.id },
             data: clinicVisitStatusData,
           });
+
+          // Reception closed it and the doctor wrote nothing digital: whatever was
+          // prescribed went on the pad. Recorded only while the module is on — with
+          // it off, every visit is paper and saying so on each one is noise.
+          if (status === "COMPLETED" && (await digitalRxEnabled())) {
+            const hasRx = await tx.prescription.count({ where: { visitId: id, deletedAt: null } });
+            if (hasRx === 0) {
+              await tx.clinicVisit.update({ where: { id: existing.clinicVisit.id }, data: { rxOutcome: "PAPER" } });
+            }
+          }
 
           if (status === "COMPLETED" && existing.status !== "COMPLETED") {
             const visitDate = clinicVisitStatusData.completedAt ?? new Date();

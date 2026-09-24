@@ -152,8 +152,10 @@ router.get('/queue', async (req: AuthRequest, res) => {
     // only their own.
     const doctorFilter = doctor ? { clinicDoctorId: doctor.id } : {};
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    // IST midnight. The server runs in UTC, whose midnight is 05:30 here, so
+    // "Done today" used to keep last night's patients until mid-morning.
+    const ist = new Date(Date.now() + 330 * 60_000);
+    const startOfDay = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 330 * 60_000);
 
     const rows = await prisma.clinicVisit.findMany({
       where: {
@@ -323,12 +325,18 @@ router.patch('/queue/:visitId', async (req: AuthRequest, res) => {
       res.status(403).json({ error: 'FORBIDDEN', message: 'This is another doctor’s consultation' }); return;
     }
 
+    // The doctor closing a consultation with nothing written is "No Rx given" —
+    // distinct from reception closing it, which means the pad. A kept draft is
+    // neither: the visit shows the draft until it is signed or discarded.
+    const noRx = status === 'COMPLETED'
+      && (await prisma.prescription.count({ where: { visitId: req.params.visitId, deletedAt: null } })) === 0;
     await prisma.clinicVisit.update({
       where: { id: cv.id },
       data: {
         status: status as any,
         ...(status === 'IN_PROGRESS' && !cv.status.includes('IN_PROGRESS') ? { startedAt: new Date() } : {}),
         ...(status === 'COMPLETED' ? { completedAt: new Date() } : {}),
+        ...(noRx ? { rxOutcome: 'NONE' } : {}),
       },
     });
     await prisma.visit.updateMany({ where: { id: req.params.visitId }, data: { status: status as any } });
@@ -409,7 +417,7 @@ router.get('/visits/:visitId', async (req: AuthRequest, res) => {
       },
       branch: visit.branch,
       doctor: visit.clinicVisit.clinicDoctor,
-      signing: signing.ok ? { ok: true } : { ok: false, reason: signing.reason },
+      signing: signing.ok ? { ok: true } : { ok: false, code: signing.code, reason: signing.reason },
       patient: {
         id: visit.patient.id,
         patientNumber: visit.patient.patientNumber,
@@ -614,35 +622,62 @@ router.get('/patients/:id', async (req: AuthRequest, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /api/doctor/me — the doctor's OWN account
+// PATCH /api/doctor/me — the doctor's OWN profile
 //
-// Name, qualification, specialty and registration number are deliberately NOT
-// editable here: they print on a legal document and drive payouts, so the owner
-// owns them. A doctor who changes clinic must not be able to retype their own
-// registration number.
+// Everything that prints under their name is theirs to keep right: name,
+// qualification, specialty, registration number, phone, letterhead note and
+// signature. Every change is audited with its before and after, so the owner can
+// see "Dr X changed Registration number" in Audit. Prescriptions already signed
+// are unaffected — they render from the snapshot frozen at signing.
 // ---------------------------------------------------------------------------
+const REQUIRED_TEXT = ['name', 'qualification', 'specialty', 'registrationNumber'] as const;
+const OPTIONAL_TEXT = ['phone', 'letterheadNote'] as const;
+
 router.patch('/me', async (req: AuthRequest, res) => {
   try {
     const doctor = await meAsDoctor(req);
     if (!doctor) { res.status(409).json({ error: 'NO_CLINIC_DOCTOR', message: 'Not linked to a consulting doctor' }); return; }
 
-    const data: Record<string, unknown> = {};
-    if (typeof req.body?.signatureImageBase64 === 'string') data.signatureImageBase64 = req.body.signatureImageBase64;
-    if (req.body?.signatureImageBase64 === null) data.signatureImageBase64 = null;
-    if (typeof req.body?.letterheadNote === 'string') data.letterheadNote = req.body.letterheadNote;
-
-    if (Object.keys(data).length === 0) {
-      res.status(400).json({ error: 'BAD_REQUEST', message: 'Nothing to update' }); return;
+    const body = req.body ?? {};
+    const data: Record<string, string | null> = {};
+    for (const k of REQUIRED_TEXT) {
+      if (body[k] === undefined) continue;
+      const v = typeof body[k] === 'string' ? body[k].trim() : '';
+      // The registration number is required on every prescription (§3.2.5), and a
+      // blank name or qualification would print a blank line under the signature.
+      if (!v) { res.status(400).json({ error: 'BAD_REQUEST', message: `${k === 'registrationNumber' ? 'Registration number' : k[0].toUpperCase() + k.slice(1)} cannot be empty` }); return; }
+      data[k] = v;
     }
+    for (const k of OPTIONAL_TEXT) {
+      if (body[k] === undefined) continue;
+      data[k] = typeof body[k] === 'string' && body[k].trim() ? body[k].trim() : null;
+    }
+    if (typeof body.signatureImageBase64 === 'string') data.signatureImageBase64 = body.signatureImageBase64;
+    if (body.signatureImageBase64 === null) data.signatureImageBase64 = null;
 
-    await prisma.clinicDoctor.update({ where: { id: doctor.id }, data });
+    const changed = Object.keys(data).filter((k) => (doctor as Record<string, unknown>)[k] !== data[k]);
+    if (changed.length === 0) { res.json(doctor); return; }
+
+    try {
+      await prisma.clinicDoctor.update({ where: { id: doctor.id }, data: Object.fromEntries(changed.map((k) => [k, data[k]])) });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        res.status(409).json({ error: 'DUPLICATE', message: 'That registration number is already on another doctor' }); return;
+      }
+      throw e;
+    }
+    // The signature image itself is not copied into the audit row — only that it changed.
+    const show = (k: string, v: unknown) => (k === 'signatureImageBase64' ? (v ? 'on file' : 'none') : v);
     await logAction({
       branchId: req.branchId!,
       actionType: 'UPDATE',
       entityType: 'ClinicDoctor',
       entityId: doctor.id,
       userId: req.user!.id,
-      newValues: { fields: Object.keys(data) },
+      oldValues: Object.fromEntries(changed.map((k) => [k, show(k, (doctor as Record<string, unknown>)[k])])),
+      newValues: { ...Object.fromEntries(changed.map((k) => [k, show(k, data[k])])), via: 'doctor profile' },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.json(await meAsDoctor(req));

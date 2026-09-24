@@ -37,6 +37,7 @@ import { NoReportStatus } from "./NoReportStatus";
 import { PatientLinkDialog } from "./PatientLinkDialog";
 import { RefundDialog } from "./RefundDialog";
 import { ReportActions, canViewReport } from "./ReportActions";
+import { PrescriptionSection } from "./PrescriptionSection";
 import { SwapTestDialog } from "./SwapTestDialog";
 import { useAuthStore } from "@/store/authStore";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
@@ -70,17 +71,6 @@ function openPrintBill(visit: VisitTimelineItem) {
   // return null even on success, misfiring the popup-blocker check. Same-origin
   // route, so opener isolation isn't needed.
   const opened = window.open(`/bill/print/${domain}/${visit.visitId}`, "_blank");
-  if (!opened) {
-    toast.error("Pop-up was blocked — allow pop-ups for this site and try again.");
-  }
-}
-
-function openPrintPrescription(visit: VisitTimelineItem) {
-  if (!visit.visitId) {
-    toast.error("Visit data is incomplete — cannot open prescription.");
-    return;
-  }
-  const opened = window.open(`/prescription/print/${visit.visitId}`, "_blank");
   if (!opened) {
     toast.error("Pop-up was blocked — allow pop-ups for this site and try again.");
   }
@@ -162,8 +152,8 @@ function InspectorBody({
   // open — that is the internal record of what the visit is worth to us.
   const billPrintBlockedBy = visit.billPrintBlockedBy ?? null;
   const billSendBlockedBy = visit.billSendBlockedBy ?? null;
+  // Clinic visits too: the same switch holds back the prescription link.
   const canToggleLink =
-    isDiagnostic &&
     !isCancelledVisit &&
     (user?.role === "owner" || user?.role === "lab_incharge");
   const canCorrect = isDiagnostic && hasBill && !isCancelledVisit;
@@ -421,21 +411,7 @@ function InspectorBody({
       </div>
 
       {!isDiagnostic && (
-        <>
-          <Separator />
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">Prescription</h4>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start sm:w-auto"
-              onClick={() => openPrintPrescription(visit)}
-            >
-              <FileText className="mr-2 h-4 w-4" aria-hidden="true" />
-              Print prescription
-            </Button>
-          </div>
-        </>
+        <PrescriptionSection visit={visit} patientPhone={patientPhone} linkToggle={linkToggle} />
       )}
 
       {canRefund && (

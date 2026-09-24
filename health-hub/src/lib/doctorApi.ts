@@ -124,6 +124,8 @@ export interface PrescriptionSnapshot {
   patient: { id: string; patientNumber: string; name: string; title: string | null; ageLabel: string; gender: string; phone: string | null };
   visit: { id: string; visitType: string | null; tokenNumber: number | null; date: string };
   signedAt: string;
+  /** On a correction: the version it replaces. */
+  revises?: { version: number; signedAt: string } | null;
 }
 
 export interface TranscriptSegment { text: string; start: number; end: number }
@@ -280,7 +282,7 @@ export interface VisitContext {
   doctor: { id: string; name: string; qualification: string; specialty: string; registrationNumber: string; letterheadNote: string | null };
   /** Whether the signed-in user may sign here, from the same check the server
    *  refuses on. Only the visit's own doctor, with a signature on file. */
-  signing?: { ok: boolean; reason?: string };
+  signing?: { ok: boolean; code?: 'NOT_THE_PRESCRIBER' | 'NO_SIGNATURE' | 'NO_DOCTOR'; reason?: string };
   patient: { id: string; patientNumber: string; name: string; title: string | null; gender: string; ageLabel: string; phone: string | null; deceased: boolean };
   previousPrescriptions: DoctorPatient['prescriptions'];
   currentMedications: { name: string; since: string }[];
@@ -290,7 +292,10 @@ export const doctorApi = {
   me: () => req<DoctorMe>('/doctor/me'),
   /** Doctor-safe consultation context — the money-free shape of a clinic visit. */
   visitContext: (visitId: string) => req<VisitContext>(`/doctor/visits/${visitId}`),
-  updateMe: (patch: { signatureImageBase64?: string | null; letterheadNote?: string }) =>
+  updateMe: (patch: {
+    signatureImageBase64?: string | null; letterheadNote?: string;
+    name?: string; qualification?: string; specialty?: string; registrationNumber?: string; phone?: string;
+  }) =>
     req<DoctorMe['doctor']>('/doctor/me', { method: 'PATCH', json: patch }),
 
   queue: () => req<{ queue: QueueRow[]; counts: { waiting: number; inProgress: number; doneToday: number } }>('/doctor/queue'),
@@ -349,8 +354,6 @@ export const doctorApi = {
   /** WhatsApp the patient their link. Delivery is REPORTED, never assumed —
    *  the server returns a reason rather than throwing, so a failure shows as a
    *  failure instead of a clean "sent". */
-  send: (id: string) =>
-    req<{ sent: { success: boolean; error?: string } }>(`/prescriptions/${id}/send`, { method: 'POST' }),
 };
 
 // ---------------------------------------------------------------------------

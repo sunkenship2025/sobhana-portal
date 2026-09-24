@@ -1365,6 +1365,11 @@ model ClinicVisit {
   status                 VisitStatus     @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
   startedAt              DateTime? // First transition to IN_PROGRESS
   completedAt            DateTime? // First transition to COMPLETED
+  /// How a visit closed WITHOUT a digital prescription, while the module was on:
+  /// "NONE" = the doctor pressed "Done, no prescription"; "PAPER" = reception closed
+  /// it, so whatever was prescribed was written on the pad. Null = a digital one
+  /// exists, the module was off, or the visit predates it.
+  rxOutcome              String?
   tokenNumber            Int? // Daily branch OP queue token shown on the waiting-room display (null for IP)
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
@@ -3016,6 +3021,8 @@ model Prescription {
 
   // --- signature -----------------------------------------------------------
   signedAt       DateTime?
+  /// Last time staff printed it (Print turns green, like the bill and report).
+  printedAt      DateTime?
   signedByUserId String?
   /// EVERYTHING the signed sheet renders from: doctor name, qualification,
   /// registration number, signature image, branch letterhead, patient identity

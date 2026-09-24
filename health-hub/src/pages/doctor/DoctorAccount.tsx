@@ -1,14 +1,15 @@
 /**
- * My account — the answer to "can a doctor have admin".
+ * My profile — the answer to "can a doctor have admin".
  *
- * No. No Config, no roles, no catalogue, no branch settings. What they get is the
- * small set of things that are THEIRS and that nobody else can reasonably
- * maintain for them: their signature and the clinic line under their name.
+ * No. No Config, no roles, no catalogue, no branch settings. What they get is
+ * everything that prints under their name, and it is theirs to keep right: name,
+ * qualification, specialty, registration number, phone, the letterhead line,
+ * their signature and their password.
  *
- * Name, qualification, specialty and registration number are shown READ-ONLY.
- * They print on a legal document and drive payouts, so the owner owns them — a
- * doctor who changes clinic must not be able to retype their own registration
- * number.
+ * Every change is audited with its before and after (the owner sees "Dr X changed
+ * Registration number" in Audit), and prescriptions already signed never change —
+ * they render from the snapshot frozen at signing. The owner can still add or
+ * replace a signature from Consulting doctors.
  *
  * The signature runs through `cleanSignature` — the SAME background-removal
  * pipeline the owner's signing-doctor screen uses. Third caller, no new code.
@@ -37,7 +38,7 @@ export default function DoctorAccount() {
   const [me, setMe] = useState<DoctorMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState('');
+  const [form, setForm] = useState({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '' });
   const fileInput = useRef<HTMLInputElement>(null);
   // Same two steps as Config → Signing: clean at the default strength, then the
   // SAME SignatureEditor (strength / erase / undo) before anything is saved.
@@ -48,7 +49,13 @@ export default function DoctorAccount() {
     try {
       const data = await doctorApi.me();
       setMe(data);
-      setNote(data.doctor?.letterheadNote ?? '');
+      const d = data.doctor;
+      if (d) {
+        setForm({
+          name: d.name, qualification: d.qualification, specialty: d.specialty,
+          registrationNumber: d.registrationNumber, phone: d.phone ?? '', letterheadNote: d.letterheadNote ?? '',
+        });
+      }
     } catch {
       toast.error('Could not load your account');
     } finally {
@@ -86,18 +93,20 @@ export default function DoctorAccount() {
     }
   }, []);
 
-  const saveNote = useCallback(async () => {
+  const saveDetails = useCallback(async () => {
     setBusy(true);
     try {
-      const updated = await doctorApi.updateMe({ letterheadNote: note });
+      const updated = await doctorApi.updateMe(form);
       setMe((m) => (m ? { ...m, doctor: updated } : m));
-      toast.success('Saved');
-    } catch {
-      toast.error('Could not save');
+      toast.success('Profile saved');
+    } catch (err) {
+      // The server's words: "Registration number cannot be empty", "already on
+      // another doctor" — each has a different fix.
+      toast.error(err instanceof Error ? err.message : 'Could not save');
     } finally {
       setBusy(false);
     }
-  }, [note]);
+  }, [form]);
 
   const removeSignature = useCallback(async () => {
     setBusy(true);
@@ -118,7 +127,7 @@ export default function DoctorAccount() {
     <AppLayout>
       <div className="mx-auto w-full max-w-2xl space-y-5 p-4 sm:p-6">
         <div className="border-b pb-4">
-          <h1 className="text-xl font-semibold tracking-tight">My account</h1>
+          <h1 className="text-xl font-semibold tracking-tight">My profile</h1>
           {loading ? (
             <Skeleton className="mt-2 h-4 w-64" />
           ) : (
@@ -138,6 +147,45 @@ export default function DoctorAccount() {
           </p>
         ) : (
           <>
+            <section className="space-y-3 border-b pb-5">
+              <div>
+                <h2 className="text-sm font-semibold">Your details</h2>
+                <p className="text-xs text-muted-foreground">
+                  Printed on every prescription you sign. Ones you have already signed keep what they were signed with.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {([
+                  ['name', 'Name on prescription', 'Dr. …'],
+                  ['qualification', 'Qualification', 'MBBS, MD'],
+                  ['specialty', 'Specialty', 'General Medicine'],
+                  ['registrationNumber', 'Registration number', 'TSMC/…'],
+                  ['phone', 'Phone (WhatsApp)', '98…'],
+                  ['letterheadNote', 'Letterhead note', 'Mon–Sat 10 a.m. – 1 p.m.'],
+                ] as const).map(([key, label, placeholder]) => (
+                  <label key={key} className="space-y-1">
+                    <span className="block text-xs text-muted-foreground">{label}</span>
+                    <Input
+                      value={form[key]}
+                      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="h-9"
+                      inputMode={key === 'phone' ? 'tel' : undefined}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button size="sm" disabled={busy} onClick={() => void saveDetails()}>
+                  {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+                  Save details
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Doctor no. {doctor.doctorNumber} · HPR / ABDM id {doctor.hprId || 'not linked'}
+                </span>
+              </div>
+            </section>
+
             <section className="space-y-2 border-b pb-5">
               <h2 className="text-sm font-semibold">Signature</h2>
               <p className="text-xs text-muted-foreground">
@@ -173,19 +221,7 @@ export default function DoctorAccount() {
               )}
             </section>
 
-            <section className="space-y-2 border-b pb-5">
-              <h2 className="text-sm font-semibold">Letterhead note</h2>
-              <p className="text-xs text-muted-foreground">Timings or a clinic line printed under your name.</p>
-              <div className="flex gap-2 pt-1">
-                <Input
-                  value={note} onChange={(e) => setNote(e.target.value)}
-                  placeholder="Mon–Sat 10 a.m. – 1 p.m." className="h-9" aria-label="Letterhead note"
-                />
-                <Button variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => void saveNote()}>Save</Button>
-              </div>
-            </section>
-
-            <section className="space-y-2 border-b pb-5">
+            <section className="space-y-2">
               <h2 className="text-sm font-semibold">Password</h2>
               <p className="text-xs text-muted-foreground">Change the password you were given when your login was set up.</p>
               <Button variant="outline" size="sm" onClick={() => setPwOpen(true)}>
@@ -194,27 +230,6 @@ export default function DoctorAccount() {
               </Button>
             </section>
 
-            <section className="space-y-1.5">
-              <h2 className="text-sm font-semibold">Your details</h2>
-              <p className="text-xs text-muted-foreground">
-                These print on a legal document, so the owner maintains them. Ask them if anything is wrong.
-              </p>
-              <dl className="mt-2 divide-y rounded-lg border bg-card text-sm">
-                {[
-                  ['Name', doctor.name],
-                  ['Qualification', doctor.qualification],
-                  ['Specialty', doctor.specialty],
-                  ['Registration number', doctor.registrationNumber],
-                  ['Doctor number', doctor.doctorNumber],
-                  ['HPR / ABDM id', doctor.hprId || 'not linked'],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex items-baseline justify-between gap-4 px-3 py-2">
-                    <dt className="text-xs text-muted-foreground">{k}</dt>
-                    <dd className="text-right font-medium">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
           </>
         )}
       </div>

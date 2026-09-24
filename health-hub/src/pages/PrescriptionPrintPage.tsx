@@ -9,7 +9,8 @@ import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPr
 import { buildClinicVisitView } from "@/lib/clinicVisitView";
 import type { ClinicVisitView } from "@/types";
 import { RxLetterpad, type RxProfile } from "@/components/doctor/RxLetterpad";
-import { doctorApi, type Prescription } from "@/lib/doctorApi";
+import type { Prescription } from "@/lib/doctorApi";
+import { rxRecords } from "@/lib/rxRecords";
 import { cn } from "@/lib/utils";
 
 /**
@@ -21,8 +22,9 @@ import { cn } from "@/lib/utils";
  * When the doctor signed a digital prescription for the visit, THAT is the
  * prescription, so it prints instead — the same frozen sheet the patient's link
  * shows. Physical letterhead by default (reception prints onto pre-printed
- * paper). With digital prescriptions off, the lookup fails and the blank sheet
- * prints exactly as before.
+ * paper). Read through /prescription-records, so a prescription signed while
+ * the module was on still prints after it is switched off; with no signed one,
+ * the blank sheet prints exactly as before.
  */
 export default function PrescriptionPrintPage() {
   const { visitId } = useParams<{ visitId: string }>();
@@ -49,10 +51,10 @@ export default function PrescriptionPrintPage() {
         }
         const [data, rxs] = await Promise.all([
           res.json(),
-          doctorApi.forVisit(visitId).catch(() => [] as Prescription[]),
+          rxRecords.forVisit(visitId).catch(() => ({ prescription: null })),
         ]);
         setVisitView(buildClinicVisitView(data));
-        setSignedRx(rxs.find((r) => r.status === "SIGNED" && r.snapshot) ?? null);
+        setSignedRx(rxs.prescription?.snapshot ? rxs.prescription : null);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -98,7 +100,15 @@ export default function PrescriptionPrintPage() {
               </button>
             ))}
           </div>
-          <Button onClick={() => window.print()}>Print Prescription</Button>
+          <Button
+            onClick={() => {
+              // Print turns green on Finalized OP/IP and Patient 360.
+              void rxRecords.markPrinted(signedRx.id).catch(() => {});
+              window.print();
+            }}
+          >
+            Print Prescription
+          </Button>
         </div>
         <RxLetterpad
           profile={profile}

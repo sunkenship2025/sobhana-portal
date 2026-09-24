@@ -168,7 +168,7 @@ const ownerNavItems: NavItem[] = [
 // between them is enforced elsewhere: Lab Incharge can finalize reports (and
 // sees more Admin config tabs) while Staff cannot.
 /**
- * The doctor's nav. TWO items, on purpose.
+ * The doctor's nav. Queue, patients, and their own profile — on purpose.
  *
  * Everything else an owner sees — money, payouts, audit, catalogue, campaigns,
  * config — is not merely hidden here; the routes refuse the role. Unsigned
@@ -190,6 +190,14 @@ const doctorNavItems: NavItem[] = [
     href: '/doctor/patients',
     roles: ['doctor', 'owner'],
     matchPrefixes: ['/doctor/patients'],
+  },
+  {
+    // Details, signature, letterhead note, password. Doctors only — an owner has
+    // no consulting-doctor record of their own.
+    label: 'My profile',
+    icon: UserRound,
+    href: '/doctor/account',
+    roles: ['doctor'],
   },
 ];
 

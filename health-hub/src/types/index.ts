@@ -583,6 +583,8 @@ export interface VisitTimelineItem {
   visitType?: VisitType; // Only for CLINIC domain
   status: string; // DiagnosticVisitStatus or ClinicVisitStatus
   doctorName?: string; // Clinic doctor name (for clinic visits)
+  /** Clinic visits: the prescription's state — signed / draft / printed / sent. */
+  prescription?: import('@/lib/rxRecords').RxSummary | null;
   totalAmountInPaise: number;
   transactions?: PaymentTransaction[];
   paymentType?: PaymentType | null; // For legacy fallback

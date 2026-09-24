@@ -106,7 +106,7 @@ export function VisitRow({
             </p>
           )}
 
-          {/* Chips: payment · report · abnormal · cancelled */}
+          {/* Chips: payment · report · prescription · abnormal · cancelled */}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {isCancelled ? (
               <StatusChip kind="cancelled" />
@@ -121,6 +121,7 @@ export function VisitRow({
               )
             )}
             <StatusChip kind="report" value={item.reportState} />
+            {!isDiagnostic && <StatusChip kind="rx" value={item.prescription ?? null} />}
             <StatusChip kind="abnormal" value={item.hasAbnormalResults === true} />
             <span className="text-sm font-semibold">
               {formatCurrency(item.totalAmountInPaise)}

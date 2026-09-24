@@ -35,6 +35,15 @@ router.get('/:token', async (req, res) => {
       });
     }
 
+    // Staff switched this visit's online access off — the same switch that holds
+    // back the report link. Say where to collect it instead.
+    if (rx.visit.patientLinkDisabledAt) {
+      return res.status(403).json({
+        error: 'COLLECT_AT_CENTRE',
+        message: `Please collect your prescription at ${rx.visit.branch.name}.`,
+      });
+    }
+
     await recordPrescriptionAccess(raw, req.ip);
 
     res.setHeader('Cache-Control', 'no-store');

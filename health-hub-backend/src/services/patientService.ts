@@ -1,4 +1,5 @@
 import { PrismaClient, IdentifierType, PatientChangeType, Prisma, BillDiscountType, PaymentStatus, PaymentType, ReportStatus, VisitStatus, VisitDomain, DiagnosticWorkflowMode } from '@prisma/client';
+import { rxSummaries } from './prescriptionRecords';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError, ConflictError, NotFoundError } from '../utils/errors';
@@ -1185,6 +1186,11 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
     }
   }
 
+  // Query 3b — the prescription side of each clinic visit (signed / draft /
+  // printed / sent / closed without one). Batched for the page.
+  const clinicIds = page.filter((v) => v.domain === 'CLINIC').map((v) => v.id);
+  const rxByVisit = await rxSummaries(clinicIds);
+
   // Query 4 (conditional) — original-visit map for clinic revisits.
   const originalVisitIds = page
     .map((v) => v.clinicVisit?.originalVisitId)
@@ -1314,6 +1320,7 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       item.completedAt = visit.clinicVisit.completedAt;
       item.isRevisit = visit.clinicVisit.isRevisit;
       item.originalVisitId = visit.clinicVisit.originalVisitId;
+      item.prescription = rxByVisit.get(visit.id) ?? null;
 
       if (visit.clinicVisit.originalVisitId) {
         const original = originalVisitMap.get(visit.clinicVisit.originalVisitId);

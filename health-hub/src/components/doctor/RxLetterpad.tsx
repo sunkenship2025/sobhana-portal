@@ -42,6 +42,16 @@ export interface LetterpadProps {
   className?: string;
 }
 
+/** "at 11:40 am" on the same day as the correction, "on 23 Sept 2026, 11:40 am" otherwise. */
+function issuedAt(previous: string, current: string): string {
+  const p = new Date(previous);
+  const day = (d: Date) => d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+  const time = p.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  return day(p) === day(new Date(current))
+    ? `at ${time}`
+    : `on ${p.toLocaleDateString('en-IN', { dateStyle: 'medium', timeZone: 'Asia/Kolkata' })}, ${time}`;
+}
+
 const field = (label: string, value: string | null | undefined) => (
   <div className="flex gap-1.5">
     <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
@@ -225,6 +235,13 @@ export function RxLetterpad({
           {signed && snapshot && (
             <p className="mt-0.5 text-[10px] text-slate-500">
               Digitally signed · {new Date(snapshot.signedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          )}
+          {/* A correction says what it replaces, so a pharmacist holding an older
+              printout can tell which one is current. */}
+          {signed && snapshot?.revises && (
+            <p className="text-[10px] text-slate-500">
+              Revised · replaces the one issued {issuedAt(snapshot.revises.signedAt, snapshot.signedAt)}
             </p>
           )}
         </div>

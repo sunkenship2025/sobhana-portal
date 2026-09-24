@@ -11,7 +11,7 @@
  * flows. Fast here comes from typing less, never from reviewing less.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,8 +21,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
-  Mic, Square, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check, Send,
+  Mic, Square, Loader2, ArrowLeft, RotateCcw, AlertTriangle, Printer, Check, Send, PenLine, Trash2,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useConfirm } from '@/hooks/use-confirm';
+import { useAuthStore } from '@/store/authStore';
+import { rxRecords } from '@/lib/rxRecords';
 import { cn } from '@/lib/utils';
 import { RxItemEditor } from '@/components/doctor/RxItemEditor';
 import { MedicineTypeahead } from '@/components/doctor/MedicineTypeahead';
@@ -102,13 +106,19 @@ export default function Consultation() {
   const signed = rx?.status === 'SIGNED';
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState<number | null>(null);
+  const isDoctor = useAuthStore((st) => st.user?.role === 'doctor');
+  const { confirm, ConfirmDialog } = useConfirm();
+  /** "Correct…" on a signed prescription: the reason being typed, or null. */
+  const [correctReason, setCorrectReason] = useState<string | null>(null);
+  /** "Done, no prescription" pressed while a draft exists. */
+  const [closingWithDraft, setClosingWithDraft] = useState(false);
 
   /** Send the patient their link. Never fired automatically — see the button. */
   const doSend = useCallback(async () => {
     if (!rx) return;
     setSending(true);
     try {
-      const r = await doctorApi.send(rx.id);
+      const r = await rxRecords.send(rx.id);
       if (r.sent?.success) {
         setSentAt(Date.now());
         toast.success('Prescription sent to the patient on WhatsApp');
@@ -401,16 +411,76 @@ export default function Consultation() {
     [rx, navigate, save],
   );
 
-  const finishWithout = useCallback(async () => {
+  const closeVisit = useCallback(async (message: string) => {
     if (!visitId) return;
     try {
       await doctorApi.setVisitStatus(visitId, 'COMPLETED');
-      toast.success('Consultation closed without a prescription');
+      toast.success(message);
       navigate('/doctor');
     } catch {
       toast.error('Could not close the visit');
     }
   }, [visitId, navigate]);
+
+  // "Done, no prescription" with a draft already written asks what to do with it
+  // — signing it, throwing it away, and keeping it are all reasonable, and only
+  // the doctor knows which.
+  const finishWithout = useCallback(async () => {
+    if (rx?.status === 'DRAFT') { setClosingWithDraft(true); return; }
+    await closeVisit('Consultation closed without a prescription');
+  }, [rx, closeVisit]);
+
+  /** Start over on this visit after a draft is thrown away. */
+  const resetComposer = useCallback(() => {
+    setRx(null); setItems([]); setHeard(''); setDiagnosis(''); setNotes(''); setFollowUpDays('');
+    setFindings([]); setMissing([]); setReview(false); setAttested(false); setInspectId(null);
+  }, []);
+
+  const discard = useCallback(async (opts: { ask: boolean }) => {
+    if (!rx || rx.status !== 'DRAFT') return false;
+    const correction = !!rx.previousVersionId;
+    if (opts.ask) {
+      const ok = await confirm({
+        title: correction ? 'Discard this correction?' : 'Discard this draft?',
+        description: correction
+          ? 'The correction is thrown away. The version you signed before stays exactly as it is.'
+          : 'This prescription and its recording are thrown away. It cannot be undone.',
+        confirmText: 'Discard',
+        destructive: true,
+      });
+      if (!ok) return false;
+    }
+    try {
+      await doctorApi.discard(rx.id);
+      toast.success(correction ? 'Correction discarded' : 'Draft discarded');
+      resetComposer();
+      await load();
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not discard the draft');
+      return false;
+    }
+  }, [rx, confirm, resetComposer, load]);
+
+  // A signed prescription is corrected by a new version, never edited. The old
+  // one stays the patient's until this one is signed.
+  const openCorrection = useCallback(async () => {
+    if (!rx || !correctReason || correctReason.trim().length < 3) return;
+    try {
+      const next = await doctorApi.amend(rx.id, correctReason.trim());
+      setCorrectReason(null);
+      setRx(next);
+      setItems(next.items);
+      setDiagnosis(next.diagnosis ?? '');
+      setNotes(next.notes ?? '');
+      setFollowUpDays(next.followUpDays != null ? String(next.followUpDays) : '');
+      setReview(false);
+      setAttested(false);
+      toast.success(`Correcting v${next.version - 1}. The patient keeps it until you sign this one.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not open a correction');
+    }
+  }, [rx, correctReason]);
 
   const blocking = useMemo(() => findings.filter((f) => f.severity !== 'NOTE'), [findings]);
   // Gate on the QUEUE, not only on the validator: the point of the queue is that
@@ -490,7 +560,10 @@ export default function Consultation() {
             </div>
             {signed && (
               <>
-                <Button variant="outline" size="sm" onClick={() => window.print()}>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={() => { if (rx) void rxRecords.markPrinted(rx.id).catch(() => {}); window.print(); }}
+                >
                   <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" />
                   Print
                 </Button>
@@ -557,7 +630,12 @@ export default function Consultation() {
             <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3 sm:p-4">
               {/* The attestation is the prescriber's to make. Anyone else sees why
                   they cannot sign instead of a box that says "I am prescribing". */}
-              {signBlock ? (
+              {signBlock && isDoctor && ctx.signing?.code === 'NO_SIGNATURE' ? (
+                <p className="max-w-md text-sm text-amber-700">
+                  You haven&apos;t added your signature yet, so this can&apos;t be signed. It&apos;s saved as a draft.{' '}
+                  <Link to="/doctor/account" className="font-medium underline underline-offset-2">Add it in My profile →</Link>
+                </p>
+              ) : signBlock ? (
                 <p className="max-w-md text-sm text-amber-700">{signBlock}</p>
               ) : (
                 <label className="flex max-w-md items-start gap-2.5 text-sm">
@@ -586,11 +664,36 @@ export default function Consultation() {
           )}
 
           {signed && (
-            <p className="text-center text-xs text-muted-foreground">
-              This prescription is final. Corrections create a new revision with a reason.
-            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
+              <span>This prescription is final. A correction is a new version, with a reason.</span>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setCorrectReason('')}>
+                <PenLine className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Correct…
+              </Button>
+            </div>
           )}
         </div>
+        <Dialog open={correctReason !== null} onOpenChange={(o) => { if (!o) setCorrectReason(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Correct this prescription</DialogTitle>
+              <DialogDescription>
+                A new version opens for you to edit and sign. Until you sign it, the patient&apos;s link and every
+                printout stay on this one.
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              value={correctReason ?? ''}
+              onChange={(e) => setCorrectReason(e.target.value)}
+              rows={3}
+              placeholder="Why — e.g. wrong dose on Augmentin"
+              aria-label="Reason for the correction"
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCorrectReason(null)}>Cancel</Button>
+              <Button disabled={(correctReason ?? '').trim().length < 3} onClick={() => void openCorrection()}>Open correction</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AppLayout>
     );
   }
@@ -618,6 +721,11 @@ export default function Consultation() {
             Draft — not signed
           </Badge>
         </div>
+        {rx?.status === 'DRAFT' && rx.previousVersionId && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Correcting v{rx.version - 1}{rx.revisionReason ? ` — “${rx.revisionReason}”` : ''}. The patient keeps v{rx.version - 1} until you sign this one.
+          </p>
+        )}
 
         {/* Patient context narrow on the left, the prescription wide on the right —
             the wireframe's proportions. At 0.9fr / 1.1fr the history panel took
@@ -831,6 +939,12 @@ export default function Consultation() {
               <Button variant="ghost" size="sm" onClick={() => void finishWithout()}>
                 Done, no prescription
               </Button>
+              {rx?.status === 'DRAFT' && (
+                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => void discard({ ask: true })}>
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  {rx.previousVersionId ? 'Discard correction' : 'Discard draft'}
+                </Button>
+              )}
               <div className="ml-auto flex items-center gap-2">
                 {/* Said out loud, not hidden in a tooltip on a disabled button:
                     how many answers stand between this draft and a signature. */}
@@ -855,6 +969,33 @@ export default function Consultation() {
           </div>
         </div>
       </div>
+      <Dialog open={closingWithDraft} onOpenChange={setClosingWithDraft}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>You have an unsigned prescription for this patient</DialogTitle>
+            <DialogDescription>
+              {items.length} medicine{items.length === 1 ? '' : 's'} written but not signed. What should happen to it?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => { setClosingWithDraft(false); void closeVisit('Visit closed — the draft is kept'); }}>
+              Keep the draft and close
+            </Button>
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              onClick={async () => {
+                setClosingWithDraft(false);
+                if (await discard({ ask: false })) await closeVisit('Consultation closed without a prescription');
+              }}
+            >
+              Discard and close
+            </Button>
+            <Button onClick={() => { setClosingWithDraft(false); void openReview(); }}>Review &amp; sign</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialog}
     </AppLayout>
   );
 }

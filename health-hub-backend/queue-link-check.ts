@@ -74,7 +74,7 @@ const assert = (label: string, cond: boolean, detail = '') => {
     await page.evaluate((id: string) => localStorage.setItem('branch-storage',
       JSON.stringify({ state: { branches: [], activeBranchId: id }, version: 0 })), rx.branchId);
     await page.goto(`${FE}/clinic/queue`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await settle('Prescription draft');
+    await settle('Rx draft');
     // The row is the smallest element holding both the bill number and a Mark Done button.
     const rowText = await page.evaluate((b: string) => {
       const rows = [...document.querySelectorAll('div')].filter((d) =>
@@ -82,7 +82,7 @@ const assert = (label: string, cond: boolean, detail = '') => {
       const row = rows.sort((a, z) => a.textContent!.length - z.textContent!.length)[0];
       return row?.textContent ?? '';
     }, bill);
-    assert('the row shows "Prescription draft"', rowText.includes('Prescription draft'), rowText.slice(0, 200));
+    assert('the row shows "Rx draft · not signed"', rowText.includes('Rx draft'), rowText.slice(0, 200));
     assert('the row shows when the consultation started', /with the doctor since \d{1,2}:\d{2}/i.test(rowText), rowText.slice(0, 200));
     await page.screenshot({ path: '/tmp/claude-501/queue-link-row.png' });
 
@@ -129,10 +129,10 @@ const assert = (label: string, cond: boolean, detail = '') => {
       followUpDays: 5, signedAt: snapshot.signedAt, snapshot, items: [item] }];
     await page.setRequestInterception(true);
     page.on('request', (req) => {
-      if (/\/prescriptions\?visitId=/.test(req.url()) && req.method() === 'GET') {
+      if (/\/prescription-records\/visit\//.test(req.url()) && req.method() === 'GET') {
         // Cross-origin (the API is its own host), so the headers must name the page's
         // origin and allow credentials, or the browser drops the response.
-        req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(signed),
+        req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: null, prescription: signed[0] }),
           headers: { 'Access-Control-Allow-Origin': req.headers().origin ?? new URL(FE).origin, 'Access-Control-Allow-Credentials': 'true' } });
       } else req.continue();
     });

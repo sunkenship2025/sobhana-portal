@@ -5799,8 +5799,9 @@ router.post(
         });
       }
 
+      // Clinic visits too: the same switch holds back a prescription link.
       const visit = await prisma.visit.findFirst({
-        where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+        where: { id, branchId: req.branchId, domain: { in: ["DIAGNOSTICS", "CLINIC"] } },
         select: {
           id: true,
           branchId: true,
@@ -5814,7 +5815,7 @@ router.post(
       if (!visit) {
         return res.status(404).json({
           error: "NOT_FOUND",
-          message: "Diagnostic visit not found",
+          message: "Visit not found",
         });
       }
 

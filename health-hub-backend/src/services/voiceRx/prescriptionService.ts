@@ -1,7 +1,12 @@
 /**
  * Prescription lifecycle — the state machine, enforced here rather than in the UI.
  *
- * DRAFT --sign--> SIGNED --amend--> (old: SUPERSEDED, new: DRAFT --sign--> SIGNED)
+ * DRAFT --sign--> SIGNED --amend--> new DRAFT (old stays SIGNED) --sign--> old SUPERSEDED
+ *
+ * A correction does not retire the old version when it is STARTED, only when the
+ * new one is signed. Until then the patient's link, the staff print and the
+ * doctor's history all keep showing what was actually signed — a half-written
+ * correction is not a prescription. There is at most one SIGNED row per root.
  *
  * The safety rule from PART 29 of the brief is a SERVER rule: an AI draft can
  * never reach a patient. `sign()` is the only path to SIGNED, it refuses while the
@@ -58,6 +63,8 @@ export interface PrescriptionSnapshot {
   visit: { id: string; visitType: string | null; tokenNumber: number | null; date: string };
   signedAt: string;
   signedByUserId: string | null;
+  /** Set on a correction: the version it replaces, printed as "Revised · replaces…". */
+  revises?: { version: number; signedAt: string } | null;
 }
 
 /** Age the way a clinician reads it — days for a newborn, months for an infant. */
@@ -518,6 +525,7 @@ export async function sign(
     where: { id, deletedAt: null },
     select: {
       id: true, status: true, branchId: true, visitId: true, clinicDoctorId: true,
+      rootId: true, previousVersionId: true,
       transcript: true,
       items: { select: ITEM_SELECT },
     },
@@ -557,7 +565,7 @@ export async function sign(
     );
   }
 
-  const [doctor, visit] = await Promise.all([
+  const [doctor, visit, previous] = await Promise.all([
     prisma.clinicDoctor.findUnique({
       where: { id: rx.clinicDoctorId },
       select: {
@@ -580,6 +588,9 @@ export async function sign(
         clinicVisit: { select: { visitType: true, tokenNumber: true } },
       },
     }),
+    rx.previousVersionId
+      ? prisma.prescription.findUnique({ where: { id: rx.previousVersionId }, select: { version: true, signedAt: true } })
+      : null,
   ]);
 
   if (!doctor) throw new PrescriptionStateError('Consulting doctor not found');
@@ -617,17 +628,26 @@ export async function sign(
     },
     signedAt: signedAt.toISOString(),
     signedByUserId: userId,
+    revises: previous?.signedAt ? { version: previous.version, signedAt: previous.signedAt.toISOString() } : null,
   };
 
-  await prisma.prescription.update({
-    where: { id },
-    data: {
-      status: 'SIGNED',
-      signedAt,
-      signedByUserId: userId,
-      snapshot: snapshot as unknown as Prisma.InputJsonValue,
-    },
-  });
+  await prisma.$transaction([
+    prisma.prescription.update({
+      where: { id },
+      data: {
+        status: 'SIGNED',
+        signedAt,
+        signedByUserId: userId,
+        snapshot: snapshot as unknown as Prisma.InputJsonValue,
+      },
+    }),
+    // A signed correction is the moment the old version stops being the
+    // prescription — not when the correction was opened. See the header.
+    prisma.prescription.updateMany({
+      where: { rootId: rx.rootId, status: 'SIGNED', id: { not: id } },
+      data: { status: 'SUPERSEDED', isLatest: false },
+    }),
+  ]);
 
   await logAction({
     branchId: rx.branchId,
@@ -693,9 +713,15 @@ export async function amend(id: string, userId: string, reason: string) {
   });
   if (!old) throw new PrescriptionStateError('Prescription not found');
   if (old.status !== 'SIGNED') throw new PrescriptionStateError('Only a signed prescription is revised; edit the draft instead');
+  const open = await prisma.prescription.findFirst({
+    where: { rootId: old.rootId, status: 'DRAFT', deletedAt: null }, select: { id: true },
+  });
+  if (open) throw new PrescriptionStateError('A correction is already open for this prescription');
 
   const next = await prisma.$transaction(async (tx) => {
-    await tx.prescription.update({ where: { id: old.id }, data: { status: 'SUPERSEDED', isLatest: false } });
+    // The old version stays SIGNED — it is still the prescription until the
+    // correction is signed. It only stops being the latest row of its root.
+    await tx.prescription.update({ where: { id: old.id }, data: { isLatest: false } });
 
     return tx.prescription.create({
       data: {
@@ -769,8 +795,76 @@ export async function amend(id: string, userId: string, reason: string) {
 // Queries
 // ---------------------------------------------------------------------------
 
+/**
+ * Throw away an unsigned draft (soft). A signed prescription is never deleted —
+ * it is superseded. Discarding a CORRECTION hands "latest" back to the signed
+ * version it was correcting, which never stopped being the prescription.
+ *
+ * The recording goes too, unless another row still points at it: a correction
+ * is opened with its original's audio key, and that one is signed and kept.
+ */
+export async function discardDraft(id: string, userId: string | null, why: 'discarded' | 'abandoned' = 'discarded') {
+  const rx = await prisma.prescription.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, status: true, branchId: true, audioKey: true, previousVersionId: true },
+  });
+  if (!rx) throw new PrescriptionStateError('Prescription not found');
+  if (rx.status !== 'DRAFT') throw new PrescriptionStateError('A signed prescription cannot be deleted');
+
+  await prisma.$transaction([
+    prisma.prescription.update({ where: { id }, data: { deletedAt: new Date(), isLatest: false } }),
+    ...(rx.previousVersionId
+      ? [prisma.prescription.updateMany({ where: { id: rx.previousVersionId, status: 'SIGNED' }, data: { isLatest: true } })]
+      : []),
+  ]);
+
+  if (rx.audioKey) {
+    const shared = await prisma.prescription.count({ where: { audioKey: rx.audioKey, deletedAt: null } });
+    if (shared === 0) {
+      const { deleteObject } = await import('../r2StorageService');
+      deleteObject(rx.audioKey).catch((err) => logger.error({ err }, 'prescriptions: audio delete failed'));
+    }
+  }
+
+  await logAction({
+    branchId: rx.branchId,
+    actionType: 'DELETE',
+    entityType: 'Prescription',
+    entityId: id,
+    userId: userId ?? undefined,
+    oldValues: { status: rx.status },
+    newValues: { why },
+  });
+}
+
+/** A draft nobody has touched for a week, on a visit that is already over. */
+const ABANDONED_AFTER_MS = 7 * 86_400_000;
+
+/**
+ * Clear abandoned drafts. Run when a doctor opens their queue rather than on a
+ * timer: a 5-minute sweep is what kept Neon awake, and nobody sees the drafts
+ * list except through this screen. Only CLOSED visits — a patient still with the
+ * doctor never loses their draft, however long it has sat.
+ */
+async function clearAbandonedDrafts() {
+  const stale = await prisma.prescription.findMany({
+    where: {
+      status: 'DRAFT', deletedAt: null,
+      updatedAt: { lt: new Date(Date.now() - ABANDONED_AFTER_MS) },
+      OR: [
+        { visit: { status: 'CANCELLED' } },
+        { visit: { clinicVisit: { status: 'COMPLETED' } } },
+      ],
+    },
+    select: { id: true },
+    take: 50,
+  });
+  for (const d of stale) await discardDraft(d.id, null, 'abandoned').catch(() => {});
+}
+
 /** Unsigned drafts for a doctor — the amber strip on the queue. */
 export async function listDrafts(clinicDoctorId: string, branchId: string) {
+  await clearAbandonedDrafts().catch((err) => logger.error({ err }, 'prescriptions: abandoned-draft sweep failed'));
   return prisma.prescription.findMany({
     where: { clinicDoctorId, branchId, status: 'DRAFT', deletedAt: null },
     orderBy: { createdAt: 'asc' },
@@ -799,7 +893,7 @@ export async function listForVisit(visitId: string) {
 /** Signed prescription history for a patient — the doctor's clinical context. */
 export async function listForPatient(patientId: string, limit = 20) {
   return prisma.prescription.findMany({
-    where: { visit: { patientId }, status: 'SIGNED', isLatest: true, deletedAt: null },
+    where: { visit: { patientId }, status: 'SIGNED', deletedAt: null },
     orderBy: { signedAt: 'desc' },
     take: limit,
     select: {
