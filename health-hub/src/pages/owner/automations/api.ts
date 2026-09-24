@@ -183,6 +183,13 @@ export interface Results {
   kind?: 'JOURNEY';
   version: number; windowDays: number;
   goal: AutomationDefinition['goal'];
+  steps: Step[];
+  /** One per ASK step: what came back, per button, in patients. */
+  asks: {
+    stepIndex: number; template: string; asked: number;
+    answers: { label: string; count: number }[]; typed: number; noReply: number;
+  }[];
+  offer: { sent: number; used: number; refunded: number; expiredUnused: number; stillUsable: number };
   counts: {
     runs: number; uniquePatients: number; treated: number; held: number;
     /** Patients, not messages. */

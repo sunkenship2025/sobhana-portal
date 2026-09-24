@@ -13,6 +13,7 @@
  */
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { Outcome, type AutomationDefinition } from './types';
 
 const STOP_WORDS = /^\s*(stop|unsubscribe|opt\s*out)\b/i;
 const START_WORDS = /^\s*(start|resume|subscribe)\b/i;
@@ -138,6 +139,26 @@ export async function resolveInbound(
     where: { phone, automationRunId: slot.automationRunId },
   });
   if (claimed.count !== 1) return result;
+
+  // Write the answer down. The jump below moves the run and leaves no trace of why, so
+  // "how many tapped Get my code" had no row to be counted from. The label is the one
+  // the question's own step defines; a typed keyword is filed under the button it
+  // stands in for, and anything unmatched under null.
+  const asking = await prisma.automationRun.findUnique({
+    where: { id: slot.automationRunId },
+    select: { stepIndex: true, definition: true },
+  });
+  const step = (asking?.definition as unknown as AutomationDefinition | null)?.steps[asking!.stepIndex];
+  if (step?.kind === 'ASK') {
+    const answer = destination === null ? null
+      : step.buttons.find((b) => b.payload === buttonPayload)?.label
+        ?? step.buttons.find((b) => b.goTo === destination)?.label
+        ?? String(destination);
+    // The line is already released, so a failed write must not also lose the tap.
+    await prisma.automationStepLog.create({
+      data: { runId: slot.automationRunId, stepIndex: asking!.stepIndex, kind: 'ASK', outcome: Outcome.REPLIED, detail: { answer } },
+    }).catch((e) => logger.warn(`[automations] reply not recorded for ${slot.automationRunId}: ${e.message}`));
+  }
 
   const live = { id: slot.automationRunId, state: { in: ['PENDING', 'RUNNING'] } };
 

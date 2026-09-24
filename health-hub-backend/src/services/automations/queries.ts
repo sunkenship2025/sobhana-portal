@@ -7,7 +7,7 @@
  * guessed, because a made-up cost inside a profit total is worse than no total.
  */
 import prisma from '../../lib/prisma';
-import type { AutomationDefinition } from './types';
+import { Outcome, type AutomationDefinition, type Step } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -109,6 +109,39 @@ export function journeyFunnel(runs: FunnelRun[], messages: Map<string, RunMessag
   return f;
 }
 
+export interface AskLog {
+  runId: string;
+  stepIndex: number;
+  outcome: string;
+  detail: unknown;
+}
+
+/**
+ * Every question the journey asks, and what came back, per button as the step labels
+ * it. Counted in patients from the step log, so it holds for any ASK on any journey —
+ * "Get my code" is just the label one of them happens to use.
+ */
+export function askAnswers(steps: Step[], logs: AskLog[]) {
+  return steps.flatMap((step, stepIndex) => {
+    if (step.kind !== 'ASK') return [];
+    const mine = logs.filter((l) => l.stepIndex === stepIndex);
+    const patients = (rows: AskLog[]) => new Set(rows.map((l) => l.runId)).size;
+    const replies = mine.filter((l) => l.outcome === Outcome.REPLIED);
+    const said = (answer: string | null) => patients(replies.filter(
+      (l) => ((l.detail as { answer?: string | null } | null)?.answer ?? null) === answer,
+    ));
+    return [{
+      stepIndex,
+      template: step.template,
+      asked: patients(mine.filter((l) => l.outcome === Outcome.ASKED)),
+      answers: step.buttons.map((b) => ({ label: b.label, count: said(b.label) })),
+      /** Replied, but matched no button and no keyword — handed to a person. */
+      typed: said(null),
+      noReply: patients(mine.filter((l) => l.outcome === Outcome.NO_REPLY)),
+    }];
+  });
+}
+
 /**
  * The funnel, the skip breakdown, and the lift.
  *
@@ -146,7 +179,7 @@ export async function automationResults(automationId: string) {
   const held = journeys.filter((r) => r.holdout);
 
   const ids = runs.map((r) => r.id);
-  const [patientMessages, suppressed] = await Promise.all([
+  const [patientMessages, suppressed, askLogs, coupons] = await Promise.all([
     prisma.messageLog.findMany({
       where: { automationRunId: { in: ids }, patientId: { not: null }, status: { not: 'FAILED' } },
       select: { automationRunId: true, createdAt: true, deliveredAt: true, readAt: true },
@@ -155,6 +188,14 @@ export async function automationResults(automationId: string) {
       by: ['outcome'],
       where: { runId: { in: ids }, kind: { in: ['SUPPRESSED', 'DEFERRED'] } },
       _count: { _all: true },
+    }),
+    prisma.automationStepLog.findMany({
+      where: { runId: { in: ids }, kind: 'ASK' },
+      select: { runId: true, stepIndex: true, outcome: true, detail: true },
+    }),
+    prisma.coupon.findMany({
+      where: { automationRunId: { in: ids } },
+      select: { id: true, status: true, expiresAt: true },
     }),
   ]);
 
@@ -180,14 +221,13 @@ export async function automationResults(automationId: string) {
     (held.length ? (pH * (1 - pH)) / held.length : 0),
   );
 
-  const discountGiven = await prisma.coupon.aggregate({
-    where: { automationRunId: { in: ids }, status: 'REDEEMED' },
-    _count: { _all: true },
-  });
+  // A PENDING code was never confirmed sent and a VOID one died with its send; neither
+  // reached the patient.
+  const now = new Date();
+  const codes = coupons.filter((c) => c.status !== 'PENDING' && c.status !== 'VOID');
+  const used = codes.filter((c) => c.status === 'REDEEMED');
   const redeemedBills = await prisma.bill.aggregate({
-    where: { couponId: { in: (await prisma.coupon.findMany({
-      where: { automationRunId: { in: ids }, status: 'REDEEMED' }, select: { id: true },
-    })).map((c) => c.id) } },
+    where: { couponId: { in: used.map((c) => c.id) } },
     _sum: { couponDiscountInPaise: true },
   });
 
@@ -203,6 +243,18 @@ export async function automationResults(automationId: string) {
     windowDays: def.goal.windowDays,
     /** What counts as converted. The screen words it; it never assumes what it is. */
     goal: def.goal,
+    /** So the screen can name each question the way the builder does. */
+    steps: def.steps,
+    asks: askAnswers(def.steps, askLogs),
+    /** Codes this journey actually put in someone's hand, and what became of them. */
+    offer: {
+      sent: codes.length,
+      used: used.length,
+      /** Used, then the bill was cancelled or refunded — the discount came back. */
+      refunded: codes.filter((c) => c.status === 'REFUNDED').length,
+      expiredUnused: codes.filter((c) => c.status === 'EXPIRED' || (c.status === 'ISSUED' && c.expiresAt <= now)).length,
+      stillUsable: codes.filter((c) => c.status === 'ISSUED' && c.expiresAt > now).length,
+    },
     counts: {
       runs: runs.length,
       uniquePatients,
@@ -235,7 +287,7 @@ export async function automationResults(automationId: string) {
     },
     skipped: suppressed.map((s) => ({ reason: s.outcome, count: s._count._all })),
     money: {
-      couponsRedeemed: discountGiven._count._all,
+      couponsRedeemed: used.length,
       discountGivenInPaise: redeemedBills._sum.couponDiscountInPaise ?? 0,
       /** Estimated: lift × treated. Null without a control group — see `controlled`. */
       incrementalPatients: controlled ? Math.max(0, Math.round((pT - pH) * treated.length)) : null,

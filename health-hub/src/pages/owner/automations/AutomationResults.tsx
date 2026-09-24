@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Badge } from '@/components/ui/badge';
 import { getResults, listPredicates, reasonLabel, rupees, type ScheduledResults } from './api';
-import { describeCondition } from './describe';
+import { describeCondition, describeStep, dayOf } from './describe';
 
 function Bar({ pct, muted }: { pct: number; muted?: boolean }) {
   return (
@@ -72,13 +72,16 @@ export function AutomationResults({ automationId }: { automationId: string }) {
   // went out and whether any night has failed.
   if ('kind' in data && data.kind === 'SCHEDULE') return <Nights data={data} />;
 
-  const { counts, converted, rates, skipped, money, branchSplit, windowDays, goal } = data;
+  const { counts, converted, rates, skipped, money, branchSplit, windowDays, goal, steps, asks, offer } = data;
   const base = Math.max(1, counts.runs);
   const pct = (n: number) => (n / base) * 100;
   // The goal in the same words the builder uses. This page used to say "came in for
   // tests" whatever the journey was chasing.
-  const goalWords = describeCondition(goal.condition, predicateData?.predicates ?? []);
+  const catalog = predicateData?.predicates ?? [];
+  const goalWords = describeCondition(goal.condition, catalog);
   const controlled = counts.held > 0;
+  const hasOffer = offer.sent > 0 || steps.some((s) => s.kind === 'SEND' && s.issueOffer);
+  const share = (n: number, of: number) => `${Math.round((n / Math.max(1, of)) * 100)}%`;
 
   if (counts.runs === 0) {
     return (
@@ -136,6 +139,54 @@ export function AutomationResults({ automationId }: { automationId: string }) {
           )}
         </div>
       </section>
+
+      {/* Every question the journey asks, read from its own buttons — whatever they say. */}
+      {asks.map((q) => {
+        const answered = q.answers.reduce((n, a) => n + a.count, 0) + q.typed;
+        const waiting = Math.max(0, q.asked - answered - q.noReply);
+        const of = (n: number) => (n / Math.max(1, q.asked)) * 100;
+        return (
+          <section key={q.stepIndex}>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Answers · {dayOf(steps, q.stepIndex)}
+            </p>
+            <div className="rounded-lg border bg-card">
+              <Stage label="Asked" sub={describeStep(steps[q.stepIndex], catalog)} n={q.asked} pct={q.asked ? 100 : 0} />
+              {q.answers.map((a) => (
+                <Stage key={a.label} label={`Tapped “${a.label}”`} n={a.count} pct={of(a.count)}
+                  note={share(a.count, q.asked)} />
+              ))}
+              {q.typed > 0 && (
+                <Stage label="Replied with something else" sub="matched no button"
+                  n={q.typed} pct={of(q.typed)} note={share(q.typed, q.asked)} />
+              )}
+              <Stage label="Never answered" n={q.noReply} pct={of(q.noReply)} muted />
+              {waiting > 0 && (
+                <Stage label="Waiting for an answer" sub="the question is still open" n={waiting} pct={of(waiting)} muted />
+              )}
+            </div>
+          </section>
+        );
+      })}
+
+      {hasOffer && (
+        <section>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Offer</p>
+          <div className="rounded-lg border bg-card">
+            <Stage label="Codes sent" n={offer.sent} pct={offer.sent ? 100 : 0} />
+            <Stage label="Used at a bill" sub={`− ${rupees(money.discountGivenInPaise)} discount`}
+              n={offer.used} pct={(offer.used / Math.max(1, offer.sent)) * 100} note={share(offer.used, offer.sent)} />
+            {offer.refunded > 0 && (
+              <Stage label="Used, then refunded" sub="the discount came back"
+                n={offer.refunded} pct={(offer.refunded / Math.max(1, offer.sent)) * 100} muted />
+            )}
+            <Stage label="Expired unused" n={offer.expiredUnused}
+              pct={(offer.expiredUnused / Math.max(1, offer.sent)) * 100} muted />
+            <Stage label="Still usable" n={offer.stillUsable}
+              pct={(offer.stillUsable / Math.max(1, offer.sent)) * 100} muted />
+          </div>
+        </section>
+      )}
 
       {skipped.length > 0 && (
         <section>

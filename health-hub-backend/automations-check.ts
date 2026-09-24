@@ -10,7 +10,7 @@ import { memoryContext, type VisitFacts } from './src/services/automations/conte
 import { evaluate, predicates, UnitMismatch, type Subject } from './src/services/automations/predicates';
 import { communicationPolicy } from './src/services/automations/policy';
 import { isHeldOut } from './src/services/automations/engine';
-import { journeyFunnel, type FunnelRun, type RunMessages } from './src/services/automations/queries';
+import { journeyFunnel, askAnswers, type FunnelRun, type RunMessages } from './src/services/automations/queries';
 import { simulate } from './src/services/automations/preview';
 import { resolveDiscounts } from './src/services/automations/discounts';
 import { STEP_CATALOG, validateDefinition } from './src/services/automations/steps';
@@ -1119,6 +1119,30 @@ async function main() {
     assert.strictEqual(f.waiting, 1, 'a run not yet due is waiting, not dropped');
     assert.strictEqual(f.treatedConverted, 2, 'intent-to-treat keeps the walk-in in its arm');
     assert.strictEqual(f.heldConverted, 1);
+  });
+
+  // Taps were never written down — the reply moved the run and left no row — so nobody
+  // could say how many asked for the code. Counted per button, as the step labels it.
+  await check('results: answers are counted per button, in patients', () => {
+    const steps: Step[] = [
+      { kind: 'WAIT', anchor: 'TRIGGER', days: 2 },
+      { kind: 'ASK', template: 'offer_v1', intent: 'PROACTIVE', params: [], onUnmatched: 'HANDOFF',
+        buttons: [{ payload: 'GET_CODE', label: 'Get my code', goTo: 2 }, { payload: 'NO', label: 'Not now', goTo: 'STOP' }] },
+    ];
+    const log = (runId: string, outcome: string, answer?: string | null) =>
+      ({ runId, stepIndex: 1, outcome, detail: answer === undefined ? null : { answer } });
+    const [ask] = askAnswers(steps, [
+      log('a', 'ASKED'), log('a', 'REPLIED', 'Get my code'),
+      log('b', 'ASKED'), log('b', 'REPLIED', 'Get my code'), log('b', 'REPLIED', 'Get my code'), // tapped twice
+      log('c', 'ASKED'), log('c', 'REPLIED', 'Not now'),
+      log('d', 'ASKED'), log('d', 'REPLIED', null),
+      log('e', 'ASKED'), log('e', 'NO_REPLY'),
+      log('f', 'ASKED'),
+    ]);
+    assert.strictEqual(ask.asked, 6);
+    assert.deepStrictEqual(ask.answers, [{ label: 'Get my code', count: 2 }, { label: 'Not now', count: 1 }]);
+    assert.strictEqual(ask.typed, 1);
+    assert.strictEqual(ask.noReply, 1);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
