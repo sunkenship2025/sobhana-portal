@@ -67,6 +67,13 @@ const blankItem = (): RxItem => ({
   sourceText: null, sourceStart: null, sourceEnd: null,
 });
 
+const isAlt = (it: RxItem) => it.fieldStates?.isAlternative === true;
+/** Once one option of an "either X or Y" is left, it is simply prescribed. */
+const settleChoice = (list: RxItem[]) =>
+  list.filter(isAlt).length === 1
+    ? list.map((it) => (isAlt(it) ? { ...it, fieldStates: { ...(it.fieldStates ?? {}), isAlternative: false } } : it))
+    : list;
+
 export default function Consultation() {
   const { visitId } = useParams<{ visitId: string }>();
   const navigate = useNavigate();
@@ -348,7 +355,14 @@ export default function Consultation() {
   }, []);
 
   const removeItem = useCallback((idx: number) => {
-    setItems((cur) => cur.filter((_, i) => i !== idx));
+    setItems((cur) => settleChoice(cur.filter((_, i) => i !== idx)));
+  }, []);
+
+  // "Prescribe this one" on an either/or: keep it, drop the other options. Until
+  // then the choice blocks signing (ALTERNATIVES_UNRESOLVED) — it used to block
+  // it for good, because nothing on screen could clear the flag.
+  const chooseAlternative = useCallback((idx: number) => {
+    setItems((cur) => settleChoice(cur.filter((it, i) => i === idx || !isAlt(it))));
   }, []);
 
   const repeatLast = useCallback(() => {
@@ -620,6 +634,7 @@ export default function Consultation() {
                     setAttested(false);
                   }}
                   onRemove={() => { removeItem(inspectIdx); setInspectId(null); setAttested(false); }}
+                  onChoose={() => { chooseAlternative(inspectIdx); setInspectId(null); setAttested(false); }}
                 />
                 <Button variant="ghost" size="sm" onClick={() => setInspectId(null)}>Done</Button>
               </div>
@@ -863,6 +878,7 @@ export default function Consultation() {
                 findings={findings}
                 onChange={(patch) => patchItem(idx, patch)}
                 onRemove={() => removeItem(idx)}
+                onChoose={() => chooseAlternative(idx)}
               />
             ))}
 

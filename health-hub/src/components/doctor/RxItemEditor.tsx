@@ -43,6 +43,8 @@ interface Props {
   readOnly?: boolean;
   onChange: (patch: Partial<RxItem>) => void;
   onRemove: () => void;
+  /** "Either X or Y": prescribe this one and drop the other options. */
+  onChoose?: () => void;
 }
 
 const Label = ({ children }: { children: React.ReactNode }) => (
@@ -54,7 +56,7 @@ function NotStated() {
   return <span className="text-sm italic text-muted-foreground/70">not stated</span>;
 }
 
-export function RxItemEditor({ item, index, findings, readOnly, onChange, onRemove }: Props) {
+export function RxItemEditor({ item, index, findings, readOnly, onChange, onRemove, onChoose }: Props) {
   const [showSource, setShowSource] = useState(false);
   // Replacing the medicine is available at ANY time, not only while it is in
   // question. Before this, a card that had "decided" — Matched, or Your choice —
@@ -150,6 +152,11 @@ export function RxItemEditor({ item, index, findings, readOnly, onChange, onRemo
         {isAlternative && <Badge variant="destructive" className="h-5">One of a choice</Badge>}
 
         <span className="ml-auto flex gap-1">
+          {isAlternative && onChoose && !readOnly && (
+            <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={onChoose}>
+              Prescribe this one
+            </Button>
+          )}
           {item.sourceText && item.sourceStart != null && (
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setShowSource((s) => !s)}>
               <Quote className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
