@@ -98,7 +98,7 @@ async function loadClinicDoctor(userId: string) {
     select: {
       id: true, doctorNumber: true, name: true, qualification: true, specialty: true,
       registrationNumber: true, phone: true, email: true, letterheadNote: true,
-      signatureImageBase64: true, hprId: true,
+      signatureImageBase64: true, hprId: true, dictationLanguage: true,
     },
   });
 }
@@ -418,6 +418,8 @@ router.get('/visits/:visitId', async (req: AuthRequest, res) => {
       branch: visit.branch,
       doctor: visit.clinicVisit.clinicDoctor,
       signing: signing.ok ? { ok: true } : { ok: false, code: signing.code, reason: signing.reason },
+      // What the person at the screen dictates in — their own saved choice.
+      dictationLanguage: (await meAsDoctor(req))?.dictationLanguage ?? null,
       patient: {
         id: visit.patient.id,
         patientNumber: visit.patient.patientNumber,
@@ -651,6 +653,9 @@ router.patch('/me', async (req: AuthRequest, res) => {
     for (const k of OPTIONAL_TEXT) {
       if (body[k] === undefined) continue;
       data[k] = typeof body[k] === 'string' && body[k].trim() ? body[k].trim() : null;
+    }
+    if (body.dictationLanguage !== undefined) {
+      data.dictationLanguage = ['te', 'hi', 'en'].includes(String(body.dictationLanguage)) ? String(body.dictationLanguage) : null;
     }
     if (typeof body.signatureImageBase64 === 'string') data.signatureImageBase64 = body.signatureImageBase64;
     if (body.signatureImageBase64 === null) data.signatureImageBase64 = null;

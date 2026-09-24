@@ -28,6 +28,7 @@ import { useConfirm } from '@/hooks/use-confirm';
 import { useAuthStore } from '@/store/authStore';
 import { rxRecords } from '@/lib/rxRecords';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RxItemEditor } from '@/components/doctor/RxItemEditor';
 import { MedicineTypeahead } from '@/components/doctor/MedicineTypeahead';
 import { RxQuestionQueue } from '@/components/doctor/RxQuestionQueue';
@@ -36,6 +37,7 @@ import {
   doctorApi, DoctorApiError, itemSig, itemTitle, openQuestions,
   type Prescription, type RxItem, type Finding, type Capabilities, type ExtractedItem,
   type VisitContext, type ExtractionResponse,
+  type DictationLanguage, DICTATION_OPTIONS,
 } from '@/lib/doctorApi';
 
 /** Turn an extracted item into an editable row. */
@@ -119,6 +121,11 @@ export default function Consultation() {
   const [correctReason, setCorrectReason] = useState<string | null>(null);
   /** "Done, no prescription" pressed while a draft exists. */
   const [closingWithDraft, setClosingWithDraft] = useState(false);
+  /** What the doctor speaks — sent with every recording, saved to their profile. */
+  const [speech, setSpeech] = useState<DictationLanguage>('auto');
+  // The recorder's stop handler is created when recording starts; it reads this.
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
 
   /** Send the patient their link. Never fired automatically — see the button. */
   const doSend = useCallback(async () => {
@@ -159,6 +166,7 @@ export default function Consultation() {
       ]);
       setCtx(context);
       setCaps(capabilities);
+      if (context.dictationLanguage) setSpeech(context.dictationLanguage);
       const open = existing.find((p) => p.status === 'DRAFT') ?? existing[0] ?? null;
       if (open) {
         setRx(open);
@@ -296,7 +304,7 @@ export default function Consultation() {
         setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
         setThinking(true);
         try {
-          const result = await doctorApi.transcribe(blob);
+          const result = await doctorApi.transcribe(blob, { dictation: speechRef.current });
           setHeard(result.transcript.text);
           const n = await applyExtraction(result.extraction, {
             replaceDictated: false,
@@ -830,10 +838,28 @@ export default function Consultation() {
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {recording
-                      ? 'Speak naturally — English, Hindi or a mix. Press stop when done.'
+                      ? 'Speak naturally — medicine names as you say them, the rest in any language. Press stop when done.'
                       : 'Every line stays editable afterwards.'}
                   </p>
                 </div>
+                {caps?.voiceEnabled && !recording && (
+                  <Select
+                    value={speech}
+                    onValueChange={(v) => {
+                      const next = v as DictationLanguage;
+                      setSpeech(next);
+                      // Remembered for next time. An owner has no profile to save it to.
+                      if (isDoctor) void doctorApi.updateMe({ dictationLanguage: next === 'auto' ? null : next }).catch(() => {});
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-auto gap-1.5 text-xs" aria-label="Language you speak">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {DICTATION_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
                 {thinking && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />}
               </div>
 

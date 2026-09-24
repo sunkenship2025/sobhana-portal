@@ -175,15 +175,47 @@ export interface CreateDraftInput {
 }
 
 /**
+ * Match a dictated line against the catalogue. A name the extractor REPAIRED
+ * from a mishearing ("Set Scene 10" -> Cetzine) is never matched silently, even
+ * when the repair names a real medicine exactly: it comes back as a question
+ * with the repair offered first, so the doctor confirms it with one tap. Same
+ * rule as the resolver's own approximate tiers — a guess never decides a drug.
+ *
+ * Unless the repair changed nothing: when what was HEARD resolves, on its own,
+ * to the same medicine ("Pan 40" -> Pantoprazole 40, the clinic's shorthand),
+ * there was no guess to confirm.
+ */
+async function resolveLine(
+  spoken: string,
+  it: { strength?: string | null; dosageForm?: string | null; fieldStates?: unknown; spokenText?: string | null },
+) {
+  const opts = { strength: it.strength ?? null, dosageForm: it.dosageForm ?? null };
+  const r = await resolveMedication({ spoken, ...opts });
+  const repaired = (it.fieldStates as Record<string, unknown> | null | undefined)?.name === 'NORMALIZED';
+  if (repaired && r.resolution === 'RESOLVED' && r.match) {
+    const heard = (it.spokenText ?? '').trim();
+    if (heard && heard !== spoken) {
+      const asHeard = await resolveMedication({ spoken: heard, ...opts });
+      if (asHeard.resolution === 'RESOLVED' && asHeard.match?.medicationId === r.match.medicationId) return r;
+    }
+    const first = r.match;
+    return {
+      ...r,
+      resolution: 'UNRESOLVED' as const,
+      match: null,
+      candidates: [first, ...r.candidates.filter((c) => c.medicationId !== first.medicationId)],
+      askReason: 'NO_MATCH' as const,
+    };
+  }
+  return r;
+}
+
+/**
  * Resolve an extracted item against the catalog and shape it for storage.
  * The LLM's name goes to the resolver; the resolver's answer goes to the sheet.
  */
 async function buildItem(it: ExtractedItem, order: number): Promise<Prisma.PrescriptionItemCreateWithoutPrescriptionInput> {
-  const r = await resolveMedication({
-    spoken: it.name || it.spokenText,
-    strength: it.strength,
-    dosageForm: it.dosageForm,
-  });
+  const r = await resolveLine(it.name || it.spokenText, it);
 
   const matched = r.match;
   const freq = (it.frequencyCode ?? null) as FrequencyCode | null;
@@ -351,9 +383,7 @@ export async function updateDraft(
       if (it.id || it.resolution != null) return;
       const spoken = (it.canonicalName || it.spokenText || '').trim();
       if (!spoken) return;
-      fresh.set(i, await resolveMedication({
-        spoken, strength: it.strength ?? null, dosageForm: it.dosageForm ?? null,
-      }));
+      fresh.set(i, await resolveLine(spoken, it));
     }));
   }
 

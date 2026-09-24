@@ -78,7 +78,22 @@ export interface TranscribeOptions {
   language?: string;
   /** Override the provider's model for this call (Groq: the two Whisper sizes). */
   model?: string;
+  /**
+   * What the doctor speaks — "te" (Telugu + English), "hi" (Hindi + English),
+   * "en". Each recogniser maps it to whatever reads that speech best; an explicit
+   * `language` wins over it.
+   */
+  speech?: 'te' | 'hi' | 'en';
 }
+
+/**
+ * Whisper, measured on spoken Telugu–English and Hindi–English prescriptions
+ * (mixed-dictation-check.ts): told "te" or left to detect, it writes Telugu in
+ * Devanagari, Gurmukhi or Tamil script; told "en", it writes the Telugu in English
+ * letters and spells the brands best — names written right 14/15 against 12/15.
+ * Hindi reads best detected.
+ */
+const WHISPER_LANGUAGE: Record<'te' | 'hi' | 'en', string | undefined> = { te: 'en', hi: undefined, en: 'en' };
 
 export class AsrUnavailable extends Error {}
 
@@ -189,7 +204,8 @@ class GroqRecognizer implements SpeechRecognizer {
     // calling the real API with a real key. Every dictation would have failed.
     const prompt = fitPrompt(opts.prompt);
     if (prompt) form.append('prompt', prompt);
-    if (opts.language) form.append('language', opts.language);
+    const language = opts.language ?? (opts.speech ? WHISPER_LANGUAGE[opts.speech] : undefined);
+    if (language) form.append('language', language);
     return form;
     };
 
@@ -243,7 +259,8 @@ class SarvamRecognizer implements SpeechRecognizer {
       form.append('file', new Blob([new Uint8Array(audio)]), filename);
       form.append('model', this.model);
       // Saarika wants a locale ('te-IN'); callers pass the bare code ('te').
-      form.append('language_code', opts.language ? `${opts.language}-IN` : 'unknown');
+      const lang = opts.language ?? opts.speech;
+      form.append('language_code', lang ? `${lang}-IN` : 'unknown');
       const hint = fitPrompt(opts.prompt);
       if (hint) form.append('prompt', hint);
       form.append('with_timestamps', 'true');

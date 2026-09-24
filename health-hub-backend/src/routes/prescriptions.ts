@@ -196,7 +196,20 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     const language = ['te', 'hi', 'en'].includes(String(req.body?.language ?? '')) ? String(req.body.language) : undefined;
     // Which Whisper, when the caller asks: the full large-v3 is better on Indian
     // languages than the turbo default. Allow-listed; anything else is ignored.
-    const model = ['whisper-large-v3', 'whisper-large-v3-turbo'].includes(String(req.body?.model ?? '')) ? String(req.body.model) : undefined;
+    // Default: the full large-v3 — on Telugu–English and Hindi–English speech it
+    // writes more of what was said than turbo (mixed-dictation-check.ts), and
+    // costs cents a day at clinic volume. Asked for explicitly so a GROQ_STT_MODEL
+    // left on turbo cannot quietly undo that. (Sarvam ignores it.)
+    const model = ['whisper-large-v3', 'whisper-large-v3-turbo'].includes(String(req.body?.model ?? ''))
+      ? String(req.body.model) : 'whisper-large-v3';
+    // What the doctor speaks: sent by the dictation card, else their saved choice.
+    const asked = String(req.body?.dictation ?? '');
+    let choice = ['te', 'hi', 'en', 'auto'].includes(asked) ? asked : '';
+    if (!choice) {
+      const mine = await myClinicDoctorId(req.user!.id);
+      if (mine) choice = (await prisma.clinicDoctor.findUnique({ where: { id: mine }, select: { dictationLanguage: true } }))?.dictationLanguage ?? '';
+    }
+    const speech = ['te', 'hi', 'en'].includes(choice) ? (choice as 'te' | 'hi' | 'en') : undefined;
     // The clinic's own vocabulary as a decoder hint — the cheapest accuracy gain
     // available, and it targets exactly the tokens that matter.
     const hint = await buildAsrHint();
@@ -204,6 +217,7 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     const transcript = await transcribeWithFallback(req.file.buffer, req.file.originalname || 'audio.webm', {
       provider,
       language,
+      speech,
       model,
       prompt: hint || undefined,
     });

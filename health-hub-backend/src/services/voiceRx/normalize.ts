@@ -20,7 +20,9 @@ const UNITS: Record<string, number> = {
   seventeen: 17, eighteen: 18, nineteen: 19,
   // Hindi — written as doctors say them, not as transliteration purists would.
   ek: 1, do: 2, teen: 3, char: 4, chaar: 4, panch: 5, paanch: 5, chhe: 6, che: 6, chah: 6,
-  saat: 7, aath: 8, nau: 9, das: 10, dus: 10, gyarah: 11, barah: 12, pandrah: 15,
+  saat: 7, aath: 8, nau: 9, das: 10, dus: 10, gyarah: 11, barah: 12, terah: 13,
+  chaudah: 14, chaudha: 14, chouda: 14, chawda: 14, pandrah: 15, pandra: 15, solah: 16,
+  satrah: 17, atharah: 18, unnis: 19,
 };
 
 const TENS: Record<string, number> = {
@@ -81,6 +83,16 @@ export function wordsToNumbers(input: string): string {
     let take = run.length;
     if (run.length > 1 && UNITS[run[0]] !== undefined && UNITS[run[0]] < 10 && TENS[run[1]] !== undefined) {
       take = run.length >= 3 && UNITS[run[2]] !== undefined && UNITS[run[2]] < 10 ? 3 : 2;
+    } else {
+      // Otherwise words combine only the way numbers are spoken: tens then a unit
+      // ("twenty five", "bees paanch"), or around a scale ("two hundred fifty").
+      // Two plain numbers side by side are two numbers — "ek teen din" is "1 3
+      // din", three days, and used to be ADDED into four.
+      for (let k = 1; k < run.length; k++) {
+        const prev = run[k - 1], cur = run[k];
+        const joins = (isTens(prev) && isUnit(cur) && UNITS[cur] < 10) || isScale(cur) || (isScale(prev) && (isUnit(cur) || isTens(cur)));
+        if (!joins) { take = k; break; }
+      }
     }
 
     out.push(String(evaluateRun(run.slice(0, take))));
@@ -260,6 +272,10 @@ export function demo(): void {
   eq(wordsToNumbers('azithromycin five hundred'), 'azithromycin 500', 'five hundred');
   eq(wordsToNumbers('four twenty five'), '425', 'four twenty five');
   eq(wordsToNumbers('twenty five'), '25', 'bare twenty five');
+  eq(wordsToNumbers('ek teen din'), '1 3 din', 'two plain numbers are two numbers, never a sum');
+  eq(wordsToNumbers('subah ek teen din'), 'subah 1 3 din', '…inside a sentence too');
+  eq(wordsToNumbers('two hundred fifty'), '250', 'a scale still joins');
+  eq(wordsToNumbers('chawda din'), '14 din', 'Hindi fourteen');
   eq(wordsToNumbers('teen din'), '3 din', 'hindi teen');
 
   eq(parseFrequency('BD five days'), 'BD', 'BD');

@@ -515,6 +515,10 @@ model ClinicDoctor {
   phone                   String?
   email                   String?
   letterheadNote          String?
+  /// What the doctor speaks when dictating: "te" (Telugu + English), "hi" (Hindi +
+  /// English), "en", or null = let the recogniser detect. Each recogniser is told
+  /// whatever reads that speech best (see asr.ts), not necessarily this code.
+  dictationLanguage       String?
   /// The portal login this consulting doctor signs in as. Nullable: every existing
   /// ClinicDoctor predates doctor logins and stays valid without one. UNIQUE because
   /// one login must be exactly one doctor — a prescription signature has to be

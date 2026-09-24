@@ -14,6 +14,15 @@ import { useBranchStore } from '@/store/branchStore';
 // ---------------------------------------------------------------------------
 
 export type PrescriptionStatus = 'DRAFT' | 'SIGNED' | 'SUPERSEDED';
+
+/** What a doctor speaks when dictating. 'auto' = let the recogniser detect. */
+export type DictationLanguage = 'te' | 'hi' | 'en' | 'auto';
+export const DICTATION_OPTIONS: { value: DictationLanguage; label: string }[] = [
+  { value: 'te', label: 'Telugu + English' },
+  { value: 'hi', label: 'Hindi + English' },
+  { value: 'en', label: 'English' },
+  { value: 'auto', label: 'Detect' },
+];
 export type MedicationResolution = 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED' | 'MANUAL';
 export type FieldState = 'SPOKEN' | 'NORMALIZED' | 'UNKNOWN';
 export type Severity = 'BLOCK' | 'ASK' | 'NOTE';
@@ -154,6 +163,7 @@ export interface DoctorMe {
     id: string; doctorNumber: string; name: string; qualification: string; specialty: string;
     registrationNumber: string; phone: string | null; email: string | null;
     letterheadNote: string | null; signatureImageBase64: string | null; hprId: string | null;
+    dictationLanguage?: DictationLanguage | null;
   } | null;
   diagnosticsVisible: boolean;
   branch: { id: string };
@@ -283,6 +293,8 @@ export interface VisitContext {
   /** Whether the signed-in user may sign here, from the same check the server
    *  refuses on. Only the visit's own doctor, with a signature on file. */
   signing?: { ok: boolean; code?: 'NOT_THE_PRESCRIBER' | 'NO_SIGNATURE' | 'NO_DOCTOR'; reason?: string };
+  /** What the person at the screen dictates in (their saved choice), null = detect. */
+  dictationLanguage?: DictationLanguage | null;
   patient: { id: string; patientNumber: string; name: string; title: string | null; gender: string; ageLabel: string; phone: string | null; deceased: boolean };
   previousPrescriptions: DoctorPatient['prescriptions'];
   currentMedications: { name: string; since: string }[];
@@ -295,6 +307,7 @@ export const doctorApi = {
   updateMe: (patch: {
     signatureImageBase64?: string | null; letterheadNote?: string;
     name?: string; qualification?: string; specialty?: string; registrationNumber?: string; phone?: string;
+    dictationLanguage?: DictationLanguage | null;
   }) =>
     req<DoctorMe['doctor']>('/doctor/me', { method: 'PATCH', json: patch }),
 
@@ -327,10 +340,12 @@ export const doctorApi = {
    *  text after a correction, or a line typed with no microphone. */
   extractText: (text: string) =>
     req<{ extraction: ExtractionResponse['extraction'] }>('/prescriptions/extract', { method: 'POST', json: { text } }),
-  transcribe: async (audio: Blob, provider?: string): Promise<ExtractionResponse> => {
+  transcribe: async (audio: Blob, opts: { provider?: string; dictation?: DictationLanguage } = {}): Promise<ExtractionResponse> => {
     const form = new FormData();
     form.append('audio', audio, 'consultation.webm');
-    if (provider) form.append('provider', provider);
+    if (opts.provider) form.append('provider', opts.provider);
+    // What the doctor speaks; the server tells each recogniser what reads it best.
+    if (opts.dictation) form.append('dictation', opts.dictation);
     const res = await fetch(`${API_BASE}/prescriptions/transcribe`, {
       method: 'POST',
       credentials: 'include',

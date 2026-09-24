@@ -391,9 +391,21 @@ function narrowByStrength(cands: Candidate[], strength: string | null): Candidat
 function preferSimplest(cands: Candidate[], spoken: string): Candidate[] {
   if (cands.length < 2) return cands;
   if (/\+|\bplus\b|\bd\b|\bsr\b|\bdsr\b|\bcv\b|\blb\b/i.test(spoken)) return cands;
+  // A BRAND names its own product, whatever is in it: "Combiflam" IS ibuprofen +
+  // paracetamol. Simplifying it away resolved "Combiflam" to plain Ibuprofen 400 —
+  // a wrong drug — through a stray alias on the Brufen row. Only a spoken MOLECULE
+  // ("pantoprazole 40") means the single-molecule product.
+  const bare = (x: string) => norm(x).replace(/\s*\d.*$/, '').trim();
+  const stem = bare(spoken);
+  const byBrand = cands.filter((c) => c.brandName && bare(c.brandName) === stem);
   const parts = (c: Candidate) => ((c.genericName ?? c.canonicalName).match(/\+/g) ?? []).length;
   const fewest = Math.min(...cands.map(parts));
   const simple = cands.filter((c) => parts(c) === fewest);
+  // Step in only when simplifying would CHANGE the medicine: if none of the simple
+  // products has the named brand's composition, the brand's own rows stand.
+  // ("Pan 40" still reaches the clinic's Pantoprazole 40 — same molecule.)
+  const recipe = (c: Candidate) => (c.genericName ?? c.canonicalName).toLowerCase().split('+').map((x) => x.replace(/[^a-z]/g, '')).sort().join('+');
+  if (byBrand.length > 0 && !simple.some((c) => byBrand.some((b) => recipe(b) === recipe(c)))) return byBrand;
   return simple.length > 0 ? simple : cands;
 }
 
@@ -617,7 +629,10 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     let narrowed = narrowByForm(narrowByStrength(dedupe(cands), spokenStrength), input.dosageForm ?? null);
     // Clinical defaults before asking: a question with an obvious answer is worse
     // than no question, because it trains people to click through.
-    narrowed = preferOralSolid(preferSimplest(narrowed, q), input.dosageForm ?? null);
+    // Oral solid FIRST: in the imported catalogue a brand's injection is often
+    // the single-molecule product (Meftal-Spas injection is plain dicyclomine), so
+    // simplifying first handed "Meftal Spas" an injection.
+    narrowed = preferSimplest(preferOralSolid(narrowed, input.dosageForm ?? null), q);
     const rank = (c: Candidate) => (c.source === 'CURATED' ? 0 : c.source === 'LEARNED' ? 1 : 2);
     narrowed = narrowed.sort((a, b) => rank(a) - rank(b) || b.score - a.score).slice(0, MAX_CANDIDATES);
     if (narrowed.length === 0) return null;
@@ -732,6 +747,24 @@ export async function getMedicationsByIds(ids: string[]): Promise<Map<string, Me
     },
   })) as MedicationRow[];
   return new Map(rows.map((r) => [r.id, r]));
+}
+
+/**
+ * The brand names the clinic's doctors actually use — the curated list and what
+ * they have added — for the extractor to repair a misheard name against.
+ *
+ * Whisper's prompt holds ~60 brands; the extractor can take all of them, and it
+ * is the extractor that can use the SENTENCE: "…vaantulu aite matrame" (only if
+ * vomiting) is what turns "On them 4" into Ondem 4.
+ */
+export async function medicineVocabulary(limit = 400): Promise<string[]> {
+  const rows = await prisma.medication.findMany({
+    where: { isActive: true, deletedAt: null, source: { in: ['CURATED', 'LEARNED'] }, brandName: { not: null } },
+    orderBy: [{ usageCount: 'desc' }, { brandName: 'asc' }],
+    take: limit,
+    select: { brandName: true },
+  });
+  return [...new Set(rows.map((r) => r.brandName!.trim()).filter(Boolean))];
 }
 
 /**

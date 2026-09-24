@@ -16,6 +16,7 @@
  * these two halves is not cosmetic; it is most of the bill.
  */
 import { logger } from '../../lib/logger';
+import { medicineVocabulary } from './resolver';
 import {
   parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength,
   wordsToNumbers, FREQUENCY_TEXT, type FrequencyCode,
@@ -93,9 +94,10 @@ ABSOLUTE RULES
 1. NEVER invent a field. If the doctor did not say a timing, dose, route or
    duration, that field is null. Do not supply a "usual" value. "Pantop 40 once
    daily" has NO timing — do not write "before breakfast".
-2. Report medicine names EXACTLY as spoken, in "spokenText". Do not correct
-   spelling, do not expand a brand into a generic, do not fix what sounds like a
-   mistake. A separate system resolves names against a catalogue.
+2. Report medicine names EXACTLY as heard, in "spokenText". Do not correct its
+   spelling, do not expand a brand into a generic. "name" is the medicine token
+   as heard too — EXCEPT a clear mishearing, under MISHEARD NAMES below. A
+   separate system resolves names against a catalogue.
 3. If the doctor offers a CHOICE ("either X or Y", "X or else Y", "start with X"),
    mark every option with "isAlternative": true. Never emit a choice as two
    separate prescribed medicines.
@@ -128,13 +130,33 @@ SOUND. Telugu, by sound:
   padukune mundu                   at bedtime (timing "bedtime")
   bhojananiki mundu / annam mundu  before food  bhojanam tarvata  after food
   khaali kadupu(to)                empty stomach
-  ... vachinappudu matrame / ... aite matrame / avasaram aite
-                                   only when / only if / if needed -> SOS, with
-                                   the condition in "instructions" ("for fever")
-  N rojulu = N days · vaaralu = weeks · nela / nelalu = month(s)
-  okati 1 · rendu 2 · moodu 3 · nalugu 4 · aidu 5 · aaru 6 · edu 7 · enimidi 8 ·
-  tommidi 9 · padi 10 · padihenu 15 · iravai 20 · muppai 30 · nalabhai 40 · yabhai 50
+  ... vachinappudu matrame / ... aite matrame / ... unte matrame / avasaram aite
+                                   only when / only if / if there is / if needed
+                                   -> SOS, with the condition in "instructions"
+                                   ("for fever", "for pain")
+  noppi = pain · jvaram = fever · vaantulu = vomiting · daggu = cough
+  N rojulu = N days · vaaram / vaaram rojulu = 1 week · vaaralu = weeks ·
+  nela / nelalu = month(s) · okka nela / oka nela / vokanila = 1 month
+  Numbers — the recogniser spells them many ways; read by sound:
+    okati / vokati / okkati 1 · rendu / rendhu 2 · moodu / mudu / muudu 3 ·
+    nalugu / naalugu 4 · aidu / aidhu / ayidu / aedu / aayedu / आइदु / आयेदु 5 ·
+    aaru / aru 6 · edu / yedu / eedu / एडु 7 · enimidi / enmidi 8 · tommidi 9 ·
+    padi / padhi 10 · padihenu / padi henu 15 · iravai / iruvai 20 ·
+    muppai / muppay 30 · nalabhai 40 · yabhai 50
+  FIVE (aidu, ai- sound) and SEVEN (edu, e- sound) are the dangerous pair: "aedu"
+  and "aayedu" are aidu, 5. If a duration number cannot be told apart, leave it
+  null — the doctor is asked. Never guess a number.
+  "rojuki 4.00" / "rojuki 4" = four a day: the recogniser formats a spoken number
+  as a time.
   kaadu, kaadu = "no, no" — a self-correction (rule 4)
+Hindi, by sound: din me ek / do / teen / char baar = OD / BD / TID / QID ·
+  subah = morning · raat ko = night · sone se pehle = bedtime · khane se pehle /
+  baad = before / after food · khaali pet = empty stomach · ... ho to hi / ho tabhi
+  / zaroorat pade to = only if -> SOS · hafta = week · mahina = month ·
+  numbers ek 1 · do 2 · teen 3 · char 4 · paanch 5 · chhe 6 · saat 7 · aath 8 ·
+  nau 9 · das 10 · chaudah / chawda 14 · pandrah 15 · bees 20 · tees 30.
+  "saath din" is saat din, 7 days. Two number words side by side are two
+  numbers ("ek, teen din" is one tablet, three days) — never add them.
   X gaani Y gaani = "either X or Y" — a choice (rule 3)
 MEDICINE NAMES are said in English even inside Telugu speech. Give "name" in
 Latin letters as it sounds — never in Telugu or Devanagari script ("ఆగ్మెంటిన్"
@@ -144,6 +166,22 @@ names, and no ordinary Telugu word ("vaantulu", "matrame", "okati") is ever a
 medicine. If no medicine name was said, there is no medicine line.
 A number that belongs to a duration or a count ("five days", "okati") is never a
 strength.
+
+MISHEARD NAMES
+The speech recogniser mangles medicine names, worst inside Telugu or Hindi
+speech: "Set Scene 10" for Cetzine 10, "On them 4" for Ondem 4, "Calpal" for
+Calpol, "Crossin" for Crocin, "$650" / "dollar 650" for Dolo 650, "Pan Top 40"
+for Pantop 40, "Zinkawet" for Zincovit, "Azithril" for Azithral. When a heard
+name is CLEARLY a mishearing of a real medicine — one on the clinic's list, or
+a well-known Indian brand — because it SOUNDS like it and the sentence fits it
+(an antiemetic "only if vomiting", an antipyretic "only if fever"):
+  - put the real medicine in "name" ("Cetzine"), strength as said;
+  - keep exactly what was heard in "spokenText" ("Set Scene 10");
+  - set fieldStates.name to "NORMALIZED".
+Never "repair" one real medicine into another (Amlodipine is never changed to
+Amiodarone; a name that is already a real medicine stays). If two medicines fit
+equally, or none clearly does, leave the name as heard and fieldStates.name
+"SPOKEN". A repaired name is always shown to the doctor to confirm.
 
 OUTPUT SHAPE
 {
@@ -374,9 +412,14 @@ export async function extractPrescription(
     return { items: [], diagnosis: null, notes: null, followUpDays: null, missing: [], model: MODEL, rawJson: null };
   }
 
-  // Static content first (cacheable), the variable transcript last.
+  // Static content first (cacheable), the variable transcript last. The clinic's
+  // brand list changes rarely, so it sits in the cached prefix too.
+  const vocabulary = await medicineVocabulary().catch(() => [] as string[]);
   const { content, inputTokens, outputTokens } = await chat([
     { role: 'system', content: SYSTEM_PROMPT },
+    ...(vocabulary.length
+      ? [{ role: 'system' as const, content: `CLINIC'S MEDICINES (brand names its doctors use): ${vocabulary.join(', ')}.` }]
+      : []),
     { role: 'user', content: `Transcript:\n"""${text}"""` },
   ]);
 

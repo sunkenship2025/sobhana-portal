@@ -24,7 +24,8 @@ import { Loader2, Upload, Trash2, KeyRound } from 'lucide-react';
 import { cleanSignature, type CleanedSignature } from '@/lib/signatureImage';
 import { SignatureEditor } from '@/components/owner/SignatureEditor';
 import { ChangePasswordDialog } from '@/components/account/ChangePasswordDialog';
-import { doctorApi, type DoctorMe } from '@/lib/doctorApi';
+import { doctorApi, DICTATION_OPTIONS, type DictationLanguage, type DoctorMe } from '@/lib/doctorApi';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -38,7 +39,7 @@ export default function DoctorAccount() {
   const [me, setMe] = useState<DoctorMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '' });
+  const [form, setForm] = useState({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', dictationLanguage: 'auto' });
   const fileInput = useRef<HTMLInputElement>(null);
   // Same two steps as Config → Signing: clean at the default strength, then the
   // SAME SignatureEditor (strength / erase / undo) before anything is saved.
@@ -54,6 +55,7 @@ export default function DoctorAccount() {
         setForm({
           name: d.name, qualification: d.qualification, specialty: d.specialty,
           registrationNumber: d.registrationNumber, phone: d.phone ?? '', letterheadNote: d.letterheadNote ?? '',
+          dictationLanguage: d.dictationLanguage ?? 'auto',
         });
       }
     } catch {
@@ -96,7 +98,10 @@ export default function DoctorAccount() {
   const saveDetails = useCallback(async () => {
     setBusy(true);
     try {
-      const updated = await doctorApi.updateMe(form);
+      const updated = await doctorApi.updateMe({
+        ...form,
+        dictationLanguage: form.dictationLanguage === 'auto' ? null : (form.dictationLanguage as DictationLanguage),
+      });
       setMe((m) => (m ? { ...m, doctor: updated } : m));
       toast.success('Profile saved');
     } catch (err) {
@@ -175,6 +180,16 @@ export default function DoctorAccount() {
                   </label>
                 ))}
               </div>
+              <label className="block max-w-xs space-y-1">
+                <span className="block text-xs text-muted-foreground">I dictate in</span>
+                <Select value={form.dictationLanguage} onValueChange={(v) => setForm((f) => ({ ...f, dictationLanguage: v }))}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DICTATION_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <span className="block text-xs text-muted-foreground">Medicine names in English, the rest in your language — the microphone listens for that.</span>
+              </label>
               <div className="flex flex-wrap items-center gap-3">
                 <Button size="sm" disabled={busy} onClick={() => void saveDetails()}>
                   {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
