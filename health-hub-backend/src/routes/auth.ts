@@ -4,6 +4,9 @@ import prisma from '../lib/prisma';
 import { requireRole } from '../middleware/rbac';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { loginCredentialRateLimit, loginIpRateLimit } from '../middleware/rateLimit';
+import bcrypt from 'bcryptjs';
+import { invalidateAuthUser } from '../middleware/branch';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 
@@ -143,6 +146,61 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
 // We don't blacklist the JWT server-side (no infrastructure for that today),
 // so the token remains valid until expiry. This route's job is to clean up
 // the persistent state on the client; in-memory state is the frontend's job.
+// ─── POST /api/auth/change-password — change your OWN password ──────
+//
+// There was no way to do this at all. Every member invited on WhatsApp is sent a
+// generated password ("Anusha@1234") with "Please change your password after
+// signing in" — and nothing in the product let them. Any signed-in user, for
+// their own account only; the current password is required, so a session left
+// open on a shared reception PC cannot be used to lock its owner out.
+router.post('/change-password', authMiddleware, loginCredentialRateLimit, async (req: AuthRequest, res) => {
+  try {
+    const { currentPassword, newPassword } = (req.body ?? {}) as { currentPassword?: string; newPassword?: string };
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Enter your current password and a new one' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Use at least 8 characters' });
+    }
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'The new password is the same as the current one' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { id: true, passwordHash: true, activeBranchId: true },
+    });
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      return res.status(400).json({ error: 'WRONG_PASSWORD', message: 'Your current password is not right' });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      // A pending portal invite is moot once they have chosen their own password:
+      // a late WhatsApp reply must not overwrite it with a generated one.
+      data: { passwordHash: await bcrypt.hash(newPassword, 10), portalInviteAt: null },
+    });
+    await invalidateAuthUser(user.id);
+
+    // The password itself is never logged — only that it changed, and by whom.
+    await logAction({
+      branchId: req.branchId ?? user.activeBranchId,
+      actionType: 'UPDATE',
+      entityType: 'User',
+      entityId: user.id,
+      userId: user.id,
+      newValues: { passwordChanged: true },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('change-password failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Could not change the password' });
+  }
+});
+
 router.post('/logout', (_req, res) => {
   clearJwtCookie(res);
   return res.status(204).end();

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useDigitalRx } from '@/lib/digitalRx';
+import { ChangePasswordDialog } from '@/components/account/ChangePasswordDialog';
 import {
   Activity,
   Banknote,
@@ -10,7 +11,7 @@ import {
   FlaskConical,
   HandCoins,
   LayoutDashboard,
-  LogOut,
+  LogOut, KeyRound,
   Menu,
   MessagesSquare,
   Microscope,
@@ -325,6 +326,7 @@ export function Sidebar() {
   };
 
   const { enabled: digitalRx } = useDigitalRx();
+  const [pwOpen, setPwOpen] = useState(false);
 
   const navSet =
     user?.role === 'doctor'
@@ -489,6 +491,14 @@ export function Sidebar() {
                 <Button
                   variant="ghost"
                   className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
+                  onClick={() => { setMobileOpen(false); setPwOpen(true); }}
+                >
+                  <KeyRound className="mr-3 h-4 w-4" />
+                  Change password
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
                   onClick={handleLogout}
                 >
                   <LogOut className="mr-3 h-4 w-4" />
@@ -521,6 +531,14 @@ export function Sidebar() {
           <Button
             variant="ghost"
             className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
+            onClick={() => setPwOpen(true)}
+          >
+            <KeyRound className="mr-3 h-4 w-4" />
+            Change password
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
             onClick={handleLogout}
           >
             <LogOut className="mr-3 h-4 w-4" />
@@ -528,6 +546,7 @@ export function Sidebar() {
           </Button>
         </div>
       </aside>
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
     </>
   );
 }
