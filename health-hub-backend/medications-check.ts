@@ -30,7 +30,7 @@ const assert = (label: string, cond: boolean, detail = '') => {
   if (cond) console.log(`ok   ${label}`);
   else { failures += 1; console.log(`FAIL ${label}${detail ? ` — ${detail}` : ''}`); }
 };
-const resolvesTo = async (spoken: string) => (await resolveMedication({ spoken } as any)).match?.id ?? null;
+const resolvesTo = async (spoken: string) => (await resolveMedication({ spoken } as any)).match?.medicationId ?? null;
 
 (async () => {
   const users: string[] = [];
@@ -93,8 +93,10 @@ const resolvesTo = async (spoken: string) => (await resolveMedication({ spoken }
 
     // ── the page ─────────────────────────────────────────────────────────────
     const errors: string[] = [];
+    // Each login in its own browser session — a shared one is already signed in,
+    // and /login redirects away from the form.
     const visit = async (email: string, path: string) => {
-      const page = await browser.newPage();
+      const page = await (await browser.createBrowserContext()).newPage();
       await page.setViewport({ width: 1440, height: 1000 });
       page.on('pageerror', (e: any) => errors.push(e.message));
       await page.goto(`${FE}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
