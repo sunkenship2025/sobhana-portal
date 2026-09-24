@@ -19,8 +19,9 @@ import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
 import {
-  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, Camera, Wand2, Loader2, FileSignature, X, Check,
+  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, Camera, Wand2, Loader2, FileSignature, X, Check, Stethoscope,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -252,6 +253,19 @@ function signatureSrc(sig: { signatureImageBase64?: string | null; signatureImag
 
 /* ───────── Component ───────── */
 
+/** One row of GET /doctor-logins — deliberately no signature image, only whether
+ *  one is on file (that list's payload was trimmed on purpose). */
+interface ConsultingDoctorRow {
+  id: string;
+  doctorNumber: string;
+  name: string;
+  qualification: string;
+  specialty: string;
+  registrationNumber: string;
+  hasSignature: boolean;
+  login: { id: string; email: string; isActive: boolean; role: string } | null;
+}
+
 export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -272,6 +286,17 @@ export default function ManageSigningDoctors() {
   const [labIncharges, setLabIncharges] = useState<SigningLabIncharge[]>([]);
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [labInchargeRules, setLabInchargeRules] = useState<LabInchargeRule[]>([]);
+  // Consulting doctors — the THIRD kind of signer. Same signature stack (storage,
+  // cleanup, SignatureEditor), deliberately no rule: a prescription's signer is
+  // the doctor who saw the patient, so there is nothing for config to resolve.
+  const isOwner = useAuthStore((st) => st.user?.role) === 'owner';
+  const [consultDocs, setConsultDocs] = useState<ConsultingDoctorRow[]>([]);
+  const [consultSigEdit, setConsultSigEdit] = useState<
+    { id: string; source: File; cleaned: File; reveal: Reveal | null } | null
+  >(null);
+  const [consultBusy, setConsultBusy] = useState<string | null>(null);
+  const consultFileFor = useRef<string | null>(null);
+  const consultFileInput = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [labInchargeSearch, setLabInchargeSearch] = useState('');
@@ -341,13 +366,14 @@ export default function ManageSigningDoctors() {
         'X-Branch-Id': activeBranchId || '',
       };
 
-      const [docRes, deptRes, rulesRes, liRes, branchRes, liRuleRes] = await Promise.all([
+      const [docRes, deptRes, rulesRes, liRes, branchRes, liRuleRes, cdRes] = await Promise.all([
         fetch(`${API_BASE}/signing-doctors?active=all`, { headers }),
         fetch(`${API_BASE}/departments`, { headers }),
         fetch(`${API_BASE}/signing-rules?active=all`, { headers }),
         fetch(`${API_BASE}/signing-lab-incharges?active=all`, { headers }),
         fetch(`${API_BASE}/branches?active=true`, { headers }),
         fetch(`${API_BASE}/lab-incharge-rules?active=all`, { headers }),
+        fetch(`${API_BASE}/doctor-logins`, { headers }),
       ]);
 
       if (docRes.ok) setDoctors(await docRes.json());
@@ -356,6 +382,7 @@ export default function ManageSigningDoctors() {
       if (liRes.ok) setLabIncharges(await liRes.json());
       if (branchRes.ok) setBranches(await branchRes.json());
       if (liRuleRes.ok) setLabInchargeRules(await liRuleRes.json());
+      if (cdRes.ok) setConsultDocs(await cdRes.json());
     } catch (err) {
       console.error('Error fetching signing data:', err);
       toast.error('Failed to load signing data');
@@ -911,6 +938,50 @@ export default function ManageSigningDoctors() {
   };
 
   /** "Use this signature" from the editor — same two paths as a fresh upload. */
+  // ── Consulting doctor signatures: pick → clean → SignatureEditor → save ──
+  const onConsultPick = async (file: File | undefined) => {
+    const id = consultFileFor.current;
+    consultFileFor.current = null;
+    if (consultFileInput.current) consultFileInput.current.value = '';
+    if (!file || !id) return;
+    setConsultBusy(id);
+    try {
+      const cleaned = await cleanSignature(file);
+      setConsultSigEdit({ id, source: file, cleaned: cleaned.file, reveal: cleaned.reveal });
+    } catch {
+      toast.error('Could not process that image');
+    } finally {
+      setConsultBusy(null);
+    }
+  };
+
+  const applyConsultSignature = async (file: File) => {
+    if (!consultSigEdit) return;
+    setConsultBusy(consultSigEdit.id);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error('Could not read the image'));
+        r.readAsDataURL(file);
+      });
+      const { activeBranchId } = useBranchStore.getState();
+      const res = await fetch(`${API_BASE}/doctor-logins/${consultSigEdit.id}/signature`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId || '' },
+        body: JSON.stringify({ signatureImageBase64: dataUrl }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message ?? 'Could not save the signature');
+      toast.success('Signature saved');
+      setConsultSigEdit(null);
+      await fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save the signature');
+    } finally {
+      setConsultBusy(null);
+    }
+  };
+
   const applyDoctorSignature = async (file: File) => {
     if (!editingDoctorId) {
       setPendingSignatureFile(file);
@@ -1442,6 +1513,101 @@ export default function ManageSigningDoctors() {
           </div>
         )}
       </section>
+
+      {/* ── Consulting Doctors ─────────────────────────────────────── */}
+      {/* Owner only: Signers & Rules is also open to lab incharges, but the
+          consulting-doctor list is not — they would see an empty table that
+          claims no doctors exist. */}
+      {isOwner && (<>
+      <Separator />
+      {/* The third signer. Same signature stack as the two above — storage,
+          background removal, SignatureEditor — and deliberately NO rules table.
+          A report has no author, so a rule has to name one; a prescription's
+          author is the doctor who saw the patient, and a rule could only ever
+          contradict that. */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Stethoscope className="h-5 w-5" /> Consulting Doctors
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Doctors whose signatures appear on prescriptions. No rules: the doctor who sees the patient signs, through their own login.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/owner/consulting-doctors">Logins &amp; digital prescriptions</Link>
+          </Button>
+        </div>
+
+        <input
+          ref={consultFileInput} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only"
+          onChange={(e) => void onConsultPick(e.target.files?.[0])} aria-label="Upload a consulting doctor's signature"
+        />
+
+        {consultDocs.length === 0 ? (
+          <EmptyState title="No consulting doctors" description="Add them in the clinic catalogue first." />
+        ) : (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead>Doctor</TableHead>
+                  <TableHead>Reg. No.</TableHead>
+                  <TableHead className="text-center">Login</TableHead>
+                  <TableHead className="text-center">Signature</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {consultDocs.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9 bg-primary/10 text-primary">
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                            {getInitials(d.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">{d.name}</div>
+                          <div className="text-xs text-muted-foreground">{d.qualification} · {d.specialty} · {d.doctorNumber}</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">{d.registrationNumber}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {d.login
+                        ? <Badge variant="secondary">{d.login.isActive ? 'Active' : 'Disabled'}</Badge>
+                        : <span className="text-muted-foreground text-xs">No login</span>}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {d.hasSignature
+                        ? <Badge className="border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">On file</Badge>
+                        : <span className="text-muted-foreground text-xs">No signature</span>}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost" size="sm" className="h-8"
+                        disabled={consultBusy === d.id}
+                        onClick={() => { consultFileFor.current = d.id; consultFileInput.current?.click(); }}
+                      >
+                        {consultBusy === d.id
+                          ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                          : <Upload className="h-3.5 w-3.5 mr-1.5" />}
+                        {d.hasSignature ? 'Replace signature' : 'Add signature'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+      </>)}
 
       {/* ── Doctor Sheet (Side Panel) ───────────────────────────── */}
       <Sheet open={sheetOpen} onOpenChange={(open) => { if (!open) resetDoctorForm(); }}>
@@ -2030,6 +2196,16 @@ export default function ManageSigningDoctors() {
           busy={uploading}
           onApply={applyDoctorSignature}
           onCancel={() => setSignatureEdit(null)}
+        />
+      )}
+      {consultSigEdit && (
+        <SignatureEditor
+          source={consultSigEdit.source}
+          initial={consultSigEdit.cleaned}
+          reveal={consultSigEdit.reveal}
+          busy={consultBusy === consultSigEdit.id}
+          onApply={(f) => void applyConsultSignature(f)}
+          onCancel={() => setConsultSigEdit(null)}
         />
       )}
       {labInchargeSignatureEdit && (

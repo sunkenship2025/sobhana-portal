@@ -19,8 +19,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { Loader2, Upload, Trash2 } from 'lucide-react';
-import { cleanSignature } from '@/lib/signatureImage';
+import { Loader2, Upload, Trash2, KeyRound } from 'lucide-react';
+import { cleanSignature, type CleanedSignature } from '@/lib/signatureImage';
+import { SignatureEditor } from '@/components/owner/SignatureEditor';
+import { ChangePasswordDialog } from '@/components/account/ChangePasswordDialog';
 import { doctorApi, type DoctorMe } from '@/lib/doctorApi';
 
 const fileToDataUrl = (file: File): Promise<string> =>
@@ -37,6 +39,10 @@ export default function DoctorAccount() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  // Same two steps as Config → Signing: clean at the default strength, then the
+  // SAME SignatureEditor (strength / erase / undo) before anything is saved.
+  const [sigEdit, setSigEdit] = useState<{ source: File; cleaned: File; reveal: CleanedSignature['reveal'] } | null>(null);
+  const [pwOpen, setPwOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -56,17 +62,27 @@ export default function DoctorAccount() {
     if (!file) return;
     setBusy(true);
     try {
-      // Same Sauvola + ruled-line removal the owner screen uses, in the browser.
-      const { file: cleaned } = await cleanSignature(file);
-      const dataUrl = await fileToDataUrl(cleaned);
-      const updated = await doctorApi.updateMe({ signatureImageBase64: dataUrl });
-      setMe((m) => (m ? { ...m, doctor: updated } : m));
-      toast.success('Signature saved');
+      const cleaned = await cleanSignature(file);
+      setSigEdit({ source: file, cleaned: cleaned.file, reveal: cleaned.reveal });
     } catch {
       toast.error('Could not process that image');
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  }, []);
+
+  const applySignature = useCallback(async (file: File) => {
+    setBusy(true);
+    try {
+      const updated = await doctorApi.updateMe({ signatureImageBase64: await fileToDataUrl(file) });
+      setMe((m) => (m ? { ...m, doctor: updated } : m));
+      setSigEdit(null);
+      toast.success('Signature saved');
+    } catch {
+      toast.error('Could not save the signature');
+    } finally {
+      setBusy(false);
     }
   }, []);
 
@@ -152,7 +168,7 @@ export default function DoctorAccount() {
               </div>
               {!doctor.signatureImageBase64 && (
                 <p className="text-xs text-amber-700">
-                  Without a signature your prescriptions still carry your name and registration number, but no signature image.
+                  You cannot sign a prescription until you add one — it goes out under your registration number and signature.
                 </p>
               )}
             </section>
@@ -167,6 +183,15 @@ export default function DoctorAccount() {
                 />
                 <Button variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => void saveNote()}>Save</Button>
               </div>
+            </section>
+
+            <section className="space-y-2 border-b pb-5">
+              <h2 className="text-sm font-semibold">Password</h2>
+              <p className="text-xs text-muted-foreground">Change the password you were given when your login was set up.</p>
+              <Button variant="outline" size="sm" onClick={() => setPwOpen(true)}>
+                <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />
+                Change password
+              </Button>
             </section>
 
             <section className="space-y-1.5">
@@ -193,6 +218,17 @@ export default function DoctorAccount() {
           </>
         )}
       </div>
+      {sigEdit && (
+        <SignatureEditor
+          source={sigEdit.source}
+          initial={sigEdit.cleaned}
+          reveal={sigEdit.reveal}
+          busy={busy}
+          onApply={(f) => void applySignature(f)}
+          onCancel={() => setSigEdit(null)}
+        />
+      )}
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
     </AppLayout>
   );
 }
