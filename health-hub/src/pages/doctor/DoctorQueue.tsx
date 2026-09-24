@@ -11,6 +11,7 @@
  * page would have been a concept with no home.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -62,13 +63,13 @@ export default function DoctorQueue() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-    // The queue moves while the doctor is looking at it — staff register walk-ins
-    // and mark people done. Poll rather than leave a stale list on screen.
-    const t = setInterval(() => void load(), 20000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
+  // The queue moves while the doctor is looking at it — reception registers
+  // walk-ins, starts consultations and marks people done. Those land here on the
+  // server's worklist push, within a second, the same way reception's own queue
+  // hears the doctor; the poll is only the backstop for a dropped stream, and
+  // like every other list it stops while the tab is hidden.
+  useRevalidateOnFocus(() => void load(), { pollMs: 20000 });
 
   const { waiting, inProgress, done } = useMemo(
     () => ({
