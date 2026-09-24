@@ -62,8 +62,24 @@ async function learnMedication(item: LearnableItem, userId: string): Promise<voi
   const name = item.canonicalName.trim();
   if (!worthLearning(name)) return;
 
+  // "Already known" means under ANY name it goes by — not just the canonical one.
+  // A doctor who types "augmentin 625" and chooses "write as typed" has not
+  // discovered a new drug: the curated row is "Amoxicillin 500 mg + Clavulanic
+  // acid 125 mg" with brand "Augmentin 625". Matching the canonical name alone
+  // missed that and minted a duplicate LEARNED row for one of the most prescribed
+  // drugs in the catalogue. The real row gets the usage instead.
   const existing = await prisma.medication.findFirst({
-    where: { canonicalName: { equals: name, mode: 'insensitive' }, deletedAt: null },
+    where: {
+      deletedAt: null,
+      OR: [
+        { canonicalName: { equals: name, mode: 'insensitive' } },
+        { brandName: { equals: name, mode: 'insensitive' } },
+        { genericName: { equals: name, mode: 'insensitive' } },
+        { aliases: { has: name } },
+      ],
+    },
+    // The curated row first when a brand exists as both.
+    orderBy: [{ source: 'asc' }, { usageCount: 'desc' }],
     select: { id: true },
   });
   if (existing) {
