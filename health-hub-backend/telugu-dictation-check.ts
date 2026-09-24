@@ -106,8 +106,15 @@ async function transcribeAll(): Promise<Record<string, string[]>> {
   const out: Record<string, string[]> = { ...cached };
   for (const p of todo) out[p] = [];
   try {
-    const login = await fetch(`${API}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password: PW }) });
-    const lb = await login.json() as any;
+    // Retried: right after a deploy the edge can answer with an HTML page for a
+    // few seconds, and a JSON parse of that is not a verdict on anything.
+    let lb: any = null;
+    for (let attempt = 1; attempt <= 4 && !lb?.token && !lb?.accessToken; attempt++) {
+      const login = await fetch(`${API}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password: PW }) });
+      const text = await login.text();
+      try { lb = JSON.parse(text); } catch { console.log(`login attempt ${attempt}: ${login.status} ${text.slice(0, 120).replace(/\s+/g, ' ')}`); await new Promise((r) => setTimeout(r, 15_000)); }
+    }
+    if (!lb?.token && !lb?.accessToken) throw new Error(`could not log in: ${JSON.stringify(lb).slice(0, 200)}`);
     const H = { Authorization: `Bearer ${lb.token ?? lb.accessToken}`, 'X-Branch-Id': branch!.id };
     for (const [i, c] of CASES.entries()) {
       const wav = path.join(DIR, `case${i + 1}.wav`);
@@ -120,7 +127,7 @@ async function transcribeAll(): Promise<Record<string, string[]>> {
         form.append('provider', 'groq');
         if (p !== 'auto') form.append('language', p);
         const r = await fetch(`${API}/api/prescriptions/transcribe`, { method: 'POST', headers: H, body: form });
-        const b = await r.json() as any;
+        const b = await r.json().catch(async () => ({ message: `non-JSON ${r.status}` })) as any;
         out[p][i] = r.ok ? `[${b.transcript.provider}] ${b.transcript.text}` : `[error ${r.status}] ${b?.message ?? ''}`;
         process.stdout.write('.');
       }
