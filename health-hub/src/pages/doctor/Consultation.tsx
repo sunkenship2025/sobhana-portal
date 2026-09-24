@@ -90,6 +90,8 @@ export default function Consultation() {
   const [review, setReview] = useState(false);
   const [profile, setProfile] = useState<RxProfile>('digital');
   const [attested, setAttested] = useState(false);
+  /** The line clicked on the review sheet, open for editing beside it. */
+  const [inspectId, setInspectId] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
 
   const recorder = useRef<MediaRecorder | null>(null);
@@ -370,7 +372,12 @@ export default function Consultation() {
       if (!rx) return;
       setSigning(true);
       try {
-        const result = await doctorApi.sign(rx.id, true);
+        // Sign what is ON SCREEN. The review sheet is editable in place now, and
+        // sign() works on the server's copy of the draft — without this save, an
+        // edit made here would be silently left out of what gets signed.
+        const saved = await save();
+        if (!saved) return;
+        const result = await doctorApi.sign(saved.id, true);
         setRx(result);
         setItems(result.items);
         toast.success('Prescription signed');
@@ -391,7 +398,7 @@ export default function Consultation() {
         setSigning(false);
       }
     },
-    [rx, navigate],
+    [rx, navigate, save],
   );
 
   const finishWithout = useCallback(async () => {
@@ -451,6 +458,8 @@ export default function Consultation() {
   };
 
   // ---- REVIEW & SIGN ------------------------------------------------------
+  const inspectIdx = inspectId ? items.findIndex((i) => i.id === inspectId) : -1;
+
   if (review || signed) {
     return (
       <AppLayout>
@@ -501,16 +510,47 @@ export default function Consultation() {
             )}
           </div>
 
-          <div className="rounded-lg bg-muted/40 p-3 sm:p-5">
-            <RxLetterpad
-              profile={profile}
-              items={items}
-              diagnosis={diagnosis || null}
-              notes={notes || null}
-              followUpDays={followUpDays ? Number(followUpDays) : null}
-              snapshot={rx?.snapshot ?? null}
-              live={live}
-            />
+          {/* The sheet IS the editor: click a line and it opens beside the sheet,
+              so what the doctor attests to is literally what they were just
+              looking at — no trip back to the form and no second screen to keep
+              in step. Clicking the line again closes it. */}
+          <div className={cn('grid gap-4', inspectIdx >= 0 && 'lg:grid-cols-[minmax(0,1fr)_24rem]')}>
+            <div className="rounded-lg bg-muted/40 p-3 sm:p-5">
+              <RxLetterpad
+                profile={profile}
+                items={items}
+                diagnosis={diagnosis || null}
+                notes={notes || null}
+                followUpDays={followUpDays ? Number(followUpDays) : null}
+                snapshot={rx?.snapshot ?? null}
+                live={live}
+                selectedItemId={signed ? null : inspectId}
+                onSelectItem={signed ? undefined : (id) => setInspectId(id ?? null)}
+              />
+              {!signed && inspectIdx < 0 && (
+                <p className="mt-2 text-center text-xs text-muted-foreground">Click any medicine on the sheet to change it here.</p>
+              )}
+            </div>
+            {!signed && inspectIdx >= 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Editing line {inspectIdx + 1} — the sheet updates as you type
+                </p>
+                <RxItemEditor
+                  item={items[inspectIdx]}
+                  index={inspectIdx}
+                  findings={findings}
+                  onChange={(patch) => {
+                    patchItem(inspectIdx, patch);
+                    // They attested to the sheet as it WAS. A change after the tick
+                    // needs a fresh one.
+                    setAttested(false);
+                  }}
+                  onRemove={() => { removeItem(inspectIdx); setInspectId(null); setAttested(false); }}
+                />
+                <Button variant="ghost" size="sm" onClick={() => setInspectId(null)}>Done</Button>
+              </div>
+            )}
           </div>
 
           {!signed && (
