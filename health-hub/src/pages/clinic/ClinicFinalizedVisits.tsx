@@ -13,7 +13,8 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CheckCircle2, Search, Eye, Printer, FileText, Phone, Stethoscope, Loader2, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { rxChip, rxDeliveryLine, rxRecords, rxSendBlock, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
+import { rxChip, rxDeliveryLine, rxInMode, rxRecords, rxSendBlock, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
+import { useDigitalRx } from '@/lib/digitalRx';
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
@@ -63,7 +64,8 @@ const fmtTime = (v: string | null | undefined) =>
 
 /** One line in the details dialog: what the prescription is, and where it has been. */
 function RxStatusLine({ visit }: { visit: ClinicVisit }) {
-  const rx = visit.prescription;
+  const { enabled } = useDigitalRx();
+  const rx = rxInMode(visit.prescription, enabled);
   const chip = rxChip(rx);
   if (!chip) return null;
   const sent = rxDeliveryLine(rx?.delivery);
@@ -107,6 +109,7 @@ const ClinicFinalizedVisits = () => {
   const [everLoaded, setEverLoaded] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const { enabled: digitalRx } = useDigitalRx();
 
   // A new date range, visit-type, or search term always restarts on page 1 —
   // otherwise a narrower filter could land on a now-nonexistent page.
@@ -198,7 +201,7 @@ const ClinicFinalizedVisits = () => {
 
   const rxSendButton = (visit: ClinicVisit, labelled = false) => {
     const phone = visit.patient.identifiers.some((i) => i.type === 'PHONE' && i.value);
-    const block = rxSendBlock(visit.prescription, { linkDisabled: !!visit.patientLinkDisabledAt, hasPhone: phone });
+    const block = rxSendBlock(rxInMode(visit.prescription, digitalRx), { linkDisabled: !!visit.patientLinkDisabledAt, hasPhone: phone });
     const sent = rxDeliveryLine(visit.prescription?.delivery);
     const wentOut = !!sent && visit.prescription?.delivery?.status !== 'FAILED';
     const busy = sendingId === visit.id;
@@ -343,12 +346,12 @@ const ClinicFinalizedVisits = () => {
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusBadge status={visit.status} />
                           {(() => {
-                            const chip = rxChip(visit.prescription);
+                            const chip = rxChip(rxInMode(visit.prescription, digitalRx));
                             return chip ? <span className={RX_CHIP_CLASS[chip.tone]}>{chip.label}</span> : null;
                           })()}
                         </div>
                       </div>
-                      <div className="grid w-full grid-cols-4 gap-2 sm:flex sm:w-auto sm:items-center">
+                      <div className={`grid w-full ${digitalRx === false && !visit.prescription?.signed ? 'grid-cols-3' : 'grid-cols-4'} gap-2 sm:flex sm:w-auto sm:items-center`}>
                         <Button
                           variant="outline"
                           size="icon"
@@ -369,7 +372,7 @@ const ClinicFinalizedVisits = () => {
                         >
                           <FileText className="h-4 w-4" />
                         </Button>
-                        {rxSendButton(visit)}
+                        {(digitalRx !== false || visit.prescription?.signed) && rxSendButton(visit)}
                         <Button
                           variant="outline"
                           size="icon"

@@ -37,6 +37,18 @@ export const rxRecords = {
       `${API_BASE}/prescription-records/${id}/send`, { method: 'POST', headers: branchHeader() }),
 };
 
+/**
+ * With the module switched OFF, only what was SIGNED is still a record. Drafts,
+ * open corrections and "how it closed" belong to the module — nobody can sign or
+ * discard them while the portal is closed — so they go with it, and the screens
+ * read exactly as they did before the module existed. `enabled` undefined (still
+ * loading) is treated as on, so nothing flickers away and back.
+ */
+export function rxInMode(rx: RxSummary | null | undefined, enabled: boolean | undefined): RxSummary | null {
+  if (!rx || enabled !== false) return rx ?? null;
+  return rx.signed ? { ...rx, draft: null, outcome: null } : null;
+}
+
 export type RxChipTone = 'signed' | 'draft' | 'none' | 'paper';
 
 /**

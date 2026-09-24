@@ -18,6 +18,8 @@ import { ReportActions } from "./ReportActions";
 import { VisitAutomationLine } from "./PatientAutomations";
 import { JumpToOriginalVisit } from "./JumpToOriginalVisit";
 import { formatCurrency } from "@/lib/patientDisplay";
+import { useDigitalRx } from "@/lib/digitalRx";
+import { rxInMode } from "@/lib/rxRecords";
 import type { ReportAction } from "@/hooks/patient360/useReportActions";
 import type { VisitDomain, VisitPaymentStatus, VisitTimelineItem } from "@/types";
 
@@ -56,6 +58,7 @@ export function VisitRow({
   onViewReport,
   onJumpToOriginal,
 }: VisitRowProps) {
+  const { enabled: digitalRx } = useDigitalRx();
   const isDiagnostic = item.domain === "DIAGNOSTICS";
   const isCancelled = String(item.status).toUpperCase() === "CANCELLED";
   const hasBill = item.hasBill ?? !!item.billNumber;
@@ -121,7 +124,7 @@ export function VisitRow({
               )
             )}
             <StatusChip kind="report" value={item.reportState} />
-            {!isDiagnostic && <StatusChip kind="rx" value={item.prescription ?? null} />}
+            {!isDiagnostic && <StatusChip kind="rx" value={rxInMode(item.prescription, digitalRx)} />}
             <StatusChip kind="abnormal" value={item.hasAbnormalResults === true} />
             <span className="text-sm font-semibold">
               {formatCurrency(item.totalAmountInPaise)}

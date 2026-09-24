@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { RxLetterpad } from "@/components/doctor/RxLetterpad";
 import { DeliveryStatusLine } from "./DeliveryStatusLine";
 import { doctorApi, type Prescription } from "@/lib/doctorApi";
-import { rxRecords, rxSendBlock } from "@/lib/rxRecords";
+import { rxInMode, rxRecords, rxSendBlock } from "@/lib/rxRecords";
 import { useDigitalRx } from "@/lib/digitalRx";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useAuthStore } from "@/store/authStore";
@@ -53,7 +53,7 @@ export function PrescriptionSection({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const rx = visit.prescription ?? null;
+  const rx = rxInMode(visit.prescription, moduleOn);
   const signed = rx?.signed ?? null;
   const draft = rx?.draft ?? null;
   const doctor = signed?.doctorName ?? visit.doctorName ?? "the doctor";

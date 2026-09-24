@@ -26,7 +26,8 @@ import { usePagedList } from '@/hooks/usePagedList';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 import { useConfirm } from '@/hooks/use-confirm';
-import { rxChip, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
+import { rxChip, rxInMode, RX_CHIP_CLASS, type RxSummary } from '@/lib/rxRecords';
+import { useDigitalRx } from '@/lib/digitalRx';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
@@ -78,10 +79,11 @@ interface QueueVisit {
 // has been in, and whether the doctor has written a prescription and signed it.
 // Nothing shows for the paper flow.
 function DoctorSide({ visit }: { visit: QueueVisit }) {
+  const { enabled } = useDigitalRx();
   const since = visit.status === 'IN_PROGRESS' && visit.startedAt
     ? new Date(visit.startedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
     : null;
-  const chip = rxChip(visit.prescription);
+  const chip = rxChip(rxInMode(visit.prescription, enabled));
   return (
     <>
       {since && <span className="text-xs text-muted-foreground">with the doctor since {since}</span>}
@@ -108,6 +110,7 @@ const ClinicVisitQueue = () => {
   const [chimeOn, setChimeOn] = useState<boolean | null>(null);
   const [chimeScreens, setChimeScreens] = useState(0);
   const { confirm, ConfirmDialog } = useConfirm();
+  const { enabled: digitalRx } = useDigitalRx();
 
   // `silent` skips the loading state so a revalidation swaps the queue in place
   // instead of blanking it — the same contract the diagnostics worklists use.
@@ -239,7 +242,8 @@ const ClinicVisitQueue = () => {
   // doctor has a digital prescription open and unsigned, closing the visit leaves
   // it unsigned with nobody told, so that one case asks first.
   const markDone = async (visit: QueueVisit) => {
-    if (visit.prescription?.draft && !visit.prescription.signed) {
+    const rx = rxInMode(visit.prescription, digitalRx);
+    if (rx?.draft && !rx.signed) {
       const ok = await confirm({
         title: 'The prescription is not signed yet',
         description: `${visit.doctor?.name ?? 'The doctor'} has a digital prescription for this visit that is still a draft. Marking the visit done will not sign it — it stays an unsigned draft.`,
