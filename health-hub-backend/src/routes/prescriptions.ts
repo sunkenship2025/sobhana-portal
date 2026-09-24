@@ -194,6 +194,9 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     // right for English and Hinglish — but Whisper auto-detecting Telugu writes it
     // in Devanagari or even Tamil script. Allow-listed: anything else is ignored.
     const language = ['te', 'hi', 'en'].includes(String(req.body?.language ?? '')) ? String(req.body.language) : undefined;
+    // Which Whisper, when the caller asks: the full large-v3 is better on Indian
+    // languages than the turbo default. Allow-listed; anything else is ignored.
+    const model = ['whisper-large-v3', 'whisper-large-v3-turbo'].includes(String(req.body?.model ?? '')) ? String(req.body.model) : undefined;
     // The clinic's own vocabulary as a decoder hint — the cheapest accuracy gain
     // available, and it targets exactly the tokens that matter.
     const hint = await buildAsrHint();
@@ -201,6 +204,7 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     const transcript = await transcribeWithFallback(req.file.buffer, req.file.originalname || 'audio.webm', {
       provider,
       language,
+      model,
       prompt: hint || undefined,
     });
 

@@ -787,7 +787,15 @@ export async function buildAsrHint(limit = 400, maxChars = 880): Promise<string>
   // Groq rejects a prompt over 896 characters outright, so the budget is spent
   // deliberately: take names until it is full rather than building 2,100
   // characters and having the whole transcription 400.
-  const head = 'Indian clinical prescription dictation, English and Hindi mixed. Medicines: ';
+  // Whisper reads its prompt as the text that came just BEFORE the audio, and
+  // copies its style. So it gets a short example of the speech it is about to hear
+  // — English, Hindi and Telugu mixed, written in English letters — rather than a
+  // bare instruction. The old head said "English and Hindi mixed", and Telugu came
+  // back in Devanagari (and once in Tamil) script.
+  const head =
+    'Doctor dictating a prescription in English, Hindi, Telugu or a mix, written in English letters: ' +
+    'Augmentin 625, rojuki moodu saarlu, aidu rojulu. Dolo 650 jvaram vachinappudu matrame. ' +
+    'Pan 40 din me ek baar khane se pehle. Medicines: ';
   const kept: string[] = [];
   let used = head.length + 1;
   for (const n of stems) {

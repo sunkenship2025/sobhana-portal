@@ -76,6 +76,8 @@ export interface TranscribeOptions {
    * Hinglish case better in practice.
    */
   language?: string;
+  /** Override the provider's model for this call (Groq: the two Whisper sizes). */
+  model?: string;
 }
 
 export class AsrUnavailable extends Error {}
@@ -177,7 +179,7 @@ class GroqRecognizer implements SpeechRecognizer {
     const makeForm = () => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(audio)]), filename);
-    form.append('model', this.model);
+    form.append('model', opts.model || this.model);
     form.append('response_format', 'verbose_json');
     form.append('timestamp_granularities[]', 'segment');
     // Temperature 0: this is transcription, not composition. Any sampling here is
@@ -210,7 +212,7 @@ class GroqRecognizer implements SpeechRecognizer {
       segments,
       language: json.language ?? null,
       provider: this.name,
-      model: this.model,
+      model: opts.model || this.model,
       durationSec: json.duration != null ? Number(json.duration) : null,
     };
   }
