@@ -586,7 +586,12 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   // the same answer. "Six fifty" is 650 everywhere or the system is inconsistent
   // about the one thing it cannot be inconsistent about.
   const q = norm(wordsToNumbers(input.spoken));
-  if (!q) return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
+  // A number is never a medicine. norm() keeps only Latin letters and digits, so a
+  // name that arrived in Telugu or Devanagari script ("ఏదో మందు 625" — "some
+  // medicine 625") used to reach the tiers as a bare "625" and resolve, EXACTLY,
+  // to Augmentin 625; "మందు 650" became Paracetamol 650. With no letters left,
+  // there is no name to match — ask.
+  if (!/[a-z]/.test(q)) return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
 
   // The spoken token usually carries the strength: "augmentin 625", "pantop 40".
   // Pull it out UP FRONT so every tier narrows by it consistently — doing this

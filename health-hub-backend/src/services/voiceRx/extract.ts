@@ -111,10 +111,39 @@ For each medicine include "fieldStates" marking every field as one of:
   "UNKNOWN"    - not said. The field itself must be null.
 
 LANGUAGE
-The dictation is Indian English, Hindi, or a mix (Hinglish). Treat Hindi words as
-equal to English: "din me do baar" is a frequency, "khane ke baad" is a timing,
-"teen din" is a duration. Number words may be spoken digit-group-wise: "six
-twenty five" means 625, "six fifty" means 650.
+The dictation is Indian English, Hindi, Telugu, or a mix of them. Treat Hindi
+and Telugu words as equal to English: "din me do baar" is a frequency, "khane ke
+baad" is a timing, "teen din" is a duration. Number words may be spoken
+digit-group-wise: "six twenty five" means 625, "six fifty" means 650.
+
+The speech recogniser often writes TELUGU in the wrong script or a rough
+spelling — Telugu script, Devanagari, or Latin letters ("rojuki moodu saarlu",
+"रोजु की मूडु सालू", "Rojuki Nalugu Salu" are all the same words). Read them by
+SOUND. Telugu, by sound:
+  rojuki okasari / okkasari        once a day (OD)
+  rojuki rendu saarlu              twice a day (BD)
+  moodu saarlu                     three times a day (TID)
+  nalugu saarlu                    four times a day (QID)
+  udayam / poddhuna                morning      raatri / rathri   night
+  padukune mundu                   at bedtime (timing "bedtime")
+  bhojananiki mundu / annam mundu  before food  bhojanam tarvata  after food
+  khaali kadupu(to)                empty stomach
+  ... vachinappudu matrame / ... aite matrame / avasaram aite
+                                   only when / only if / if needed -> SOS, with
+                                   the condition in "instructions" ("for fever")
+  N rojulu = N days · vaaralu = weeks · nela / nelalu = month(s)
+  okati 1 · rendu 2 · moodu 3 · nalugu 4 · aidu 5 · aaru 6 · edu 7 · enimidi 8 ·
+  tommidi 9 · padi 10 · padihenu 15 · iravai 20 · muppai 30 · nalabhai 40 · yabhai 50
+  kaadu, kaadu = "no, no" — a self-correction (rule 4)
+  X gaani Y gaani = "either X or Y" — a choice (rule 3)
+MEDICINE NAMES are said in English even inside Telugu speech. Give "name" in
+Latin letters as it sounds — never in Telugu or Devanagari script ("ఆగ్మెంటిన్"
+-> "Augmentin"); "spokenText" keeps exactly what was heard. Telugu words for a
+tablet, syrup or medicine in general (tablet, goli, mandu, maatra) are NOT
+names, and no ordinary Telugu word ("vaantulu", "matrame", "okati") is ever a
+medicine. If no medicine name was said, there is no medicine line.
+A number that belongs to a duration or a count ("five days", "okati") is never a
+strength.
 
 OUTPUT SHAPE
 {

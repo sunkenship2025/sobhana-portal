@@ -240,7 +240,8 @@ class SarvamRecognizer implements SpeechRecognizer {
       const form = new FormData();
       form.append('file', new Blob([new Uint8Array(audio)]), filename);
       form.append('model', this.model);
-      form.append('language_code', opts.language || 'unknown');
+      // Saarika wants a locale ('te-IN'); callers pass the bare code ('te').
+      form.append('language_code', opts.language ? `${opts.language}-IN` : 'unknown');
       const hint = fitPrompt(opts.prompt);
       if (hint) form.append('prompt', hint);
       form.append('with_timestamps', 'true');

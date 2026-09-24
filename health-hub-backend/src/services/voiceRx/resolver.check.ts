@@ -8,7 +8,7 @@
  * mis-heard drug names and starts calling them UNRESOLVED — which is safe but
  * useless. This file is the thing that fails when that happens.
  */
-import { phoneticKey, similarity, norm } from './resolver';
+import { phoneticKey, similarity, norm, resolveMedication } from './resolver';
 
 function main(): void {
   const ok = (cond: boolean, label: string) => { if (!cond) throw new Error(`FAIL: ${label}`); };
@@ -55,3 +55,16 @@ function main(): void {
 }
 
 main();
+
+// A number alone is never a medicine. Names that arrive in Telugu or Devanagari
+// script used to reduce to their digits and resolve EXACTLY — "మందు 650" ("medicine
+// 650") became Paracetamol 650. resolveMedication answers these before it touches
+// the database, so this runs without one.
+void (async () => {
+  for (const s of ['ఏదో మందు 625', 'మందు 650', 'दवा 500', '625']) {
+    const r = await resolveMedication({ spoken: s });
+    if (r.resolution !== 'UNRESOLVED' || r.match) throw new Error(`FAIL: "${s}" resolved on its number alone`);
+  }
+  // eslint-disable-next-line no-console
+  console.log('resolver.check.ts: a bare number never resolves');
+})();

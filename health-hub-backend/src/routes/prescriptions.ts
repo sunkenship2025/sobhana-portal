@@ -190,12 +190,17 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     }
 
     const provider = req.body?.provider ? String(req.body.provider) : undefined;
+    // An optional hint of the language the doctor speaks. Unset is auto-detect —
+    // right for English and Hinglish — but Whisper auto-detecting Telugu writes it
+    // in Devanagari or even Tamil script. Allow-listed: anything else is ignored.
+    const language = ['te', 'hi', 'en'].includes(String(req.body?.language ?? '')) ? String(req.body.language) : undefined;
     // The clinic's own vocabulary as a decoder hint — the cheapest accuracy gain
     // available, and it targets exactly the tokens that matter.
     const hint = await buildAsrHint();
 
     const transcript = await transcribeWithFallback(req.file.buffer, req.file.originalname || 'audio.webm', {
       provider,
+      language,
       prompt: hint || undefined,
     });
 
