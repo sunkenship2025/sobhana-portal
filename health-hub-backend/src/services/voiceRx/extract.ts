@@ -420,6 +420,7 @@ function reconcile(item: any, fullText: string): ExtractedItem {
 export async function extractPrescription(
   transcript: string,
   segments: { text: string; start: number; end: number }[] = [],
+  opts: { alsoHeard?: string } = {},
 ): Promise<ExtractionResult> {
   const text = transcript.trim();
   if (!text) {
@@ -434,7 +435,18 @@ export async function extractPrescription(
     ...(vocabulary.length
       ? [{ role: 'system' as const, content: `CLINIC'S MEDICINES (brand names its doctors use): ${vocabulary.join(', ')}.` }]
       : []),
-    { role: 'user', content: `Transcript:\n"""${text}"""` },
+    {
+      role: 'user',
+      content: `Transcript:\n"""${text}"""` + (opts.alsoHeard?.trim()
+        // A second hearing of the SAME audio. Recognisers garble different words —
+        // one writes "Monterell C" where the other wrote "Montair LC" — so the
+        // extractor gets both, and takes a name or number from whichever wrote it
+        // clearly. It adds no medicines of its own.
+        ? `\n\nThe SAME speech, as a second recogniser heard it — the same medicines, not more:\n"""${opts.alsoHeard.trim()}"""\n` +
+          'Where the two disagree on a medicine name, a strength or a number, take whichever is a clear real ' +
+          'word or number; if both are clear and differ, keep the first. Never list a medicine twice.'
+        : ''),
+    },
   ]);
 
   const parsed = parseLoose(content);

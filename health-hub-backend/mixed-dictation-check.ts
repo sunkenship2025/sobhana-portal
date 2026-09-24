@@ -41,6 +41,8 @@ const API = process.env.API_URL ?? 'http://localhost:3000';
 const NOISE = process.env.NOISE === '1';
 const DIR = path.join(process.env.MIX_CHECK_DIR ?? '/tmp/claude-501/mixed-check', NOISE ? 'noisy' : 'clean');
 const CACHE = path.join(DIR, 'transcripts.json');
+// For "prod" variants: what the SERVER extracted, so the run is end to end.
+const SERVER_ITEMS = path.join(DIR, 'server-items.json');
 const VARIANTS = (process.env.MIX_VARIANTS ?? 'v3:auto').split(',');
 const SETS = (process.env.MIX_SETS ?? 'te,hi').split(',');
 
@@ -158,7 +160,7 @@ function speak(parts: Part[], out: string) {
 async function transcribeAll(cases: Case[]): Promise<Record<string, Record<string, string>>> {
   fs.mkdirSync(DIR, { recursive: true });
   const cache: Record<string, Record<string, string>> = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, 'utf8')) : {};
-  const todo = VARIANTS.flatMap((v) => cases.filter((c) => !cache[v]?.[c.id]).map((c) => ({ v, c })));
+  const todo = VARIANTS.flatMap((v) => v.split('+')).flatMap((v) => cases.filter((c) => !cache[v]?.[c.id]).map((c) => ({ v, c })));
   if (todo.length === 0) return cache;
 
   const branch = await prisma.branch.findFirst({ where: { isActive: true }, select: { id: true } });
@@ -186,7 +188,7 @@ async function transcribeAll(cases: Case[]): Promise<Record<string, Record<strin
       const [model, lang] = v.split(':');
       const form = new FormData();
       form.append('audio', new Blob([fs.readFileSync(wav)], { type: 'audio/wav' }), `${c.id}.wav`);
-      if (model === 'prod') {
+      if (model.startsWith('prod')) {
         // Exactly what the dictation card sends: the doctor's language, nothing
         // else — the server picks the recogniser, model and language hint.
         form.append('dictation', lang);
@@ -199,6 +201,11 @@ async function transcribeAll(cases: Case[]): Promise<Record<string, Record<strin
       const b = await r.json().catch(() => ({ message: `non-JSON ${r.status}` })) as any;
       (cache[v] ??= {})[c.id] = r.ok ? b.transcript.text : `[error ${r.status}] ${b?.message ?? ''}`;
       fs.writeFileSync(CACHE, JSON.stringify(cache, null, 2));
+      if (r.ok && model.startsWith('prod')) {
+        const server = fs.existsSync(SERVER_ITEMS) ? JSON.parse(fs.readFileSync(SERVER_ITEMS, 'utf8')) : {};
+        (server[v] ??= {})[c.id] = b.extraction.items;
+        fs.writeFileSync(SERVER_ITEMS, JSON.stringify(server, null, 2));
+      }
       process.stdout.write('.');
     }
     console.log();
@@ -224,7 +231,10 @@ const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
       if (!quiet) console.log(`\n══════ ${label.toUpperCase()}–English · Whisper ${v} ══════`);
       for (const c of CASES[set] ?? []) {
         t.n++;
-        const heard = cache[v]?.[c.id] ?? '';
+        // "a+b": a is the transcript, b a second hearing of the same audio.
+        const [primary, second] = v.split('+');
+        const heard = cache[primary]?.[c.id] ?? '';
+        const alsoHeard = second ? cache[second]?.[c.id] : undefined;
         const heardRight = !/^\[error/.test(heard) && c.heard.every((w) => squash(heard).includes(w));
         if (heardRight) t.heard++;
         const lines: string[] = [];
@@ -234,7 +244,10 @@ const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
         let oneTap = true;
         if (!heard || /^\[error/.test(heard)) { t.missed += c.want.length; perfect = false; oneTap = false; lines.push('    ✗ no transcript'); }
         else {
-          const { items } = await extractPrescription(heard, []);
+          const server = fs.existsSync(SERVER_ITEMS) ? JSON.parse(fs.readFileSync(SERVER_ITEMS, 'utf8')) : {};
+          const { items } = server[v]?.[c.id] && process.env.MIX_LOCAL !== '1'
+            ? { items: server[v][c.id] as Awaited<ReturnType<typeof extractPrescription>>['items'] }
+            : await extractPrescription(heard, [], { alsoHeard: alsoHeard && !/^\[error/.test(alsoHeard) ? alsoHeard : undefined });
           const brands = c.heard.filter((w) => /[a-z]/.test(w));
           if (brands.every((b) => items.some((it) => squash(it.name).includes(b)))) t.named++;
           if (items.length !== c.want.length) { perfect = false; oneTap = false; lines.push(`    ! ${items.length} medicine line(s), expected ${c.want.length}`); }

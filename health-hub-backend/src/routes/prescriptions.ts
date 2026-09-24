@@ -214,13 +214,27 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     // available, and it targets exactly the tokens that matter.
     const hint = await buildAsrHint();
 
-    const transcript = await transcribeWithFallback(req.file.buffer, req.file.originalname || 'audio.webm', {
+    const filename = req.file.originalname || 'audio.webm';
+    // Hindi and undecided speech is heard TWICE, in parallel: detected, and in
+    // English mode. Detected, Whisper writes a brand said inside Hindi in
+    // Devanagari ("कमबे फलम"); in English mode it writes "Combiflam". The extractor
+    // gets both and takes each name from whichever wrote it clearly — held-out
+    // Hindi went 11/12 -> 12/12, the same in every repeat (mixed-dictation-check).
+    // Telugu is heard once, in English mode: a second, detected hearing wrote it in
+    // the wrong scripts and helped nothing. The second hearing is best-effort — it
+    // never fails or delays the dictation beyond the slower of the two.
+    const second = !language && speech !== 'te' && speech !== 'en'
+      ? transcribeWithFallback(req.file.buffer, filename, { provider, language: 'en', model, prompt: hint || undefined })
+        .catch((err) => { logger.warn({ err }, 'prescriptions: second hearing failed'); return null; })
+      : Promise.resolve(null);
+    const transcript = await transcribeWithFallback(req.file.buffer, filename, {
       provider,
       language,
       speech,
       model,
       prompt: hint || undefined,
     });
+    const alsoHeard = (await second)?.text?.trim() || undefined;
 
     // Duration is the real cost control — both providers bill per second — and it
     // is only knowable after the provider decodes the file.
@@ -237,7 +251,7 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
       }); return;
     }
 
-    const extraction = await extractPrescription(transcript.text, transcript.segments);
+    const extraction = await extractPrescription(transcript.text, transcript.segments, { alsoHeard });
 
     // One attributable line per paid call, so spend has an owner.
     recordUsage({
