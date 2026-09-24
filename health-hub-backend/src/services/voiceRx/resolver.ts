@@ -665,7 +665,27 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (cands.length === 0) continue;
 
     const d = decide(cands);
-    if (d) return d;
+    if (!d) continue;
+    // An APPROXIMATE match never decides a drug on its own. Tiers 1 and 2 are
+    // literal — the name, brand or a learned alias, as written. Tiers 3 and 4
+    // are approximations: a phonetic key and fuzzy spelling. Phonetic keys are
+    // lossy by design, and a collision is not a match: "xyzzy" and "Q-Siz" both
+    // reduce to "ksis", so gibberish resolved to a real product, and "calpal"
+    // resolved to Calpalm 60K when the doctor almost certainly meant Calpol.
+    // So a single approximate hit becomes a question — "Did you mean…?" — with
+    // the hit as the option. Cheap to answer, and it is asked only once: after
+    // signing, learning records what was heard as an alias on the drug chosen,
+    // and the same words then resolve literally, in tier 1 or 2.
+    if (tier >= 3 && d.resolution === 'RESOLVED' && d.match) {
+      return {
+        resolution: 'UNRESOLVED',
+        match: null,
+        candidates: d.candidates.length ? d.candidates : [d.match],
+        askReason: 'NO_MATCH',
+        spokenStrength,
+      };
+    }
+    return d;
   }
 
   // Nothing matched. Still a question — but one with the near-misses on it, so
