@@ -39,7 +39,24 @@ import { resolveMedication } from './src/services/voiceRx/resolver';
 
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const NOISE = process.env.NOISE === '1';
-const DIR = path.join(process.env.MIX_CHECK_DIR ?? '/tmp/claude-501/mixed-check', NOISE ? 'noisy' : 'clean');
+// REAL recordings: a folder of a doctor reading the script sheet (--sheet), one
+// file per line named by its id (te01.m4a, hh07.ogg, …). Any format afconvert or
+// ffmpeg reads. Those replace the synthetic voices; expectations stay the same.
+const REAL = process.env.MIX_AUDIO_DIR;
+const DIR = path.join(process.env.MIX_CHECK_DIR ?? '/tmp/claude-501/mixed-check', REAL ? 'real' : NOISE ? 'noisy' : 'clean');
+
+/** A real recording of this case, converted to 16 kHz mono WAV, if one was given. */
+function realAudio(id: string, out: string): boolean {
+  if (!REAL) return false;
+  const src = fs.readdirSync(REAL).find((f) => f.toLowerCase().startsWith(`${id}.`));
+  if (!src) return false;
+  try {
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', path.join(REAL, src), '-ar', '16000', '-ac', '1', out]);
+  } catch {
+    execFileSync('afconvert', [path.join(REAL, src), '-o', out, '-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1']);
+  }
+  return true;
+}
 const CACHE = path.join(DIR, 'transcripts.json');
 // For "prod" variants: what the SERVER extracted, so the run is end to end.
 const SERVER_ITEMS = path.join(DIR, 'server-items.json');
@@ -183,7 +200,10 @@ async function transcribeAll(cases: Case[]): Promise<Record<string, Record<strin
     console.log(`transcribing ${todo.length} clips (~${Math.ceil((todo.length * 11) / 60)} min)…`);
     for (const { v, c } of todo) {
       const wav = path.join(DIR, `${c.id}.wav`);
-      if (!fs.existsSync(wav)) speak(c.parts, wav);
+      if (!fs.existsSync(wav) && !realAudio(c.id, wav)) {
+        if (REAL) { console.log(`\n  (no recording for ${c.id} — skipped)`); continue; }
+        speak(c.parts, wav);
+      }
       await new Promise((r) => setTimeout(r, 11_000)); // prod's 6/min burst limit
       const [model, lang] = v.split(':');
       const form = new FormData();
@@ -219,7 +239,12 @@ async function transcribeAll(cases: Case[]): Promise<Record<string, Record<strin
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 (async () => {
-  const cases = SETS.flatMap((s) => CASES[s] ?? []);
+  // --sheet: the lines for a doctor to read into their phone, one file each.
+  if (process.argv.includes('--sheet')) {
+    for (const set of SETS) for (const c of CASES[set] ?? []) console.log(`${c.id}\t${said(c)}`);
+    process.exit(0);
+  }
+  const cases = SETS.flatMap((s) => CASES[s] ?? []).filter((c) => !REAL || fs.readdirSync(REAL).some((f) => f.toLowerCase().startsWith(`${c.id}.`)));
   const cache = await transcribeAll(cases);
   const quiet = process.argv.includes('--quiet');
   const summary: string[] = [];

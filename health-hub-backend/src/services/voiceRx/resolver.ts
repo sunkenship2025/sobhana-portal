@@ -344,6 +344,12 @@ async function queryLike(needle: string, limit: number): Promise<Candidate[]> {
 // Resolution
 // ---------------------------------------------------------------------------
 
+/** The clinic's skeleton matches first, then the rest, each medicine once. */
+const withClinicFirst = (first: Candidate[], rest: Candidate[]): Candidate[] => {
+  const seen = new Set(first.map((c) => c.medicationId));
+  return [...first, ...rest.filter((c) => !seen.has(c.medicationId))].slice(0, MAX_CANDIDATES);
+};
+
 const toCandidate = (r: Raw, score: number, matchedOn: Candidate['matchedOn']): Candidate => ({
   medicationId: r.id,
   canonicalName: r.canonicalName,
@@ -359,6 +365,40 @@ const toCandidate = (r: Raw, score: number, matchedOn: Candidate['matchedOn']): 
   source: r.source ?? 'IMPORTED',
   usageCount: Number(r.usageCount ?? 0),
 });
+
+/**
+ * A brand's consonant skeleton — what survives when the recogniser mishears it.
+ *
+ * Inside Telugu or Hindi speech the recogniser keeps a brand's consonants and
+ * loses its vowels: Levocet -> "Levasat", Calpol -> "Calpal", Crocin ->
+ * "Crossin", Zincovit -> "Zincavet", Ondem -> "On them", Montair LC ->
+ * "Monterell C". Vowels, h, doubled letters and the usual Indian-English
+ * confusions (c/k/s, z/s, w/v, d/t, th/t) fold away; what is left matches.
+ */
+export function consonantSkeleton(input: string): string {
+  let t = norm(input).replace(/[^a-z]/g, '');
+  t = t.replace(/ph/g, 'f').replace(/[td]h/g, 't').replace(/kh/g, 'k').replace(/bh/g, 'b').replace(/[sc]h/g, 's');
+  t = t.replace(/c(?=[eiy])/g, 's').replace(/[cq]/g, 'k').replace(/x/g, 'ks').replace(/z/g, 's').replace(/w/g, 'v').replace(/d/g, 't');
+  return t.replace(/[aeiouyh]/g, '').replace(/(.)\1+/g, '$1');
+}
+
+/**
+ * The clinic's own medicines whose brand (or other name) has this skeleton —
+ * offered FIRST when a name did not match literally. Only the clinic list
+ * (curated + learned, a few hundred rows), so a skeleton rarely collides; and
+ * only ever as a suggestion, never a decision. Read fresh each time, so an edit
+ * on the Medicines page applies to the next dictation.
+ */
+async function clinicSkeletonMatches(stem: string, spokenStrength: string | null): Promise<Candidate[]> {
+  const key = consonantSkeleton(stem);
+  if (key.length < 3) return [];
+  const rows = await prisma.$queryRawUnsafe<Raw[]>(
+    `SELECT ${SELECT_COLS} FROM "Medication" WHERE ${WHERE_LIVE} AND source IN ('CURATED', 'LEARNED')`,
+  );
+  const hits = rows.filter((r) => [r.brandName, ...(r.aliases ?? [])].some((n) => n && consonantSkeleton(n.replace(/\s*\d.*$/, '')) === key));
+  const cands = hits.map((r) => toCandidate(r, 0.9, 'suggestion'));
+  return narrowByStrength(cands, spokenStrength);
+}
 
 /**
  * Narrow by a spoken strength.
@@ -702,18 +742,24 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
       return {
         resolution: 'UNRESOLVED',
         match: null,
-        candidates: d.candidates.length ? d.candidates : [d.match],
+        candidates: withClinicFirst(await clinicSkeletonMatches(stem, spokenStrength).catch(() => []), d.candidates.length ? d.candidates : [d.match]),
         askReason: 'NO_MATCH',
         spokenStrength,
       };
+    }
+    if (tier >= 3 && d.resolution !== 'RESOLVED') {
+      return { ...d, candidates: withClinicFirst(await clinicSkeletonMatches(stem, spokenStrength).catch(() => []), d.candidates) };
     }
     return d;
   }
 
   // Nothing matched. Still a question — but one with the near-misses on it, so
   // "Aumintin 625" asks "did you mean Augmentin 625?" instead of offering nothing.
-  const nearMisses = await suggestSimilar(stem, spokenStrength).catch(() => []);
-  return { resolution: 'UNRESOLVED', match: null, candidates: nearMisses, askReason: 'NO_MATCH', spokenStrength };
+  const [skeleton, nearMisses] = await Promise.all([
+    clinicSkeletonMatches(stem, spokenStrength).catch(() => []),
+    suggestSimilar(stem, spokenStrength).catch(() => []),
+  ]);
+  return { resolution: 'UNRESOLVED', match: null, candidates: withClinicFirst(skeleton, nearMisses), askReason: 'NO_MATCH', spokenStrength };
 }
 
 export async function searchMedications(q: string, limit = 12): Promise<Candidate[]> {

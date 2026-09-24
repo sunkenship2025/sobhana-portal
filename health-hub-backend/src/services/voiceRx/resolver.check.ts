@@ -8,7 +8,7 @@
  * mis-heard drug names and starts calling them UNRESOLVED — which is safe but
  * useless. This file is the thing that fails when that happens.
  */
-import { phoneticKey, similarity, norm, resolveMedication } from './resolver';
+import { phoneticKey, similarity, norm, resolveMedication, consonantSkeleton } from './resolver';
 
 function main(): void {
   const ok = (cond: boolean, label: string) => { if (!cond) throw new Error(`FAIL: ${label}`); };
@@ -49,6 +49,16 @@ function main(): void {
   // is 0.82 with a 0.12 margin, so anything scoring under that asks the doctor.
   const lasa = similarity('amlodipine', 'amiodarone');
   ok(lasa < 0.82, `look-alike pair scores below the auto-resolve floor (got ${lasa.toFixed(2)})`);
+
+  // --- consonant skeleton: what survives a mishearing ------------------------
+  const skel = (a: string, b: string) => consonantSkeleton(a) === consonantSkeleton(b);
+  for (const [heard, brand] of [['Levasat', 'Levocet'], ['Calpal', 'Calpol'], ['Crossin', 'Crocin'], ['Zincavet', 'Zincovit'],
+    ['On them', 'Ondem'], ['Monterell C', 'Montair LC'], ['Set Scene', 'Cetzine'], ['Azithril', 'Azithral']]) {
+    ok(skel(heard, brand), `skeleton: "${heard}" reaches ${brand}`);
+  }
+  ok(!skel('Levocet', 'Levast-M'), 'skeleton keeps Levocet and Levast-M apart');
+  ok(!skel('Amlodipine', 'Amiodarone'), 'skeleton keeps the classic look-alike pair apart');
+  ok(!skel('Calpol', 'Calpalm'), 'skeleton keeps Calpol and Calpalm apart');
 
   // eslint-disable-next-line no-console
   console.log('resolver.check.ts: all checks passed');
