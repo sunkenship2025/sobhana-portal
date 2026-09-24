@@ -149,7 +149,7 @@ interface Result { label: string; ok: boolean; expect: string; heading: string |
 
     await visit('/doctor', 'doctor queue', 'OP / IP queue');
     await visit('/doctor/patients', 'patient search', 'Search by name');
-    await visit('/doctor/account', 'my account', 'My account');
+    await visit('/doctor/account', 'my profile', 'Your details');
 
     const cv = await prisma.clinicVisit.findFirst({
       where: { clinicDoctorId: doctor.id, visit: { branchId: branch.id } },
