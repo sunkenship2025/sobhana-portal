@@ -337,6 +337,10 @@ export default function Consultation() {
   const unanswered = useMemo(() => openQuestions(items).length, [items]);
   const notesOnly = useMemo(() => findings.filter((f) => f.severity === 'NOTE'), [findings]);
   const canSign = blocking.length === 0 && items.length > 0;
+  // Who may sign, as the server decides it. An owner can open and edit any
+  // consultation, but only the visit's own doctor signs — the sheet carries their
+  // registration number and signature.
+  const signBlock = ctx?.signing && !ctx.signing.ok ? (ctx.signing.reason ?? 'You cannot sign this prescription') : null;
 
   // --- render --------------------------------------------------------------
   if (loading) {
@@ -437,24 +441,30 @@ export default function Consultation() {
 
           {!signed && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3 sm:p-4">
-              <label className="flex max-w-md items-start gap-2.5 text-sm">
-                <Checkbox
-                  checked={attested}
-                  onCheckedChange={(v) => setAttested(v === true)}
-                  aria-label="Confirm review"
-                  className="mt-0.5"
-                />
-                <span className="text-muted-foreground">
-                  I have reviewed all <span className="font-semibold text-foreground">{items.length} medicine{items.length === 1 ? '' : 's'}</span> above and I am prescribing them.
-                </span>
-              </label>
+              {/* The attestation is the prescriber's to make. Anyone else sees why
+                  they cannot sign instead of a box that says "I am prescribing". */}
+              {signBlock ? (
+                <p className="max-w-md text-sm text-amber-700">{signBlock}</p>
+              ) : (
+                <label className="flex max-w-md items-start gap-2.5 text-sm">
+                  <Checkbox
+                    checked={attested}
+                    onCheckedChange={(v) => setAttested(v === true)}
+                    aria-label="Confirm review"
+                    className="mt-0.5"
+                  />
+                  <span className="text-muted-foreground">
+                    I have reviewed all <span className="font-semibold text-foreground">{items.length} medicine{items.length === 1 ? '' : 's'}</span> above and I am prescribing them.
+                  </span>
+                </label>
+              )}
               <div className="ml-auto flex gap-2">
                 <Button variant="outline" onClick={() => setReview(false)}>Back to edit</Button>
-                <Button onClick={() => void doSign(false)} disabled={!attested || !canSign || signing}>
+                <Button onClick={() => void doSign(false)} disabled={!!signBlock || !attested || !canSign || signing}>
                   {signing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="mr-2 h-4 w-4" aria-hidden="true" />}
                   Sign
                 </Button>
-                <Button onClick={() => void doSign(true)} disabled={!attested || !canSign || signing}>
+                <Button onClick={() => void doSign(true)} disabled={!!signBlock || !attested || !canSign || signing}>
                   Sign &amp; next
                 </Button>
               </div>

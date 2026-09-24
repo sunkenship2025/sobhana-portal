@@ -22,7 +22,7 @@ import { extractPrescription, extractionConfigured, ExtractionUnavailable } from
 import { resolveMedication, searchMedications, buildAsrHint } from '../services/voiceRx/resolver';
 import {
   createDraft, updateDraft, sign, amend, getById, listDrafts, listForVisit,
-  validateById, PrescriptionStateError,
+  validateById, PrescriptionStateError, PrescriptionSignerError,
 } from '../services/voiceRx/prescriptionService';
 import { putObject, deleteObject } from '../services/r2StorageService';
 import { requireDigitalRx } from '../lib/clinicModule';
@@ -73,8 +73,11 @@ async function myClinicDoctorId(userId: string): Promise<string | null> {
  * May this user act on this prescription?
  *
  * An owner may (they run the clinic and must be able to unstick a visit). A
- * doctor may only act on their OWN — signing carries their name and registration
- * number, so it cannot be delegated.
+ * doctor may only act on their OWN.
+ *
+ * NOT used for signing. That is stricter and lives in prescriptionService.sign():
+ * only the visit's own doctor, through their own login — an owner included, since
+ * the sheet carries that doctor's registration number and signature.
  */
 async function canAct(req: AuthRequest, clinicDoctorId: string): Promise<boolean> {
   if (req.user?.role === 'owner') return true;
@@ -407,9 +410,10 @@ router.post('/:id/sign', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
       select: { clinicDoctorId: true, visitId: true },
     });
     if (!rx) { res.status(404).json({ error: 'NOT_FOUND', message: 'Prescription not found' }); return; }
-    if (!(await canAct(req, rx.clinicDoctorId))) {
-      res.status(403).json({ error: 'FORBIDDEN', message: 'Only the consulting doctor can sign this' }); return;
-    }
+    // No canAct here. Who may sign is decided inside sign() — the visit's own
+    // doctor through their own login, owner or not — so it holds for every
+    // caller, not just this route. canAct's owner pass is for unsticking a
+    // visit, and signing is not unsticking.
 
     const signed = await sign(req.params.id, req.user!.id, {
       isTelemedicine: req.body?.isTelemedicine === true,
@@ -433,6 +437,9 @@ router.post('/:id/sign', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
 
     res.json({ ...signed, visitCompleted });
   } catch (err) {
+    if (err instanceof PrescriptionSignerError) {
+      res.status(403).json({ error: 'NOT_THE_PRESCRIBER', message: err.message }); return;
+    }
     if (stateError(res, err)) return;
     logger.error({ err }, 'prescriptions: sign failed');
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not sign the prescription' });

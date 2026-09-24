@@ -278,6 +278,9 @@ export interface VisitContext {
   visit: { id: string; status: string; date: string; visitType: string; ward: string | null; queueStatus: string; tokenNumber: number | null };
   branch: { id: string; name: string; address: string | null; phone: string | null };
   doctor: { id: string; name: string; qualification: string; specialty: string; registrationNumber: string; letterheadNote: string | null };
+  /** Whether the signed-in user may sign here, from the same check the server
+   *  refuses on. Only the visit's own doctor, with a signature on file. */
+  signing?: { ok: boolean; reason?: string };
   patient: { id: string; patientNumber: string; name: string; title: string | null; gender: string; ageLabel: string; phone: string | null; deceased: boolean };
   previousPrescriptions: DoctorPatient['prescriptions'];
   currentMedications: { name: string; since: string }[];

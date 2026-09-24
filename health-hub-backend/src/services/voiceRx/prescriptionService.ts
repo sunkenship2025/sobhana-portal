@@ -28,6 +28,9 @@ import type { ExtractedItem } from './extract';
 import { learnFromSignedPrescription } from './learning';
 
 export class PrescriptionStateError extends Error {}
+/** The signer is not the prescribing doctor. Distinct from a state error so the
+ *  route can answer 403 — this is "you may not", not "this cannot happen yet". */
+export class PrescriptionSignerError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Snapshot
@@ -395,6 +398,46 @@ export async function updateDraft(
 // Sign — the irreversible transition
 // ---------------------------------------------------------------------------
 
+/**
+ * May this user sign a prescription for this consulting doctor — and if not, why.
+ *
+ * ONE definition, used by sign() to refuse and by the consultation screen to
+ * disable its Sign button with the same words. Two copies of this rule would
+ * eventually disagree, and the screen would offer a button the server refuses.
+ *
+ *   NOT_THE_PRESCRIBER  the signed-in user is not this doctor's own login
+ *                       (an owner included — see sign() for why)
+ *   NO_SIGNATURE        the doctor has no signature on file; radiology already
+ *                       refuses to finalize without a signer, same rule
+ */
+export async function signerCheck(
+  clinicDoctorId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; code: 'NOT_THE_PRESCRIBER' | 'NO_SIGNATURE' | 'NO_DOCTOR'; reason: string }> {
+  const d = await prisma.clinicDoctor.findUnique({
+    where: { id: clinicDoctorId },
+    select: { name: true, userId: true, isActive: true, signatureImageBase64: true },
+  });
+  if (!d) return { ok: false, code: 'NO_DOCTOR', reason: 'Consulting doctor not found' };
+  // Names carry stray whitespace in prod ("Dr. SURENDER SINGH "); trim for the message.
+  const name = d.name.trim();
+  if (!d.isActive || !d.userId || d.userId !== userId) {
+    return {
+      ok: false,
+      code: 'NOT_THE_PRESCRIBER',
+      reason: `Only ${name} can sign this prescription — it goes out under their registration number and signature.`,
+    };
+  }
+  if (!d.signatureImageBase64) {
+    return {
+      ok: false,
+      code: 'NO_SIGNATURE',
+      reason: `${name} has no signature on file. Add one under Consulting doctor logins, then sign.`,
+    };
+  }
+  return { ok: true };
+}
+
 export async function sign(
   id: string,
   userId: string,
@@ -411,6 +454,24 @@ export async function sign(
   if (!rx) throw new PrescriptionStateError('Prescription not found');
   if (rx.status === 'SIGNED') throw new PrescriptionStateError('Already signed');
   if (rx.status === 'SUPERSEDED') throw new PrescriptionStateError('This revision has been superseded');
+
+  // WHO may sign: the visit's own doctor, through their own login, and nobody
+  // else — whatever their role. The sheet carries this doctor's name,
+  // registration number and signature image, so pressing Sign is the doctor
+  // attesting to the order. Reports work differently on purpose: there staff
+  // finalize and the pathologist's signature prints, because a report is the
+  // doctor's review of lab output. A prescription is the doctor's own order, and
+  // letting an owner apply that signature would put a registration number on a
+  // document its holder never saw.
+  //
+  // Checked HERE, in the one function every signature goes through, not in the
+  // route — so no future caller can sign without it. Before the validator,
+  // because "you may not" should not wait on "is it complete".
+  const may = await signerCheck(rx.clinicDoctorId, userId);
+  if (!may.ok) {
+    if (may.code === 'NOT_THE_PRESCRIBER') throw new PrescriptionSignerError(may.reason);
+    throw new PrescriptionStateError(may.reason);
+  }
 
   // The gate. Refusing here, not in the UI, is what makes PART 29 real.
   const validation = await validatePrescription({

@@ -23,7 +23,7 @@ import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { logAction } from '../services/auditService';
 import { emitBranchChange, emitWorklistOnMutation } from '../lib/displayEvents';
-import { listForPatient, currentMedications } from '../services/voiceRx/prescriptionService';
+import { listForPatient, currentMedications, signerCheck } from '../services/voiceRx/prescriptionService';
 import { requireDigitalRx } from '../lib/clinicModule';
 
 const router = Router();
@@ -352,9 +352,12 @@ router.get('/visits/:visitId', async (req: AuthRequest, res) => {
       res.status(403).json({ error: 'FORBIDDEN', message: 'This is another doctor\u2019s consultation' }); return;
     }
 
-    const [prescriptions, current] = await Promise.all([
+    const [prescriptions, current, signing] = await Promise.all([
       listForPatient(visit.patient.id, 6),
       currentMedications(visit.patient.id),
+      // The SAME check sign() refuses on, so the screen can grey out Sign with
+      // the server's own words instead of offering a button that 403s.
+      signerCheck(visit.clinicVisit.clinicDoctor.id, req.user!.id),
     ]);
 
     res.json({
@@ -369,6 +372,7 @@ router.get('/visits/:visitId', async (req: AuthRequest, res) => {
       },
       branch: visit.branch,
       doctor: visit.clinicVisit.clinicDoctor,
+      signing: signing.ok ? { ok: true } : { ok: false, reason: signing.reason },
       patient: {
         id: visit.patient.id,
         patientNumber: visit.patient.patientNumber,

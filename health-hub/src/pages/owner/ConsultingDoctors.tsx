@@ -26,7 +26,8 @@ import { KeyRound, Upload, Loader2, Copy, ShieldOff, Stethoscope, RotateCcw } fr
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
-import { cleanSignature } from '@/lib/signatureImage';
+import { cleanSignature, type CleanedSignature } from '@/lib/signatureImage';
+import { SignatureEditor } from '@/components/owner/SignatureEditor';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDigitalRx } from '@/lib/digitalRx';
 
@@ -139,19 +140,21 @@ export default function ConsultingDoctors() {
     } finally { setBusy(null); setRevoking(null); }
   }, [load]);
 
+  // Same two steps as Signers & Rules: clean at the default strength, then open
+  // the SAME SignatureEditor (strength / erase / undo) before anything is saved.
+  // A prescription signature was going straight from a phone photo to the sheet
+  // with no chance to fix a grey background or a stray ruled line.
+  const [sigEdit, setSigEdit] = useState<
+    { id: string; source: File; cleaned: File; reveal: CleanedSignature['reveal'] } | null
+  >(null);
+
   const onSignature = useCallback(async (file: File | undefined) => {
     const id = uploadFor.current;
     if (!file || !id) return;
     setBusy(id);
     try {
-      const { file: cleaned } = await cleanSignature(file);
-      const dataUrl = await fileToDataUrl(cleaned);
-      await call(`/doctor-logins/${id}/signature`, {
-        method: 'PATCH',
-        body: JSON.stringify({ signatureImageBase64: dataUrl }),
-      });
-      toast.success('Signature saved');
-      await load();
+      const cleaned = await cleanSignature(file);
+      setSigEdit({ id, source: file, cleaned: cleaned.file, reveal: cleaned.reveal });
     } catch {
       toast.error('Could not process that image');
     } finally {
@@ -159,7 +162,25 @@ export default function ConsultingDoctors() {
       uploadFor.current = null;
       if (fileInput.current) fileInput.current.value = '';
     }
-  }, [load]);
+  }, []);
+
+  const applySignature = useCallback(async (file: File) => {
+    if (!sigEdit) return;
+    setBusy(sigEdit.id);
+    try {
+      await call(`/doctor-logins/${sigEdit.id}/signature`, {
+        method: 'PATCH',
+        body: JSON.stringify({ signatureImageBase64: await fileToDataUrl(file) }),
+      });
+      toast.success('Signature saved');
+      setSigEdit(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save the signature');
+    } finally {
+      setBusy(null);
+    }
+  }, [sigEdit, load]);
 
   return (
     <AppLayout>
@@ -310,6 +331,17 @@ export default function ConsultingDoctors() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {sigEdit && (
+        <SignatureEditor
+          source={sigEdit.source}
+          initial={sigEdit.cleaned}
+          reveal={sigEdit.reveal}
+          busy={busy === sigEdit.id}
+          onApply={(f) => void applySignature(f)}
+          onCancel={() => setSigEdit(null)}
+        />
+      )}
 
       <AlertDialog open={confirmModule} onOpenChange={(o) => !o && setConfirmModule(false)}>
         <AlertDialogContent>
