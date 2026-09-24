@@ -19,6 +19,7 @@ import {
   Stethoscope,
   Users,
   UserRound,
+  Pill,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole, ROLE_LABELS } from '@/store/authStore';
@@ -71,10 +72,11 @@ const ownerNavItems: NavItem[] = [
     icon: UserRound,
     href: '/people/doctors',
     roles: ['owner'],
-    matchPrefixes: ['/people/doctors', '/owner/consulting-doctors'],
+    matchPrefixes: ['/people/doctors', '/owner/consulting-doctors', '/owner/medicines'],
     subItems: [
       { label: 'Performance', href: '/people/doctors', matchPrefixes: ['/people/doctors'] },
       { label: 'Consulting doctor logins', href: '/owner/consulting-doctors' },
+      { label: 'Medicines', href: '/owner/medicines' },
     ],
   },
   {
@@ -168,7 +170,7 @@ const ownerNavItems: NavItem[] = [
 // between them is enforced elsewhere: Lab Incharge can finalize reports (and
 // sees more Admin config tabs) while Staff cannot.
 /**
- * The doctor's nav. Queue, patients, and their own profile — on purpose.
+ * The doctor's nav. Queue, patients, the medicine list and their own profile — on purpose.
  *
  * Everything else an owner sees — money, payouts, audit, catalogue, campaigns,
  * config — is not merely hidden here; the routes refuse the role. Unsigned
@@ -190,6 +192,12 @@ const doctorNavItems: NavItem[] = [
     href: '/doctor/patients',
     roles: ['doctor', 'owner'],
     matchPrefixes: ['/doctor/patients'],
+  },
+  {
+    label: 'Medicines',
+    icon: Pill,
+    href: '/doctor/medicines',
+    roles: ['doctor'],
   },
   {
     // Details, signature, letterhead note, password. Doctors only — an owner has

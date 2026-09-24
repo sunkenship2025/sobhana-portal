@@ -16,6 +16,7 @@ import DoctorQueue from "./pages/doctor/DoctorQueue";
 import Consultation from "./pages/doctor/Consultation";
 import DoctorPatients from "./pages/doctor/DoctorPatients";
 import DoctorAccount from "./pages/doctor/DoctorAccount";
+import Medicines from "./pages/Medicines";
 import ConsultingDoctors from "./pages/owner/ConsultingDoctors";
 import { DigitalRxGate } from "./lib/digitalRx";
 import PublicPrescription from "./pages/PublicPrescription";
@@ -143,6 +144,18 @@ function AppRoutes() {
       <Route path="/doctor/patients/:patientId" element={
         <ProtectedRoute allowedRoles={['doctor', 'owner']}>
           <DigitalRxGate><DoctorPatients /></DigitalRxGate>
+        </ProtectedRoute>
+      } />
+      {/* The medicine list: owner under Doctors; doctors in their own portal,
+          which closes with the rest of it when the switch is off. */}
+      <Route path="/owner/medicines" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <Medicines />
+        </ProtectedRoute>
+      } />
+      <Route path="/doctor/medicines" element={
+        <ProtectedRoute allowedRoles={['doctor']}>
+          <DigitalRxGate><Medicines /></DigitalRxGate>
         </ProtectedRoute>
       } />
       <Route path="/doctor/account" element={

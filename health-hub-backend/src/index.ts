@@ -50,6 +50,7 @@ import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
 import prescriptionRoutes from './routes/prescriptions';
 import prescriptionRecordRoutes from './routes/prescriptionRecords';
+import medicationRoutes from './routes/medications';
 import doctorPortalRoutes from './routes/doctorPortal';
 import doctorLoginRoutes from './routes/doctorLogins';
 import payoutRoutes from './routes/payouts';
@@ -404,6 +405,7 @@ app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/prescriptions', prescriptionRoutes); // VoiceRx: draft/edit/validate/sign/revise
 app.use('/api/prescription-records', prescriptionRecordRoutes); // staff: view/print/send a signed Rx, switch on or off
+app.use('/api/medications', medicationRoutes); // the medicine list: search, add, edit (owner + doctors)
 app.use('/api/doctor', doctorPortalRoutes);        // Doctor portal: my queue, my patients, my account
 app.use('/api/doctor-logins', doctorLoginRoutes);  // Owner: link a ClinicDoctor to a login, hold their signature
 app.use('/api/display', displayRoutes); // PUBLIC — kiosk queue state, no user auth
