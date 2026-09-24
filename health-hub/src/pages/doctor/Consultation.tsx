@@ -31,7 +31,7 @@ import { RxLetterpad, type RxProfile } from '@/components/doctor/RxLetterpad';
 import {
   doctorApi, DoctorApiError, itemSig, itemTitle, openQuestions,
   type Prescription, type RxItem, type Finding, type Capabilities, type ExtractedItem,
-  type VisitContext,
+  type VisitContext, type ExtractionResponse,
 } from '@/lib/doctorApi';
 
 /** Turn an extracted item into an editable row. */
@@ -82,6 +82,11 @@ export default function Consultation() {
   const [saving, setSaving] = useState(false);
   const [recording, setRecording] = useState(false);
   const [thinking, setThinking] = useState(false);
+  /** What was heard (or written) — editable, so a mishearing is fixed at the source. */
+  const [heard, setHeard] = useState('');
+  const [recSeconds, setRecSeconds] = useState(0);
+  /** This session's recording, in memory only, for play-back. */
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [review, setReview] = useState(false);
   const [profile, setProfile] = useState<RxProfile>('digital');
   const [attested, setAttested] = useState(false);
@@ -138,6 +143,7 @@ export default function Consultation() {
       const open = existing.find((p) => p.status === 'DRAFT') ?? existing[0] ?? null;
       if (open) {
         setRx(open);
+        setHeard(open.transcript ?? '');
         setItems(open.items);
         setDiagnosis(open.diagnosis ?? '');
         setNotes(open.notes ?? '');
@@ -151,6 +157,15 @@ export default function Consultation() {
   }, [visitId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // A visible clock while the mic is open — "Listening…" alone gives no sense of
+  // how long you have been talking, and the hard stop is at three minutes.
+  useEffect(() => {
+    if (!recording) return;
+    const t = window.setInterval(() => setRecSeconds((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [recording]);
+  useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
   // Release the microphone on unmount — an open mic is both a cost and, per the
   // Whisper research, a hallucination risk during long pauses.
@@ -198,6 +213,46 @@ export default function Consultation() {
   );
 
   // --- dictation -----------------------------------------------------------
+  /**
+   * Turn an extraction into saved lines. ONE path for the microphone and for
+   * written text, so the two cannot drift into saving different things.
+   *
+   * `replaceDictated`: "Read again" after correcting the heard text replaces the
+   * lines that CAME from dictation (they carry sourceText) and keeps anything
+   * added by hand. Otherwise new lines are ADDED — a doctor who typed two
+   * medicines and then spoke a third means three.
+   *
+   * New lines go up WITHOUT a resolution so the server checks each against the
+   * catalogue and asks where it must. Stamping them MANUAL here — as this used
+   * to — marked every spoken drug as the doctor's own verified choice.
+   */
+  const applyExtraction = useCallback(
+    async (
+      extraction: ExtractionResponse['extraction'],
+      opts: { replaceDictated: boolean; meta?: Record<string, unknown> },
+    ) => {
+      const extracted = extraction.items.map(fromExtracted);
+      const base = items.filter((i) => i.canonicalName.trim() && !(opts.replaceDictated && i.sourceText));
+      const merged = [...base, ...extracted];
+      setMissing(extraction.missing);
+      if (extraction.diagnosis && !diagnosis) setDiagnosis(extraction.diagnosis);
+      if (extraction.followUpDays != null && !followUpDays) setFollowUpDays(String(extraction.followUpDays));
+      const draft = await ensureDraft(opts.meta ?? {});
+      const fresh = new Set(extracted);
+      const updated = await doctorApi.update(draft.id, {
+        items: merged.map((i) => (fresh.has(i)
+          ? { ...i, resolution: undefined, candidates: undefined }
+          : { ...i })),
+      });
+      setRx(updated);
+      setItems(updated.items);
+      const v = await doctorApi.validate(updated.id);
+      setFindings(v.findings);
+      return extraction.items.length;
+    },
+    [items, diagnosis, followUpDays, ensureDraft],
+  );
+
   const stopRecording = useCallback(() => {
     window.clearTimeout(silenceTimer.current);
     if (recorder.current?.state === 'recording') recorder.current.stop();
@@ -216,39 +271,26 @@ export default function Consultation() {
         stream.current = null;
         const blob = new Blob(chunks.current, { type: mr.mimeType || 'audio/webm' });
         if (blob.size < 2000) { toast.error('Nothing was recorded'); return; }
+        // Play-back of what was JUST said, from memory — nothing is uploaded or
+        // kept. Re-listening is how a doctor checks a word the recogniser got
+        // wrong before correcting it below.
+        setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
         setThinking(true);
         try {
           const result = await doctorApi.transcribe(blob);
-          const extracted = result.extraction.items.map(fromExtracted);
-          // Dictation ADDS to what is already there rather than replacing it —
-          // a doctor who typed two medicines and then spoke a third means three.
-          const merged = [...items.filter((i) => i.canonicalName.trim()), ...extracted];
-          setMissing(result.extraction.missing);
-          if (result.extraction.diagnosis && !diagnosis) setDiagnosis(result.extraction.diagnosis);
-          if (result.extraction.followUpDays != null && !followUpDays) setFollowUpDays(String(result.extraction.followUpDays));
-          const draft = await ensureDraft({
-            transcript: result.transcript.text,
-            transcriptSegments: result.transcript.segments,
-            asrProvider: result.transcript.provider,
-            asrModel: result.transcript.model,
-            asrLanguage: result.transcript.language,
-            extractionModel: result.extraction.model,
+          setHeard(result.transcript.text);
+          const n = await applyExtraction(result.extraction, {
+            replaceDictated: false,
+            meta: {
+              transcript: result.transcript.text,
+              transcriptSegments: result.transcript.segments,
+              asrProvider: result.transcript.provider,
+              asrModel: result.transcript.model,
+              asrLanguage: result.transcript.language,
+              extractionModel: result.extraction.model,
+            },
           });
-          // The newly dictated lines go up WITHOUT a resolution, so the server
-          // checks them against the catalogue and asks where it must. Stamping
-          // them MANUAL here — as this used to — marked every spoken drug as
-          // the doctor's own verified choice: "Aumintin 625 · Your choice".
-          const fresh = new Set(extracted);
-          const updated = await doctorApi.update(draft.id, {
-            items: merged.map((i) => (fresh.has(i)
-              ? { ...i, resolution: undefined, candidates: undefined }
-              : { ...i })),
-          });
-          setRx(updated);
-          setItems(updated.items);
-          const v = await doctorApi.validate(updated.id);
-          setFindings(v.findings);
-          toast.success(`Heard ${result.extraction.items.length} medicine${result.extraction.items.length === 1 ? '' : 's'}`);
+          toast.success(`Heard ${n} medicine${n === 1 ? '' : 's'}`);
         } catch (err) {
           // Never a dead end: the typed editor is always the fallback.
           toast.error(err instanceof DoctorApiError ? err.message : 'Could not transcribe — please type instead');
@@ -258,6 +300,7 @@ export default function Consultation() {
       };
       mr.start();
       recorder.current = mr;
+      setRecSeconds(0);
       setRecording(true);
       // Hard stop at 3 minutes. An open mic left running is billed by the second
       // and, past a long pause, is where Whisper fabricates sentences.
@@ -265,7 +308,27 @@ export default function Consultation() {
     } catch {
       toast.error('Microphone permission denied');
     }
-  }, [items, diagnosis, followUpDays, ensureDraft, stopRecording]);
+  }, [applyExtraction, stopRecording]);
+
+  /**
+   * "Type midway": structure WRITTEN words — the heard text after correcting a
+   * word the recogniser got wrong, or a line typed with no microphone at all.
+   */
+  const readText = useCallback(async () => {
+    const text = heard.trim();
+    if (!text) return;
+    const dictated = items.filter((i) => i.sourceText).length;
+    setThinking(true);
+    try {
+      const { extraction } = await doctorApi.extractText(text);
+      const n = await applyExtraction(extraction, { replaceDictated: dictated > 0 });
+      toast.success(`Read ${n} medicine${n === 1 ? '' : 's'}`);
+    } catch (err) {
+      toast.error(err instanceof DoctorApiError ? err.message : 'Could not read that — add the medicines one by one below');
+    } finally {
+      setThinking(false);
+    }
+  }, [heard, items, applyExtraction]);
 
   // --- item editing --------------------------------------------------------
   const patchItem = useCallback((idx: number, patch: Partial<RxItem>) => {
@@ -574,9 +637,14 @@ export default function Consultation() {
 
           {/* Composer */}
           <div className="space-y-3">
-            {caps?.voiceEnabled && (
-              <section className="rounded-lg border bg-card p-3">
-                <div className="flex items-center gap-3">
+            {/* Dictate OR write — the same card. Always shown: with no microphone
+                (or no speech key on the server) a doctor can still write
+                "Augmentin 625 three times daily for five days" and have it
+                structured, and after dictation what was heard is right here to
+                correct and read again, instead of a truncated quote. */}
+            <section className="space-y-2.5 rounded-lg border bg-card p-3">
+              <div className="flex items-center gap-3">
+                {caps?.voiceEnabled && (
                   <Button
                     type="button"
                     variant={recording ? 'destructive' : 'default'}
@@ -588,22 +656,56 @@ export default function Consultation() {
                   >
                     {recording ? <Square className="h-4 w-4" aria-hidden="true" /> : <Mic className="h-5 w-5" aria-hidden="true" />}
                   </Button>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">
-                      {thinking ? 'Structuring what you said…' : recording ? 'Listening…' : 'Dictate the prescription'}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {recording
-                        ? 'Speak naturally — English, Hindi or a mix. Press stop when done.'
-                        : rx?.transcript
-                          ? `“${rx.transcript.slice(0, 90)}${rx.transcript.length > 90 ? '…' : ''}”`
-                          : 'Everything stays editable afterwards.'}
-                    </p>
-                  </div>
-                  {thinking && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />}
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    {thinking
+                      ? 'Structuring…'
+                      : recording
+                        ? `Listening… ${Math.floor(recSeconds / 60)}:${String(recSeconds % 60).padStart(2, '0')}`
+                        : caps?.voiceEnabled ? 'Dictate or write the prescription' : 'Write the prescription'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {recording
+                      ? 'Speak naturally — English, Hindi or a mix. Press stop when done.'
+                      : 'Every line stays editable afterwards.'}
+                  </p>
                 </div>
-              </section>
-            )}
+                {thinking && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />}
+              </div>
+
+              {!recording && (
+                <>
+                  <Textarea
+                    value={heard}
+                    onChange={(e) => setHeard(e.target.value)}
+                    disabled={thinking || signed}
+                    rows={heard ? 3 : 2}
+                    placeholder="Augmentin 625 three times daily for five days, Pan 40 once before breakfast…"
+                    aria-label={rx?.transcript ? 'What was heard — correct it and read again' : 'Write the prescription'}
+                    className="resize-y text-sm"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      disabled={thinking || signed || !heard.trim()}
+                      onClick={() => void readText()}
+                    >
+                      {items.some((i) => i.sourceText) ? 'Read again' : 'Read'}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {items.some((i) => i.sourceText)
+                        ? 'Replaces the dictated lines; medicines added by hand stay.'
+                        : 'Adds what you wrote as medicines below.'}
+                    </span>
+                    {audioUrl && (
+                      // What was just said, from memory — nothing is uploaded or kept.
+                      <audio controls src={audioUrl} className="ml-auto h-8 max-w-[16rem]" aria-label="Play back what you said" />
+                    )}
+                  </div>
+                </>
+              )}
+            </section>
 
             {items.map((it, idx) => (
               <RxItemEditor

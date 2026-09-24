@@ -447,6 +447,47 @@ router.post('/:id/sign', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/prescriptions/extract — WRITTEN words -> the same structured draft
+//
+// "Type midway." Dictation was one-shot: what the recogniser heard could not be
+// corrected and read again, and with no microphone (or no ASR key) there was no
+// way to write "Augmentin 625 three times daily for five days" and have it
+// structured. This is the same extractor /transcribe uses, minus the audio — so
+// a doctor can fix "Aumintin" to "Augmentin" in the heard text and read it again,
+// or skip the mic entirely. Nothing is persisted here; like /transcribe it returns
+// a proposal, and the save that follows resolves each line on the server.
+// ---------------------------------------------------------------------------
+router.post('/extract', requireRole(...PRESCRIBERS), transcribeBurstLimit, async (req: AuthRequest, res) => {
+  try {
+    const text = String(req.body?.text ?? '').trim();
+    if (!text) { res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Write what you want prescribed' }); return; }
+    if (text.length > 4000) { res.status(413).json({ error: 'TOO_LONG', message: 'That is longer than a prescription — split it up' }); return; }
+    if (!extractionConfigured()) {
+      res.status(503).json({ error: 'EXTRACTION_UNAVAILABLE', message: 'Reading written text is not set up on the server. Add the medicines one by one below.' });
+      return;
+    }
+    const extraction = await extractPrescription(text, []);
+    res.json({
+      extraction: {
+        items: extraction.items,
+        diagnosis: extraction.diagnosis,
+        notes: extraction.notes,
+        followUpDays: extraction.followUpDays,
+        missing: extraction.missing,
+        model: extraction.model,
+      },
+    });
+  } catch (err) {
+    if (err instanceof ExtractionUnavailable) {
+      res.status(503).json({ error: 'EXTRACTION_UNAVAILABLE', message: 'Could not read that just now — add the medicines one by one below.' });
+      return;
+    }
+    logger.error({ err }, 'prescriptions: extract failed');
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Could not read that' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/prescriptions/:id/link — the patient's link to this prescription
 //
 // SIGNED only. A draft has no signer and no registration number on it, so a link

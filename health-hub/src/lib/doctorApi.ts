@@ -318,6 +318,10 @@ export const doctorApi = {
     ),
 
   /** Audio -> transcript -> structured proposal. Persists NOTHING. */
+  /** Structure WRITTEN words with the same extractor dictation uses — the heard
+   *  text after a correction, or a line typed with no microphone. */
+  extractText: (text: string) =>
+    req<{ extraction: ExtractionResponse['extraction'] }>('/prescriptions/extract', { method: 'POST', json: { text } }),
   transcribe: async (audio: Blob, provider?: string): Promise<ExtractionResponse> => {
     const form = new FormData();
     form.append('audio', audio, 'consultation.webm');
