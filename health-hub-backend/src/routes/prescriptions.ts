@@ -424,15 +424,27 @@ router.post('/:id/sign', requireRole(...PRESCRIBERS), async (req: AuthRequest, r
     // Queue state is a SEPARATE machine — nudged, never required.
     let visitCompleted = false;
     if (req.body?.completeVisit === true) {
-      await prisma.clinicVisit.updateMany({
+      const completedAt = new Date();
+      const moved = await prisma.clinicVisit.updateMany({
         where: { visitId: rx.visitId, status: { not: 'COMPLETED' } },
-        data: { status: 'COMPLETED', completedAt: new Date() },
+        data: { status: 'COMPLETED', completedAt },
       });
       await prisma.visit.updateMany({
         where: { id: rx.visitId, status: { not: 'COMPLETED' } },
         data: { status: 'COMPLETED' },
       });
       visitCompleted = true;
+      // Signing closed the visit — record it in the same shape as reception's
+      // "Mark Done", so the trail shows who completed a consultation and how.
+      if (moved.count > 0) {
+        await logAction({
+          userId: req.user!.id, actionType: 'UPDATE', entityType: 'VISIT', entityId: rx.visitId,
+          branchId: req.branchId!,
+          oldValues: { status: 'IN_PROGRESS' },
+          newValues: { status: 'COMPLETED', completedAt: completedAt.toISOString(), via: 'doctor portal · signed' },
+          ipAddress: req.ip, userAgent: req.get('user-agent'),
+        });
+      }
     }
 
     res.json({ ...signed, visitCompleted });

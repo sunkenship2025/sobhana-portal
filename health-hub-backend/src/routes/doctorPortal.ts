@@ -251,13 +251,25 @@ router.post('/queue/next', async (req: AuthRequest, res) => {
     });
     if (!next) { res.status(404).json({ error: 'QUEUE_EMPTY', message: 'Nobody is waiting' }); return; }
 
+    const startedAt = new Date();
     await prisma.clinicVisit.update({
       where: { id: next.id },
-      data: { status: 'IN_PROGRESS', startedAt: new Date() },
+      data: { status: 'IN_PROGRESS', startedAt },
     });
     await prisma.visit.updateMany({
       where: { id: next.visitId, status: 'WAITING' },
       data: { status: 'IN_PROGRESS' },
+    });
+    // Same record the staff queue writes when reception presses "Move to
+    // ongoing" — so the audit trail answers "who started this consultation"
+    // whichever screen it was started from. Until now the doctor's side wrote
+    // nothing, and a visit could go In Progress with no trace of who moved it.
+    await logAction({
+      userId: req.user!.id, actionType: 'UPDATE', entityType: 'VISIT', entityId: next.visitId,
+      branchId: req.branchId!,
+      oldValues: { status: 'WAITING' },
+      newValues: { status: 'IN_PROGRESS', startedAt: startedAt.toISOString(), via: 'doctor portal · call next' },
+      ipAddress: req.ip, userAgent: req.get('user-agent'),
     });
     // The TV listens on the branch channel, not the worklist one, and its 25s
     // heartbeat carries no state. Without this the token the doctor just called
@@ -286,9 +298,25 @@ router.patch('/queue/:visitId', async (req: AuthRequest, res) => {
 
     const cv = await prisma.clinicVisit.findFirst({
       where: { visitId: req.params.visitId, visit: { branchId: req.branchId! } },
-      select: { id: true, clinicDoctorId: true, status: true },
+      select: { id: true, clinicDoctorId: true, status: true, visit: { select: { status: true } } },
     });
     if (!cv) { res.status(404).json({ error: 'NOT_FOUND', message: 'Visit not found' }); return; }
+
+    // The same transitions the staff queue allows — this route had none, so a
+    // completed or even a CANCELLED visit could be set back to In Progress.
+    const ALLOWED: Record<string, string[]> = {
+      WAITING: ['IN_PROGRESS', 'COMPLETED'],
+      IN_PROGRESS: ['COMPLETED'],
+      COMPLETED: [],
+      CANCELLED: [],
+    };
+    const from = cv.visit.status === 'CANCELLED' ? 'CANCELLED' : String(cv.status);
+    if (from !== status && !(ALLOWED[from] ?? []).includes(status)) {
+      res.status(409).json({
+        error: 'INVALID_TRANSITION',
+        message: from === 'CANCELLED' ? 'This visit was cancelled' : `This visit is already ${from.replace('_', ' ').toLowerCase()}`,
+      }); return;
+    }
 
     const doctor = await meAsDoctor(req);
     if (doctor && cv.clinicDoctorId !== doctor.id) {
@@ -304,7 +332,16 @@ router.patch('/queue/:visitId', async (req: AuthRequest, res) => {
       },
     });
     await prisma.visit.updateMany({ where: { id: req.params.visitId }, data: { status: status as any } });
-    if (cv.status !== status) emitBranchChange(req.branchId!);
+    if (cv.status !== status) {
+      emitBranchChange(req.branchId!);
+      await logAction({
+        userId: req.user!.id, actionType: 'UPDATE', entityType: 'VISIT', entityId: req.params.visitId,
+        branchId: req.branchId!,
+        oldValues: { status: cv.status },
+        newValues: { status, via: 'doctor portal' },
+        ipAddress: req.ip, userAgent: req.get('user-agent'),
+      });
+    }
 
     res.json({ ok: true, status });
   } catch (err) {

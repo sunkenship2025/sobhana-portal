@@ -521,9 +521,25 @@ router.get("/", async (req: AuthRequest, res) => {
       );
     }
 
-    const transformed = filteredVisits.map((visit) =>
-      transformClinicVisit(visit, originalVisitMap),
-    );
+    // The doctor's side of each visit, so reception can see it from the queue:
+    // whether a digital prescription exists and whether it is signed. ONE query
+    // for every visit on the page, latest version only. When the prescription
+    // module is off there are simply no rows, and every visit reads as null —
+    // the old paper flow, unchanged.
+    const rxRows = filteredVisits.length
+      ? await prisma.prescription.findMany({
+          where: { visitId: { in: filteredVisits.map((v) => v.id) }, isLatest: true, deletedAt: null },
+          select: { visitId: true, status: true, signedAt: true, version: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+    const rxByVisit = new Map<string, { status: string; signedAt: Date | null; version: number }>();
+    for (const r of rxRows) if (!rxByVisit.has(r.visitId)) rxByVisit.set(r.visitId, { status: r.status, signedAt: r.signedAt, version: r.version });
+
+    const transformed = filteredVisits.map((visit) => ({
+      ...transformClinicVisit(visit, originalVisitMap),
+      prescription: rxByVisit.get(visit.id) ?? null,
+    }));
 
     // Finalized OP/IP worklist: return the page in the cached index's order (a
     // findMany with `id: { in: [...] }` doesn't preserve id order), wrapped in

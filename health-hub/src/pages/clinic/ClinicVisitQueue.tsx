@@ -25,6 +25,8 @@ import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
+import { useConfirm } from '@/hooks/use-confirm';
+import { useDigitalRx } from '@/lib/digitalRx';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
@@ -55,6 +57,10 @@ interface QueueVisit {
     qualification?: string;
     specialty?: string;
   } | null;
+  /** When the consultation was started — by reception or by the doctor. */
+  startedAt?: string | null;
+  /** The doctor's side: latest digital prescription for this visit, if any. */
+  prescription?: { status: string; signedAt: string | null; version: number } | null;
   totalAmount: number;
   consultationFee: number;
   isRevisit: boolean;
@@ -66,6 +72,24 @@ interface QueueVisit {
   paymentStatus?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// What the doctor's side of a visit looks like to reception: how long the patient
+// has been in, and — when digital prescriptions are on — whether the doctor has
+// written one and signed it. Nothing shows for the paper flow.
+function DoctorSide({ visit }: { visit: QueueVisit }) {
+  const { enabled } = useDigitalRx();
+  const since = visit.status === 'IN_PROGRESS' && visit.startedAt
+    ? new Date(visit.startedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+    : null;
+  const rx = enabled ? visit.prescription : null;
+  return (
+    <>
+      {since && <span className="text-xs text-muted-foreground">with the doctor since {since}</span>}
+      {rx?.status === 'DRAFT' && <span className="status-badge status-draft">Prescription draft</span>}
+      {rx?.status === 'SIGNED' && <span className="status-badge status-finalized">Prescription signed</span>}
+    </>
+  );
 }
 
 const ClinicVisitQueue = () => {
@@ -85,6 +109,7 @@ const ClinicVisitQueue = () => {
   const [updatingVisitId, setUpdatingVisitId] = useState<string | null>(null);
   const [chimeOn, setChimeOn] = useState<boolean | null>(null);
   const [chimeScreens, setChimeScreens] = useState(0);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   // `silent` skips the loading state so a revalidation swaps the queue in place
   // instead of blanking it — the same contract the diagnostics worklists use.
@@ -211,6 +236,21 @@ const ClinicVisitQueue = () => {
     filteredVisits,
     `${debouncedSearch}|${visitTypeFilter}|${doctorFilter}`,
   );
+
+  // Reception can always close a visit — the paper flow depends on it. But if the
+  // doctor has a digital prescription open and unsigned, closing the visit leaves
+  // it unsigned with nobody told, so that one case asks first.
+  const markDone = async (visit: QueueVisit) => {
+    if (visit.prescription?.status === 'DRAFT') {
+      const ok = await confirm({
+        title: 'The prescription is not signed yet',
+        description: `${visit.doctor?.name ?? 'The doctor'} has a digital prescription for this visit that is still a draft. Marking the visit done will not sign it — it stays an unsigned draft.`,
+        confirmText: 'Mark done anyway',
+      });
+      if (!ok) return;
+    }
+    await updateVisitStatus(visit, 'COMPLETED');
+  };
 
   const updateVisitStatus = async (visit: QueueVisit, status: 'IN_PROGRESS' | 'COMPLETED') => {
     if (!activeBranchId) return;
@@ -495,6 +535,7 @@ const ClinicVisitQueue = () => {
                             <span className="text-sm text-muted-foreground">Not billed</span>
                           )}
                           <StatusBadge status={visit.status} />
+                          <DoctorSide visit={visit} />
                         </div>
 
                         {visit.isRevisit && (visit.originalVisitBillNumber || visit.originalVisitDate) && (
@@ -529,7 +570,7 @@ const ClinicVisitQueue = () => {
                             size="sm"
                             className="w-full sm:w-auto"
                             variant={visit.status === 'IN_PROGRESS' ? 'default' : 'outline'}
-                            onClick={() => updateVisitStatus(visit, 'COMPLETED')}
+                            onClick={() => void markDone(visit)}
                             disabled={isUpdatingThisVisit}
                           >
                             {isUpdatingThisVisit ? (
@@ -626,7 +667,10 @@ const ClinicVisitQueue = () => {
 
               <div>
                 <p className="text-sm text-muted-foreground">Status</p>
-                <StatusBadge status={selectedVisit.status} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={selectedVisit.status} />
+                  <DoctorSide visit={selectedVisit} />
+                </div>
               </div>
 
               {selectedVisit.isRevisit && (
@@ -663,7 +707,7 @@ const ClinicVisitQueue = () => {
                 {selectedVisit.status !== 'COMPLETED' && (
                   <Button
                     variant={selectedVisit.status === 'IN_PROGRESS' ? 'default' : 'outline'}
-                    onClick={() => updateVisitStatus(selectedVisit, 'COMPLETED')}
+                    onClick={() => void markDone(selectedVisit)}
                     disabled={updatingVisitId === selectedVisit.id}
                   >
                     {updatingVisitId === selectedVisit.id ? (
@@ -677,6 +721,7 @@ const ClinicVisitQueue = () => {
           )}
         </DialogContent>
       </Dialog>
+      {ConfirmDialog}
     </AppLayout>
   );
 };
