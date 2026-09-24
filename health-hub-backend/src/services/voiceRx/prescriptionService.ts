@@ -299,6 +299,9 @@ export interface UpdateItemInput {
   sourceText?: string | null;
   sourceStart?: number | null;
   sourceEnd?: number | null;
+  /** From extraction, on a NEW dictated item only — e.g. isAlternative ("either
+   *  X or Y"). askReason is never taken from here; the server computes it. */
+  fieldStates?: Record<string, unknown> | null;
 }
 
 export async function updateDraft(
@@ -320,6 +323,33 @@ export async function updateDraft(
     throw new PrescriptionStateError('A signed prescription cannot be edited. Create a revision instead.');
   }
 
+  // A NEW item arriving with no resolution is dictation that has not been
+  // checked against the catalogue yet. Resolve it HERE, on the server.
+  //
+  // This is the path the real screen takes, and until now it resolved nothing:
+  // extraction does not resolve, the page stamped every dictated medicine MANUAL
+  // ("Your choice"), and this function stored whatever it was handed. So in the
+  // live UI no dictated drug was ever matched, no "which one?" was ever asked, and
+  // a mishearing like "Aumintin 625" went straight onto the sheet as the doctor's
+  // own choice. Only createDraft resolved — the path the checks seed through —
+  // which is why every check passed while the screen did something else.
+  //
+  // Server-side, not trusted from the request, for the same reason candidates are
+  // carried from the stored row below: the client must not be able to invent the
+  // options a question offers. A human decision (MANUAL from a pick, UNRESOLVED
+  // from "write as typed") always arrives with a resolution and is left alone.
+  const fresh = new Map<number, Awaited<ReturnType<typeof resolveMedication>>>();
+  if (patch.items) {
+    await Promise.all(patch.items.map(async (it, i) => {
+      if (it.id || it.resolution != null) return;
+      const spoken = (it.canonicalName || it.spokenText || '').trim();
+      if (!spoken) return;
+      fresh.set(i, await resolveMedication({
+        spoken, strength: it.strength ?? null, dosageForm: it.dosageForm ?? null,
+      }));
+    }));
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.prescription.update({
       where: { id },
@@ -339,6 +369,47 @@ export async function updateDraft(
         data: patch.items.map((it, i) => {
           const was = it.id ? prior.get(it.id) : undefined;
           const freq = (it.frequencyCode ?? null) as FrequencyCode | null;
+          const r = fresh.get(i);
+          if (r) {
+            const m = r.match;
+            return {
+              prescriptionId: id,
+              displayOrder: i,
+              spokenText: it.spokenText ?? null,
+              medicationId: m?.medicationId ?? null,
+              // Unmatched keeps what the doctor SAID as the printed name.
+              canonicalName: m?.canonicalName ?? it.canonicalName,
+              genericName: m?.genericName ?? null,
+              brandName: m?.brandName ?? null,
+              strength: it.strength ?? m?.strength ?? null,
+              strengthUnit: it.strengthUnit ?? m?.strengthUnit ?? null,
+              dosageForm: it.dosageForm ?? m?.dosageForm ?? null,
+              doseQty: it.doseQty ?? null,
+              doseUnit: it.doseUnit ?? null,
+              frequencyCode: freq,
+              frequencyText: freq ? FREQUENCY_TEXT[freq] : null,
+              route: it.route ?? m?.route ?? null,
+              timing: it.timing ?? null,
+              durationValue: it.durationValue ?? null,
+              durationUnit: it.durationUnit ?? null,
+              instructions: it.instructions ?? null,
+              resolution: r.resolution as any,
+              // The server's own options — the question comes back with answers.
+              candidates: r.resolution !== 'RESOLVED' && r.candidates.length
+                ? (r.candidates as unknown as Prisma.InputJsonValue)
+                : Prisma.DbNull,
+              sourceText: it.sourceText ?? null,
+              sourceStart: it.sourceStart ?? null,
+              sourceEnd: it.sourceEnd ?? null,
+              // Extraction's flags (isAlternative — "either X or Y") survive the
+              // save; askReason is the server's, never the request's.
+              fieldStates: {
+                ...(it.fieldStates ?? {}),
+                askReason: r.askReason ?? null,
+                spokenStrength: r.spokenStrength ?? null,
+              } as unknown as Prisma.InputJsonValue,
+            };
+          }
           const res = (it.resolution as string) ?? 'MANUAL';
           const resolved = res === 'MANUAL' || res === 'RESOLVED';
           return {

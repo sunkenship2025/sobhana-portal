@@ -46,7 +46,9 @@ const fromExtracted = (e: ExtractedItem): RxItem => ({
   route: e.route, timing: e.timing,
   durationValue: e.durationValue, durationUnit: e.durationUnit,
   instructions: e.instructions,
-  resolution: 'MANUAL',
+  // Placeholder only, for the instant before the save returns: the dictated
+  // line is sent WITHOUT a resolution and the server decides (see startRecording).
+  resolution: 'UNRESOLVED',
   candidates: null,
   fieldStates: { ...e.fieldStates, isAlternative: e.isAlternative },
   sourceText: e.sourceText, sourceStart: e.sourceStart, sourceEnd: e.sourceEnd,
@@ -232,7 +234,16 @@ export default function Consultation() {
             asrLanguage: result.transcript.language,
             extractionModel: result.extraction.model,
           });
-          const updated = await doctorApi.update(draft.id, { items: merged.map((i) => ({ ...i })) });
+          // The newly dictated lines go up WITHOUT a resolution, so the server
+          // checks them against the catalogue and asks where it must. Stamping
+          // them MANUAL here — as this used to — marked every spoken drug as
+          // the doctor's own verified choice: "Aumintin 625 · Your choice".
+          const fresh = new Set(extracted);
+          const updated = await doctorApi.update(draft.id, {
+            items: merged.map((i) => (fresh.has(i)
+              ? { ...i, resolution: undefined, candidates: undefined }
+              : { ...i })),
+          });
           setRx(updated);
           setItems(updated.items);
           const v = await doctorApi.validate(updated.id);
