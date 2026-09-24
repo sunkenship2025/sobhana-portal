@@ -182,15 +182,22 @@ export interface ScheduledResults {
 export interface Results {
   kind?: 'JOURNEY';
   version: number; windowDays: number;
+  goal: AutomationDefinition['goal'];
   counts: {
     runs: number; uniquePatients: number; treated: number; held: number;
-    sent: number; delivered: number; read: number; live: number; ended: number;
+    /** Patients, not messages. */
+    messaged: number; delivered: number; read: number;
+    waiting: number; live: number; ended: number;
   };
-  converted: { treated: number; held: number };
-  rates: { treatedPct: number; heldPct: number; liftPts: number; liftMarginPts: number; basis: string };
+  converted: { treated: number; held: number; beforeMessage: number; afterMessage: number };
+  rates: {
+    treatedPct: number; heldPct: number; afterMessagePct: number | null;
+    /** Null without a control group — there is nothing to subtract. */
+    liftPts: number | null; liftMarginPts: number | null; basis: string;
+  };
   skipped: { reason: string; count: number }[];
   money: {
-    couponsRedeemed: number; discountGivenInPaise: number; incrementalPatients: number;
+    couponsRedeemed: number; discountGivenInPaise: number; incrementalPatients: number | null;
     /** Always null. Meta bills per conversation and no pricing data is ingested. */
     messageCostInPaise: number | null; messageCostNote: string;
   };

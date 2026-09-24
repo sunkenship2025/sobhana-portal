@@ -15,7 +15,7 @@ export const REASON_LABEL: Record<string, string> = {
   SENT: 'Sent',
   ALREADY_SENT: 'Already sent',
   COUPON_ISSUED: 'Offer issued',
-  STOPPED_GOAL_MET: 'Came in',
+  STOPPED_GOAL_MET: 'Goal met',
   STOPPED_BY_STEP: 'Finished',
   STOPPED_BY_STAFF: 'Stopped by staff',
   STOPPED_AUTOMATION_STOPPED: 'Automation stopped',

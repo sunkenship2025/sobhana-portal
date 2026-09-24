@@ -332,16 +332,14 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         return;
       }
       if (hit && outcome === 'STOP') {
-        const conv = await goalValue(ctx, subject);
+        // No conversion is written here. A CHECK is whatever the author made it, and
+        // the goal is the only thing that decides "converted" — see reconcileConversions.
         await prisma.automationRun.update({
           where: { id: runId },
           data: {
             state: 'STOPPED',
             stopReason: step.stopReason ?? Outcome.STOPPED_GOAL_MET,
             nextActionAt: null,
-            convertedAt: conv ? ctx.now : null,
-            convertedBranchId: conv?.branchId ?? null,
-            convertedValueInPaise: conv?.valueInPaise ?? null,
           },
         });
         return;
@@ -728,32 +726,79 @@ export async function runDue(ctx: AutomationContext): Promise<number> {
 }
 
 /**
- * A conversion is a claim, not a fact. The order it rested on can be cancelled or
- * refunded, and visit completion is not monotonic here (reopenVisitForEntry), so what
- * was true when the run stopped may not be true a week later.
+ * Keep every run's conversion in step with its GOAL, for the goal's whole window.
+ *
+ * Conversions used to be written only when a CHECK step stopped a run. That counted the
+ * patient who walked in before Day 2 and never the one who came in after the message —
+ * a journey ends right after its last send, so there was no step left to notice. Both
+ * arms are asked the same question here, whatever state the run is in, which is what
+ * the lift needs to mean anything.
+ *
+ * convertedAt is when this sweep first saw the goal met, so it can trail the real moment
+ * by one sweep. It never runs early, so a CHECK before each send keeps "before or after
+ * the message" exact; a journey without one can file a walk-in under "after".
+ *
+ * A conversion is also a claim, not a fact. The order it rested on can be cancelled or
+ * refunded, and visit completion is not monotonic here (reopenVisitForEntry), so a goal
+ * that no longer holds within 30 days is taken back.
  */
-export async function reconcileConversions(ctx: AutomationContext): Promise<number> {
-  const recent = await prisma.automationRun.findMany({
-    where: { convertedAt: { gte: new Date(ctx.now.getTime() - 30 * DAY_MS) } },
-    select: { id: true, subjectId: true, subjectType: true, patientId: true, triggeredAt: true, stepIndex: true },
-    take: BATCH,
+export async function reconcileConversions(
+  ctx: AutomationContext,
+): Promise<{ converted: number; reversed: number }> {
+  // ponytail: every run of the last 30 days is read each sweep; page it if runs/day reach the thousands.
+  const horizon = new Date(ctx.now.getTime() - 30 * DAY_MS);
+  const runs = await prisma.automationRun.findMany({
+    where: {
+      AND: [
+        { OR: [{ convertedAt: null, triggeredAt: { gte: horizon } }, { convertedAt: { gte: horizon } }] },
+        // A suppressed row is a chance passed over, not a journey — its patient's live
+        // run answers. Spelled with the null arm because `not` alone drops live runs.
+        { OR: [{ stopReason: null }, { stopReason: { not: 'SUPPRESSED_ACTIVE_JOURNEY' } }] },
+      ],
+    },
+    select: {
+      id: true, subjectId: true, subjectType: true, patientId: true, branchId: true,
+      triggeredAt: true, stepIndex: true, convertedAt: true, definition: true,
+    },
   });
 
+  let converted = 0;
   let reversed = 0;
-  for (const run of recent) {
-    if (run.subjectType !== 'VISIT' || !run.patientId) continue;
-    const visit = await ctx.visit(run.subjectId);
-    if (!visit) continue;
-    const after = await ctx.diagnosticsAfter(run.patientId, visit.createdAt);
-    if (after.length > 0) continue;
-    await prisma.automationRun.update({
-      where: { id: run.id },
-      data: { convertedAt: null, convertedBranchId: null, convertedValueInPaise: null },
-    });
-    await log(run.id, run.stepIndex, 'REVERSED', Outcome.CONVERSION_REVERSED);
-    reversed += 1;
+  for (const run of runs) {
+    const def = run.definition as unknown as AutomationDefinition;
+    if (def.trigger.kind === 'SCHEDULE' || !def.goal) continue;
+    const windowOpen = ctx.now.getTime() - run.triggeredAt.getTime() <= def.goal.windowDays * DAY_MS;
+    if (!run.convertedAt && !windowOpen) continue;
+
+    const subject: Subject = {
+      type: run.subjectType, id: run.subjectId, patientId: run.patientId,
+      branchId: run.branchId, triggeredAt: run.triggeredAt, runId: run.id,
+    };
+    let met: boolean;
+    try {
+      met = await evaluate(def.goal.condition, ctx, subject);
+    } catch (e) {
+      logger.warn(`[automations] goal unreadable for run ${run.id}: ${(e as Error).message}`);
+      continue;
+    }
+
+    if (met && !run.convertedAt) {
+      const v = await goalValue(ctx, subject);
+      await prisma.automationRun.update({
+        where: { id: run.id },
+        data: { convertedAt: ctx.now, convertedBranchId: v?.branchId ?? null, convertedValueInPaise: v?.valueInPaise ?? null },
+      });
+      converted += 1;
+    } else if (!met && run.convertedAt) {
+      await prisma.automationRun.update({
+        where: { id: run.id },
+        data: { convertedAt: null, convertedBranchId: null, convertedValueInPaise: null },
+      });
+      await log(run.id, run.stepIndex, 'REVERSED', Outcome.CONVERSION_REVERSED);
+      reversed += 1;
+    }
   }
-  return reversed;
+  return { converted, reversed };
 }
 
 /**
@@ -815,6 +860,14 @@ async function computeNextDueAt(now: Date): Promise<number> {
   return Math.min(...at);
 }
 
+/**
+ * The goal sweep evaluates every open window, so it runs on its own clock rather than on
+ * every write-triggered tick. Half an hour is how late a conversion may appear on
+ * Results; overnight the hourly ceiling paces it instead, which costs no extra wake-up.
+ */
+const GOAL_SWEEP_MS = 30 * 60 * 1000;
+let goalsSweptAt = 0;
+
 export async function tick(now: Date = new Date()): Promise<void> {
   // The common case, and the whole point: no connection is opened.
   if (nextDueAt !== null && now.getTime() < nextDueAt) return;
@@ -823,9 +876,14 @@ export async function tick(now: Date = new Date()): Promise<void> {
   try {
     const enrolled = await sweepEnrolments(ctx);
     const advanced = await runDue(ctx);
-    const reversed = await reconcileConversions(ctx);
-    if (enrolled || advanced || reversed) {
-      logger.info(`[automations] enrolled ${enrolled} · advanced ${advanced} · reversed ${reversed}`);
+    let goals = { converted: 0, reversed: 0 };
+    if (now.getTime() - goalsSweptAt >= GOAL_SWEEP_MS) {
+      goals = await reconcileConversions(ctx);
+      goalsSweptAt = now.getTime();
+    }
+    const { converted, reversed } = goals;
+    if (enrolled || advanced || converted || reversed) {
+      logger.info(`[automations] enrolled ${enrolled} · advanced ${advanced} · converted ${converted} · reversed ${reversed}`);
     }
     nextDueAt = await computeNextDueAt(now);
   } catch (e) {

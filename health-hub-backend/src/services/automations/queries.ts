@@ -54,6 +54,61 @@ export async function listAutomations() {
   });
 }
 
+export interface FunnelRun {
+  id: string;
+  holdout: boolean;
+  state: string;
+  triggeredAt: Date;
+  convertedAt: Date | null;
+}
+
+/** Messages that reached for the run's own patient. Staff alerts carry no patientId. */
+export interface RunMessages {
+  firstAt: Date;
+  delivered: boolean;
+  read: boolean;
+}
+
+/**
+ * Where each patient got to, counted in PEOPLE, with every conversion placed on the
+ * right side of the first message.
+ *
+ * A goal met before anything was sent is a walk-in the journey rightly stood aside for.
+ * Filing it under "came in" below "Read" made the messages look like they had worked on
+ * people who never received one. That split is a timeline question, so it holds for any
+ * goal on any journey.
+ */
+const convertedWithin = (r: Pick<FunnelRun, 'convertedAt' | 'triggeredAt'>, windowDays: number) =>
+  !!r.convertedAt && r.convertedAt.getTime() - r.triggeredAt.getTime() <= windowDays * DAY_MS;
+
+export function journeyFunnel(runs: FunnelRun[], messages: Map<string, RunMessages>, windowDays: number) {
+  const within = (r: FunnelRun) => convertedWithin(r, windowDays);
+  const f = {
+    messaged: 0, delivered: 0, read: 0, waiting: 0,
+    beforeMessage: 0, afterMessage: 0, treatedConverted: 0, heldConverted: 0,
+  };
+  for (const r of runs) {
+    if (r.holdout) {
+      if (within(r)) f.heldConverted += 1;
+      continue;
+    }
+    const m = messages.get(r.id);
+    if (m) {
+      f.messaged += 1;
+      if (m.delivered) f.delivered += 1;
+      if (m.read) f.read += 1;
+    }
+    if (within(r)) {
+      f.treatedConverted += 1;
+      if (m && r.convertedAt! >= m.firstAt) f.afterMessage += 1;
+      else f.beforeMessage += 1;
+    } else if (!m && (r.state === 'PENDING' || r.state === 'RUNNING')) {
+      f.waiting += 1;
+    }
+  }
+  return f;
+}
+
 /**
  * The funnel, the skip breakdown, and the lift.
  *
@@ -76,22 +131,46 @@ export async function automationResults(automationId: string) {
   const runs = await prisma.automationRun.findMany({
     where: { automationId },
     select: {
-      id: true, holdout: true, state: true, patientId: true,
+      id: true, holdout: true, state: true, stopReason: true, patientId: true,
       convertedAt: true, convertedBranchId: true, convertedValueInPaise: true,
       triggeredAt: true, branchId: true,
     },
   });
 
-  const treated = runs.filter((r) => !r.holdout);
-  const held = runs.filter((r) => r.holdout);
-  const within = (r: typeof runs[number]) =>
-    !!r.convertedAt &&
-    r.convertedAt.getTime() - r.triggeredAt.getTime() <= def.goal.windowDays * DAY_MS;
+  // A suppressed row is a visit passed over because the patient already had a live
+  // journey. It qualified, so it is counted as one — but it is not a journey, never
+  // converts, and is always filed treated, so leaving it in the arms drags the treated
+  // rate down against the held one.
+  const journeys = runs.filter((r) => r.stopReason !== 'SUPPRESSED_ACTIVE_JOURNEY');
+  const treated = journeys.filter((r) => !r.holdout);
+  const held = journeys.filter((r) => r.holdout);
 
-  const treatedConv = treated.filter(within).length;
-  const heldConv = held.filter(within).length;
-  const pT = treated.length ? treatedConv / treated.length : 0;
-  const pH = held.length ? heldConv / held.length : 0;
+  const ids = runs.map((r) => r.id);
+  const [patientMessages, suppressed] = await Promise.all([
+    prisma.messageLog.findMany({
+      where: { automationRunId: { in: ids }, patientId: { not: null }, status: { not: 'FAILED' } },
+      select: { automationRunId: true, createdAt: true, deliveredAt: true, readAt: true },
+    }),
+    prisma.automationStepLog.groupBy({
+      by: ['outcome'],
+      where: { runId: { in: ids }, kind: { in: ['SUPPRESSED', 'DEFERRED'] } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const messages = new Map<string, RunMessages>();
+  for (const m of patientMessages) {
+    const prev = messages.get(m.automationRunId!);
+    messages.set(m.automationRunId!, {
+      firstAt: prev && prev.firstAt < m.createdAt ? prev.firstAt : m.createdAt,
+      delivered: !!prev?.delivered || !!m.deliveredAt,
+      read: !!prev?.read || !!m.readAt,
+    });
+  }
+  const funnel = journeyFunnel(journeys, messages, def.goal.windowDays);
+
+  const pT = treated.length ? funnel.treatedConverted / treated.length : 0;
+  const pH = held.length ? funnel.heldConverted / held.length : 0;
 
   // Standard error of a difference of proportions. Printed because it tells the owner
   // what this design can and cannot detect — at these sample sizes a six-point lift is
@@ -100,18 +179,6 @@ export async function automationResults(automationId: string) {
     (treated.length ? (pT * (1 - pT)) / treated.length : 0) +
     (held.length ? (pH * (1 - pH)) / held.length : 0),
   );
-
-  const ids = runs.map((r) => r.id);
-  const [sent, delivered, read, suppressed] = await Promise.all([
-    prisma.messageLog.count({ where: { automationRunId: { in: ids }, status: { not: 'FAILED' } } }),
-    prisma.messageLog.count({ where: { automationRunId: { in: ids }, deliveredAt: { not: null } } }),
-    prisma.messageLog.count({ where: { automationRunId: { in: ids }, readAt: { not: null } } }),
-    prisma.automationStepLog.groupBy({
-      by: ['outcome'],
-      where: { runId: { in: ids }, kind: { in: ['SUPPRESSED', 'DEFERRED'] } },
-      _count: { _all: true },
-    }),
-  ]);
 
   const discountGiven = await prisma.coupon.aggregate({
     where: { automationRunId: { in: ids }, status: 'REDEEMED' },
@@ -126,40 +193,58 @@ export async function automationResults(automationId: string) {
 
   const uniquePatients = new Set(runs.map((r) => r.patientId).filter(Boolean)).size;
 
+  // Without a held-back group there is nothing to subtract, and pH = 0 would present
+  // every walk-in as caused. No number is the honest answer.
+  const controlled = held.length > 0;
+  const converted = journeys.filter((r) => r.convertedBranchId && convertedWithin(r, def.goal.windowDays));
+
   return {
     version: a.version,
     windowDays: def.goal.windowDays,
+    /** What counts as converted. The screen words it; it never assumes what it is. */
+    goal: def.goal,
     counts: {
       runs: runs.length,
       uniquePatients,
       treated: treated.length,
       held: held.length,
-      sent, delivered, read,
+      /** Patients, not messages: a three-message journey is still one person reached. */
+      messaged: funnel.messaged, delivered: funnel.delivered, read: funnel.read,
+      /** No message yet and still live — not due, rather than dropped. */
+      waiting: funnel.waiting,
       live: runs.filter((r) => r.state === 'PENDING' || r.state === 'RUNNING').length,
       ended: runs.filter((r) => r.state === 'STOPPED' || r.state === 'DONE' || r.state === 'FAILED').length,
     },
-    /** Window-based. Includes walk-ins we did not cause — labelled, never called "caused". */
-    converted: { treated: treatedConv, held: heldConv },
+    /**
+     * Window-based. `treated` includes walk-ins we did not cause — labelled, never called
+     * "caused". before/after split it on the run's first message.
+     */
+    converted: {
+      treated: funnel.treatedConverted, held: funnel.heldConverted,
+      beforeMessage: funnel.beforeMessage, afterMessage: funnel.afterMessage,
+    },
     rates: {
       treatedPct: +(pT * 100).toFixed(1),
       heldPct: +(pH * 100).toFixed(1),
-      liftPts: +((pT - pH) * 100).toFixed(1),
+      /** Of the patients a message actually went to. */
+      afterMessagePct: funnel.messaged ? +((funnel.afterMessage / funnel.messaged) * 100).toFixed(1) : null,
+      liftPts: controlled ? +((pT - pH) * 100).toFixed(1) : null,
       /** 95% interval on the lift. */
-      liftMarginPts: +(1.96 * se * 100).toFixed(1),
+      liftMarginPts: controlled ? +(1.96 * se * 100).toFixed(1) : null,
       basis: 'HOLDOUT_DIFFERENCE',
     },
     skipped: suppressed.map((s) => ({ reason: s.outcome, count: s._count._all })),
     money: {
       couponsRedeemed: discountGiven._count._all,
       discountGivenInPaise: redeemedBills._sum.couponDiscountInPaise ?? 0,
-      /** Estimated: lift × average converted basket, not a sum of rows. */
-      incrementalPatients: Math.max(0, Math.round((pT - pH) * treated.length)),
+      /** Estimated: lift × treated. Null without a control group — see `controlled`. */
+      incrementalPatients: controlled ? Math.max(0, Math.round((pT - pH) * treated.length)) : null,
       messageCostInPaise: null as number | null,
       messageCostNote: 'No source of truth — Meta bills per conversation and we ingest no pricing data.',
     },
     branchSplit: {
-      sameBranch: runs.filter((r) => within(r) && r.convertedBranchId === r.branchId).length,
-      otherBranch: runs.filter((r) => within(r) && r.convertedBranchId && r.convertedBranchId !== r.branchId).length,
+      sameBranch: converted.filter((r) => r.convertedBranchId === r.branchId).length,
+      otherBranch: converted.filter((r) => r.convertedBranchId !== r.branchId).length,
     },
   };
 }

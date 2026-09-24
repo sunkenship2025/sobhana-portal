@@ -237,7 +237,7 @@ export function RunSheet({ runId, onClose }: { runId: string | null; onClose: ()
               {run.convertedAt && (
                 <section>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Came in
+                    Goal met
                   </p>
                   <div className="rounded-lg border px-3 py-2.5 text-sm">
                     {when(run.convertedAt)}

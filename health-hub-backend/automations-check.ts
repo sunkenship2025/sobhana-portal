@@ -10,6 +10,7 @@ import { memoryContext, type VisitFacts } from './src/services/automations/conte
 import { evaluate, predicates, UnitMismatch, type Subject } from './src/services/automations/predicates';
 import { communicationPolicy } from './src/services/automations/policy';
 import { isHeldOut } from './src/services/automations/engine';
+import { journeyFunnel, type FunnelRun, type RunMessages } from './src/services/automations/queries';
 import { simulate } from './src/services/automations/preview';
 import { resolveDiscounts } from './src/services/automations/discounts';
 import { STEP_CATALOG, validateDefinition } from './src/services/automations/steps';
@@ -1086,6 +1087,38 @@ async function main() {
       }).filter((p) => p.blocking);
       assert.deepStrictEqual(problems, [], `a new ${meta.kind} step arrives broken`);
     }
+  });
+
+  // ══ Results: which side of the first message a conversion falls ═══════════
+  //
+  // The prod case that shipped wrong: three patients walked from the consultation to
+  // the lab the same evening, the Day 2 check stood the journey aside, and Results
+  // filed them under "Came in for tests" directly below "Read" — the messages took
+  // credit for people who never got one.
+  await check('results: a walk-in before the first message is not credited to it', () => {
+    const at = (h: number) => new Date(T0.getTime() + h * 60 * 60 * 1000);
+    const run = (id: string, over: Partial<FunnelRun> = {}): FunnelRun => ({
+      id, holdout: false, state: 'DONE', triggeredAt: T0, convertedAt: null, ...over,
+    });
+    const runs = [
+      run('walkin', { state: 'STOPPED', convertedAt: at(48) }),     // stood aside on Day 2
+      run('came-after', { convertedAt: at(72) }),                   // messaged Day 2, came Day 3
+      run('ignored'),                                               // messaged, never came
+      run('not-due', { state: 'PENDING' }),                         // Day 2 not reached yet
+      run('held', { holdout: true, convertedAt: at(30) }),          // control, came anyway
+      run('too-late', { convertedAt: at(24 * 7) }),                 // outside a 6-day window
+    ];
+    const msg = (h: number, read = false): RunMessages => ({ firstAt: at(h), delivered: true, read });
+    const messages = new Map([['came-after', msg(48, true)], ['ignored', msg(48)], ['too-late', msg(48)]]);
+    const f = journeyFunnel(runs, messages, 6);
+
+    assert.strictEqual(f.beforeMessage, 1, 'the walk-in must sit before the message');
+    assert.strictEqual(f.afterMessage, 1, 'only the Day 3 visit followed a message');
+    assert.strictEqual(f.messaged, 3, 'messaged is counted in patients');
+    assert.strictEqual(f.read, 1);
+    assert.strictEqual(f.waiting, 1, 'a run not yet due is waiting, not dropped');
+    assert.strictEqual(f.treatedConverted, 2, 'intent-to-treat keeps the walk-in in its arm');
+    assert.strictEqual(f.heldConverted, 1);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -10,7 +10,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Badge } from '@/components/ui/badge';
-import { getResults, reasonLabel, rupees, type ScheduledResults } from './api';
+import { getResults, listPredicates, reasonLabel, rupees, type ScheduledResults } from './api';
+import { describeCondition } from './describe';
 
 function Bar({ pct, muted }: { pct: number; muted?: boolean }) {
   return (
@@ -62,6 +63,7 @@ export function AutomationResults({ automationId }: { automationId: string }) {
     queryKey: ['automation-results', automationId],
     queryFn: () => getResults(automationId),
   });
+  const { data: predicateData } = useQuery({ queryKey: ['predicates'], queryFn: listPredicates });
 
   if (isLoading) return <LoadingState />;
   if (!data) return null;
@@ -70,10 +72,13 @@ export function AutomationResults({ automationId }: { automationId: string }) {
   // went out and whether any night has failed.
   if ('kind' in data && data.kind === 'SCHEDULE') return <Nights data={data} />;
 
-  const { counts, converted, rates, skipped, money, branchSplit, windowDays } = data;
+  const { counts, converted, rates, skipped, money, branchSplit, windowDays, goal } = data;
   const base = Math.max(1, counts.runs);
   const pct = (n: number) => (n / base) * 100;
-  const couldBeMessaged = counts.treated - skipped.reduce((n, s) => n + s.count, 0);
+  // The goal in the same words the builder uses. This page used to say "came in for
+  // tests" whatever the journey was chasing.
+  const goalWords = describeCondition(goal.condition, predicateData?.predicates ?? []);
+  const controlled = counts.held > 0;
 
   if (counts.runs === 0) {
     return (
@@ -88,12 +93,14 @@ export function AutomationResults({ automationId }: { automationId: string }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { n: counts.runs.toLocaleString('en-IN'), label: `Runs · ${counts.uniquePatients.toLocaleString('en-IN')} patients` },
-          { n: counts.delivered.toLocaleString('en-IN'), label: 'Delivered' },
-          { n: `${rates.treatedPct}%`, label: 'Came in' },
-          { n: `+${rates.liftPts} pts`, label: `Lift vs control · ±${rates.liftMarginPts}`, good: true },
+          { n: counts.messaged.toLocaleString('en-IN'), label: `Messaged · ${counts.delivered.toLocaleString('en-IN')} delivered` },
+          { n: rates.afterMessagePct === null ? '—' : `${rates.afterMessagePct}%`, label: 'Goal met after a message' },
+          controlled
+            ? { n: `${rates.liftPts! >= 0 ? '+' : ''}${rates.liftPts} pts`, label: `Lift vs control · ±${rates.liftMarginPts}`, good: true }
+            : { n: '—', label: 'Lift · no control group' },
         ].map((k) => (
           <div key={k.label} className="rounded-lg border p-3.5">
-            <p className={`text-xl font-semibold tabular-nums ${k.good ? 'text-emerald-600' : ''}`}>{k.n}</p>
+            <p className={`text-xl font-semibold tabular-nums ${'good' in k && k.good ? 'text-emerald-600' : ''}`}>{k.n}</p>
             <p className="text-xs text-muted-foreground">{k.label}</p>
           </div>
         ))}
@@ -105,16 +112,28 @@ export function AutomationResults({ automationId }: { automationId: string }) {
         </p>
         <div className="rounded-lg border bg-card">
           <Stage label="Visits that qualified" n={counts.runs} pct={100} />
-          <Stage label="Could be messaged" n={Math.max(0, couldBeMessaged)} pct={pct(couldBeMessaged)}
-            note={`−${counts.runs - couldBeMessaged}`} />
-          <Stage label="Message sent" n={counts.sent} pct={pct(counts.sent)} />
+          {controlled && (
+            <Stage label="Held back on purpose" sub="the control group, never messaged"
+              n={counts.held} pct={pct(counts.held)} muted />
+          )}
+          {/* Not a stage the messages reached — the journey stood aside for them. */}
+          <Stage label="Goal met before any message" sub={`${goalWords}, so none was needed`}
+            n={converted.beforeMessage} pct={pct(converted.beforeMessage)} muted />
+          {counts.waiting > 0 && (
+            <Stage label="Waiting for a first message" sub="not due yet"
+              n={counts.waiting} pct={pct(counts.waiting)} muted />
+          )}
+          <Stage label="Messaged" n={counts.messaged} pct={pct(counts.messaged)} />
           <Stage label="Delivered" n={counts.delivered} pct={pct(counts.delivered)} />
           <Stage label="Read" sub="undercounts — receipts can be switched off"
             n={counts.read} pct={pct(counts.read)} note="at least" />
-          <Stage label="Came in for tests" sub={`within ${windowDays} days, any branch`}
-            n={converted.treated} pct={pct(converted.treated)} note={`${rates.treatedPct}%`} />
-          <Stage label="Held back, came anyway" n={converted.held}
-            pct={pct(converted.held)} note={`${rates.heldPct}%`} muted />
+          <Stage label="Goal met after a message" sub={`${goalWords}, within ${windowDays} days`}
+            n={converted.afterMessage} pct={pct(converted.afterMessage)}
+            note={rates.afterMessagePct === null ? undefined : `${rates.afterMessagePct}% of messaged`} />
+          {controlled && (
+            <Stage label="Held back, goal met anyway" n={converted.held}
+              pct={pct(converted.held)} note={`${rates.heldPct}%`} muted />
+          )}
         </div>
       </section>
 
@@ -145,21 +164,29 @@ export function AutomationResults({ automationId }: { automationId: string }) {
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Did it actually cause anything
         </p>
-        <div className="divide-y rounded-lg border bg-card">
-          <Row title="Messaged — came in" sub={`${counts.delivered.toLocaleString('en-IN')} delivered`}
-            value={`${rates.treatedPct}%`} />
-          <Row title="Held back — came anyway" sub={`${counts.held.toLocaleString('en-IN')} patients`}
-            value={`${rates.heldPct}%`} />
-          <Row strong title="Patients who came because of this"
-            sub={counts.held === 0
-              ? 'No control group — this is a count, not a lift'
-              : `Between ${Math.max(0, Math.round((rates.liftPts - rates.liftMarginPts) / 100 * counts.treated))} and ${Math.round((rates.liftPts + rates.liftMarginPts) / 100 * counts.treated)}`}
-            value={money.incrementalPatients.toLocaleString('en-IN')} />
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          ±{rates.liftMarginPts} points is the honest width at these numbers: this design can detect a
-          lift of about {Math.max(2, Math.ceil(rates.liftMarginPts))} points and cannot detect a smaller one.
-        </p>
+        {controlled ? (
+          <>
+            <div className="divide-y rounded-lg border bg-card">
+              <Row title="Not held back — goal met" sub={`${counts.treated.toLocaleString('en-IN')} patients, messaged or not`}
+                value={`${rates.treatedPct}%`} />
+              <Row title="Held back — goal met anyway" sub={`${counts.held.toLocaleString('en-IN')} patients`}
+                value={`${rates.heldPct}%`} />
+              <Row strong title="Goal met because of this"
+                sub={`Between ${Math.max(0, Math.round((rates.liftPts! - rates.liftMarginPts!) / 100 * counts.treated))} and ${Math.round((rates.liftPts! + rates.liftMarginPts!) / 100 * counts.treated)}`}
+                value={(money.incrementalPatients ?? 0).toLocaleString('en-IN')} />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              ±{rates.liftMarginPts} points is the honest width at these numbers: this design can detect a
+              lift of about {Math.max(2, Math.ceil(rates.liftMarginPts!))} points and cannot detect a smaller one.
+            </p>
+          </>
+        ) : (
+          <div className="divide-y rounded-lg border bg-card">
+            <Row strong title="Nothing to compare against"
+              sub="Nobody is held back on this journey, so someone it brought in and someone who would have come anyway look the same. Hold back a control group to measure it."
+              value="—" />
+          </div>
+        )}
       </section>
 
       <section>
@@ -171,16 +198,18 @@ export function AutomationResults({ automationId }: { automationId: string }) {
         </div>
       </section>
 
-      <section>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Where they came
-        </p>
-        <div className="divide-y rounded-lg border bg-card">
-          <Row title="Same branch as the visit" value={branchSplit.sameBranch.toLocaleString('en-IN')} />
-          <Row title="A different branch" sub="Counted — revenue is revenue"
-            value={branchSplit.otherBranch.toLocaleString('en-IN')} />
-        </div>
-      </section>
+      {branchSplit.sameBranch + branchSplit.otherBranch > 0 && (
+        <section>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Where they came
+          </p>
+          <div className="divide-y rounded-lg border bg-card">
+            <Row title="Same branch as the visit" value={branchSplit.sameBranch.toLocaleString('en-IN')} />
+            <Row title="A different branch" sub="Counted — revenue is revenue"
+              value={branchSplit.otherBranch.toLocaleString('en-IN')} />
+          </div>
+        </section>
+      )}
     </div>
   );
 }
