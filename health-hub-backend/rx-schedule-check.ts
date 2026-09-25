@@ -65,23 +65,31 @@ const assert = (label: string, cond: boolean, detail = '') => {
       JSON.stringify({ state: { branches: [], activeBranchId: id }, version: 0 })), cv.visit.branchId);
 
     await page.goto(`${FE}/doctor/consult/${cv.visitId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForSelector(BOX, { timeout: 60000 }).catch(() => {});
+    assert('the editor\'s 1-0-1 box holds the schedule', (await page.$eval(BOX, (el) => (el as HTMLInputElement).value).catch(() => '')) === '1-0-1');
+    // The printed prescription is the Review & sign preview (the letterpad). Opening it signs nothing.
+    const button = (label: string) => page.evaluate((l: string) => ([...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === l) as HTMLButtonElement | undefined)?.click(), label);
+    await button('Review & sign');
     await settle('Morning · Night');
     let body = await text();
-    assert('the prescription prints the grid and the words', /1 – 0 – 1\s+\(Morning · Night\)/.test(body), body.slice(0, 300));
+    assert('the prescription prints the grid and the words', /1 – 0 – 1\s+\(Morning · Night\)/.test(body));
     assert('…with the rest of the line under it', /after food · 5 days/.test(body));
-    await page.waitForSelector(BOX, { timeout: 30000 }).catch(() => {});
-    assert('the editor\'s 1-0-1 box holds the schedule', (await page.$eval(BOX, (el) => (el as HTMLInputElement).value).catch(() => '')) === '1-0-1');
+    await page.screenshot({ path: '/tmp/claude-501/rx-schedule-review.png' });
 
+    await button('Back to edit');
+    await page.waitForSelector(BOX, { timeout: 30000 }).catch(() => {});
     await page.click(BOX, { clickCount: 3 });
     await page.type(BOX, '0-0-1');
-    await settle('\\(Night\\)', 10000);
-    body = await text();
-    assert('changing the box re-prints the line', /0 – 0 – 1\s+\(Night\)/.test(body));
-    await page.screenshot({ path: '/tmp/claude-501/rx-schedule.png' });
-    await page.evaluate(() => ([...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save draft') as HTMLButtonElement | undefined)?.click());
+    await button('Save draft');
     await new Promise((r) => setTimeout(r, 4000));
     const saved = await prisma.prescriptionItem.findFirst({ where: { prescriptionId: d.id }, select: { doseSchedule: true } });
-    assert('…and the save stores it', saved?.doseSchedule === '0-0-1', String(saved?.doseSchedule));
+    assert('changing the box saves it', saved?.doseSchedule === '0-0-1', String(saved?.doseSchedule));
+    await button('Review & sign');
+    await settle('\\(Night\\)');
+    body = await text();
+    assert('…and the prescription re-prints it', /0 – 0 – 1\s+\(Night\)/.test(body));
+    await button('Back to edit');
+    await page.waitForSelector(BOX, { timeout: 30000 }).catch(() => {});
 
     await page.click(BOX, { clickCount: 3 });
     await page.type(BOX, '1-0');
