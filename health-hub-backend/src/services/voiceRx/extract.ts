@@ -18,7 +18,7 @@
 import { logger } from '../../lib/logger';
 import { medicineVocabulary } from './resolver';
 import {
-  parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength,
+  parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength, keepBrandSuffix,
   wordsToNumbers, FREQUENCY_TEXT, type FrequencyCode,
 } from './normalize';
 
@@ -102,7 +102,8 @@ ABSOLUTE RULES
    mark every option with "isAlternative": true. Never emit a choice as two
    separate prescribed medicines.
 4. If the doctor corrects themselves ("no, make that 500"), keep only the
-   corrected value.
+   corrected value. A medicine named more than once — repeated, or its schedule
+   said in two places — is ONE line carrying everything said about it.
 5. Output ONLY JSON. No prose, no markdown fence.
 
 FIELD PROVENANCE
@@ -135,7 +136,8 @@ SOUND. Telugu, by sound:
                                    -> SOS, with the condition in "instructions"
                                    ("for fever", "for pain")
   noppi = pain · jvaram = fever · vaantulu = vomiting · daggu = cough
-  N rojulu = N days · vaaram / vaaram rojulu = 1 week · vaaralu = weeks ·
+  N rojulu = N days, in days as said (muppai rojulu = 30 days, not 1 month) ·
+  vaaram / vaaram rojulu = 1 week · vaaralu = weeks ·
   nela / nelalu = month(s) · okka nela / oka nela / vokanila = 1 month
   Numbers — the recogniser spells them many ways; read by sound:
     okati / vokati / okkati 1 · rendu / rendhu 2 · moodu / mudu / muudu 3 ·
@@ -362,8 +364,12 @@ function reconcile(item: any, fullText: string): ExtractedItem {
   let strength: string | null = item?.strength ? String(item.strength) : null;
   let strengthUnit: string | null = item?.strengthUnit ? String(item.strengthUnit) : null;
   // The drug token as heard ("Augmentin 625") may carry a bare strength; the rest
-  // of the clause only a number with a strength unit — see parseStrength.
-  const ps = parseStrength(spoken) ?? parseStrength(scope, { requireUnit: true });
+  // of the clause only a number with a strength unit — see parseStrength — and
+  // only AFTER this medicine's name: "Microbid 200 mg Voveran …" gave the next
+  // line Microbid's 200 mg.
+  const first = (String(item?.name ?? spoken).trim().split(/\s+/)[0] ?? '').toLowerCase();
+  const at = first ? scope.toLowerCase().indexOf(first) : -1;
+  const ps = parseStrength(spoken) ?? (at >= 0 ? parseStrength(scope.slice(at), { requireUnit: true }) : null);
   if (ps) {
     strength = ps.strength;
     strengthUnit = strengthUnit ?? ps.unit;
@@ -387,8 +393,11 @@ function reconcile(item: any, fullText: string): ExtractedItem {
   states.route = route ? (states.route === 'UNKNOWN' ? 'NORMALIZED' : states.route) : 'UNKNOWN';
 
   const dur = parseDuration(scope);
-  const durationValue = dur?.value ?? (item?.durationValue != null ? Number(item.durationValue) : null);
-  const durationUnit = dur?.unit ?? (item?.durationUnit ? String(item.durationUnit) : null);
+  const heardDuration = dur?.value ?? (item?.durationValue != null ? Number(item.durationValue) : null);
+  // "Ratri okati, aidu rojulu" (one at night, five days) came back as "1.5 rojulu".
+  // Nobody prescribes a fractional course: leave it for the doctor, not 1.5 days.
+  const durationValue = heardDuration != null && Number.isInteger(heardDuration) ? heardDuration : null;
+  const durationUnit = durationValue == null ? null : dur?.unit ?? (item?.durationUnit ? String(item.durationUnit) : null);
   states.duration = durationValue != null ? 'SPOKEN' : 'UNKNOWN';
 
   const doseQty = item?.doseQty != null ? String(item.doseQty) : null;
@@ -396,7 +405,7 @@ function reconcile(item: any, fullText: string): ExtractedItem {
 
   // The medicine token, stripped of a trailing strength the model left attached.
   let name = String(item?.name ?? spoken).trim();
-  name = wordsToNumbers(name);
+  name = keepBrandSuffix(wordsToNumbers(name), spoken);
   if (strength) {
     name = name.replace(new RegExp(`\\s*\\b${strength.replace(/[+]/g, '\\+')}\\b\\s*(mg|mcg|ml|g|iu)?$`, 'i'), '').trim();
   }
@@ -448,7 +457,8 @@ export async function extractPrescription(
         // clearly. It adds no medicines of its own.
         ? `\n\nThe SAME speech, as a second recogniser heard it — the same medicines, not more:\n"""${opts.alsoHeard.trim()}"""\n` +
           'Where the two disagree on a medicine name, a strength or a number, take whichever is a clear real ' +
-          'word or number; if both are clear and differ, keep the first. Never list a medicine twice.'
+          'word or number; if both are clear and differ, keep the first. A detail only one of them states ' +
+          'clearly — how often, when, how long — was still said: use it. Never list a medicine twice.'
         : ''),
     },
   ]);

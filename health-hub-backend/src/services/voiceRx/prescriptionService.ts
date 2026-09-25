@@ -26,7 +26,7 @@ import type { PrescriptionStatus } from '@prisma/client';
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { logAction } from '../auditService';
-import { resolveMedication } from './resolver';
+import { resolveMedication, soundsLikeEverydayWord } from './resolver';
 import { validatePrescription, type ValidatableItem, type ValidationResult } from './validator';
 import { FREQUENCY_TEXT, type FrequencyCode } from './normalize';
 import type { ExtractedItem } from './extract';
@@ -187,10 +187,26 @@ export interface CreateDraftInput {
  */
 async function resolveLine(
   spoken: string,
-  it: { strength?: string | null; dosageForm?: string | null; fieldStates?: unknown; spokenText?: string | null },
+  it: {
+    strength?: string | null; dosageForm?: string | null; fieldStates?: unknown; spokenText?: string | null;
+    frequencyCode?: string | null; durationValue?: number | null;
+  },
 ) {
   const opts = { strength: it.strength ?? null, dosageForm: it.dosageForm ?? null };
   const r = await resolveMedication({ spoken, ...opts });
+  const asked = (m: NonNullable<typeof r.match>) => ({
+    ...r,
+    resolution: 'UNRESOLVED' as const,
+    match: null,
+    candidates: [m, ...r.candidates.filter((c) => c.medicationId !== m.medicationId)],
+    askReason: 'NO_MATCH' as const,
+  });
+  // Named like an everyday word ("Viveran": Hindi "vivaran", description) and
+  // carrying no schedule or course: asked, never matched, never dropped. A strength
+  // does not count — the phantom line borrowed the one before it. A real "Voveran
+  // 50 BD" carries its schedule and resolves as before.
+  const bare = !it.frequencyCode && it.durationValue == null;
+  if (bare && soundsLikeEverydayWord(spoken) && r.resolution === 'RESOLVED' && r.match) return asked(r.match);
   const repaired = (it.fieldStates as Record<string, unknown> | null | undefined)?.name === 'NORMALIZED';
   if (repaired && r.resolution === 'RESOLVED' && r.match) {
     const heard = (it.spokenText ?? '').trim();
@@ -198,14 +214,7 @@ async function resolveLine(
       const asHeard = await resolveMedication({ spoken: heard, ...opts });
       if (asHeard.resolution === 'RESOLVED' && asHeard.match?.medicationId === r.match.medicationId) return r;
     }
-    const first = r.match;
-    return {
-      ...r,
-      resolution: 'UNRESOLVED' as const,
-      match: null,
-      candidates: [first, ...r.candidates.filter((c) => c.medicationId !== first.medicationId)],
-      askReason: 'NO_MATCH' as const,
-    };
+    return asked(r.match);
   }
   return r;
 }

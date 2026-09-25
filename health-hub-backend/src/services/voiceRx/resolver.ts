@@ -383,6 +383,16 @@ export function consonantSkeleton(input: string): string {
 }
 
 /**
+ * Everyday words the recogniser turns into a brand. Hindi "vivaran" (description:
+ * "chikitsa vivaran" opens every medicine write-up read aloud) comes out "Viveran"
+ * or "Voveran" — and Voveran is diclofenac. On real Hindi speech it made a
+ * phantom Voveran line in dozens of clips. Consonant skeletons, first word only.
+ */
+const EVERYDAY_WORDS = new Set(['vrn']);
+export const soundsLikeEverydayWord = (name: string): boolean =>
+  EVERYDAY_WORDS.has(consonantSkeleton(name.trim().split(/[\s\d-]+/)[0] ?? ''));
+
+/**
  * The clinic's own medicines whose brand (or other name) has this skeleton —
  * offered FIRST when a name did not match literally. Only the clinic list
  * (curated + learned, a few hundred rows), so a skeleton rarely collides; and

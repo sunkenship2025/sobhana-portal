@@ -236,7 +236,10 @@ const FREQ_PATTERNS: [RegExp, FrequencyCode][] = [
   [/\b(qid|q\.i\.d\.|qds|four\s*times?\s*(a\s*)?day|char\s*(baar|bar)|chaar\s*(baar|bar))\b/i, 'QID'],
   [/\b(hs|at\s*(bed\s*)?time|bed\s*time|bedtime|raat\s*ko|sone\s*se\s*pehle)\b/i, 'HS'],
   [/\b(sos|s\.o\.s\.|as\s*needed|if\s*(required|needed)|prn|zaroorat\s*pa?d?ne?\s*par|jarurat)\b/i, 'SOS'],
-  [/\b(stat|immediately|abhi|turant)\b/i, 'STAT'],
+  // Only the word itself. "Immediately", "abhi" (now, currently) and "turant" are
+  // nearly always about something else — "it gives relief immediately", "abhi ye le
+  // rahe ho" — and made "take it daily at night" a single stat dose.
+  [/\bstat\b/i, 'STAT'],
   [/\b(weekly|once\s*a\s*week|hafte\s*me\s*ek)\b/i, 'WEEKLY'],
   [/\b(alternate\s*day|every\s*other\s*day|alt\s*day|ek\s*din\s*chhod)\b/i, 'ALT_DAY'],
   [/\b(hourly|every\s*hour)\b/i, 'QH'],
@@ -298,9 +301,23 @@ export function parseRoute(text: string): string | null {
 
 export interface Duration { value: number; unit: 'days' | 'weeks' | 'months' }
 
+// Telugu numbers that start a duration. FIVE and SEVEN are the dangerous pair:
+// an a- / aa- / ai- sound is five ("aidu", "aayedu"), only e- / ye- is seven —
+// the model read "aayedu rojulu" as 7 days with that rule in its prompt.
+const TELUGU_COUNT: [RegExp, number][] = [
+  [/^(okati|vokati|okkati|okka|vokka|oka)$/, 1], [/^(rendu|rendhu)$/, 2], [/^(moodu|mudu|muudu)$/, 3],
+  [/^(nalugu|naalugu)$/, 4], [/^(aidu|aidhu|ayidu|aedu|aayedu|ayedu|aydu)$/, 5], [/^(aaru|aru)$/, 6],
+  [/^(edu|yedu|eedu)$/, 7], [/^(padi|padhi)$/, 10], [/^(padihenu|padiheenu)$/, 15],
+];
+
 export function parseDuration(text: string): Duration | null {
   if (!text) return null;
-  const t = wordsToNumbers(text.toLowerCase());
+  const t = wordsToNumbers(transliterateIndic(text).toLowerCase());
+  const te = t.match(/\b([a-z]+|\d+)\s+(rojulu|rojula|roojulu|vaaralu|varalu|nelalu|nelaalu)\b/);
+  if (te) {
+    const n = /^\d+$/.test(te[1]) ? Number(te[1]) : TELUGU_COUNT.find(([re]) => re.test(te[1]))?.[1];
+    if (n) return { value: n, unit: /^va/.test(te[2]) ? 'weeks' : /^ne/.test(te[2]) ? 'months' : 'days' };
+  }
   // `din me(in)` means "per day" — a frequency phrase. Without this negative
   // lookahead "650 din me do baar" reads as a 650-day course.
   const m = t.match(/\b(\d+)\s*(day|days|din|week|weeks|hafta|hafte|month|months|mahina|mahine)\b(?!\s*(me|mein)\b)/);
@@ -309,6 +326,26 @@ export function parseDuration(text: string): Duration | null {
   const u = m[2];
   const unit: Duration['unit'] = /week|hafta|hafte/.test(u) ? 'weeks' : /month|mahina|mahine/.test(u) ? 'months' : 'days';
   return { value, unit };
+}
+
+/**
+ * The letters after a brand that change what it is: Ecosprin is aspirin, Ecosprin
+ * AV is aspirin + atorvastatin; Pan is pantoprazole, Pan D adds domperidone. Not
+ * "at", "as" or "OD" — "Pan at bedtime", "Dolo as needed", once daily.
+ */
+const BRAND_SUFFIX = /^(av|d|ds|dsr|dx|l|lc|ls|m|mr|sp|p|cv|ct|xl|cr|sr|er|tz|oz|am|h|g|t|th|xt|z|fx|f|n|nt|forte|plus|duo|kid)$/i;
+
+/**
+ * Put back a suffix the heard text has right after the name and the name lost:
+ * spokenText "Ecosprin AV75MG" with name "Ecosprin" resolved, silently, to plain
+ * aspirin 75 (real Telugu speech).
+ */
+export function keepBrandSuffix(name: string, spoken: string): string {
+  const words = spoken.replace(/([a-z])(\d)/gi, '$1 $2').replace(/(\d)([a-z])/gi, '$1 $2').split(/[\s,.-]+/).filter(Boolean);
+  const own = name.split(/[\s-]+/).filter(Boolean).map((w) => w.toLowerCase());
+  const at = words.findIndex((_, k) => own.every((n, j) => words[k + j]?.toLowerCase() === n));
+  const next = at < 0 ? undefined : words[at + own.length];
+  return next && BRAND_SUFFIX.test(next) ? `${name} ${next}` : name;
 }
 
 /** "500 mg", "625", "10ml" -> { strength, unit } */
@@ -362,6 +399,23 @@ export function demo(): void {
   eq(parseStrength('Dolo 650 mg twice a day for 5 days', { requireUnit: true }), { strength: '650', unit: 'mg' }, 'a strength with its unit is');
   eq(parseStrength('10 ml in the morning', { requireUnit: true }), null, 'a syrup dose is not a strength');
   eq(parseStrength('Augmentin 625'), { strength: '625', unit: null }, 'inside the drug token, a bare number is');
+  eq(parseDuration('Rojuki rendu saalu, kaadhu, vokka saare, aayedu rojulu.'), { value: 5, unit: 'days' }, 'aayedu is FIVE');
+  eq(parseDuration('edu rojulu'), { value: 7, unit: 'days' }, 'edu is seven');
+  eq(parseDuration('ఐదు రోజులు'), { value: 5, unit: 'days' }, 'Telugu script five');
+  eq(parseDuration('ఏడు రోజులు'), { value: 7, unit: 'days' }, 'Telugu script seven');
+  eq(parseDuration('Rojuki 2 Saalu, 2 Nelalu'), { value: 2, unit: 'months' }, 'nelalu are months');
+  eq(parseDuration('rendu vaaralu'), { value: 2, unit: 'weeks' }, 'vaaralu are weeks');
+  eq(parseDuration('rojuki moodu saarlu'), null, '"rojuki" is per day, not a duration');
+  eq(keepBrandSuffix('Ecosprin', 'Ecosprin AV75MG'), 'Ecosprin AV', 'a dropped suffix comes back');
+  eq(keepBrandSuffix('Montair', 'Montair LC at night'), 'Montair LC', '…LC too');
+  eq(keepBrandSuffix('Ecosprin AV', 'Ecosprin AV 75'), 'Ecosprin AV', 'a kept suffix is not doubled');
+  eq(keepBrandSuffix('Dolo', 'Dolo 650 tablet thrice a day'), 'Dolo', 'a strength is not a suffix');
+  eq(keepBrandSuffix('Pan', 'Pan at bedtime'), 'Pan', '"at" is not a suffix');
+  eq(keepBrandSuffix('Crocin', 'Crocin as needed'), 'Crocin', '"as" is not a suffix');
+  eq(keepBrandSuffix('Pan', 'Pan OD before breakfast'), 'Pan', 'OD is once daily, not a suffix');
+  eq(parseFrequency('If you use that tablet it will be removed immediately. It is good to take it daily at night.'), null, '"immediately" is not a stat dose');
+  eq(parseFrequency('abhi aap ye tablet le rahe ho'), null, '"abhi" (currently) is not a stat dose');
+  eq(parseFrequency('inj ceftriaxone 1 g stat'), 'STAT', 'stat is stat');
   eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
   eq(parseStrength('Steam inhalation 3-4 times a day'), null, 'a count is not a strength');
   eq(parseStrength('Pan 40 din me ek baar'), { strength: '40', unit: null }, '"N din" after a name is still its strength');

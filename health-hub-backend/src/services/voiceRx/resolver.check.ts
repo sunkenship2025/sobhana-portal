@@ -8,11 +8,15 @@
  * mis-heard drug names and starts calling them UNRESOLVED — which is safe but
  * useless. This file is the thing that fails when that happens.
  */
-import { phoneticKey, similarity, norm, resolveMedication, consonantSkeleton } from './resolver';
+import { phoneticKey, similarity, norm, resolveMedication, consonantSkeleton, soundsLikeEverydayWord } from './resolver';
 
 function main(): void {
   const ok = (cond: boolean, label: string) => { if (!cond) throw new Error(`FAIL: ${label}`); };
   const sameKey = (a: string, b: string) => phoneticKey(a) === phoneticKey(b);
+
+  // --- everyday words heard as a brand ---------------------------------------
+  ok(soundsLikeEverydayWord('Viveran') && soundsLikeEverydayWord('Voveran 50') && soundsLikeEverydayWord('vivaran'), '"vivaran" (description) is an everyday word');
+  ok(!soundsLikeEverydayWord('Dolo 650') && !soundsLikeEverydayWord('Volini') && !soundsLikeEverydayWord('Vertin'), 'a brand is not');
 
   // --- normalisation --------------------------------------------------------
   ok(norm('Augmentin 625!') === 'augmentin 625', 'norm strips punctuation');

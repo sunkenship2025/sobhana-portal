@@ -220,11 +220,13 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
     // Devanagari ("कमबे फलम"); in English mode it writes "Combiflam". The extractor
     // gets both and takes each name from whichever wrote it clearly — held-out
     // Hindi went 11/12 -> 12/12, the same in every repeat (mixed-dictation-check).
-    // Telugu is heard once, in English mode: a second, detected hearing wrote it in
-    // the wrong scripts and helped nothing. The second hearing is best-effort — it
-    // never fails or delays the dictation beyond the slower of the two.
-    const second = !language && speech !== 'te' && speech !== 'en'
-      ? transcribeWithFallback(req.file.buffer, filename, { provider, language: 'en', model, prompt: hint || undefined })
+    // Telugu is heard in English mode, and a second time in Telugu. On real Telugu
+    // speech (29 clips, 18 speakers) English mode alone translates and loops ("the
+    // body is used for the treatment of the body") — 34% of drugs reached the
+    // prescription; with the Telugu hearing beside it, 52%. The second hearing is
+    // best-effort — it never fails or delays the dictation beyond the slower of the two.
+    const second = !language && speech !== 'en'
+      ? transcribeWithFallback(req.file.buffer, filename, { provider, language: speech === 'te' ? 'te' : 'en', model, prompt: hint || undefined })
         .catch((err) => { logger.warn({ err }, 'prescriptions: second hearing failed'); return null; })
       : Promise.resolve(null);
     const transcript = await transcribeWithFallback(req.file.buffer, filename, {

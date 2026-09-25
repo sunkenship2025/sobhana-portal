@@ -88,10 +88,10 @@ export interface TranscribeOptions {
 
 /**
  * Whisper, measured on spoken Telugu–English and Hindi–English prescriptions
- * (mixed-dictation-check.ts): told "te" or left to detect, it writes Telugu in
- * Devanagari, Gurmukhi or Tamil script; told "en", it writes the Telugu in English
- * letters and spells the brands best — names written right 14/15 against 12/15.
- * Hindi reads best detected.
+ * (mixed-dictation-check.ts): told "en", it spells the brands best. On synthetic
+ * voices "te" wrote the wrong scripts; on REAL Telugu speakers "te" is faithful
+ * but "en" translates and can loop — so Telugu gets a second hearing in "te"
+ * (routes/prescriptions.ts). Hindi reads best detected.
  */
 const WHISPER_LANGUAGE: Record<'te' | 'hi' | 'en', string | undefined> = { te: 'en', hi: undefined, en: 'en' };
 
