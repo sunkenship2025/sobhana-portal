@@ -30,6 +30,7 @@ import bcrypt from 'bcryptjs';
 import prisma from './src/lib/prisma';
 import { resolveMedication, consonantSkeleton } from './src/services/voiceRx/resolver';
 import { transliterateIndic } from './src/services/voiceRx/normalize';
+import { extractPrescription } from './src/services/voiceRx/extract';
 
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MANIFEST = process.env.EKA_MANIFEST!;
@@ -73,6 +74,9 @@ const NOT_NAME = new Set(['mg', 'ml', 'mcg', 'gm', 'tablet', 'tablets', 'tab', '
 const tokens = (s: string) => transliterateIndic(s).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
 /** A marked "drug" that names no product: "medicine", "डायबिटीज की दवाई", PRP. */
 const GENERIC = /दवा|medicine|medication|मेडिसिन|मेडिकेशन|मेडीसिन|पीआरपी|\bprp\b|एंटी|anti|विटामिन|vitamin|कैल्शियम|calcium|सप्लीमेंट|supplement/i;
+/** A clip that PRESCRIBES — most narration clips read out a drug's description
+ *  ("Montral tablet is used for…"), where the right extraction is no line. */
+const PRESCRIBING = /\b(take|taking|give|prescrib\w*|start|continue|apply|twice|thrice|once|daily|times a day|a day|before food|after food|for \d+ days|days?|weeks?|morning|night)\b|लें|लीजिए|लीजिये|लेना|लेने|लेते|खाइए|खाएं|खाने|दिन|रोज़?|बार|सुबह|शाम|रात|हफ्ते|महीने/i;
 /** The spoken name inside a marked drug: its first word that is not a dose or form. */
 function nameOf(entity: string): string | null {
   if (GENERIC.test(entity)) return null;
@@ -140,11 +144,29 @@ async function transcribe(clips: Clip[], branchId: string): Promise<Record<strin
 (async () => {
   const clips = (JSON.parse(fs.readFileSync(MANIFEST, 'utf8')) as Clip[]).slice(0, LIMIT);
   const branchId = process.env.EKA_BRANCH ?? (await prisma.branch.findFirst({ where: { isActive: true }, select: { id: true } }))!.id;
-  const results = await transcribe(clips, branchId);
+  let results = await transcribe(clips, branchId);
+  // EKA_LOCAL=1: re-extract each cached transcript with THIS checkout's code — to
+  // score an extraction or resolver change before it ships, with no recognition
+  // and no quota. (One hearing only: the server does not return its second.)
+  if (process.env.EKA_LOCAL === '1') {
+    const LOCAL = CACHE.replace(/\.json$/, '.local.json');
+    const local: Record<string, Result> = fs.existsSync(LOCAL) ? JSON.parse(fs.readFileSync(LOCAL, 'utf8')) : {};
+    const queue = clips.filter((c) => !local[c.id] && results[c.id] && !('error' in results[c.id]));
+    await Promise.all([0, 1, 2, 3].map(async () => {
+      for (let c = queue.shift(); c; c = queue.shift()) {
+        const transcript = (results[c.id] as { transcript: string }).transcript;
+        const { items } = await extractPrescription(transcript, []).catch(() => ({ items: [] as any[] }));
+        local[c.id] = { transcript, items };
+        fs.writeFileSync(LOCAL, JSON.stringify(local, null, 1));
+      }
+    }));
+    results = local;
+  }
 
-  const t = { drugs: 0, heard: 0, onRx: 0, inList: 0, listed: 0, wrong: 0, errors: 0, clips: 0 };
+  const t = { drugs: 0, heard: 0, onRx: 0, inList: 0, molecule: 0, listed: 0, wrong: 0, errors: 0, clips: 0 };
   const misses: string[] = [];
   for (const c of clips) {
+    if (process.env.EKA_RX === '1' && !PRESCRIBING.test(c.text)) continue;
     const r = results[c.id];
     if (!r || 'error' in r) { t.errors++; continue; }
     t.clips++;
@@ -171,9 +193,15 @@ async function transcribe(clips: Clip[], branchId: string): Promise<Record<strin
       if (line) {
         const res = await lookup(line.name || line.spokenText, line.strength, line.dosageForm);
         const brand = (x: any) => `${x?.brandName ?? ''} ${x?.canonicalName ?? ''}`;
+        // Named: the brand says it, or it is the molecule said ("thyroxine" → Levothyroxine).
+        const named = (x: any) => !!x && (mentions(brand(x), name) || String(x.genericName ?? '').toLowerCase().includes(name));
         const top = res.match ?? res.candidates[0];
-        if (top && mentions(brand(top), name)) t.inList++;
-        else if (res.resolution === 'RESOLVED' && res.match && !mentions(brand(res.match), name)) {
+        // The same molecule under another brand is the right drug ("Lonazep 0.5" →
+        // Clonazepam 0.5) — judged against what the catalogue says the name is.
+        const ref = known?.match ?? known?.candidates[0];
+        if (named(top) || (top && named(ref) && top.genericName && top.genericName === ref.genericName)) t.molecule++;
+        if (named(top)) t.inList++;
+        else if (res.resolution === 'RESOLVED' && res.match) {
           // A different BRAND is not necessarily a different DRUG (Crocin -> Paracetamol
           // 500 is right). Count it for a human to look at; do not call it wrong blind.
           t.wrong++;
@@ -188,6 +216,7 @@ async function transcribe(clips: Clip[], branchId: string): Promise<Record<strin
   console.log(`  heard (the transcript wrote the drug):   ${pct(t.heard, t.drugs)}`);
   console.log(`  on the prescription (a medicine line):   ${pct(t.onRx, t.drugs)}`);
   console.log(`  matched or offered first in the list:    ${pct(t.inList, t.drugs)}${process.env.EKA_COVERAGE === '1' ? `   (drugs the catalogue has at all: ${t.listed})` : ''}`);
+  if (process.env.EKA_COVERAGE === '1') console.log(`  right DRUG first (same molecule counts): ${pct(t.molecule, t.drugs)}`);
   console.log(`  resolved to a different brand (review):  ${t.wrong}`);
   if (process.argv.includes('--misses')) console.log(misses.join('\n'));
   await prisma.$disconnect();

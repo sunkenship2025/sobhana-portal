@@ -584,9 +584,17 @@ export async function suggestSimilar(heard: string, spokenStrength: string | nul
   const needle = norm(heard);
   if (needle.length < 4) return [];
   const key = phoneticKey(needle);
+  const heardKey = key || needle;
+  // Also the first word heard, against a name's first word like for like:
+  // "rabemak bsr" as a whole is far from "rabemac"; its first word is not.
+  const firstHeard = needle.split(/[\s-]+/)[0] ?? '';
+  const heardFirstKey = firstHeard.length >= 4 ? phoneticKey(firstHeard) : '';
 
-  const rows = await prisma.$transaction(async (tx) => {
+  const [bySpelling, bySound] = await Promise.all([prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL pg_trgm.word_similarity_threshold = 0.3`);
+    // A long two-word needle can take seconds and outlive the transaction —
+    // which threw, and took the sound-alikes down with it.
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = 3000`);
     return tx.$queryRawUnsafe<Raw[]>(
       `SELECT ${SELECT_COLS}, word_similarity($1, "searchText") AS score
        FROM "Medication"
@@ -596,9 +604,10 @@ export async function suggestSimilar(heard: string, spokenStrength: string | nul
        LIMIT 80`,
       needle, key,
     );
-  });
+  }).catch(() => [] as Raw[]), soundAlikes(heardKey, heardFirstKey).catch(() => [] as Raw[])]);
+  const rows = [...bySound, ...bySpelling];
 
-  const heardKey = key || needle;
+  const closeness = (a: string, b: string) => 1 - editDistance(a, b) / Math.max(a.length, b.length, 1);
   const scored = rows
     .map((r) => {
       // Compare against the first word of each name the row goes by — the part a
@@ -609,15 +618,17 @@ export async function suggestSimilar(heard: string, spokenStrength: string | nul
         const w = phoneticKey(norm(String(name)).split(/[\s-]+/)[0] ?? '');
         if (!w) continue;
         best = Math.max(best, 1 - editDistance(heardKey, w) / Math.max(heardKey.length, w.length));
+        if (heardFirstKey) best = Math.max(best, 1 - editDistance(heardFirstKey, w) / Math.max(heardFirstKey.length, w.length));
       }
       const strengthHit = !!spokenStrength && !!r.strength && String(r.strength).replace(/\s+/g, '').startsWith(spokenStrength);
-      return { r, best, strengthHit };
+      return { r, best, strengthHit, whole: closeness(heardKey, r.phoneticKey ?? '') };
     })
     .filter((x) => x.best >= 0.7)
     .sort((a, b) =>
       b.best - a.best
       || Number(b.strengthHit) - Number(a.strengthHit)
-      || (SOURCE_RANK[a.r.source ?? 'IMPORTED'] ?? 2) - (SOURCE_RANK[b.r.source ?? 'IMPORTED'] ?? 2));
+      || (SOURCE_RANK[a.r.source ?? 'IMPORTED'] ?? 2) - (SOURCE_RANK[b.r.source ?? 'IMPORTED'] ?? 2)
+      || b.whole - a.whole); // every Rabemac shares the first word; "bsr" is nearest DSR
 
   const out: Candidate[] = [];
   const seen = new Set<string>();
@@ -631,6 +642,33 @@ export async function suggestSimilar(heard: string, spokenStrength: string | nul
 }
 
 const SOURCE_RANK: Record<string, number> = { CURATED: 0, LEARNED: 1, IMPORTED: 2 };
+
+/**
+ * Rows whose stored brand key SOUNDS like what was heard. Spelling similarity
+ * misses them: "rosalate" shares few trigrams with Rozalet, yet its key
+ * (rosalat) is a letter from Rozalet's (rosalet). Every key sharing the heard
+ * key's first two letters — an indexed prefix scan under the C collation, a few
+ * thousand short keys, ~3 ms — ranked here by edit distance.
+ */
+async function soundAlikes(heardKey: string, heardFirstKey: string): Promise<Raw[]> {
+  if (!/^[a-z]{2}/.test(heardKey)) return [];
+  const keys = await prisma.$queryRawUnsafe<{ k: string }[]>(
+    `SELECT DISTINCT "phoneticKey" AS k FROM "Medication" WHERE ${WHERE_LIVE} AND "phoneticKey" LIKE $1`,
+    `${heardKey.slice(0, 2)}%`,
+  );
+  const close = (a: string, b: string) => 1 - editDistance(a, b) / Math.max(a.length, b.length);
+  const nearest = keys
+    .map(({ k }) => ({ k, s: Math.max(close(heardKey, k), heardFirstKey ? close(heardFirstKey, k.slice(0, heardFirstKey.length)) : 0) }))
+    .filter((x) => x.s >= 0.7)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 8)
+    .map((x) => x.k);
+  if (nearest.length === 0) return [];
+  return prisma.$queryRawUnsafe<Raw[]>(
+    `SELECT ${SELECT_COLS} FROM "Medication" WHERE ${WHERE_LIVE} AND "phoneticKey" = ANY($1) LIMIT 60`,
+    nearest,
+  );
+}
 
 export async function resolveMedication(input: ResolveInput): Promise<ResolveResult> {
   // Number words first: the extractor normalises before calling, but a doctor
@@ -753,11 +791,20 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     // the hit as the option. Cheap to answer, and it is asked only once: after
     // signing, learning records what was heard as an alias on the drug chosen,
     // and the same words then resolve literally, in tier 1 or 2.
+    // A spelling-alike asked about is often not the drug ("rosalate" → Rospram):
+    // the sound-alikes (Rozalet) go before the spelling hits.
+    const approximate = async (hits: Candidate[]) => {
+      const [skeleton, nearMisses] = await Promise.all([
+        clinicSkeletonMatches(stem, spokenStrength).catch(() => []),
+        tier === 4 ? suggestSimilar(stem, spokenStrength).catch(() => []) : Promise.resolve([] as Candidate[]),
+      ]);
+      return withClinicFirst(skeleton, withClinicFirst(nearMisses, hits));
+    };
     if (tier >= 3 && d.resolution === 'RESOLVED' && d.match) {
       return {
         resolution: 'UNRESOLVED',
         match: null,
-        candidates: withClinicFirst(await clinicSkeletonMatches(stem, spokenStrength).catch(() => []), d.candidates.length ? d.candidates : [d.match]),
+        candidates: await approximate(d.candidates.length ? d.candidates : [d.match]),
         askReason: 'NO_MATCH',
         spokenStrength,
       };
@@ -765,9 +812,7 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (tooShort && d.resolution === 'RESOLVED' && d.match) {
       return { resolution: 'UNRESOLVED', match: null, candidates: d.candidates.length ? d.candidates : [d.match], askReason: 'NO_MATCH', spokenStrength };
     }
-    if (tier >= 3 && d.resolution !== 'RESOLVED') {
-      return { ...d, candidates: withClinicFirst(await clinicSkeletonMatches(stem, spokenStrength).catch(() => []), d.candidates) };
-    }
+    if (tier >= 3 && d.resolution !== 'RESOLVED') return { ...d, candidates: await approximate(d.candidates) };
     return d;
   }
 

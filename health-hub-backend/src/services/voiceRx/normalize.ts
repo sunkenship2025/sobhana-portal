@@ -319,12 +319,20 @@ export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}
   // there is a count, a frequency or a duration as often as a strength — "two
   // times a day" made strength 2, and 2 matched a 2% gel. Only a strength unit
   // (not ml, which is a dose of a syrup) makes a number a strength there.
-  const re = opts.requireUnit
-    ? /\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|g|iu|%)(?![a-z])/
-    : /\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|g|ml|iu|units?|%)?\b/;
-  const m = t.match(re);
-  if (!m) return null;
-  return { strength: m[1].replace(/\s+/g, ''), unit: m[2] ?? null };
+  for (const m of t.matchAll(/\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|gm|g|ml|iu|units?|%)?(?![a-z0-9])/g)) {
+    const unit = m[2] === 'gm' ? 'g' : m[2] ?? null;
+    if (opts.requireUnit && !(unit && /^(mg|mcg|g|iu|%)$/.test(unit))) continue;
+    if (!unit) {
+      // The model's spokenText is often the whole phrase: "Pantop DSR for 7 days",
+      // "Steam inhalation 3-4 times a day". A number after for/after/every is a
+      // duration; one before "times" a count. (Not "N din": "Pan 40 din me ek
+      // baar" is Pan 40, once a day.)
+      if (/\b(for|after|every|since|within|next|till|until|upto)$/.test(t.slice(0, m.index).trimEnd())) continue;
+      if (/^\s*(?:(?:-|to)\s*\d+\s*)?times?\b/.test(t.slice(m.index! + m[0].length))) continue;
+    }
+    return { strength: m[1].replace(/\s+/g, ''), unit };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +362,13 @@ export function demo(): void {
   eq(parseStrength('Dolo 650 mg twice a day for 5 days', { requireUnit: true }), { strength: '650', unit: 'mg' }, 'a strength with its unit is');
   eq(parseStrength('10 ml in the morning', { requireUnit: true }), null, 'a syrup dose is not a strength');
   eq(parseStrength('Augmentin 625'), { strength: '625', unit: null }, 'inside the drug token, a bare number is');
+  eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
+  eq(parseStrength('Steam inhalation 3-4 times a day'), null, 'a count is not a strength');
+  eq(parseStrength('Pan 40 din me ek baar'), { strength: '40', unit: null }, '"N din" after a name is still its strength');
+  eq(parseStrength('Dolo 650 tablet thrice a day for 6 days'), { strength: '650', unit: null }, 'the strength, not the duration');
+  eq(parseStrength('Thyroxine 25 MCG for 15 days'), { strength: '25', unit: 'mcg' }, 'a unit strength');
+  eq(parseStrength('30 gm gel'), { strength: '30', unit: 'g' }, 'gm is grams');
+  eq(parseStrength('Rabiz-D 30 x 20 mg capsule')?.strength, '30', '"30 x 20" is a combination strength, not a count');
   eq(transliterateIndic('कमबे फलम'), 'kamabe phalam', 'Devanagari brand, by sound');
   eq(transliterateIndic('ఆగ్మెంటిన్ 625'), 'agmentin 625', 'Telugu brand, virama and anusvara');
   eq(transliterateIndic('Augmentin 625'), 'Augmentin 625', 'Latin is left alone');
