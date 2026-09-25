@@ -20,6 +20,7 @@
  * do not assume it.
  */
 import { logger } from '../../lib/logger';
+import { isLooping } from './normalize';
 
 /** One timed chunk of speech. Timings are what make "view source" real. */
 export interface TranscriptSegment {
@@ -191,15 +192,16 @@ class GroqRecognizer implements SpeechRecognizer {
     const key = process.env.GROQ_API_KEY;
     if (!key) throw new AsrUnavailable('GROQ_API_KEY not set');
 
-    const makeForm = () => {
+    const makeForm = (temperature = 0) => () => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(audio)]), filename);
     form.append('model', opts.model || this.model);
     form.append('response_format', 'verbose_json');
     form.append('timestamp_granularities[]', 'segment');
     // Temperature 0: this is transcription, not composition. Any sampling here is
-    // a chance to invent a drug name that was never said.
-    form.append('temperature', '0');
+    // a chance to invent a drug name that was never said — except below, on a
+    // hearing that already came back as a loop.
+    form.append('temperature', String(temperature));
     // Groq 400s on a prompt over 896 chars. Discovered the only way it could be:
     // calling the real API with a real key. Every dictation would have failed.
     const prompt = fitPrompt(opts.prompt);
@@ -209,11 +211,21 @@ class GroqRecognizer implements SpeechRecognizer {
     return form;
     };
 
-    const json = await postFormWithRetry(
+    const post = (temperature?: number) => postFormWithRetry(
       'https://api.groq.com/openai/v1/audio/transcriptions',
       { Authorization: `Bearer ${key}` },
-      makeForm,
+      makeForm(temperature),
     );
+    let json = await post();
+    // A loop at temperature 0 ("Working Working Working…") is Whisper stuck on
+    // noise or music, and it lost the medicine. Whisper's own remedy: decode once
+    // more with a little randomness, and keep it if it is not a loop. On real
+    // Telugu speech that turned "the first topic is the first topic is…" into
+    // "this Monotel 10 mg tablet is given to asthma patients" (3 of 5 loops).
+    if (isLooping(String(json.text ?? ''))) {
+      const again = await post(0.4).catch(() => null);
+      if (again && !isLooping(String(again.text ?? ''))) json = again;
+    }
 
     const segments: TranscriptSegment[] = Array.isArray(json.segments)
       ? json.segments.map((s: any) => ({

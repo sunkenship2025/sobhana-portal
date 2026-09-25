@@ -393,6 +393,24 @@ export function offeredAsChoice(text: string, a: string, b: string): boolean {
   ].some((p) => new RegExp(p, 'i').test(t));
 }
 
+/**
+ * Whisper's failure on music, noise or a long pause: one phrase over and over
+ * ("Working Working Working…", "the first topic is the first topic is…"). A run
+ * of four of the same one-to-four words. Any script — it splits on spaces.
+ */
+export function isLooping(text: string): boolean {
+  const w = (text ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  for (let n = 1; n <= 4; n++) {
+    for (let i = 0; i + n * 4 <= w.length; i++) {
+      const g = w.slice(i, i + n).join(' ');
+      let reps = 1;
+      while (w.slice(i + reps * n, i + (reps + 1) * n).join(' ') === g) reps++;
+      if (reps >= 4) return true;
+    }
+  }
+  return false;
+}
+
 /** "500 mg", "625", "10ml" -> { strength, unit } */
 export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}): { strength: string; unit: string | null } | null {
   if (!text) return null;
@@ -471,6 +489,11 @@ export function demo(): void {
   eq(offeredAsChoice('Dolo 650 ya Crocin de do', 'Dolo', 'Crocin'), true, 'Hindi X ya Y');
   eq(offeredAsChoice('Dolo 650 twice a day and Pan 40 before food', 'Dolo', 'Pan'), false, 'two medicines are not a choice');
   eq(offeredAsChoice('Pan 40 morning or evening', 'Pan', 'Dolo'), false, '"or" between times is not a choice of drugs');
+  eq(isLooping('Working Working Working Working Working'), true, 'a word over and over is a loop');
+  eq(isLooping('First, we have explained the first topic is the first topic is the first topic is the first topic is'), true, 'a phrase over and over');
+  eq(isLooping('ఇది ఇది ఇది ఇది ఇది'), true, 'in Telugu script too');
+  eq(isLooping('Dolo 650 twice a day, Dolo 650 at night, Pan 40 morning'), false, 'a repeated name is not a loop');
+  eq(isLooping('Augmentin 625 three times a day for five days'), false, 'a dictation is not a loop');
   eq(parseDoseSchedule('Dolo 650 1-0-1 after food'), '1-0-1', 'the pad grid');
   eq(parseDoseSchedule('Montair LC 0 - 0 - 1'), '0-0-1', 'night only, spaced');
   eq(parseDoseSchedule('Thyronorm 1/2-0-0 empty stomach'), '½-0-0', 'a half');
