@@ -358,6 +358,9 @@ export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}
   // (not ml, which is a dose of a syrup) makes a number a strength there.
   for (const m of t.matchAll(/\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|gm|g|ml|iu|units?|%)?(?![a-z0-9])/g)) {
     const unit = m[2] === 'gm' ? 'g' : m[2] ?? null;
+    // No medicine is 0 of anything: "zero-dol-sp" (Zerodol SP, heard in pieces)
+    // made "0" by the number words and became strength 0.
+    if (Number(m[1].split('+')[0]) === 0) continue;
     if (opts.requireUnit && !(unit && /^(mg|mcg|g|iu|%)$/.test(unit))) continue;
     if (!unit) {
       // The model's spokenText is often the whole phrase: "Pantop DSR for 7 days",
@@ -417,6 +420,8 @@ export function demo(): void {
   eq(parseFrequency('abhi aap ye tablet le rahe ho'), null, '"abhi" (currently) is not a stat dose');
   eq(parseFrequency('inj ceftriaxone 1 g stat'), 'STAT', 'stat is stat');
   eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
+  eq(parseStrength('zero-dol-sp'), null, 'a brand heard as "zero-dol" has no strength 0');
+  eq(parseStrength('Zerodol SP 100'), { strength: '100', unit: null }, '…and keeps its real one');
   eq(parseStrength('Steam inhalation 3-4 times a day'), null, 'a count is not a strength');
   eq(parseStrength('Pan 40 din me ek baar'), { strength: '40', unit: null }, '"N din" after a name is still its strength');
   eq(parseStrength('Dolo 650 tablet thrice a day for 6 days'), { strength: '650', unit: null }, 'the strength, not the duration');
