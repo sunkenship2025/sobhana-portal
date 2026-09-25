@@ -698,6 +698,14 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
       narrowed = agrees;
     }
 
+    // No form spoken, and the one candidate is a gel, cream, injection…: ask. An
+    // OPD prescription means the tablet unless the doctor says otherwise, so
+    // landing on a topical or an injection without that word is a wrong turn
+    // (a "2" from "two times a day" once resolved azithromycin to a 2% gel).
+    const notByMouth = (c: Candidate) => /gel|cream|ointment|lotion|injection|spray|inhaler|powder|patch|suppositor/i.test(c.dosageForm ?? '');
+    if (!input.dosageForm && narrowed.length === 1 && notByMouth(narrowed[0])) {
+      return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed, askReason: 'MULTIPLE_MATCHES', spokenStrength };
+    }
     if (narrowed.length === 1) return { resolution: 'RESOLVED', match: narrowed[0], candidates: narrowed };
 
     // Exactly one curated row in the running: that is the clinic's formulary
@@ -712,6 +720,13 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     }
     return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed, askReason: 'MULTIPLE_MATCHES', spokenStrength };
   };
+
+  // Two letters are too few to name a drug on their own: "MP 10" (a fragment of a
+  // misheard name, real speech) matched Corpogest-MP — a progesterone — exactly,
+  // and "OD", which is also "once daily", matches a product called OD. A name
+  // this short is always asked, never decided; a real two-letter brand (KZ) is
+  // the first option, one tap away.
+  const tooShort = stem.replace(/[^a-z]/g, '').length <= 2;
 
   const pk = phoneticKey(stem);
   const rows = await queryAllTiers(q, stem, pk);
@@ -746,6 +761,9 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
         askReason: 'NO_MATCH',
         spokenStrength,
       };
+    }
+    if (tooShort && d.resolution === 'RESOLVED' && d.match) {
+      return { resolution: 'UNRESOLVED', match: null, candidates: d.candidates.length ? d.candidates : [d.match], askReason: 'NO_MATCH', spokenStrength };
     }
     if (tier >= 3 && d.resolution !== 'RESOLVED') {
       return { ...d, candidates: withClinicFirst(await clinicSkeletonMatches(stem, spokenStrength).catch(() => []), d.candidates) };

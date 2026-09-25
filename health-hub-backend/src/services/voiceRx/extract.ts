@@ -164,8 +164,10 @@ MEDICINE NAMES are said in English even inside Telugu speech. Give "name" in
 Latin letters as it sounds — never in Telugu or Devanagari script ("ఆగ్మెంటిన్"
 -> "Augmentin"); "spokenText" keeps exactly what was heard. Telugu words for a
 tablet, syrup or medicine in general (tablet, goli, mandu, maatra) are NOT
-names, and no ordinary Telugu word ("vaantulu", "matrame", "okati") is ever a
-medicine. If no medicine was mentioned at all, there is no medicine line — but
+names, and no ordinary Telugu or Hindi word is ever a medicine — "vaantulu",
+"matrame", "okati"; "vivaran" (description), "dawai", "goli", "bimari". A
+brand REPAIR needs a word that sounds like a medicine and sits where a medicine
+is named — never an everyday word that happens to rhyme with one. If no medicine was mentioned at all, there is no medicine line — but
 if a medicine was clearly SAID and its name came out garbled, KEEP the line with
 the name as heard (in "spokenText" and "name"): the doctor sees it and fixes it.
 A dropped line is a medicine silently missing from the prescription.
@@ -359,7 +361,9 @@ function reconcile(item: any, fullText: string): ExtractedItem {
   // Strength: prefer ours off the spoken text, since number words are our job.
   let strength: string | null = item?.strength ? String(item.strength) : null;
   let strengthUnit: string | null = item?.strengthUnit ? String(item.strengthUnit) : null;
-  const ps = parseStrength(spoken) ?? parseStrength(scope);
+  // The drug token as heard ("Augmentin 625") may carry a bare strength; the rest
+  // of the clause only a number with a strength unit — see parseStrength.
+  const ps = parseStrength(spoken) ?? parseStrength(scope, { requireUnit: true });
   if (ps) {
     strength = ps.strength;
     strengthUnit = strengthUnit ?? ps.unit;

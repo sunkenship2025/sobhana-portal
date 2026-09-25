@@ -312,10 +312,17 @@ export function parseDuration(text: string): Duration | null {
 }
 
 /** "500 mg", "625", "10ml" -> { strength, unit } */
-export function parseStrength(text: string): { strength: string; unit: string | null } | null {
+export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}): { strength: string; unit: string | null } | null {
   if (!text) return null;
   const t = wordsToNumbers(text.toLowerCase());
-  const m = t.match(/\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|g|ml|iu|units?|%)?\b/);
+  // requireUnit: for a whole clause rather than the drug token. A bare number
+  // there is a count, a frequency or a duration as often as a strength — "two
+  // times a day" made strength 2, and 2 matched a 2% gel. Only a strength unit
+  // (not ml, which is a dose of a syrup) makes a number a strength there.
+  const re = opts.requireUnit
+    ? /\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|g|iu|%)(?![a-z])/
+    : /\b(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)?)\s*(mg|mcg|g|ml|iu|units?|%)?\b/;
+  const m = t.match(re);
   if (!m) return null;
   return { strength: m[1].replace(/\s+/g, ''), unit: m[2] ?? null };
 }
@@ -343,6 +350,10 @@ export function demo(): void {
   eq(wordsToNumbers('subah ek teen din'), 'subah 1 3 din', '…inside a sentence too');
   eq(wordsToNumbers('two hundred fifty'), '250', 'a scale still joins');
   eq(wordsToNumbers('chawda din'), '14 din', 'Hindi fourteen');
+  eq(parseStrength('Two times in a day, please have an antibiotic named Azithromycin', { requireUnit: true }), null, 'a count is not a strength');
+  eq(parseStrength('Dolo 650 mg twice a day for 5 days', { requireUnit: true }), { strength: '650', unit: 'mg' }, 'a strength with its unit is');
+  eq(parseStrength('10 ml in the morning', { requireUnit: true }), null, 'a syrup dose is not a strength');
+  eq(parseStrength('Augmentin 625'), { strength: '625', unit: null }, 'inside the drug token, a bare number is');
   eq(transliterateIndic('कमबे फलम'), 'kamabe phalam', 'Devanagari brand, by sound');
   eq(transliterateIndic('ఆగ్మెంటిన్ 625'), 'agmentin 625', 'Telugu brand, virama and anusvara');
   eq(transliterateIndic('Augmentin 625'), 'Augmentin 625', 'Latin is left alone');
