@@ -405,8 +405,12 @@ async function clinicSkeletonMatches(stem: string, spokenStrength: string | null
   const rows = await prisma.$queryRawUnsafe<Raw[]>(
     `SELECT ${SELECT_COLS} FROM "Medication" WHERE ${WHERE_LIVE} AND source IN ('CURATED', 'LEARNED')`,
   );
-  const hits = rows.filter((r) => [r.brandName, ...(r.aliases ?? [])].some((n) => n && consonantSkeleton(n.replace(/\s*\d.*$/, '')) === key));
-  const cands = hits.map((r) => toCandidate(r, 0.9, 'suggestion'));
+  const skels = (r: Raw) => [r.brandName, ...(r.aliases ?? [])].filter(Boolean).map((n) => consonantSkeleton(String(n).replace(/\s*\d.*$/, '')));
+  // Exact skeletons first; then a name the recogniser cut short, whose skeleton
+  // begins the brand's ("Bicozal" bksl, Becosules bksls) — four consonants at least.
+  const exact = rows.filter((r) => skels(r).includes(key));
+  const cut = key.length >= 4 ? rows.filter((r) => !exact.includes(r) && skels(r).some((k) => k.length > key.length && k.startsWith(key))) : [];
+  const cands = [...exact, ...cut].map((r) => toCandidate(r, 0.9, 'suggestion'));
   return narrowByStrength(cands, spokenStrength);
 }
 

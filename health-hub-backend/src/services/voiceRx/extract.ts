@@ -482,6 +482,23 @@ export async function extractPrescription(
     const { start, end } = locate(built.sourceText, segments);
     return { ...built, sourceStart: start, sourceEnd: end };
   });
+  // The same medicine said twice ("dome paddy … dome paddy 10 … BD before food")
+  // is one line with everything said about it — the prompt says so, and real
+  // speech still came back with five. Different strengths or schedules stay two.
+  for (let i = 0; i < items.length; i++) {
+    for (let j = items.length - 1; j > i; j--) {
+      const a = items[i], b = items[j];
+      const same = (x: unknown, y: unknown) => x == null || y == null || x === y;
+      if (a.name.toLowerCase().replace(/[^a-z0-9]/g, '') !== b.name.toLowerCase().replace(/[^a-z0-9]/g, '')) continue;
+      if (a.isAlternative || b.isAlternative || !same(a.strength, b.strength) || !same(a.frequencyCode, b.frequencyCode)
+        || !same(a.doseSchedule, b.doseSchedule) || !same(a.durationValue, b.durationValue)) continue;
+      for (const k of ['strength', 'strengthUnit', 'dosageForm', 'doseQty', 'doseUnit', 'frequencyCode', 'frequencyText',
+        'doseSchedule', 'route', 'timing', 'durationValue', 'durationUnit', 'instructions'] as const) {
+        if (a[k] == null && b[k] != null) (a as any)[k] = b[k];
+      }
+      items.splice(j, 1);
+    }
+  }
   // A choice the model missed is still a choice: never two prescribed medicines.
   const heardText = [text, opts.alsoHeard].filter(Boolean).join('\n');
   for (const [i, a] of items.entries()) {
