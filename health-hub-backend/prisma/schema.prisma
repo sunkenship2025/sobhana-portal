@@ -3095,6 +3095,7 @@ model PrescriptionItem {
   doseUnit      String?
   frequencyCode String? // OD | BD | TID | QID | HS | SOS | STAT | WEEKLY | ALT_DAY
   frequencyText String? // what prints, e.g. "three times a day"
+  doseSchedule  String? // morning-afternoon-night as the pad writes it: "1-0-1", "½-0-1"
   route         String?
   timing        String? // before food | after food | with food | bedtime | empty stomach
   durationValue Int?

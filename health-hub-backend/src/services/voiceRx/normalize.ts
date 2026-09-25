@@ -308,12 +308,13 @@ const TELUGU_COUNT: [RegExp, number][] = [
   [/^(okati|vokati|okkati|okka|vokka|oka)$/, 1], [/^(rendu|rendhu)$/, 2], [/^(moodu|mudu|muudu)$/, 3],
   [/^(nalugu|naalugu)$/, 4], [/^(aidu|aidhu|ayidu|aedu|aayedu|ayedu|aydu)$/, 5], [/^(aaru|aru)$/, 6],
   [/^(edu|yedu|eedu)$/, 7], [/^(padi|padhi)$/, 10], [/^(padihenu|padiheenu)$/, 15],
+  [/^(iravai|iruvai|iravay)$/, 20], [/^(muppai|muppay|mupphai|muppaai)$/, 30],
 ];
 
 export function parseDuration(text: string): Duration | null {
   if (!text) return null;
   const t = wordsToNumbers(transliterateIndic(text).toLowerCase());
-  const te = t.match(/\b([a-z]+|\d+)\s+(rojulu|rojula|roojulu|vaaralu|varalu|nelalu|nelaalu)\b/);
+  const te = t.match(/\b([a-z]+|\d+)\s+(rojulu|rojula|rojalu|roojulu|vaaralu|varalu|nelalu|nelaalu)\b/);
   if (te) {
     const n = /^\d+$/.test(te[1]) ? Number(te[1]) : TELUGU_COUNT.find(([re]) => re.test(te[1]))?.[1];
     if (n) return { value: n, unit: /^va/.test(te[2]) ? 'weeks' : /^ne/.test(te[2]) ? 'months' : 'days' };
@@ -346,6 +347,50 @@ export function keepBrandSuffix(name: string, spoken: string): string {
   const at = words.findIndex((_, k) => own.every((n, j) => words[k + j]?.toLowerCase() === n));
   const next = at < 0 ? undefined : words[at + own.length];
   return next && BRAND_SUFFIX.test(next) ? `${name} ${next}` : name;
+}
+
+// ---------------------------------------------------------------------------
+// Morning – afternoon – night: the "1-0-1" of every Indian prescription pad
+// ---------------------------------------------------------------------------
+
+/** "1/2-0-1" -> "½-0-1". Three slots of 0, ½, 1, 1½, 2 or 3 with a dose somewhere; else null. */
+export function cleanDoseSchedule(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const slots = v.trim().replace(/1\s*\/\s*2|0\.5/g, '½').split(/\s*[-–]\s*/);
+  if (slots.length !== 3 || !slots.every((s) => /^(0|½|1½|1|2|3)$/.test(s)) || slots.every((s) => s === '0')) return null;
+  return slots.join('-');
+}
+
+/** A schedule said or written as numbers: "1-0-1", "½ - 0 - 1", "1 - 1 - 1". */
+export function parseDoseSchedule(text: string): string | null {
+  const slot = '(1\\s*/\\s*2|0\\.5|½|1½|0|1|2|3)';
+  const m = (text ?? '').match(new RegExp(`(?<![\\d./])${slot}\\s*[-–]\\s*${slot}\\s*[-–]\\s*${slot}(?![\\d./])`));
+  return m ? cleanDoseSchedule(`${m[1]}-${m[2]}-${m[3]}`) : null;
+}
+
+/** How often a schedule is: 1-0-1 is twice a day. */
+export function scheduleFrequency(schedule: string | null | undefined): FrequencyCode | null {
+  if (!schedule) return null;
+  const n = schedule.split('-').filter((s) => s !== '0').length;
+  return n === 1 ? 'OD' : n === 2 ? 'BD' : n === 3 ? 'TID' : null;
+}
+
+/**
+ * Are two medicines offered as a choice? "Azithral gaani Augmentin gaani"
+ * (Telugu), "either X or Y", "X or / ya / leda Y". The model marks these from its
+ * prompt, and stopped marking the Telugu one whenever the prompt around it changed.
+ */
+export function offeredAsChoice(text: string, a: string, b: string): boolean {
+  const esc = (s: string) => (s.trim().split(/[\s\d-]+/)[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const x = esc(a), y = esc(b);
+  if (x.length < 3 || y.length < 3 || x.toLowerCase() === y.toLowerCase()) return false;
+  const t = transliterateIndic(text);
+  const W = '[\\s,.;:-]+';
+  return [
+    `${x}(?:${W}\\S+)?${W}ga+n[iey]+${W}${y}(?:${W}\\S+)?${W}ga+n[iey]+`,
+    `either${W}${x}.{0,40}?${W}or${W}${y}`,
+    `${x}(?:${W}\\d+\\s*(?:mg)?)?${W}(?:or|ya|leda|ledha)${W}${y}`,
+  ].some((p) => new RegExp(p, 'i').test(t));
 }
 
 /** "500 mg", "625", "10ml" -> { strength, unit } */
@@ -404,6 +449,8 @@ export function demo(): void {
   eq(parseStrength('Augmentin 625'), { strength: '625', unit: null }, 'inside the drug token, a bare number is');
   eq(parseDuration('Rojuki rendu saalu, kaadhu, vokka saare, aayedu rojulu.'), { value: 5, unit: 'days' }, 'aayedu is FIVE');
   eq(parseDuration('edu rojulu'), { value: 7, unit: 'days' }, 'edu is seven');
+  eq(parseDuration('Udayam okati, Muppai Rojalu.'), { value: 30, unit: 'days' }, 'muppai is thirty');
+  eq(parseDuration('ముప్పై రోజులు'), { value: 30, unit: 'days' }, 'Telugu script thirty');
   eq(parseDuration('ఐదు రోజులు'), { value: 5, unit: 'days' }, 'Telugu script five');
   eq(parseDuration('ఏడు రోజులు'), { value: 7, unit: 'days' }, 'Telugu script seven');
   eq(parseDuration('Rojuki 2 Saalu, 2 Nelalu'), { value: 2, unit: 'months' }, 'nelalu are months');
@@ -419,6 +466,22 @@ export function demo(): void {
   eq(parseFrequency('If you use that tablet it will be removed immediately. It is good to take it daily at night.'), null, '"immediately" is not a stat dose');
   eq(parseFrequency('abhi aap ye tablet le rahe ho'), null, '"abhi" (currently) is not a stat dose');
   eq(parseFrequency('inj ceftriaxone 1 g stat'), 'STAT', 'stat is stat');
+  eq(offeredAsChoice('Azithril, Gani, Augmentin, Gani-Ivvacu, Azithril, To-Modalu-Petandi.', 'Azithril', 'Augmentin'), true, 'Telugu X gaani Y gaani');
+  eq(offeredAsChoice('give her either azithromycin or amoxiclav, start with azithro', 'azithromycin', 'amoxiclav'), true, 'either X or Y');
+  eq(offeredAsChoice('Dolo 650 ya Crocin de do', 'Dolo', 'Crocin'), true, 'Hindi X ya Y');
+  eq(offeredAsChoice('Dolo 650 twice a day and Pan 40 before food', 'Dolo', 'Pan'), false, 'two medicines are not a choice');
+  eq(offeredAsChoice('Pan 40 morning or evening', 'Pan', 'Dolo'), false, '"or" between times is not a choice of drugs');
+  eq(parseDoseSchedule('Dolo 650 1-0-1 after food'), '1-0-1', 'the pad grid');
+  eq(parseDoseSchedule('Montair LC 0 - 0 - 1'), '0-0-1', 'night only, spaced');
+  eq(parseDoseSchedule('Thyronorm 1/2-0-0 empty stomach'), '½-0-0', 'a half');
+  eq(parseDoseSchedule('review on 12-10-2026'), null, 'a date is not a schedule');
+  eq(parseDoseSchedule('0-0-0'), null, 'no dose at all is not a schedule');
+  eq(cleanDoseSchedule('1-0-1'), '1-0-1', 'clean keeps a good one');
+  eq(cleanDoseSchedule('1-0'), null, 'two slots is not a schedule');
+  eq(cleanDoseSchedule('five'), null, 'words are not a schedule');
+  eq(scheduleFrequency('1-0-1'), 'BD', '1-0-1 is twice a day');
+  eq(scheduleFrequency('0-0-1'), 'OD', 'night only is once a day');
+  eq(scheduleFrequency('1-1-1'), 'TID', 'three slots, three times');
   eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
   eq(parseStrength('zero-dol-sp'), null, 'a brand heard as "zero-dol" has no strength 0');
   eq(parseStrength('Zerodol SP 100'), { strength: '100', unit: null }, '…and keeps its real one');

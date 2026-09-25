@@ -19,6 +19,7 @@ import { logger } from '../../lib/logger';
 import { medicineVocabulary } from './resolver';
 import {
   parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength, keepBrandSuffix,
+  parseDoseSchedule, cleanDoseSchedule, scheduleFrequency, offeredAsChoice,
   wordsToNumbers, FREQUENCY_TEXT, type FrequencyCode,
 } from './normalize';
 
@@ -52,6 +53,8 @@ export interface ExtractedItem {
   doseUnit: string | null;
   frequencyCode: FrequencyCode | null;
   frequencyText: string | null;
+  /** Morning-afternoon-night, as the pad writes it: "1-0-1". Null unless said. */
+  doseSchedule: string | null;
   route: string | null;
   timing: string | null;
   durationValue: number | null;
@@ -210,6 +213,7 @@ OUTPUT SHAPE
     "dosageForm": "tablet|capsule|syrup|injection|drops|ointment|inhaler|null",
     "doseQty": "string|null", "doseUnit": "string|null",
     "frequencyCode": "OD|BD|TID|QID|HS|SOS|STAT|WEEKLY|ALT_DAY|QH|null",
+    "doseSchedule": "morning-afternoon-night as the pad writes it, e.g. 1-0-1 (udayam okati, raatri okati), ½-0-1 (subah aadhi, raat ko ek) — ONLY when the times of day or the numbers are said, evening counting as night; else null",
     "route": "oral|topical|IV|IM|SC|ophthalmic|otic|nasal|inhalation|null",
     "timing": "before food|after food|with food|empty stomach|bedtime|null",
     "durationValue": number|null, "durationUnit": "days|weeks|months|null",
@@ -378,11 +382,17 @@ function reconcile(item: any, fullText: string): ExtractedItem {
     states.strength = 'UNKNOWN';
   }
 
-  const freqFromText = parseFrequency(scope);
+  // A grid written in this line ("1-0-1") is ours to read; a spoken one
+  // ("udayam okati, raatri okati") is the model's.
+  const doseSchedule = parseDoseSchedule(at >= 0 ? scope.slice(at) : spoken) ?? cleanDoseSchedule(item?.doseSchedule);
+  const fromGrid = scheduleFrequency(doseSchedule);
+  // "raat ko" reads as bedtime — but in "subah aadhi, raat ko ek" it is one slot of
+  // a twice-a-day schedule, and the grid knows how often.
+  const freqFromText = parseFrequency(scope) === 'HS' && fromGrid && fromGrid !== 'OD' ? fromGrid : parseFrequency(scope);
   const frequencyCode: FrequencyCode | null =
     freqFromText ?? (item?.frequencyCode && FREQUENCY_TEXT[item.frequencyCode as FrequencyCode]
       ? (item.frequencyCode as FrequencyCode)
-      : null);
+      : null) ?? fromGrid;
   if (frequencyCode) states.frequency = states.frequency === 'UNKNOWN' ? 'NORMALIZED' : states.frequency;
   else states.frequency = 'UNKNOWN';
 
@@ -419,6 +429,7 @@ function reconcile(item: any, fullText: string): ExtractedItem {
     doseUnit: item?.doseUnit ? String(item.doseUnit) : null,
     frequencyCode,
     frequencyText: frequencyCode ? FREQUENCY_TEXT[frequencyCode] : null,
+    doseSchedule,
     route, timing,
     durationValue, durationUnit,
     instructions: item?.instructions ? String(item.instructions) : null,
@@ -471,6 +482,16 @@ export async function extractPrescription(
     const { start, end } = locate(built.sourceText, segments);
     return { ...built, sourceStart: start, sourceEnd: end };
   });
+  // A choice the model missed is still a choice: never two prescribed medicines.
+  const heardText = [text, opts.alsoHeard].filter(Boolean).join('\n');
+  for (const [i, a] of items.entries()) {
+    for (const b of items.slice(i + 1)) {
+      if (offeredAsChoice(heardText, a.spokenText, b.spokenText) || offeredAsChoice(heardText, a.name, b.name)) {
+        a.isAlternative = true;
+        b.isAlternative = true;
+      }
+    }
+  }
 
   const missing = Array.isArray(parsed?.missing) ? parsed.missing.map(String) : [];
   // Our own omission sweep, independent of the model. Omissions are 54-86% of

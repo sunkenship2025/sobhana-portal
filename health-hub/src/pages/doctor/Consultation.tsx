@@ -48,7 +48,7 @@ const fromExtracted = (e: ExtractedItem): RxItem => ({
   genericName: null, brandName: null,
   strength: e.strength, strengthUnit: e.strengthUnit, dosageForm: e.dosageForm,
   doseQty: e.doseQty, doseUnit: e.doseUnit,
-  frequencyCode: e.frequencyCode, frequencyText: e.frequencyText,
+  frequencyCode: e.frequencyCode, frequencyText: e.frequencyText, doseSchedule: e.doseSchedule ?? null,
   route: e.route, timing: e.timing,
   durationValue: e.durationValue, durationUnit: e.durationUnit,
   instructions: e.instructions,
@@ -382,7 +382,7 @@ export default function Consultation() {
         ...blankItem(),
         canonicalName: i.canonicalName, strength: i.strength, strengthUnit: i.strengthUnit,
         doseQty: i.doseQty, doseUnit: i.doseUnit,
-        frequencyCode: i.frequencyCode, frequencyText: i.frequencyText,
+        frequencyCode: i.frequencyCode, frequencyText: i.frequencyText, doseSchedule: i.doseSchedule ?? null,
         timing: i.timing, durationValue: i.durationValue, durationUnit: i.durationUnit,
       })),
     ]);
@@ -792,7 +792,7 @@ export default function Consultation() {
                       {p.items.map((i, n) => (
                         <p key={n} className="text-sm">
                           {i.canonicalName}
-                          <span className="text-muted-foreground"> · {[i.frequencyText, i.durationValue ? `${i.durationValue} ${i.durationUnit}` : null].filter(Boolean).join(' · ')}</span>
+                          <span className="text-muted-foreground"> · {[i.doseSchedule ?? i.frequencyText, i.durationValue ? `${i.durationValue} ${i.durationUnit}` : null].filter(Boolean).join(' · ')}</span>
                         </p>
                       ))}
                     </li>

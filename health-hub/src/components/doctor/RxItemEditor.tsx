@@ -29,7 +29,7 @@ import { Trash2, Quote, Search, Loader2, Pencil, X } from 'lucide-react';
 import { MedicineTypeahead } from '@/components/doctor/MedicineTypeahead';
 import { cn } from '@/lib/utils';
 import {
-  doctorApi, itemTitle, FREQUENCY_OPTIONS, TIMING_OPTIONS, ROUTE_OPTIONS, DURATION_UNITS,
+  doctorApi, itemTitle, cleanDoseSchedule, FREQUENCY_OPTIONS, TIMING_OPTIONS, ROUTE_OPTIONS, DURATION_UNITS,
   type RxItem, type MedicationCandidate, type Finding,
 } from '@/lib/doctorApi';
 
@@ -58,6 +58,9 @@ function NotStated() {
 
 export function RxItemEditor({ item, index, findings, readOnly, onChange, onRemove, onChoose }: Props) {
   const [showSource, setShowSource] = useState(false);
+  // What is typed into the 1-0-1 box; saved only once it is a whole schedule.
+  const [schedule, setSchedule] = useState(item.doseSchedule ?? '');
+  useEffect(() => { setSchedule(item.doseSchedule ?? ''); }, [item.doseSchedule]);
   // Replacing the medicine is available at ANY time, not only while it is in
   // question. Before this, a card that had "decided" — Matched, or Your choice —
   // could only be deleted: "Aumintin 625" (a mishearing of Augmentin) sat there
@@ -343,6 +346,31 @@ export function RxItemEditor({ item, index, findings, readOnly, onChange, onRemo
               {FREQUENCY_OPTIONS.map((f) => <SelectItem key={f.code} value={f.code}>{f.label}</SelectItem>)}
             </SelectContent>
           </Select>
+        </div>
+
+        <div>
+          <Label>Morning – Noon – Night</Label>
+          <Input
+            value={schedule} disabled={readOnly}
+            onChange={(e) => {
+              setSchedule(e.target.value);
+              const clean = cleanDoseSchedule(e.target.value);
+              if (!e.target.value.trim()) onChange({ doseSchedule: null });
+              else if (clean) {
+                // A grid says how often: fill the frequency if it is empty, never overwrite it
+                // (a disagreement is the validator's question to ask).
+                const n = clean.split('-').filter((x) => x !== '0').length;
+                const code = !item.frequencyCode ? (['OD', 'BD', 'TID'] as const)[n - 1] : undefined;
+                onChange({
+                  doseSchedule: clean,
+                  ...(code ? { frequencyCode: code, frequencyText: FREQUENCY_OPTIONS.find((f) => f.code === code)?.label ?? null } : {}),
+                });
+              }
+            }}
+            aria-invalid={!!schedule.trim() && !cleanDoseSchedule(schedule)}
+            placeholder="1-0-1" className={cn('h-9 tabular-nums', !!schedule.trim() && !cleanDoseSchedule(schedule) && 'border-destructive')}
+            aria-label="Morning, noon and night doses"
+          />
         </div>
 
         <div>

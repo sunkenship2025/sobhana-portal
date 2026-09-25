@@ -28,7 +28,7 @@ import { logger } from '../../lib/logger';
 import { logAction } from '../auditService';
 import { resolveMedication, soundsLikeEverydayWord } from './resolver';
 import { validatePrescription, type ValidatableItem, type ValidationResult } from './validator';
-import { FREQUENCY_TEXT, type FrequencyCode } from './normalize';
+import { FREQUENCY_TEXT, cleanDoseSchedule, scheduleFrequency, type FrequencyCode } from './normalize';
 import type { ExtractedItem } from './extract';
 import { learnFromSignedPrescription } from './learning';
 
@@ -90,7 +90,7 @@ function ageLabel(p: { yearOfBirth: number; dateOfBirth: Date | null; ageUnit: s
 const ITEM_SELECT = {
   id: true, displayOrder: true, spokenText: true, medicationId: true, canonicalName: true,
   genericName: true, brandName: true, strength: true, strengthUnit: true, dosageForm: true,
-  doseQty: true, doseUnit: true, frequencyCode: true, frequencyText: true, route: true,
+  doseQty: true, doseUnit: true, frequencyCode: true, frequencyText: true, doseSchedule: true, route: true,
   timing: true, durationValue: true, durationUnit: true, instructions: true,
   resolution: true, candidates: true, fieldStates: true,
   sourceText: true, sourceStart: true, sourceEnd: true,
@@ -124,6 +124,7 @@ const toValidatable = (items: any[]): ValidatableItem[] =>
     doseQty: i.doseQty,
     doseUnit: i.doseUnit,
     frequencyCode: i.frequencyCode,
+    doseSchedule: i.doseSchedule,
     route: i.route,
     timing: i.timing,
     durationValue: i.durationValue,
@@ -227,7 +228,7 @@ async function buildItem(it: ExtractedItem, order: number): Promise<Prisma.Presc
   const r = await resolveLine(it.name || it.spokenText, it);
 
   const matched = r.match;
-  const freq = (it.frequencyCode ?? null) as FrequencyCode | null;
+  const freq = (it.frequencyCode ?? scheduleFrequency(it.doseSchedule)) as FrequencyCode | null;
 
   return {
     displayOrder: order,
@@ -246,6 +247,7 @@ async function buildItem(it: ExtractedItem, order: number): Promise<Prisma.Presc
     doseUnit: it.doseUnit,
     frequencyCode: freq,
     frequencyText: freq ? FREQUENCY_TEXT[freq] : null,
+    doseSchedule: it.doseSchedule ?? null,
     route: it.route ?? matched?.route ?? null,
     timing: it.timing,
     durationValue: it.durationValue,
@@ -336,6 +338,8 @@ export interface UpdateItemInput {
   doseQty?: string | null;
   doseUnit?: string | null;
   frequencyCode?: string | null;
+  /** "1-0-1". Cleaned here, not trusted from the request. */
+  doseSchedule?: string | null;
   route?: string | null;
   timing?: string | null;
   durationValue?: number | null;
@@ -414,7 +418,8 @@ export async function updateDraft(
       await tx.prescriptionItem.createMany({
         data: patch.items.map((it, i) => {
           const was = it.id ? prior.get(it.id) : undefined;
-          const freq = (it.frequencyCode ?? null) as FrequencyCode | null;
+          const sched = cleanDoseSchedule(it.doseSchedule);
+          const freq = (it.frequencyCode ?? scheduleFrequency(sched)) as FrequencyCode | null;
           const r = fresh.get(i);
           if (r) {
             const m = r.match;
@@ -434,6 +439,7 @@ export async function updateDraft(
               doseUnit: it.doseUnit ?? null,
               frequencyCode: freq,
               frequencyText: freq ? FREQUENCY_TEXT[freq] : null,
+              doseSchedule: sched,
               route: it.route ?? m?.route ?? null,
               timing: it.timing ?? null,
               durationValue: it.durationValue ?? null,
@@ -473,6 +479,7 @@ export async function updateDraft(
             doseUnit: it.doseUnit ?? null,
             frequencyCode: freq,
             frequencyText: freq ? FREQUENCY_TEXT[freq] : null,
+            doseSchedule: sched,
             route: it.route ?? null,
             timing: it.timing ?? null,
             durationValue: it.durationValue ?? null,
@@ -808,6 +815,7 @@ export async function amend(id: string, userId: string, reason: string) {
             doseUnit: i.doseUnit,
             frequencyCode: i.frequencyCode,
             frequencyText: i.frequencyText,
+            doseSchedule: i.doseSchedule,
             route: i.route,
             timing: i.timing,
             durationValue: i.durationValue,
@@ -949,7 +957,7 @@ export async function listForPatient(patientId: string, limit = 20) {
       items: {
         select: {
           canonicalName: true, strength: true, strengthUnit: true, doseQty: true, doseUnit: true,
-          frequencyCode: true, frequencyText: true, timing: true, durationValue: true, durationUnit: true,
+          frequencyCode: true, frequencyText: true, doseSchedule: true, timing: true, durationValue: true, durationUnit: true,
         },
         orderBy: { displayOrder: 'asc' },
       },

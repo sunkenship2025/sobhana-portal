@@ -118,7 +118,7 @@ export async function resolvePrescriptionToken(rawToken: string) {
           canonicalName: true, genericName: true, brandName: true,
           strength: true, strengthUnit: true, dosageForm: true,
           doseQty: true, doseUnit: true,
-          frequencyCode: true, frequencyText: true,
+          frequencyCode: true, frequencyText: true, doseSchedule: true,
           route: true, timing: true,
           durationValue: true, durationUnit: true,
           instructions: true,

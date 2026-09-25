@@ -82,6 +82,8 @@ export interface RxItem {
   doseUnit: string | null;
   frequencyCode: string | null;
   frequencyText: string | null;
+  /** Morning-afternoon-night as the pad writes it: "1-0-1". Absent on older prescriptions. */
+  doseSchedule?: string | null;
   route: string | null;
   timing: string | null;
   durationValue: number | null;
@@ -201,6 +203,7 @@ export interface ExtractedItem {
   doseUnit: string | null;
   frequencyCode: string | null;
   frequencyText: string | null;
+  doseSchedule?: string | null;
   route: string | null;
   timing: string | null;
   durationValue: number | null;
@@ -224,7 +227,7 @@ export interface DoctorPatient {
   }[];
   prescriptions: {
     id: string; signedAt: string | null; visitId: string; diagnosis: string | null; followUpDays: number | null;
-    items: Pick<RxItem, 'canonicalName' | 'strength' | 'strengthUnit' | 'doseQty' | 'doseUnit' | 'frequencyCode' | 'frequencyText' | 'timing' | 'durationValue' | 'durationUnit'>[];
+    items: Pick<RxItem, 'canonicalName' | 'strength' | 'strengthUnit' | 'doseQty' | 'doseUnit' | 'frequencyCode' | 'frequencyText' | 'doseSchedule' | 'timing' | 'durationValue' | 'durationUnit'>[];
     clinicDoctor: { name: string };
   }[];
   diagnosticsVisible: boolean;
@@ -411,15 +414,30 @@ export function openQuestions(items: RxItem[]): OpenQuestion[] {
   });
 }
 
-/** "1 tablet · three times a day · after food · 5 days" */
+/** "1/2-0-1" -> "½-0-1"; three slots of 0, ½, 1, 1½, 2 or 3 with a dose somewhere, else null. Mirrors the server. */
+export function cleanDoseSchedule(v: string): string | null {
+  const slots = v.trim().replace(/1\s*\/\s*2|0\.5/g, '½').split(/\s*[-–]\s*/);
+  if (slots.length !== 3 || !slots.every((s) => /^(0|½|1½|1|2|3)$/.test(s)) || slots.every((s) => s === '0')) return null;
+  return slots.join('-');
+}
+
+const SLOT_NAMES = ['Morning', 'Afternoon', 'Night'];
+/** "1-0-1" -> "1 – 0 – 1  (Morning · Night)": the grid for the pharmacist, the words for the patient. */
+export function itemSchedule(it: Pick<RxItem, 'doseSchedule'>): string | null {
+  if (!it.doseSchedule) return null;
+  const slots = it.doseSchedule.split('-');
+  return `${slots.join(' – ')}  (${slots.map((s, i) => (s === '0' ? null : SLOT_NAMES[i])).filter(Boolean).join(' · ')})`;
+}
+
+/** "1 tablet · three times a day · after food · 5 days" — the frequency left to itemSchedule when there is a grid. */
 export function itemSig(it: RxItem): string {
   const parts: string[] = [];
   if (it.doseQty) parts.push(`${it.doseQty} ${it.doseUnit ?? (it.dosageForm ?? '')}`.trim());
-  if (it.frequencyText || it.frequencyCode) {
+  if (!it.doseSchedule && (it.frequencyText || it.frequencyCode)) {
     parts.push(it.frequencyText ?? FREQUENCY_OPTIONS.find((f) => f.code === it.frequencyCode)?.label ?? it.frequencyCode!);
   }
   if (it.timing) parts.push(it.timing);
-  if (it.durationValue != null) parts.push(`${it.durationValue} ${it.durationUnit ?? 'days'}`);
+  if (it.durationValue != null) parts.push(`${it.durationValue} ${(it.durationUnit ?? 'days').replace(/s$/, it.durationValue === 1 ? '' : 's')}`);
   return parts.join(' · ');
 }
 

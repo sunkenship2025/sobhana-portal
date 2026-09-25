@@ -267,7 +267,7 @@ export default function DoctorPatients() {
                       {i.canonicalName}{i.strength && !i.canonicalName.includes(i.strength) ? ` ${i.strength}${i.strengthUnit ?? ''}` : ''}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {[i.doseQty ? `${i.doseQty} ${i.doseUnit ?? ''}`.trim() : null, i.frequencyText, i.timing,
+                      {[i.doseQty ? `${i.doseQty} ${i.doseUnit ?? ''}`.trim() : null, i.doseSchedule ?? i.frequencyText, i.timing,
                         i.durationValue ? `${i.durationValue} ${i.durationUnit}` : null].filter(Boolean).join(' · ')}
                     </p>
                   </li>

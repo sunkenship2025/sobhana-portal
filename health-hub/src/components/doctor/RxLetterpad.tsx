@@ -17,7 +17,7 @@
  * draft is being written. That is the whole immutability story in one prop.
  */
 import { cn } from '@/lib/utils';
-import { itemSig, itemTitle, type PrescriptionSnapshot, type RxItem } from '@/lib/doctorApi';
+import { itemSchedule, itemSig, itemTitle, type PrescriptionSnapshot, type RxItem } from '@/lib/doctorApi';
 
 export type RxProfile = 'digital' | 'physical';
 
@@ -197,7 +197,10 @@ export function RxLetterpad({
                   {i + 1}. {itemTitle(it)}
                   {it.dosageForm ? <span className="font-normal text-slate-600"> — {it.dosageForm}</span> : null}
                 </p>
-                <p className="text-[12px] text-slate-700">{itemSig(it) || <span className="italic text-slate-400">no instructions</span>}</p>
+                {itemSchedule(it) && <p className="whitespace-pre text-[12px] font-medium tabular-nums text-slate-800">{itemSchedule(it)}</p>}
+                {(itemSig(it) || !itemSchedule(it)) && (
+                  <p className="text-[12px] text-slate-700">{itemSig(it) || <span className="italic text-slate-400">no instructions</span>}</p>
+                )}
                 {/* The doctor said a brand; the record carries the molecule AND the
                     words, so a later reader can tell normalisation from dictation. */}
                 {it.spokenText && it.spokenText.toLowerCase() !== it.canonicalName.toLowerCase() && (

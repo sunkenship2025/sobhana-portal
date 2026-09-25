@@ -24,6 +24,7 @@
  */
 import { getMedicationsByIds } from './resolver';
 import { screenTelemedicineProhibited } from './controlled';
+import { scheduleFrequency, FREQUENCY_TEXT } from './normalize';
 
 export type Severity = 'BLOCK' | 'ASK' | 'NOTE';
 
@@ -50,6 +51,8 @@ export interface ValidatableItem {
   doseQty: string | null;
   doseUnit: string | null;
   frequencyCode: string | null;
+  /** "1-0-1" — morning, afternoon, night. */
+  doseSchedule?: string | null;
   route: string | null;
   timing: string | null;
   durationValue: number | null;
@@ -225,6 +228,14 @@ export async function validatePrescription(rx: ValidatablePrescription): Promise
       add({ severity: 'BLOCK', code: 'INVALID_FREQUENCY', itemId: id, field: 'frequencyCode', message: `${label}: "${it.frequencyCode}" is not a valid frequency.` });
     }
 
+    // "1-0-1" is twice a day. A grid and a frequency that disagree ("1-0-1",
+    // "three times a day") is a mishearing of one of them: the doctor says which.
+    const perDay = scheduleFrequency(it.doseSchedule);
+    const counted = ['OD', 'BD', 'TID', 'QID', 'HS'].includes(it.frequencyCode ?? '');
+    if (perDay && counted && it.frequencyCode !== perDay && !(it.frequencyCode === 'HS' && it.doseSchedule === '0-0-1')) {
+      add({ severity: 'ASK', code: 'SCHEDULE_MISMATCH', itemId: id, field: 'frequencyCode', message: `${label}: ${it.doseSchedule} is ${FREQUENCY_TEXT[perDay]}, but the frequency says otherwise. Which is it?` });
+    }
+
     if (it.route && !ROUTES.has(it.route)) {
       add({ severity: 'BLOCK', code: 'INVALID_ROUTE', itemId: id, field: 'route', message: `${label}: "${it.route}" is not a valid route.` });
     }
@@ -293,6 +304,13 @@ export async function demo(): Promise<void> {
   let r = await validatePrescription({ items: [{ ...base }] });
   ok(r.canSign, 'clean prescription can sign');
   ok(!has(r, 'MISSING_TIMING'), 'absent timing is not a finding');
+
+  r = await validatePrescription({ items: [{ ...base, frequencyCode: 'BD', doseSchedule: '1-0-1' }] });
+  ok(r.canSign && !has(r, 'SCHEDULE_MISMATCH'), '1-0-1 twice daily agrees');
+  r = await validatePrescription({ items: [{ ...base, frequencyCode: 'HS', doseSchedule: '0-0-1' }] });
+  ok(!has(r, 'SCHEDULE_MISMATCH'), '0-0-1 at bedtime agrees');
+  r = await validatePrescription({ items: [{ ...base, frequencyCode: 'TID', doseSchedule: '1-0-1' }] });
+  ok(!r.canSign && has(r, 'SCHEDULE_MISMATCH'), '1-0-1 with three times a day asks');
 
   r = await validatePrescription({ items: [] });
   ok(!r.canSign && has(r, 'NO_MEDICATION'), 'empty prescription blocks');
