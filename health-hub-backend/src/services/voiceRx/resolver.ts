@@ -476,11 +476,16 @@ function preferOralSolid(cands: Candidate[], spokenForm: string | null): Candida
   return solid.length > 0 ? solid : cands;
 }
 
-/** Same rule for dosage form: only when it actually discriminates. */
+/**
+ * Same rule for dosage form: only when it actually discriminates. "Tablet" is what
+ * Indian speech calls any pill — "Pandi, take this tablet" narrowed away Pan-D,
+ * a capsule, and offered Rosa-Pan D first — so tablet and capsule are one form here.
+ */
 function narrowByForm(cands: Candidate[], form: string | null): Candidate[] {
   if (!form) return cands;
-  const want = norm(form);
-  const hit = cands.filter((c) => norm(c.dosageForm ?? '') === want);
+  const pill = (f: string) => (/^(tablet|tab|capsule|cap)s?$/.test(f) ? 'pill' : f);
+  const want = pill(norm(form));
+  const hit = cands.filter((c) => pill(norm(c.dosageForm ?? '')) === want);
   return hit.length > 0 ? hit : cands;
 }
 
