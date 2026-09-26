@@ -410,7 +410,11 @@ async function clinicSkeletonMatches(stem: string, spokenStrength: string | null
   // begins the brand's ("Bicozal" bksl, Becosules bksls) — four consonants at least.
   const exact = rows.filter((r) => skels(r).includes(key));
   const cut = key.length >= 4 ? rows.filter((r) => !exact.includes(r) && skels(r).some((k) => k.length > key.length && k.startsWith(key))) : [];
-  const cands = [...exact, ...cut].map((r) => toCandidate(r, 0.9, 'suggestion'));
+  // Nothing closer: one consonant misheard in a long name ("Citra-Gene" strgn,
+  // Cetirizine strsn). Same length, five consonants at least.
+  const oneOff = (k: string) => k.length === key.length && [...k].filter((c, i) => c !== key[i]).length === 1;
+  const near = key.length >= 5 && exact.length + cut.length === 0 ? rows.filter((r) => skels(r).some(oneOff)) : [];
+  const cands = [...exact, ...cut, ...near].map((r) => toCandidate(r, 0.9, 'suggestion'));
   return narrowByStrength(cands, spokenStrength);
 }
 
