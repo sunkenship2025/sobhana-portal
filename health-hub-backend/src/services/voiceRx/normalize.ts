@@ -432,7 +432,8 @@ export function saysStop(name: string, instructions: string | null | undefined, 
 /** "500 mg", "625", "10ml" -> { strength, unit } */
 export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}): { strength: string; unit: string | null } | null {
   if (!text) return null;
-  const t = wordsToNumbers(text.toLowerCase());
+  // "60,000 IU" is sixty thousand, and so is "60K" — vitamin D, weekly, everywhere.
+  const t = wordsToNumbers(text.toLowerCase()).replace(/(\d),(?=\d{3}\b)/g, '$1').replace(/\b(\d+)\s*k\b/g, '$1000');
   // requireUnit: for a whole clause rather than the drug token. A bare number
   // there is a count, a frequency or a duration as often as a strength — "two
   // times a day" made strength 2, and 2 matched a 2% gel. Only a strength unit
@@ -531,6 +532,8 @@ export function demo(): void {
   eq(scheduleFrequency('1-0-1'), 'BD', '1-0-1 is twice a day');
   eq(scheduleFrequency('0-0-1'), 'OD', 'night only is once a day');
   eq(scheduleFrequency('1-1-1'), 'TID', 'three slots, three times');
+  eq(parseStrength('Cipcal D3 60,000 IU once a week'), { strength: '60000', unit: 'iu' }, '60,000 IU is sixty thousand');
+  eq(parseStrength('Uprise D3 60K weekly'), { strength: '60000', unit: null }, '60K is sixty thousand');
   eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
   eq(parseStrength('zero-dol-sp'), null, 'a brand heard as "zero-dol" has no strength 0');
   eq(parseStrength('Zerodol SP 100'), { strength: '100', unit: null }, '…and keeps its real one');

@@ -409,11 +409,15 @@ async function clinicSkeletonMatches(stem: string, spokenStrength: string | null
   // Exact skeletons first; then a name the recogniser cut short, whose skeleton
   // begins the brand's ("Bicozal" bksl, Becosules bksls) — four consonants at least.
   const exact = rows.filter((r) => skels(r).includes(key));
-  const cut = key.length >= 4 ? rows.filter((r) => !exact.includes(r) && skels(r).some((k) => k.length > key.length && k.startsWith(key))) : [];
+  // The looser matches below must also START with the heard name's sound: Ultracet
+  // loses its U to the skeleton (ltrst), and "Letros" (letrozole) was offered it first.
+  const lead = phoneticKey(stem)[0];
+  const sameLead = (r: Raw) => [r.brandName, ...(r.aliases ?? [])].some((n) => n && phoneticKey(norm(String(n)))[0] === lead);
+  const cut = key.length >= 4 ? rows.filter((r) => !exact.includes(r) && sameLead(r) && skels(r).some((k) => k.length > key.length && k.startsWith(key))) : [];
   // Nothing closer: one consonant misheard in a long name ("Citra-Gene" strgn,
   // Cetirizine strsn). Same length, five consonants at least.
   const oneOff = (k: string) => k.length === key.length && [...k].filter((c, i) => c !== key[i]).length === 1;
-  const near = key.length >= 5 && exact.length + cut.length === 0 ? rows.filter((r) => skels(r).some(oneOff)) : [];
+  const near = key.length >= 5 && exact.length + cut.length === 0 ? rows.filter((r) => sameLead(r) && skels(r).some(oneOff)) : [];
   const cands = [...exact, ...cut, ...near].map((r) => toCandidate(r, 0.9, 'suggestion'));
   return narrowByStrength(cands, spokenStrength);
 }
