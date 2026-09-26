@@ -820,23 +820,22 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
     if (inTier.length === 0) continue;
 
     let cands = inTier.map((r) => toCandidate(r, Number(r.score ?? 0), MATCHED_ON[tier]));
+    // A literal hit on a word INSIDE a longer brand is not a hit on the name: "Zip"
+    // found Ondo Zip (ondansetron), "Cetal" found L-Cetal (levocetirizine). The name
+    // heard must BEGIN one of the row's names or aliases, else this tier is no match.
+    if (tier <= 2) {
+      const heard = stem.split(' ')[0];
+      cands = cands.filter((c) => {
+        const row = inTier.find((r) => r.id === c.medicationId);
+        return [c.brandName, c.canonicalName, c.genericName, ...(row?.aliases ?? [])].some((n) => n && norm(String(n)).startsWith(heard));
+      });
+    }
     // The fuzzy tier alone has a quality floor — the others are literal matches.
     if (tier === 4) cands = cands.filter((c) => c.score >= FUZZY_FLOOR);
     if (cands.length === 0) continue;
 
     const d = decide(cands);
     if (!d) continue;
-    // A literal match on a word INSIDE a longer brand is not a match on the name:
-    // "Cetal" (paracetamol syrup) hit " l cetal " — L-Cetal, levocetirizine — and
-    // resolved. The name heard must BEGIN one of the row's names or aliases.
-    if (tier <= 2 && d.resolution === 'RESOLVED' && d.match) {
-      const heard = stem.split(' ')[0];
-      const row = rows.find((r) => r.id === d.match!.medicationId);
-      const names = [d.match.brandName, d.match.canonicalName, d.match.genericName, ...(row?.aliases ?? [])];
-      if (!names.some((n) => n && norm(String(n)).startsWith(heard))) {
-        return { resolution: 'UNRESOLVED', match: null, candidates: d.candidates.length ? d.candidates : [d.match], askReason: 'NO_MATCH', spokenStrength };
-      }
-    }
     // An APPROXIMATE match never decides a drug on its own. Tiers 1 and 2 are
     // literal — the name, brand or a learned alias, as written. Tiers 3 and 4
     // are approximations: a phonetic key and fuzzy spelling. Phonetic keys are
