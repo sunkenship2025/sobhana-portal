@@ -4269,9 +4269,9 @@ router.post("/bulk-correct-referral", async (req: AuthRequest, res) => {
   }
 });
 
-// POST /api/visits/diagnostic/:id/swap-product - Replace a mistakenly billed
-// product with a SAME-PRICE one (typo fixes). Money-neutral by construction;
-// price changes must go through cancel/refund + add tests.
+// POST /api/visits/diagnostic/:id/swap-product - Replace a billed product with
+// another. Same price is money-neutral; a different price re-prices the bill
+// under the add-tests gates (see swapVisitProduct).
 router.post("/:id/swap-product", async (req: AuthRequest, res) => {
   try {
     const { oldProductId, newProductId, reason, note, preview } = req.body;
@@ -4297,6 +4297,7 @@ router.post("/:id/swap-product", async (req: AuthRequest, res) => {
       reason: typeof reason === "string" ? reason.trim() : "",
       note: typeof note === "string" && note.trim() ? note.trim() : null,
       userId: req.user!.id,
+      userRole: req.user!.role,
       preview: Boolean(preview),
     });
     return res.json(result);

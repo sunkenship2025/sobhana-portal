@@ -132,12 +132,15 @@ function correctionEvent(nv: any): {
         detail: `${nv?.referralDoctorName ?? "—"}${reason ? ` · ${reason}` : ""}`,
         reason, amountInPaise: null,
       };
-    case "PRODUCT_SWAP":
+    case "PRODUCT_SWAP": {
+      // A replace at a different price re-prices the bill → a money event.
+      const delta = typeof nv?.priceDeltaInPaise === "number" ? nv.priceDeltaInPaise : 0;
       return {
-        event: "Test swapped", category: "report", severity: "medium",
+        event: "Test swapped", category: delta ? "money" : "report", severity: delta ? "high" : "medium",
         detail: `→ ${nv?.productName ?? "—"}${reason ? ` · ${reason}` : ""}`,
-        reason, amountInPaise: null,
+        reason, amountInPaise: delta || null,
       };
+    }
     case "ADD_TESTS_TO_BILL":
       return {
         event: "Tests added to bill", category: "money", severity: "high",

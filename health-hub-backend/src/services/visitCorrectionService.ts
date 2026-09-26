@@ -10,10 +10,11 @@
  *    survives. Payouts carry no paid/unpaid concept — they are always "what's
  *    owed for the period" — so instead of blocking when a payout run covers the
  *    visit, we re-derive that run so its amount drops to match.
- *  - swapVisitProduct: replace one billed product with another of the SAME
- *    effective price (typo fixes like CREATININE → URIC ACID). Bill totals,
- *    paid and due are untouched by construction; anything money-changing must
- *    go through cancel/refund + add-tests instead.
+ *  - swapVisitProduct: replace one billed product with another (typo fixes like
+ *    CREATININE → URIC ACID, or a doctor changing the test). Same price leaves
+ *    the bill untouched; a different price re-prices the bill like an add
+ *    (same role/age gates, difference goes to Due). A cheaper replacement the
+ *    patient already overpaid for must go through cancel/refund + add-tests.
  *
  * Every correction demands a reason and writes an immutable AuditLog row with
  * old → new values, so the owner ops audit feed surfaces them.
@@ -532,10 +533,11 @@ export async function swapVisitProduct(params: {
   reason: string;
   note?: string | null;
   userId: string;
+  userRole: string;
   /** Dry-run: run every guard and report the impact without writing anything. */
   preview?: boolean;
 }) {
-  const { visitId, branchId, oldProductId, newProductId, reason, note, userId, preview } =
+  const { visitId, branchId, oldProductId, newProductId, reason, note, userId, userRole, preview } =
     params;
   if (oldProductId === newProductId) {
     throw new CorrectionError(400, "NO_CHANGE", "Both products are the same");
@@ -597,12 +599,33 @@ export async function swapVisitProduct(params: {
   if (!resolved) {
     throw new CorrectionError(400, "VALIDATION_ERROR", "Replacement product not found");
   }
-  if (resolved.effectivePrice !== oldTotalInPaise) {
-    throw new CorrectionError(
-      409,
-      "PRICE_MISMATCH",
-      `Swap must be money-neutral: billed ₹${(oldTotalInPaise / 100).toFixed(2)} vs replacement ₹${(resolved.effectivePrice / 100).toFixed(2)}. Use cancel/refund + add tests for price changes.`,
-    );
+  // A different price moves money exactly like an add, so it takes the add's
+  // gates (role, bill age) and re-prices the bill; the difference lands in Due.
+  // A cheaper replacement the patient has already overpaid for is refused: that
+  // needs money handed back, which only Remove (cancel/refund) records.
+  const priceDeltaInPaise = resolved.effectivePrice - oldTotalInPaise;
+  const newTotalInPaise = visit.totalAmountInPaise + priceDeltaInPaise;
+  let billAgeDays: number | null = null;
+  let nextBillFinancials: ReturnType<typeof recomputeBillFinancialsForSubtotal> | null = null;
+  if (priceDeltaInPaise !== 0) {
+    billAgeDays = assertCanChangeBillAmount(visit, userRole);
+    const billWithTx = visit.bill
+      ? await prisma.bill.findUnique({
+          where: { id: visit.bill.id },
+          include: { transactions: true },
+        })
+      : null;
+    if (billWithTx) {
+      try {
+        nextBillFinancials = recomputeBillFinancialsForSubtotal(billWithTx, newTotalInPaise);
+      } catch {
+        throw new CorrectionError(
+          409,
+          "OVERPAID",
+          `The replacement is ₹${(-priceDeltaInPaise / 100).toFixed(2)} cheaper and the patient has already paid more than the new bill. Remove the test (Cancel / Refund) and add the new one instead.`,
+        );
+      }
+    }
   }
 
   // Commission snapshots for the new orders under the CURRENT referral: a
@@ -685,6 +708,8 @@ export async function swapVisitProduct(params: {
       oldTestNames: targetOrders.map((order) => order.testNameSnapshot),
       newProductName: resolved.productName,
       resultsDetached: resultsDetachedCount,
+      priceDeltaInPaise,
+      dueAmountInPaise: nextBillFinancials?.dueAmountInPaise ?? null,
     };
   }
 
@@ -717,8 +742,9 @@ export async function swapVisitProduct(params: {
     // Void the mistaken orders instead of deleting them: cancelledAt drops them
     // from every live-order filter (report, worklists, payout, completeness),
     // replacedAt records WHY, and the rows — with any results already typed on
-    // them — stay in the database. The bill's money is untouched: no charge is
-    // reversed, because the replacement carries the same price.
+    // them — stay in the database. No charge is reversed on them: the
+    // replacement takes over their line, and any price difference re-prices the
+    // bill below, exactly as an add does.
     await tx.testOrder.updateMany({
       where: { id: { in: targetOrders.map((order) => order.id) } },
       data: {
@@ -728,6 +754,23 @@ export async function swapVisitProduct(params: {
       },
     });
     await reopenVisitForEntry(tx, visit, resolved.testOrders);
+    if (priceDeltaInPaise !== 0) {
+      await tx.visit.update({
+        where: { id: visitId },
+        data: { totalAmountInPaise: newTotalInPaise },
+      });
+      if (nextBillFinancials) {
+        await tx.bill.updateMany({
+          where: { visitId },
+          data: {
+            totalAmountInPaise: newTotalInPaise,
+            discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+            paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+            paymentStatus: nextBillFinancials.paymentStatus,
+          },
+        });
+      }
+    }
   }, { timeout: 30_000 });
 
   await logAction({
@@ -767,11 +810,22 @@ export async function swapVisitProduct(params: {
       resultsDetached: resultsDetachedCount,
       reason,
       note: note ?? null,
+      // A price-changing replace moves money like an add → flagged HIGH.
+      ...(priceDeltaInPaise !== 0
+        ? {
+            severity: "HIGH",
+            priceDeltaInPaise,
+            oldTotalAmountInPaise: visit.totalAmountInPaise,
+            totalAmountInPaise: newTotalInPaise,
+            billAgeDays,
+            changedByRole: userRole,
+          }
+        : {}),
     },
   });
 
-  // A swap is money-neutral for the bill, but a product-specific commission rule
-  // can change what the referrer earns, so refresh any covering payout run.
+  // The new product (and any price change) can change what the referrer earns,
+  // so refresh any covering payout run.
   if (currentReferral?.referralDoctorId) {
     await refreshCoveringReferralPayouts(
       currentReferral.referralDoctorId,
@@ -787,14 +841,46 @@ export async function swapVisitProduct(params: {
   };
 }
 
-// Roles allowed to add tests to an already-billed visit. Front-desk `staff`
-// (and `sales`) are intentionally excluded — an add moves money on a bill they
-// collected, so it is kept to the lab incharge / owner. Bills older than a week
-// are owner-only (ADD_TESTS_OWNER_TIER). Enforced server-side, never trusting
-// the UI, so it holds no matter which client calls it.
+// Roles allowed to change the amount on an already-billed visit (add tests, or
+// replace one at a different price). Front-desk `staff` (and `sales`) are
+// intentionally excluded — it moves money on a bill they collected, so it is
+// kept to the lab incharge / owner. Bills older than a week are owner-only
+// (ADD_TESTS_OWNER_TIER). Enforced server-side, never trusting the UI, so it
+// holds no matter which client calls it.
 const ADD_TESTS_ROLES = new Set(["owner", "admin", "lab_incharge"]);
 const ADD_TESTS_OWNER_TIER = new Set(["owner", "admin"]);
 const ADD_TESTS_SELF_SERVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Role + bill-age gate for any correction that changes the bill amount.
+ *  Returns the bill's age in days (for the audit row). */
+function assertCanChangeBillAmount(
+  visit: { createdAt: Date; bill: { billedAt: Date } | null },
+  userRole: string,
+): number {
+  if (!ADD_TESTS_ROLES.has(userRole)) {
+    throw new CorrectionError(
+      403,
+      "FORBIDDEN_ROLE",
+      "Only a lab incharge or owner can change the amount on a billed visit.",
+    );
+  }
+  // Age gate — changing an old bill is the classic laundering vector, so past a
+  // week only an owner (or admin) can do it.
+  const billAnchor = visit.bill?.billedAt ?? visit.createdAt;
+  const billAgeMs = Date.now() - new Date(billAnchor).getTime();
+  const billAgeDays = Math.max(0, Math.floor(billAgeMs / (24 * 60 * 60 * 1000)));
+  if (
+    billAgeMs > ADD_TESTS_SELF_SERVE_WINDOW_MS &&
+    !ADD_TESTS_OWNER_TIER.has(userRole)
+  ) {
+    throw new CorrectionError(
+      403,
+      "OWNER_ONLY_OLD_BILL",
+      `This bill is ${billAgeDays} days old — only an owner can change bills older than 7 days.`,
+    );
+  }
+  return billAgeDays;
+}
 
 /**
  * addProductsToVisit — add one or more billable products to an EXISTING,
@@ -822,15 +908,6 @@ export async function addProductsToVisit(params: {
 
   if (!Array.isArray(productIds) || productIds.length === 0) {
     throw new CorrectionError(400, "VALIDATION_ERROR", "At least one test is required");
-  }
-
-  // Role gate first — cheap, and it must hold regardless of caller.
-  if (!ADD_TESTS_ROLES.has(userRole)) {
-    throw new CorrectionError(
-      403,
-      "FORBIDDEN_ROLE",
-      "Only a lab incharge or owner can add tests to a billed visit.",
-    );
   }
 
   const visit = await loadVisitForCorrection(visitId, branchId);
@@ -864,21 +941,7 @@ export async function addProductsToVisit(params: {
     );
   }
 
-  // Age gate — adding to an old bill is the classic laundering vector, so past a
-  // week only an owner (or admin) can do it.
-  const billAnchor = visit.bill?.billedAt ?? visit.createdAt;
-  const billAgeMs = Date.now() - new Date(billAnchor).getTime();
-  const billAgeDays = Math.max(0, Math.floor(billAgeMs / (24 * 60 * 60 * 1000)));
-  if (
-    billAgeMs > ADD_TESTS_SELF_SERVE_WINDOW_MS &&
-    !ADD_TESTS_OWNER_TIER.has(userRole)
-  ) {
-    throw new CorrectionError(
-      403,
-      "OWNER_ONLY_OLD_BILL",
-      `This bill is ${billAgeDays} days old — only an owner can add tests to bills older than 7 days.`,
-    );
-  }
+  const billAgeDays = assertCanChangeBillAmount(visit, userRole);
 
   // Reject products already active on the visit — an accidental double-add would
   // double-charge the patient.

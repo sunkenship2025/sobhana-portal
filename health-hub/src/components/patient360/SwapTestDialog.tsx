@@ -2,10 +2,12 @@
  * SwapTestDialog — the "Billed tests" pencil in the inspector. Two modes on the
  * same billed-tests surface (no separate dialog):
  *
- *  - Replace: swap a mistakenly billed test/panel for another of the SAME price
- *    (typo fixes like SERUM CREATININE → URIC ACID). Money-neutral by
- *    construction: the backend rejects any price mismatch, demands a reason,
- *    audit-logs old → new, and refuses finalized reports / outsourced tests.
+ *  - Replace: swap a billed test/panel for another (typo fixes like SERUM
+ *    CREATININE → URIC ACID, or the doctor changing the test). Same price is
+ *    money-neutral; a different price re-prices the bill and the difference
+ *    becomes Due — owner / lab incharge only, same gates as Add. The backend
+ *    demands a reason, audit-logs old → new, and refuses finalized reports /
+ *    outsourced tests.
  *  - Add: add one or more billable products to a not-yet-finalized visit at
  *    catalog price; the delta raises the bill and becomes Due. Gated to
  *    owner / lab incharge (bills > 7 days old are owner-only) — the server
@@ -127,7 +129,14 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
   // Add mode: multi-select of products to add.
   const [addSelected, setAddSelected] = useState<Set<string>>(new Set());
   // What the swap moves off the report, asked of the server before committing.
-  const [swapPreview, setSwapPreview] = useState<{ resultsDetached: number } | null>(null);
+  const [swapPreview, setSwapPreview] = useState<{
+    resultsDetached: number;
+    priceDeltaInPaise?: number;
+    dueAmountInPaise?: number | null;
+  } | null>(null);
+  // Why the server would refuse this replace (wrong role, overpaid…), shown
+  // before the user fills in a reason rather than only as a toast on submit.
+  const [swapBlocked, setSwapBlocked] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -148,18 +157,17 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, visit.visitId]);
 
-  // A swap HARD-DELETES the outgoing orders and cascades their entered results
-  // away — unlike every other correction path, which soft-cancels. Ask the
-  // server what that costs so the count is on screen BEFORE the user commits,
-  // instead of only in the audit log afterwards. Errors are swallowed: the
-  // real submit surfaces them (price mismatch, duplicate, outsourced).
+  // Ask the server what the swap costs — results moved off the report, and any
+  // price difference with the Due it leaves — so it is on screen BEFORE the
+  // user commits, instead of only in the audit log afterwards.
   useEffect(() => {
+    setSwapBlocked(null);
     if (!open || mode !== "replace" || !oldProductId || !newProductId) {
       setSwapPreview(null);
       return;
     }
     let stale = false;
-    apiRequest<{ resultsDetached: number }>(
+    apiRequest<NonNullable<typeof swapPreview>>(
       `${API_BASE}/visits/diagnostic/${visit.visitId}/swap-product`,
       {
         method: "POST",
@@ -170,8 +178,10 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
       .then((data) => {
         if (!stale) setSwapPreview(data);
       })
-      .catch(() => {
-        if (!stale) setSwapPreview(null);
+      .catch((err: Error) => {
+        if (stale) return;
+        setSwapPreview(null);
+        setSwapBlocked(err?.message || null);
       });
     return () => {
       stale = true;
@@ -294,7 +304,9 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
           <DialogDescription>
             Bill {visit.billNumber || visit.visitRef}
             {mode === "replace"
-              ? " — same-price replacement only; use Cancel / Refund for price changes."
+              ? canAddTests
+                ? " — a price difference is added to the bill as Due."
+                : " — same-price replacement only; use Cancel / Refund for price changes."
               : " — added tests are charged at catalogue price and become Due."}
           </DialogDescription>
         </DialogHeader>
@@ -376,7 +388,8 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                     Replace with
                     <ArrowRight className="h-3 w-3 text-muted-foreground" />
                     <span className="font-normal text-muted-foreground">
-                      must be {formatCurrency(selectedGroup.totalInPaise)}
+                      {canAddTests ? "billed" : "must be"}{" "}
+                      {formatCurrency(selectedGroup.totalInPaise)}
                     </span>
                   </Label>
                   <Input
@@ -422,6 +435,20 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                     })}
                   </div>
                 </div>
+              )}
+
+              {swapBlocked && (
+                <p className="text-sm text-destructive">{swapBlocked}</p>
+              )}
+
+              {!!swapPreview?.priceDeltaInPaise && (
+                <p className="text-sm text-amber-700">
+                  Bill {swapPreview.priceDeltaInPaise > 0 ? "goes up" : "comes down"} by{" "}
+                  {formatCurrency(Math.abs(swapPreview.priceDeltaInPaise))}
+                  {typeof swapPreview.dueAmountInPaise === "number" &&
+                    ` — Due becomes ${formatCurrency(swapPreview.dueAmountInPaise)}`}
+                  .
+                </p>
               )}
 
               {(swapPreview?.resultsDetached ?? 0) > 0 && (
@@ -519,7 +546,7 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
           </Button>
           {mode === "replace" ? (
             <Button
-              disabled={busy || !oldProductId || !newProductId || !reason}
+              disabled={busy || !oldProductId || !newProductId || !reason || !!swapBlocked}
               onClick={submit}
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
