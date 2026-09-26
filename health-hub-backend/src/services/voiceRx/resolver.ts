@@ -472,7 +472,9 @@ function preferSimplest(cands: Candidate[], spoken: string): Candidate[] {
  */
 function preferOralSolid(cands: Candidate[], spokenForm: string | null): Candidate[] {
   if (cands.length < 2 || spokenForm) return cands;
-  const solid = cands.filter((c) => ['tablet', 'capsule'].includes((c.dosageForm ?? '').toLowerCase()));
+  // The clinic's own row is never dropped for its form: "Ascoril" is the clinic's
+  // syrup, and this rule threw it out and resolved an imported Ascoril Plus tablet.
+  const solid = cands.filter((c) => ['tablet', 'capsule'].includes((c.dosageForm ?? '').toLowerCase()) || c.source === 'CURATED');
   return solid.length > 0 ? solid : cands;
 }
 
