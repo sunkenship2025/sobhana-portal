@@ -444,6 +444,8 @@ export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}
     // made "0" by the number words and became strength 0.
     if (Number(m[1].split('+')[0]) === 0) continue;
     if (opts.requireUnit && !(unit && /^(mg|mcg|g|iu|%)$/.test(unit))) continue;
+    // "10 ml" is how much syrup, not what strength it is (Benadryl 10 ml came out 10).
+    if (unit === 'ml') continue;
     if (!unit) {
       // The model's spokenText is often the whole phrase: "Pantop DSR for 7 days",
       // "Steam inhalation 3-4 times a day". A number after for/after/every is a
@@ -451,6 +453,8 @@ export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}
       // baar" is Pan 40, once a day.)
       if (/\b(for|after|every|since|within|next|till|until|upto)$/.test(t.slice(0, m.index).trimEnd())) continue;
       if (/^\s*(?:(?:-|to)\s*\d+\s*)?times?\b/.test(t.slice(m.index! + m[0].length))) continue;
+      // "2 spoons", "do chammach": a dose, never a strength (Cetal syrup came out 2).
+      if (/^\s*((tea|table)\s*spoons?|spoons?|chamm?a?ch|chammach|cheta|chemcha)\b/.test(t.slice(m.index! + m[0].length))) continue;
     }
     return { strength: m[1].replace(/\s+/g, ''), unit };
   }
@@ -534,6 +538,9 @@ export function demo(): void {
   eq(scheduleFrequency('1-1-1'), 'TID', 'three slots, three times');
   eq(parseStrength('Cipcal D3 60,000 IU once a week'), { strength: '60000', unit: 'iu' }, '60,000 IU is sixty thousand');
   eq(parseStrength('Uprise D3 60K weekly'), { strength: '60000', unit: null }, '60K is sixty thousand');
+  eq(parseStrength('Cetal syrup 2 spoons after food'), null, 'spoons are a dose');
+  eq(parseStrength('Benadryl cough syrup 10 ml morning and evening'), null, '10 ml is a dose');
+  eq(parseStrength('Cetal syrup 2 tablespoons'), null, 'tablespoons are a dose');
   eq(parseStrength('Pantop DSR for 7 days'), null, 'a duration is not a strength');
   eq(parseStrength('zero-dol-sp'), null, 'a brand heard as "zero-dol" has no strength 0');
   eq(parseStrength('Zerodol SP 100'), { strength: '100', unit: null }, '…and keeps its real one');

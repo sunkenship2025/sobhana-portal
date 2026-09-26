@@ -375,7 +375,10 @@ function reconcile(item: any, fullText: string): ExtractedItem {
   // line Microbid's 200 mg.
   const first = (String(item?.name ?? spoken).trim().split(/\s+/)[0] ?? '').toLowerCase();
   const at = first ? scope.toLowerCase().indexOf(first) : -1;
-  const ps = parseStrength(spoken) ?? (at >= 0 ? parseStrength(scope.slice(at), { requireUnit: true }) : null);
+  // …and only the few words that follow it: "continue Glycomet GP1 tablet and
+  // Telma 40 mg" gave Glycomet Telma's 40 mg from further along the clause.
+  const after = at >= 0 ? scope.slice(at).split(/\s+/).slice(0, 5).join(' ') : '';
+  const ps = parseStrength(spoken) ?? (after ? parseStrength(after, { requireUnit: true }) : null);
   if (ps) {
     strength = ps.strength;
     strengthUnit = strengthUnit ?? ps.unit;

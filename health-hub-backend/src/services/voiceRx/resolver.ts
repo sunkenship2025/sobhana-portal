@@ -713,6 +713,11 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
   // to Augmentin 625; "మందు 650" became Paracetamol 650. With no letters left,
   // there is no name to match — ask.
   if (!/[a-z]/.test(q)) return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
+  // "A syrup, a spoon morning and night": the kind of medicine, not its name.
+  // Offering a random syrup (an iron tonic) for it is a guess; the doctor names it.
+  if (/^(syrup|tablets?|capsules?|injection|drops|goli|dawai|dava|davai|mandu|medicines?|cream|ointment|gel)$/.test(q)) {
+    return { resolution: 'UNRESOLVED', match: null, candidates: [], askReason: 'NO_MATCH' };
+  }
 
   // The spoken token usually carries the strength: "augmentin 625", "pantop 40".
   // Pull it out UP FRONT so every tier narrows by it consistently — doing this
@@ -765,6 +770,17 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
       narrowed = agrees;
     }
 
+    // NEVER resolve to a different FORM than the one spoken, either: "Cetal syrup"
+    // resolved to L-Cetal 5 mg TABLET (levocetirizine) — narrowByForm keeps the list
+    // when nothing matches, and one tablet was left. Tablet and capsule are one pill.
+    if (input.dosageForm) {
+      const pill = (f: string) => (/^(tablet|tab|capsule|cap)s?$/.test(f) ? 'pill' : f);
+      const want = pill(norm(input.dosageForm));
+      if (narrowed.every((c) => c.dosageForm && pill(norm(c.dosageForm)) !== want)) {
+        return { resolution: 'AMBIGUOUS', match: null, candidates: narrowed, askReason: 'MULTIPLE_MATCHES', spokenStrength };
+      }
+    }
+
     // No form spoken, and the one candidate is a gel, cream, injection…: ask. An
     // OPD prescription means the tablet unless the doctor says otherwise, so
     // landing on a topical or an injection without that word is a wrong turn
@@ -810,6 +826,17 @@ export async function resolveMedication(input: ResolveInput): Promise<ResolveRes
 
     const d = decide(cands);
     if (!d) continue;
+    // A literal match on a word INSIDE a longer brand is not a match on the name:
+    // "Cetal" (paracetamol syrup) hit " l cetal " — L-Cetal, levocetirizine — and
+    // resolved. The name heard must BEGIN one of the row's names or aliases.
+    if (tier <= 2 && d.resolution === 'RESOLVED' && d.match) {
+      const heard = stem.split(' ')[0];
+      const row = rows.find((r) => r.id === d.match!.medicationId);
+      const names = [d.match.brandName, d.match.canonicalName, d.match.genericName, ...(row?.aliases ?? [])];
+      if (!names.some((n) => n && norm(String(n)).startsWith(heard))) {
+        return { resolution: 'UNRESOLVED', match: null, candidates: d.candidates.length ? d.candidates : [d.match], askReason: 'NO_MATCH', spokenStrength };
+      }
+    }
     // An APPROXIMATE match never decides a drug on its own. Tiers 1 and 2 are
     // literal — the name, brand or a learned alias, as written. Tiers 3 and 4
     // are approximations: a phonetic key and fuzzy spelling. Phonetic keys are
