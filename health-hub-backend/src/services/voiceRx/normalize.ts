@@ -411,6 +411,24 @@ export function isLooping(text: string): boolean {
   return false;
 }
 
+/**
+ * Did the doctor say to STOP or AVOID this medicine? "Stop Ecosprin", "avoid
+ * Voveran", "Ecosprin aapeyandi", "Combiflam band karo", "don't give ibuprofen":
+ * the model made each a line — printed among the medicines to take — with "stop"
+ * as its instruction. Only a stop word right beside the medicine's own name, or an
+ * instruction that is nothing but a stop: "avoid alcohol" on metronidazole and "do
+ * not stop suddenly" on a BP tablet are how to TAKE it, and the line stays.
+ */
+export function saysStop(name: string, instructions: string | null | undefined, clause: string | null | undefined): boolean {
+  if (/^\s*(stop|stopped|discontinue|discontinued|avoid|band\s*kar\w*|aape\w*|aapandi|vaadakandi|vaddu|mat\s*(do|dena|lena|lo))(\s+(it|this|now|for\s+now|immediately|taking|using))*\s*[.!]?\s*(\(.*\))?\s*$/i.test(instructions ?? '')) return true;
+  const first = (name ?? '').trim().split(/[\s\d-]+/)[0] ?? '';
+  if (first.length < 3) return false;
+  const n = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const t = transliterateIndic(clause ?? '');
+  return new RegExp(`\\b(stop|discontinue|avoid|do\\s*n[o']?t\\s+(give|take|use)|never\\s+give|no\\s+more)\\s+(taking\\s+|using\\s+|the\\s+)?${n}`, 'i').test(t)
+    || new RegExp(`${n}[\\w\\s-]{0,12}?\\s+(band\\s*kar\\w*|aape\\w*|aapandi|vaadakandi|vaadakudadu|vaddu|mat\\s*(do|dena|lena|lo)|ni\\s+aape\\w*)\\b`, 'i').test(t);
+}
+
 /** "500 mg", "625", "10ml" -> { strength, unit } */
 export function parseStrength(text: string, opts: { requireUnit?: boolean } = {}): { strength: string; unit: string | null } | null {
   if (!text) return null;
@@ -494,6 +512,14 @@ export function demo(): void {
   eq(isLooping('ఇది ఇది ఇది ఇది ఇది'), true, 'in Telugu script too');
   eq(isLooping('Dolo 650 twice a day, Dolo 650 at night, Pan 40 morning'), false, 'a repeated name is not a loop');
   eq(isLooping('Augmentin 625 three times a day for five days'), false, 'a dictation is not a loop');
+  eq(saysStop('Ecosprin', 'Stop for now', 'Stop Ecosprin for now.'), true, 'stop Ecosprin');
+  eq(saysStop('Voveran', null, 'Pan 40 before breakfast, avoid Voveran.'), true, 'avoid Voveran');
+  eq(saysStop('Ecosprin', null, 'Ecosprin aapeyandi, Pan 40 udayam okati.'), true, 'Telugu: Ecosprin aapeyandi');
+  eq(saysStop('Combiflam', null, 'Azithromycin 500 once daily, Combiflam band karo.'), true, 'Hindi: Combiflam band karo');
+  eq(saysStop('Ibuprofen', null, 'Do not give ibuprofen, it increases bleeding'), true, "don't give ibuprofen");
+  eq(saysStop('Metronidazole', 'avoid alcohol', 'Metronidazole 400 three times a day, avoid alcohol'), false, '"avoid alcohol" is how to take it');
+  eq(saysStop('Metoprolol', 'do not stop suddenly', 'Metoprolol 25 once daily, do not stop suddenly'), false, '"do not stop suddenly" keeps it');
+  eq(saysStop('Dolo', null, 'Dolo 650 twice daily, stop Ecosprin'), false, 'the stop was for another medicine');
   eq(parseDoseSchedule('Dolo 650 1-0-1 after food'), '1-0-1', 'the pad grid');
   eq(parseDoseSchedule('Montair LC 0 - 0 - 1'), '0-0-1', 'night only, spaced');
   eq(parseDoseSchedule('Thyronorm 1/2-0-0 empty stomach'), '½-0-0', 'a half');

@@ -263,6 +263,12 @@ export default function Consultation() {
       const merged = [...base, ...extracted];
       setMissing(extraction.missing);
       if (extraction.diagnosis && !diagnosis) setDiagnosis(extraction.diagnosis);
+      // "Stop Ecosprin", "Combiflam band karo": not a medicine to take, but the
+      // patient must be told — onto the notes that print on the prescription.
+      if (extraction.stopped?.length) {
+        const line = `Do not take: ${extraction.stopped.join(', ')}`;
+        setNotes((n) => (n.includes(line) ? n : [n.trim(), line].filter(Boolean).join('\n')));
+      }
       if (extraction.followUpDays != null && !followUpDays) setFollowUpDays(String(extraction.followUpDays));
       const draft = await ensureDraft(opts.meta ?? {});
       const fresh = new Set(extracted);

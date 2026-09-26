@@ -183,6 +183,8 @@ export interface ExtractionResponse {
   transcript: { text: string; segments: TranscriptSegment[]; language: string | null; provider: string; model: string; durationSec: number | null };
   extraction: {
     items: ExtractedItem[];
+    /** Medicines the doctor said to stop or avoid — noted, never a line. */
+    stopped?: string[];
     diagnosis: string | null;
     notes: string | null;
     followUpDays: number | null;

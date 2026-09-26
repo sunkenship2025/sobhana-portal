@@ -278,6 +278,7 @@ router.post('/transcribe', requireRole(...PRESCRIBERS), transcribeBurstLimit, up
       },
       extraction: {
         items: extraction.items,
+        stopped: extraction.stopped,
         diagnosis: extraction.diagnosis,
         notes: extraction.notes,
         followUpDays: extraction.followUpDays,
@@ -520,6 +521,7 @@ router.post('/extract', requireRole(...PRESCRIBERS), transcribeBurstLimit, async
     res.json({
       extraction: {
         items: extraction.items,
+        stopped: extraction.stopped,
         diagnosis: extraction.diagnosis,
         notes: extraction.notes,
         followUpDays: extraction.followUpDays,

@@ -19,7 +19,7 @@ import { logger } from '../../lib/logger';
 import { medicineVocabulary } from './resolver';
 import {
   parseFrequency, parseTiming, parseRoute, parseDuration, parseStrength, keepBrandSuffix,
-  parseDoseSchedule, cleanDoseSchedule, scheduleFrequency, offeredAsChoice,
+  parseDoseSchedule, cleanDoseSchedule, scheduleFrequency, offeredAsChoice, saysStop,
   wordsToNumbers, FREQUENCY_TEXT, type FrequencyCode,
 } from './normalize';
 
@@ -75,6 +75,8 @@ export interface ExtractedItem {
 
 export interface ExtractionResult {
   items: ExtractedItem[];
+  /** Medicines the doctor said to stop or avoid — never lines; the page notes them. */
+  stopped: string[];
   diagnosis: string | null;
   notes: string | null;
   followUpDays: number | null;
@@ -448,7 +450,7 @@ export async function extractPrescription(
 ): Promise<ExtractionResult> {
   const text = transcript.trim();
   if (!text) {
-    return { items: [], diagnosis: null, notes: null, followUpDays: null, missing: [], model: MODEL, rawJson: null };
+    return { items: [], stopped: [], diagnosis: null, notes: null, followUpDays: null, missing: [], model: MODEL, rawJson: null };
   }
 
   // Static content first (cacheable), the variable transcript last. The clinic's
@@ -499,6 +501,11 @@ export async function extractPrescription(
       items.splice(j, 1);
     }
   }
+  // A medicine the doctor ended is not one to take: out of the list, into "stopped".
+  const stopped: string[] = [];
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (saysStop(items[i].name, items[i].instructions, items[i].sourceText ?? text)) stopped.unshift(items.splice(i, 1)[0].name);
+  }
   // A choice the model missed is still a choice: never two prescribed medicines.
   const heardText = [text, opts.alsoHeard].filter(Boolean).join('\n');
   for (const [i, a] of items.entries()) {
@@ -525,6 +532,7 @@ export async function extractPrescription(
   return {
     items,
     diagnosis: parsed?.diagnosis ? String(parsed.diagnosis) : null,
+    stopped,
     notes: parsed?.notes ? String(parsed.notes) : null,
     followUpDays: parsed?.followUpDays != null ? Number(parsed.followUpDays) : null,
     missing: Array.from(new Set(missing)),

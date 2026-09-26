@@ -3,6 +3,8 @@
  * the prescription as "1 – 0 – 1  (Morning · Night)", the editor's 1-0-1 box holds
  * it, and changing the box to "0-0-1" saves and re-prints as "(Night)".
  *
+ * And "Stop Ecosprin" written in: a note "Do not take: Ecosprin", not a line.
+ *
  * One temporary draft on a real, already-finished visit plus one temp owner
  * login, all removed in finally. Nothing is signed.
  *
@@ -94,6 +96,16 @@ const assert = (label: string, cond: boolean, detail = '') => {
     await page.click(BOX, { clickCount: 3 });
     await page.type(BOX, '1-0');
     assert('a half-typed schedule is marked, not saved', (await page.$eval(BOX, (el) => el.getAttribute('aria-invalid'))) === 'true');
+
+    // A medicine the doctor stops is a note for the patient, never a line to take.
+    await page.evaluate(() => ([...document.querySelectorAll('textarea')].find((x) => /Augmentin 625/.test(x.getAttribute('placeholder') ?? '')) as HTMLTextAreaElement | undefined)?.focus());
+    await page.keyboard.type('Pan 40 before breakfast for 30 days. Stop Ecosprin.');
+    await button('Read');
+    await page.waitForFunction(() => /Do not take/.test((document.querySelector('[aria-label="Notes"]') as HTMLTextAreaElement | null)?.value ?? ''), { timeout: 240000 }).catch(() => {});
+    const notesNow = await page.$eval('[aria-label="Notes"]', (el) => (el as HTMLTextAreaElement).value).catch(() => '');
+    assert('a stopped medicine is noted for the patient', /Do not take: Ecosprin/i.test(notesNow), notesNow);
+    assert('…and is not a medicine line', !/\d\.\s*Ecosprin/i.test(await text()));
+    await page.screenshot({ path: '/tmp/claude-501/rx-stop.png' });
     assert('no page errors', errors.length === 0, errors.join(' | '));
   } catch (err: any) {
     failures += 1;
