@@ -978,10 +978,18 @@ export async function getMoneyDaySheet(
     // Undo what arrived after the window rather than re-deriving gross from the
     // orders: a CLINIC bill has no test orders at all and would re-derive to
     // zero, and the stored total stays the authoritative number either way.
+    // A replace does both halves at once: it creates the new order AND takes the
+    // old one's price off the total, so the old one has to be put back too.
     const addedAfterWindow = b.visit.testOrders
       .filter((t) => t.createdAt >= win.end)
       .reduce((sum, t) => sum + t.priceInPaise, 0);
-    const grossAsOfWindow = Math.max(0, b.totalAmountInPaise - addedAfterWindow);
+    const replacedAfterWindow = b.visit.testOrders
+      .filter((t) => t.replacedAt && t.replacedAt >= win.end && t.createdAt < win.end)
+      .reduce((sum, t) => sum + t.priceInPaise, 0);
+    const grossAsOfWindow = Math.max(
+      0,
+      b.totalAmountInPaise - addedAfterWindow + replacedAfterWindow,
+    );
 
     for (const t of b.visit.testOrders) {
       // A test ordered after this sheet closed was not on the bill that day.
@@ -994,8 +1002,9 @@ export async function getMoneyDaySheet(
         replaced: 0,
       };
       item.total += 1;
-      if (t.replacedAt) item.replaced += 1;
-      else if (!t.cancelledAt) item.live += 1;
+      // Replaced after this sheet closed = still the billed test that day.
+      if (t.replacedAt && t.replacedAt < win.end) item.replaced += 1;
+      else if (!t.cancelledAt || t.replacedAt) item.live += 1;
       billedItems.set(key, item);
     }
     const testNames =

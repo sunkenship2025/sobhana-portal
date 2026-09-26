@@ -88,17 +88,23 @@ async function main() {
   }
 
   // Gross obeys the same rule: a test sold on a later day was not on the bill
-  // the day the sheet closed, so it must not appear in that day's Gross.
+  // the day the sheet closed, so it must not appear in that day's Gross — and a
+  // test REPLACED on a later day still was, so its price comes back.
   const lateOrders = await prisma.$queryRawUnsafe<
-    { billnumber: string; billday: string; later: bigint; total: bigint }[]
+    { billnumber: string; billday: string; later: bigint; replaced: bigint; total: bigint }[]
   >(`
-    SELECT b."billNumber" AS billnumber,
-           (b."billedAt" ${IST})::date::text AS billday,
-           SUM(t."priceInPaise")::bigint AS later,
-           MAX(b."totalAmountInPaise")::bigint AS total
-    FROM "TestOrder" t JOIN "Bill" b ON b."visitId" = t."visitId"
-    WHERE (t."createdAt" ${IST})::date > (b."billedAt" ${IST})::date
-    GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 12`);
+    WITH d AS (
+      SELECT b."billNumber", (b."billedAt" ${IST})::date AS billday, b."totalAmountInPaise",
+             t."priceInPaise", (t."createdAt" ${IST})::date AS made,
+             (t."replacedAt" ${IST})::date AS gone
+      FROM "TestOrder" t JOIN "Bill" b ON b."visitId" = t."visitId")
+    SELECT "billNumber" AS billnumber, billday::text AS billday,
+           COALESCE(SUM("priceInPaise") FILTER (WHERE made > billday), 0)::bigint AS later,
+           COALESCE(SUM("priceInPaise") FILTER (WHERE gone > billday AND made <= billday), 0)::bigint AS replaced,
+           MAX("totalAmountInPaise")::bigint AS total
+    FROM d GROUP BY 1, 2
+    HAVING bool_or(made > billday) OR bool_or(gone > billday)
+    ORDER BY COALESCE(bool_or(gone > billday), false) DESC, 3 DESC LIMIT 16`);
 
   for (const r of lateOrders) {
     const sheet = await getMoneyDaySheet('custom', null, {
@@ -106,7 +112,7 @@ async function main() {
       endKey: r.billday,
     });
     const row = sheet.rows.find((x) => x.billNumber === r.billnumber);
-    const expected = Number(r.total) - Number(r.later);
+    const expected = Number(r.total) - Number(r.later) + Number(r.replaced);
     const ok = row ? row.grossInPaise === expected : false;
     if (!ok) failed += 1;
     console.log(
