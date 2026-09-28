@@ -14,6 +14,7 @@ import prisma from '../../lib/prisma';
 import { prismaContext, memoryContext, type VisitFacts, type FactSet } from './context';
 import { evaluate, type EvalTrace, type Subject } from './predicates';
 import { communicationPolicy } from './policy';
+import { TRIGGERS } from './triggers';
 import { isHeldOut } from './engine';
 import type { AutomationDefinition, Step } from './types';
 
@@ -36,28 +37,34 @@ export async function dryRun(automationId: string, limit = 20) {
   const def = a.definition as unknown as AutomationDefinition;
   const ctx = prismaContext(new Date());
 
-  if (def.trigger.kind !== 'VISIT_COMPLETED') {
-    return { qualifyingVisits: 0, uniquePatients: 0, wouldSendToday: 0, breakdown: {}, rows: [] };
+  // Every trigger is previewed by ITS OWN subject finder — the same code that enrols real
+  // patients — so the preview cannot disagree with what activation does. This used to
+  // know only "a visit is completed" and answer every other trigger with zeros, which the
+  // screen showed as "nobody matches".
+  const trigger = def.trigger.kind === 'SCHEDULE' ? undefined : TRIGGERS[def.trigger.kind];
+  if (!trigger) {
+    return { supported: false, subjectType: null, qualifyingVisits: 0, uniquePatients: 0, wouldSendToday: 0, breakdown: {}, rows: [] };
   }
 
   // Look back a sensible window rather than the whole history: this is "who would
   // enrol from here", and the watermark means history is never back-filled anyway.
-  const since = new Date(Date.now() - 30 * DAY_MS);
-  const candidates = await prisma.visit.findMany({
-    where: {
-      domain: def.trigger.domain,
-      status: 'COMPLETED',
-      updatedAt: { gte: since },
-      ...(a.branchIds.length > 0 ? { branchId: { in: a.branchIds } } : {}),
-    },
-    select: {
-      id: true, patientId: true, branchId: true, updatedAt: true,
-      patient: { select: { name: true, patientNumber: true } },
-      branch: { select: { name: true } },
-    },
-    orderBy: { updatedAt: 'desc' },
-    take: 500,
+  const now = new Date();
+  const candidates = await trigger.findSubjects({
+    now, since: new Date(now.getTime() - 30 * DAY_MS), branchIds: a.branchIds,
+    config: def.trigger as Record<string, unknown>, limit: 500,
   });
+  const patientIds = [...new Set(candidates.map((c) => c.patientId).filter((x): x is string => !!x))];
+  const branchIds = [...new Set(candidates.map((c) => c.branchId).filter((x): x is string => !!x))];
+  const [people, branches] = await Promise.all([
+    prisma.patient.findMany({ where: { id: { in: patientIds } }, select: { id: true, name: true, patientNumber: true } }),
+    prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }),
+  ]);
+
+  // The first message someone is actually sent decides whose rules apply today: a
+  // message to the team or the referring doctor is not held by patient consent or hours.
+  const firstMessage = def.steps.find(
+    (s): s is Extract<Step, { kind: 'SEND' | 'ASK' }> => s.kind === 'SEND' || s.kind === 'ASK');
+  const toTeam = firstMessage?.kind === 'SEND' && !!firstMessage.to && firstMessage.to.kind !== 'RUN_PATIENT';
 
   const breakdown: Record<string, number> = {};
   const rows: PreviewRow[] = [];
@@ -65,9 +72,9 @@ export async function dryRun(automationId: string, limit = 20) {
   let qualifying = 0;
   let wouldSend = 0;
 
-  for (const v of candidates) {
+  for (const c of candidates) {
     const subject: Subject = {
-      type: 'VISIT', id: v.id, patientId: v.patientId, branchId: v.branchId, triggeredAt: v.updatedAt,
+      type: trigger.subjectType, id: c.subjectId, patientId: c.patientId, branchId: c.branchId, triggeredAt: c.triggeredAt,
     };
     const trace: EvalTrace[] = [];
     let ok = false;
@@ -79,34 +86,37 @@ export async function dryRun(automationId: string, limit = 20) {
     if (!ok) continue;
 
     qualifying += 1;
-    patients.add(v.patientId);
+    if (c.patientId) patients.add(c.patientId);
 
     let outcome: PreviewRow['todayOutcome'];
-    if (isHeldOut(a.id, v.patientId, a.holdoutPct)) {
+    if (c.patientId && isHeldOut(a.id, c.patientId, a.holdoutPct)) {
       outcome = 'HELD_OUT';
+    } else if (!c.patientId || toTeam || !firstMessage) {
+      outcome = 'WOULD_SEND';
     } else {
-      const firstSend = def.steps.find((s): s is Extract<Step, { kind: 'SEND' }> => s.kind === 'SEND');
-      const p = await ctx.patient(v.patientId);
+      const p = await ctx.patient(c.patientId);
       const decision = await communicationPolicy(ctx, {
-        patientId: v.patientId,
+        patientId: c.patientId,
         phone: p?.phone ?? null,
-        intent: firstSend?.intent ?? 'PROACTIVE',
+        intent: firstMessage.intent ?? 'PROACTIVE',
         runId: 'preview',
-        visitId: v.id,
+        visitId: trigger.subjectType === 'VISIT' ? c.subjectId : null,
+        skipMarketingConsent: def.policy?.skipMarketingConsent,
       });
       outcome = decision.kind === 'SEND' ? 'WOULD_SEND' : decision.reason;
-      if (decision.kind === 'SEND') wouldSend += 1;
     }
+    if (outcome === 'WOULD_SEND') wouldSend += 1;
     breakdown[outcome] = (breakdown[outcome] ?? 0) + 1;
 
     if (rows.length < limit) {
+      const person = people.find((x) => x.id === c.patientId);
       rows.push({
-        visitId: v.id,
-        patientId: v.patientId,
-        patientName: v.patient.name,
-        patientNumber: v.patient.patientNumber,
-        branchName: v.branch.name,
-        visitAt: v.updatedAt,
+        visitId: c.subjectId,
+        patientId: c.patientId ?? '',
+        patientName: person?.name ?? '—',
+        patientNumber: person?.patientNumber ?? '',
+        branchName: branches.find((x) => x.id === c.branchId)?.name ?? '',
+        visitAt: c.triggeredAt,
         whyQualifies: trace,
         todayOutcome: outcome,
       });
@@ -114,6 +124,9 @@ export async function dryRun(automationId: string, limit = 20) {
   }
 
   return {
+    supported: true,
+    /** VISIT journeys can be tried out in the simulator; others cannot yet. */
+    subjectType: trigger.subjectType,
     qualifyingVisits: qualifying,
     uniquePatients: patients.size,
     wouldSendToday: wouldSend,

@@ -22,7 +22,7 @@ export interface ResolvedRecipients {
 
 export async function resolveRecipients(
   to: Recipients | undefined,
-  run: { patientId: string | null },
+  run: { patientId: string | null; subjectType?: string; subjectId?: string },
   fallback: Recipients,
 ): Promise<ResolvedRecipients> {
   const spec = to ?? fallback;
@@ -38,6 +38,26 @@ export async function resolveRecipients(
       phones: phone ? [phone.trim()] : [],
       describe: 'the patient this journey is about',
       patientId: run.patientId,
+    };
+  }
+
+  if (spec.kind === 'REFERRING_DOCTOR') {
+    // The doctor the visit is referred by TODAY — read live, because a referral can be
+    // attached or converted to self after billing. A self visit has none, so nothing sends.
+    if (run.subjectType !== 'VISIT' || !run.subjectId) {
+      return { phones: [], describe: 'no visit, so no referring doctor', patientId: null };
+    }
+    const link = await prisma.referralDoctor_Visit.findFirst({
+      where: { visitId: run.subjectId, deletedAt: null },
+      select: { referralDoctor: { select: { name: true, phone: true, isActive: true } } },
+    });
+    const doc = link?.referralDoctor;
+    const phone = doc?.isActive ? doc.phone?.trim() : null;
+    return {
+      phones: phone ? [phone] : [],
+      describe: doc ? `Dr ${doc.name}` : 'no referring doctor on this visit',
+      // A doctor is not a patient: patient consent and quiet-hours rules do not apply.
+      patientId: null,
     };
   }
 

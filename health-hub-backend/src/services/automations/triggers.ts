@@ -17,6 +17,7 @@
  */
 import prisma from '../../lib/prisma';
 import type { SubjectType } from './types';
+import type { BlueprintField } from './blueprints';
 
 export interface Candidate {
   subjectId: string;
@@ -45,6 +46,13 @@ export interface TriggerDef {
   subjectType: SubjectType;
   /** Shown in the UI so an operator knows what the automation reacts to. */
   describe: (config: Record<string, unknown>) => string;
+  /** One plain sentence for the picker: what happens in the centre that starts this. */
+  help: string;
+  /**
+   * The questions this trigger asks, in the same shape a blueprint asks its questions,
+   * so the builder renders both with one component. Absent = nothing to ask.
+   */
+  fields?: BlueprintField[];
   findSubjects: (ctx: TriggerContext) => Promise<Candidate[]>;
 }
 
@@ -64,6 +72,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   VISIT_COMPLETED: {
     kind: 'VISIT_COMPLETED',
     label: 'A visit is completed',
+    help: "A consultation is finished, or every report on a diagnostic visit is ready.",
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
     group: 'Visits',
     subjectType: 'VISIT',
     describe: (c) => `A ${str(c, 'domain', 'CLINIC') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`,
@@ -88,6 +98,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   VISIT_CANCELLED: {
     kind: 'VISIT_CANCELLED',
     label: 'A visit is cancelled',
+    help: "A visit is cancelled at the counter.",
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
     group: 'Visits',
     subjectType: 'VISIT',
     describe: (c) => `A ${str(c, 'domain', 'CLINIC') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is cancelled`,
@@ -112,6 +124,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   CLINIC_NO_SHOW: {
     kind: 'CLINIC_NO_SHOW',
     label: 'Someone queued and was never seen',
+    help: "Someone took a token for the doctor and was never called in.",
+    fields: [{ key: 'hours', label: 'Waiting for longer than (hours)', type: 'NUMBER', required: true, default: 6 }],
     group: 'Visits',
     subjectType: 'VISIT',
     describe: (c) => `Waiting for more than ${num(c, 'hours', 6)} hours and never called in`,
@@ -143,6 +157,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   PATIENT_REGISTERED: {
     kind: 'PATIENT_REGISTERED',
     label: 'A patient is registered',
+    help: "A new patient is registered for the first time.",
     group: 'Patients',
     subjectType: 'PATIENT',
     describe: () => 'A patient is registered for the first time',
@@ -162,6 +177,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   REPORT_FINALIZED: {
     kind: 'REPORT_FINALIZED',
     label: 'A report is finalized',
+    help: "A report is signed off and ready to send.",
     group: 'Reports',
     subjectType: 'VISIT',
     describe: () => 'A report is finalized',
@@ -195,6 +211,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   COUPON_ISSUED: {
     kind: 'COUPON_ISSUED',
     label: 'An offer is issued',
+    help: "An offer code is given to a patient.",
     group: 'Offers',
     subjectType: 'COUPON',
     describe: () => 'An offer is issued to a patient',
@@ -214,6 +231,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   VISIT_CREATED: {
     kind: 'VISIT_CREATED',
     label: 'A visit is registered',
+    help: "A visit is registered at the counter.",
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'DIAGNOSTICS', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
     group: 'Visits',
     subjectType: 'VISIT',
     describe: (c) => `A ${str(c, 'domain', 'DIAGNOSTICS') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is registered`,
@@ -238,6 +257,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   PAYMENT_RECEIVED: {
     kind: 'PAYMENT_RECEIVED',
     label: 'A bill is paid',
+    help: "A bill is paid in full.",
     group: 'Money',
     subjectType: 'VISIT',
     describe: () => 'A bill is settled in full',
@@ -262,6 +282,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   PAYMENT_REFUNDED: {
     kind: 'PAYMENT_REFUNDED',
     label: 'Money is refunded',
+    help: "Money is refunded on a bill, in full or in part.",
     group: 'Money',
     subjectType: 'VISIT',
     describe: () => 'A refund is processed, in full or in part',
@@ -291,6 +312,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   CAMPAIGN_BUDGET: {
     kind: 'CAMPAIGN_BUDGET',
     label: 'An offer is running out of budget',
+    help: "An offer has used up most of its budget — usually an alert for your team.",
+    fields: [{ key: 'atPercent', label: 'When this much of the budget is used (%)', type: 'NUMBER', required: true, default: 80 }],
     group: 'Offers',
     subjectType: 'COUPON',
     describe: (c) => `An offer passes ${num(c, 'atPercent', 80)}% of its budget`,
@@ -334,6 +357,8 @@ export const TRIGGERS: Record<string, TriggerDef> = {
   AUDIENCE_SWEEP: {
     kind: 'AUDIENCE_SWEEP',
     label: 'Anyone who matches, checked regularly',
+    help: "Not an event: checks regularly for anyone who matches the conditions you set — e.g. nobody seen in 90 days.",
+    fields: [{ key: 'everyDays', label: 'Check every (days)', type: 'NUMBER', required: true, default: 30 }],
     group: 'Patients',
     subjectType: 'PATIENT',
     describe: (c) => `Every ${num(c, 'everyDays', 30)} days, anyone who matches`,
@@ -363,5 +388,12 @@ export const TRIGGERS: Record<string, TriggerDef> = {
 export function listTriggers() {
   return Object.values(TRIGGERS).map((t) => ({
     kind: t.kind, label: t.label, group: t.group, subjectType: t.subjectType,
+    help: t.help, fields: t.fields ?? [],
   }));
+}
+
+/** The sentence the builder shows for a saved trigger, from the registry's own words. */
+export function describeTrigger(trigger: { kind: string } & Record<string, unknown>): string {
+  const t = TRIGGERS[trigger.kind];
+  return t ? t.describe(trigger) : `An unknown trigger ("${trigger.kind}")`;
 }

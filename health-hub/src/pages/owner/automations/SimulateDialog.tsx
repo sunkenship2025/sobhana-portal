@@ -82,7 +82,7 @@ export function SimulateDialog({ id, open, onClose, automation }: {
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Start from</Label>
-            {preview && preview.rows.length > 0 ? (
+            {preview && preview.rows.length > 0 && (preview.subjectType ?? 'VISIT') === 'VISIT' ? (
               <div className="mt-1.5 max-h-40 divide-y overflow-y-auto rounded-lg border">
                 {preview.rows.map((r) => (
                   <button key={r.visitId}
@@ -106,7 +106,9 @@ export function SimulateDialog({ id, open, onClose, automation }: {
               </div>
             ) : (
               <p className="mt-1.5 rounded-lg border bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
-                Nobody qualifies right now, so there is no real visit to try this on.
+                {preview && preview.subjectType && preview.subjectType !== 'VISIT'
+                  ? 'Trying it out works for journeys that start from a visit. This one starts from something else, so use the preview instead.'
+                  : 'Nobody qualifies right now, so there is no real visit to try this on.'}
               </p>
             )}
           </div>

@@ -9,7 +9,9 @@ import assert from 'assert';
 import { memoryContext, type VisitFacts } from './src/services/automations/context';
 import { evaluate, predicates, UnitMismatch, type Subject } from './src/services/automations/predicates';
 import { communicationPolicy } from './src/services/automations/policy';
-import { isHeldOut, lateForWindow } from './src/services/automations/engine';
+import { isHeldOut, lateForWindow, patientReentry } from './src/services/automations/engine';
+import { TRIGGERS, listTriggers, describeTrigger } from './src/services/automations/triggers';
+import { TRIGGER_KINDS } from './src/services/automations/types';
 import { journeyFunnel, askAnswers, type FunnelRun, type RunMessages } from './src/services/automations/queries';
 import { simulate } from './src/services/automations/preview';
 import { resolveDiscounts } from './src/services/automations/discounts';
@@ -1202,6 +1204,40 @@ async function main() {
 
   await check('every field the builder is served has a label and an example', () => {
     for (const f of FIELD_CATALOG) assert.ok(f.label && f.example, `${f.from} would show up blank in the picker`);
+  });
+
+  // ══ Building from scratch ══════════════════════════════════════════════════
+  await check('the typed trigger list and the registry name the same triggers', () => {
+    assert.deepStrictEqual([...TRIGGER_KINDS].sort(), Object.keys(TRIGGERS).sort(),
+      'types.ts TRIGGER_KINDS drifted from triggers.ts');
+  });
+
+  await check('every trigger explains itself and every question has a default', () => {
+    for (const t of listTriggers()) {
+      assert.ok(t.help && t.help.length > 10, `${t.kind} has no plain-language help for the picker`);
+      for (const f of t.fields) assert.ok(f.label && f.default !== undefined, `${t.kind}.${f.key} has no label or default`);
+      const config: Record<string, unknown> = { kind: t.kind };
+      for (const f of t.fields) config[f.key] = f.default;
+      assert.ok(describeTrigger(config as never).length > 5, `${t.kind} cannot describe itself`);
+    }
+  });
+
+  await check('an empty draft can be saved but an unknown trigger cannot', () => {
+    const empty = validateDefinition({ trigger: { kind: 'VISIT_COMPLETED' }, steps: [] });
+    assert.ok(empty.every((p) => !p.blocking), 'an empty draft is refused at save — nobody could start from scratch');
+    const unknown = validateDefinition({ trigger: { kind: 'MOON_PHASE' }, steps: [{ kind: 'STOP', reason: 'x' }] });
+    assert.ok(unknown.some((p) => p.blocking && p.where === 'trigger'), 'an unknown trigger was accepted');
+  });
+
+  // "Once" and "every N days" were keyed on the visit, so for a visit trigger they limited
+  // nothing — a regular would have been enrolled, and handed an offer, on every visit.
+  await check('once / every N days are limits on the patient, not the visit', () => {
+    const now = new Date('2026-09-29T00:00:00Z');
+    assert.deepStrictEqual(patientReentry({ mode: 'PER_EVENT', concurrency: 'ALLOW_PARALLEL' }, now), { check: false });
+    assert.deepStrictEqual(patientReentry({ mode: 'ONCE', concurrency: 'ALLOW_PARALLEL' }, now), { check: true });
+    const n = patientReentry({ mode: 'EVERY_N_DAYS', days: 90, concurrency: 'ALLOW_PARALLEL' }, now);
+    assert.strictEqual(n.check, true);
+    assert.strictEqual(n.since!.toISOString(), '2026-07-01T00:00:00.000Z');
   });
 
   await check('every outcome the engine emits has words for it', () => {

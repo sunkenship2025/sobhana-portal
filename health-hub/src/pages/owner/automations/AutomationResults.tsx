@@ -78,7 +78,8 @@ export function AutomationResults({ automationId }: { automationId: string }) {
   // The goal in the same words the builder uses. This page used to say "came in for
   // tests" whatever the journey was chasing.
   const catalog = predicateData?.predicates ?? [];
-  const goalWords = describeCondition(goal.condition, catalog);
+  // A journey built from scratch may have no goal, and then there is nothing to count.
+  const goalWords = goal ? describeCondition(goal.condition, catalog) : null;
   const controlled = counts.held > 0;
   const hasOffer = offer.sent > 0 || steps.some((s) => s.kind === 'SEND' && s.issueOffer);
   const share = (n: number, of: number) => `${Math.round((n / Math.max(1, of)) * 100)}%`;
@@ -134,10 +135,12 @@ export function AutomationResults({ automationId }: { automationId: string }) {
           <Stage label="Delivered" n={counts.delivered} pct={pct(counts.delivered)} />
           <Stage label="Read" sub="undercounts — receipts can be switched off"
             n={counts.read} pct={pct(counts.read)} note="at least" />
-          <Stage label="Goal met after a message" sub={`${goalWords}, within ${windowDays} days`}
-            n={converted.afterMessage} pct={pct(converted.afterMessage)}
-            note={rates.afterMessagePct === null ? undefined : `${rates.afterMessagePct}% of messaged`} />
-          {controlled && (
+          {goalWords && (
+            <Stage label="Goal met after a message" sub={`${goalWords}, within ${windowDays} days`}
+              n={converted.afterMessage} pct={pct(converted.afterMessage)}
+              note={rates.afterMessagePct === null ? undefined : `${rates.afterMessagePct}% of messaged`} />
+          )}
+          {goalWords && controlled && (
             <Stage label="Held back, goal met anyway" n={converted.held}
               pct={pct(converted.held)} note={`${rates.heldPct}%`} muted />
           )}
@@ -219,34 +222,36 @@ export function AutomationResults({ automationId }: { automationId: string }) {
         </div>
       </section>
 
-      <section>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Did it actually cause anything
-        </p>
-        {controlled ? (
-          <>
+      {goalWords && (
+        <section>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Did it actually cause anything
+          </p>
+          {controlled ? (
+            <>
+              <div className="divide-y rounded-lg border bg-card">
+                <Row title="Not held back — goal met" sub={`${counts.treated.toLocaleString('en-IN')} patients, messaged or not`}
+                  value={`${rates.treatedPct}%`} />
+                <Row title="Held back — goal met anyway" sub={`${counts.held.toLocaleString('en-IN')} patients`}
+                  value={`${rates.heldPct}%`} />
+                <Row strong title="Goal met because of this"
+                  sub={`Between ${Math.max(0, Math.round((rates.liftPts! - rates.liftMarginPts!) / 100 * counts.treated))} and ${Math.round((rates.liftPts! + rates.liftMarginPts!) / 100 * counts.treated)}`}
+                  value={(money.incrementalPatients ?? 0).toLocaleString('en-IN')} />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                ±{rates.liftMarginPts} points is the honest width at these numbers: this design can detect a
+                lift of about {Math.max(2, Math.ceil(rates.liftMarginPts!))} points and cannot detect a smaller one.
+              </p>
+            </>
+          ) : (
             <div className="divide-y rounded-lg border bg-card">
-              <Row title="Not held back — goal met" sub={`${counts.treated.toLocaleString('en-IN')} patients, messaged or not`}
-                value={`${rates.treatedPct}%`} />
-              <Row title="Held back — goal met anyway" sub={`${counts.held.toLocaleString('en-IN')} patients`}
-                value={`${rates.heldPct}%`} />
-              <Row strong title="Goal met because of this"
-                sub={`Between ${Math.max(0, Math.round((rates.liftPts! - rates.liftMarginPts!) / 100 * counts.treated))} and ${Math.round((rates.liftPts! + rates.liftMarginPts!) / 100 * counts.treated)}`}
-                value={(money.incrementalPatients ?? 0).toLocaleString('en-IN')} />
+              <Row strong title="Nothing to compare against"
+                sub="Nobody is held back on this journey, so someone it brought in and someone who would have come anyway look the same. Hold back a control group to measure it."
+                value="—" />
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              ±{rates.liftMarginPts} points is the honest width at these numbers: this design can detect a
-              lift of about {Math.max(2, Math.ceil(rates.liftMarginPts!))} points and cannot detect a smaller one.
-            </p>
-          </>
-        ) : (
-          <div className="divide-y rounded-lg border bg-card">
-            <Row strong title="Nothing to compare against"
-              sub="Nobody is held back on this journey, so someone it brought in and someone who would have come anyway look the same. Hold back a control group to measure it."
-              value="—" />
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
       <section>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Money</p>

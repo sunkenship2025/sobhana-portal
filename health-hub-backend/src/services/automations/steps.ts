@@ -12,6 +12,7 @@
  * the engine can run, and say so out loud when it falls behind instead of hiding a step.
  */
 import { FIELD_CATALOG } from './fields';
+import { TRIGGERS } from './triggers';
 
 export interface StepMeta {
   kind: string;
@@ -68,8 +69,15 @@ export function validateDefinition(def: {
   const known = new Set(STEP_CATALOG.map((s) => s.kind));
   const journeyIssuesOffer = steps.some((st) => !!(st as { issueOffer?: unknown }).issueOffer);
 
+  // An empty draft may be SAVED — someone starting from scratch sets the trigger before
+  // the first step. It cannot be ACTIVATED; the activate route refuses it.
   if (steps.length === 0) {
-    problems.push({ where: 'steps', problem: 'This journey has no steps, so it would do nothing.', blocking: true });
+    problems.push({ where: 'steps', problem: 'This journey has no steps yet, so it would do nothing.', blocking: false });
+  }
+
+  const kind = def.trigger?.kind;
+  if (kind && kind !== 'SCHEDULE' && !TRIGGERS[kind]) {
+    problems.push({ where: 'trigger', problem: `"${kind}" is not something the engine can start a journey from.`, blocking: true });
   }
 
   steps.forEach((step, i) => {

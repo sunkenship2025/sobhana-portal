@@ -15,7 +15,7 @@
  * The backend refuses a dangling jump at save, so a mistake here surfaces as a blocked
  * save rather than a bad send. This is the belt; that is the braces.
  */
-import type { Step, Jump } from './api';
+import type { Step, Jump, ParamBinding } from './api';
 
 /** Apply an index remapping to every branch target in a step. */
 function remap(step: Step, move: (i: number) => Jump): Step {
@@ -82,4 +82,9 @@ export function blankStep(kind: string): Step {
     case 'DAY_SHEET': return { kind: 'DAY_SHEET', domain: 'DIAGNOSTICS' };
     default: return { kind: 'STOP', reason: 'STOPPED_BY_STEP' };
   }
+}
+
+/** The template's blank count wins: padding or trimming here is what keeps a message sendable. */
+export function fitBlanks(params: ParamBinding[], count: number): ParamBinding[] {
+  return Array.from({ length: count }, (_, i) => params[i] ?? { from: i === 0 ? 'PATIENT_FIRST_NAME' : '' });
 }

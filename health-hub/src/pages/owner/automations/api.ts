@@ -41,7 +41,9 @@ export interface FieldMeta {
 /** Who a message is addressed to. Shared by every sending action — see spec §9.12. */
 export type Recipients =
   | { kind: 'RUN_PATIENT' }
-  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' };
+  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' }
+  /** The doctor the visit is referred by today. A self visit has none, so nothing sends. */
+  | { kind: 'REFERRING_DOCTOR' };
 
 /**
  * MIRRORS health-hub-backend/src/services/automations/types.ts.
@@ -100,16 +102,21 @@ export type Step =
 export type Jump = 'STOP' | 'CONTINUE' | number;
 
 export interface AutomationDefinition {
-  trigger: { kind: 'VISIT_COMPLETED'; domain: 'CLINIC' | 'DIAGNOSTICS' }
-    | { kind: 'REPORT_FINALIZED' }
-    /** graceHours belongs to the schedule, not to whatever it then does. */
-    | { kind: 'SCHEDULE'; everyDayAtMinutes: number; graceHours?: number };
+  /**
+   * MIRRORS backend types.ts. Any of the served triggers (listTriggers) with its settings,
+   * or the nightly schedule. The screen never narrates a trigger itself — it shows the
+   * `triggerText` the server writes from the registry.
+   */
+  trigger:
+    | { kind: 'SCHEDULE'; everyDayAtMinutes: number; graceHours?: number }
+    | { kind: string; domain?: 'CLINIC' | 'DIAGNOSTICS'; hours?: number; atPercent?: number; everyDays?: number; lookbackDays?: number };
   reentry: {
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS'; days?: number;
     concurrency: 'ALLOW_PARALLEL' | 'ONE_ACTIVE_PER_PATIENT';
   };
   audience: Condition;
-  goal: { condition: Condition; windowDays: number; stopReason?: string };
+  /** Optional: a journey from scratch may just run its steps. See backend types.ts. */
+  goal?: { condition: Condition; windowDays: number; stopReason?: string };
   steps: Step[];
 }
 
@@ -126,6 +133,8 @@ export interface AutomationRow {
 export interface Automation {
   id: string; key: string; name: string; group: string;
   definition: AutomationDefinition;
+  /** The trigger in the registry's words, e.g. "A clinic visit is completed". */
+  triggerText?: string | null;
   version: number; enabled: boolean; activatedAt: string | null;
   holdoutPct: number; priority: number; branchIds: string[];
 }
@@ -151,6 +160,10 @@ export interface PreviewRow {
   todayOutcome: string;
 }
 export interface Preview {
+  /** False only for a trigger the preview cannot look back over (the nightly schedule). */
+  supported?: boolean;
+  /** What each row is about. Only VISIT journeys can be tried in the simulator for now. */
+  subjectType?: string | null;
   qualifyingVisits: number; uniquePatients: number; wouldSendToday: number;
   breakdown: Record<string, number>; rows: PreviewRow[];
 }
@@ -190,7 +203,7 @@ export interface ScheduledResults {
 export interface Results {
   kind?: 'JOURNEY';
   version: number; windowDays: number;
-  goal: AutomationDefinition['goal'];
+  goal: AutomationDefinition['goal'] | null;
   steps: Step[];
   /** One per ASK step: what came back, per button, in patients. */
   asks: {
@@ -419,6 +432,17 @@ export interface StepMeta {
 /** Served so the builder can tell when it has fallen behind the engine. */
 export const listStepKinds = () => apiRequest<{ steps: StepMeta[] }>(`${AUT}/steps`);
 export const listFields = () => apiRequest<{ fields: FieldMeta[] }>(`${AUT}/fields`);
+
+/** Something that can start a journey, with the questions it asks. Served. */
+export interface TriggerMeta {
+  kind: string; label: string; group: string; subjectType: string;
+  /** One plain sentence: what happens in the centre that starts this. */
+  help: string;
+  fields: BlueprintField[];
+}
+export const listTriggers = () => apiRequest<{ triggers: TriggerMeta[] }>(`${AUT}/triggers`);
+export const createFromScratch = (body: { name: string; trigger: Record<string, unknown> }) =>
+  apiRequest<Automation>(`${AUT}/from-scratch`, { method: 'POST', body: JSON.stringify(body) });
 
 export interface DefinitionProblem { where: string; problem: string; blocking: boolean }
 export const validateDefinition = (definition: AutomationDefinition) =>

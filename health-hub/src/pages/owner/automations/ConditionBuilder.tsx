@@ -70,9 +70,12 @@ function parseValue(raw: string, meta?: PredicateMeta): number | string {
   return meta?.unit === 'RUPEES' ? Math.round(n * 100) : n;
 }
 
-export function ConditionBuilder({ open, condition, matchCount, onClose, onSave }: {
+export function ConditionBuilder({ open, condition, matchCount, onClose, onSave, title = 'Who qualifies', subtitle }: {
   open: boolean;
   condition: Condition;
+  /** The same editor answers "who qualifies", "check whether" and "stop when". */
+  title?: string;
+  subtitle?: string;
   matchCount?: { visits: number; patients: number };
   onClose: () => void;
   onSave: (c: Condition) => void;
@@ -112,11 +115,11 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave 
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Who qualifies</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {matchCount
               ? `${matchCount.visits.toLocaleString('en-IN')} qualifying visits · ${matchCount.patients.toLocaleString('en-IN')} patients right now`
-              : 'Everyone the trigger catches, narrowed by these.'}
+              : subtitle ?? 'Everyone the trigger catches, narrowed by these.'}
           </DialogDescription>
         </DialogHeader>
 

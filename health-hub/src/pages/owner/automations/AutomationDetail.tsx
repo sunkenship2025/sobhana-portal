@@ -37,7 +37,8 @@ import {
   type Automation, type AutomationDefinition, type Step, type TemplateSummary,
   type StepMeta, type Condition,
 } from './api';
-import { insertStep, deleteStep, moveStep, blankStep } from './editSteps';
+import { insertStep, deleteStep, moveStep, blankStep, fitBlanks } from './editSteps';
+import { BlanksEditor, RecipientsPicker, WhenDrawer, GoalDrawer } from './builderParts';
 import { describeCondition, describeJump, messagingSteps, dayOf } from './describe';
 
 export function AutomationDetail({ id, onBack }: { id: string; onBack: () => void }) {
@@ -51,6 +52,8 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmActivate, setConfirmActivate] = useState(false);
   const [addAt, setAddAt] = useState<number | null>(null);
+  const [showWhen, setShowWhen] = useState(false);
+  const [showGoal, setShowGoal] = useState(false);
 
   const { data: saved, isLoading } = useQuery({
     queryKey: ['automation', id], queryFn: () => getAutomation(id),
@@ -182,6 +185,8 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
             onAddStep={setAddAt}
             onPreview={() => setShowPreview(true)}
             onEditAudience={() => setShowAudience(true)}
+            onEditWhen={() => setShowWhen(true)}
+            onEditGoal={() => setShowGoal(true)}
           />
           {dirty && (
             <div className="flex justify-end gap-2">
@@ -205,6 +210,28 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
         onChange={(steps) => {
           setDraft({ ...draft, definition: { ...automation.definition, steps } });
           setEditStep(null);
+        }}
+      />
+
+      <WhenDrawer
+        open={showWhen}
+        definition={automation.definition}
+        onClose={() => setShowWhen(false)}
+        onSave={(patch) => {
+          setDraft({ ...draft, definition: { ...automation.definition, ...patch } });
+          setShowWhen(false);
+        }}
+      />
+
+      <GoalDrawer
+        open={showGoal}
+        goal={automation.definition.goal}
+        onClose={() => setShowGoal(false)}
+        onSave={(goal) => {
+          const { goal: _old, ...rest } = automation.definition;
+          void _old;
+          setDraft({ ...draft, definition: goal ? { ...rest, goal } : rest });
+          setShowGoal(false);
         }}
       />
 
@@ -500,7 +527,10 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 <div>
                   <Label className="text-xs">Template</Label>
                   <Select value={current.template}
-                    onValueChange={(v) => setLocal({ ...current, template: v })}>
+                    onValueChange={(v) => setLocal({
+                      ...current, template: v,
+                      params: fitBlanks(current.params, templates.find((x) => x.name === v)?.paramCount ?? current.params.length),
+                    })}>
                     <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {templates.map((t) => (
@@ -514,6 +544,13 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                     The template needs quick-reply buttons for these answers to be tappable.
                   </p>
                 </div>
+
+                <BlanksEditor
+                  template={templates.find((x) => x.name === current.template)}
+                  params={current.params}
+                  onChange={(params) => setLocal({ ...current, params })}
+                  journeyHasOffer={all.some((st) => st.kind === 'SEND' && !!st.issueOffer)}
+                />
 
                 <div>
                   <Label className="text-xs">Answers</Label>
@@ -628,7 +665,10 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 <div>
                   <Label className="text-xs">Template</Label>
                   <Select value={current.template}
-                    onValueChange={(v) => setLocal({ ...current, template: v })}>
+                    onValueChange={(v) => setLocal({
+                      ...current, template: v,
+                      params: fitBlanks(current.params, templates.find((x) => x.name === v)?.paramCount ?? current.params.length),
+                    })}>
                     <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {templates.map((t) => (
@@ -640,32 +680,14 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   </Select>
                 </div>
 
-                {(() => {
-                  const t = templates.find((x) => x.name === current.template);
-                  if (!t) return null;
-                  const mismatch = t.paramCount !== current.params.length;
-                  return (
-                    <>
-                      <div>
-                        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          What the patient sees
-                        </p>
-                        <div className="rounded-lg bg-[#e6ded5] p-3">
-                          <div className="rounded-lg rounded-bl-sm bg-white px-3 py-2 text-[13px] leading-relaxed shadow-sm">
-                            {t.bodyText}
-                          </div>
-                        </div>
-                      </div>
-                      {mismatch && (
-                        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                          This template expects <b>{t.paramCount}</b> blanks and <b>{current.params.length}</b>
-                          {' '}are filled. Saving is refused — a mismatch caught here is a dialog, and caught
-                          at send time it fails for every patient in the run.
-                        </p>
-                      )}
-                    </>
-                  );
-                })()}
+                <BlanksEditor
+                  template={templates.find((x) => x.name === current.template)}
+                  params={current.params}
+                  onChange={(params) => setLocal({ ...current, params })}
+                  journeyHasOffer={!!current.issueOffer || all.some((st) => st.kind === 'SEND' && !!st.issueOffer)}
+                />
+
+                <RecipientsPicker to={current.to} onChange={(to) => setLocal({ ...current, to })} />
 
                 <OfferFields
                   issueOffer={current.issueOffer}
@@ -930,7 +952,7 @@ function PreviewDialog({ id, open, onClose }: { id: string; open: boolean; onClo
           <DialogTitle>Who matches right now</DialogTitle>
           <DialogDescription>
             {data
-              ? `${data.qualifyingVisits.toLocaleString('en-IN')} qualifying visits · ${data.uniquePatients.toLocaleString('en-IN')} patients · ${data.wouldSendToday.toLocaleString('en-IN')} would be messaged today`
+              ? `In the last 30 days, ${data.qualifyingVisits.toLocaleString('en-IN')} would have started this · ${data.uniquePatients.toLocaleString('en-IN')} patients · ${data.wouldSendToday.toLocaleString('en-IN')} would be messaged today`
               : 'Counting…'}
           </DialogDescription>
         </DialogHeader>
@@ -958,7 +980,9 @@ function PreviewDialog({ id, open, onClose }: { id: string; open: boolean; onClo
               ))}
               {data.rows.length === 0 && (
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  Nobody matches yet.
+                  {data.supported === false
+                    ? 'A preview is not available for this kind of automation.'
+                    : 'Nobody in the last 30 days would have started this. Check who qualifies, or wait for new activity.'}
                 </p>
               )}
             </div>
@@ -1002,12 +1026,6 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
   // and hid its opening line.
   const messages = messagingSteps(def.steps);
 
-  const startsWhen =
-    def.trigger.kind === 'VISIT_COMPLETED'
-      ? `a ${def.trigger.domain === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`
-      : def.trigger.kind === 'REPORT_FINALIZED'
-        ? 'a report is finalized'
-        : 'the scheduled time comes round';
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1023,7 +1041,7 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
           </p>
           <div className="divide-y rounded-lg border text-sm">
             <div className="px-3 py-2.5">
-              <b>Starts</b> when {startsWhen} —{' '}
+              <b>Starts</b> — {automation.triggerText ?? 'when its trigger happens'} ·{' '}
               <span className="text-muted-foreground">from today onward. Past visits never enrol.</span>
             </div>
             {messages.map(({ step, index }) => (
@@ -1046,8 +1064,10 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
               </div>
             ))}
             <div className="bg-muted/40 px-3 py-2.5">
-              <b>Stops</b> when {describeCondition(def.goal.condition, catalog)}, or at the end
-              of the journey.
+              <b>Stops</b>{' '}
+              {def.goal
+                ? <>when {describeCondition(def.goal.condition, catalog)}, or at the end of the journey.</>
+                : <>after its last step.</>}
             </div>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">

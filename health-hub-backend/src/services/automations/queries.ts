@@ -235,8 +235,10 @@ export async function automationResults(automationId: string) {
       read: !!prev?.read || !!m.readAt,
     });
   }
+  // A journey built from scratch may have no goal: nothing is counted as converted.
+  const windowDays = def.goal?.windowDays ?? 0;
   const funnel = journeyFunnel(
-    journeys, messages, def.goal.windowDays,
+    journeys, messages, windowDays,
     new Set(refusedMessages.map((m) => m.automationRunId!)),
   );
 
@@ -266,13 +268,13 @@ export async function automationResults(automationId: string) {
   // Without a held-back group there is nothing to subtract, and pH = 0 would present
   // every walk-in as caused. No number is the honest answer.
   const controlled = held.length > 0;
-  const converted = journeys.filter((r) => r.convertedBranchId && convertedWithin(r, def.goal.windowDays));
+  const converted = journeys.filter((r) => r.convertedBranchId && convertedWithin(r, windowDays));
 
   return {
     version: a.version,
-    windowDays: def.goal.windowDays,
-    /** What counts as converted. The screen words it; it never assumes what it is. */
-    goal: def.goal,
+    windowDays,
+    /** What counts as converted — null when the journey has no goal. The screen words it. */
+    goal: def.goal ?? null,
     /** So the screen can name each question the way the builder does. */
     steps: def.steps,
     asks: askAnswers(

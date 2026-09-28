@@ -170,6 +170,21 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       });
       if (already) continue;
 
+      // "Once" and "every N days" are about the PATIENT. They were keyed on the subject —
+      // for a visit trigger, the visit — so every new visit was a new subject and neither
+      // limited anything: a regular would have been enrolled on every visit.
+      const limit = patientReentry(def.reentry, ctx.now);
+      if (c.patientId && limit.check) {
+        const before = await prisma.automationRun.count({
+          where: {
+            automationId: a.id, patientId: c.patientId,
+            // A suppressed or held-back run still counts: the patient was considered.
+            ...(limit.since ? { triggeredAt: { gte: limit.since } } : {}),
+          },
+        });
+        if (before > 0) continue;
+      }
+
       if (def.reentry.concurrency === 'ONE_ACTIVE_PER_PATIENT' && c.patientId) {
         const live = await prisma.automationRun.count({
           where: { automationId: a.id, patientId: c.patientId, state: { in: ['PENDING', 'RUNNING'] } },
@@ -791,6 +806,22 @@ export function lateForWindow(
   const end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
   const at = decision.kind === 'DEFER' && decision.until ? decision.until : now;
   return at > end;
+}
+
+/**
+ * How often one PATIENT may enter, as a check the enrolment loop can run: "every time"
+ * needs no check; "once" means any earlier run at all; "every N days" means a run in the
+ * last N days.
+ */
+export function patientReentry(
+  reentry: AutomationDefinition['reentry'],
+  now: Date,
+): { check: boolean; since?: Date } {
+  if (reentry.mode === 'ONCE') return { check: true };
+  if (reentry.mode === 'EVERY_N_DAYS') {
+    return { check: true, since: new Date(now.getTime() - Math.max(1, reentry.days ?? 30) * DAY_MS) };
+  }
+  return { check: false };
 }
 
 async function goalValue(

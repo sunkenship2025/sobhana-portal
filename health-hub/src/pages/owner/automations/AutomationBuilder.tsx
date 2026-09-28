@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { listPredicates, type Automation, type AutomationDefinition, type Step, type TemplateSummary } from './api';
-import { describeCondition, describeJump } from './describe';
+import { describeCondition, describeJump, describeReentry } from './describe';
 
 /** Contiguous CHECK/SEND steps that follow a WAIT, shown as one dated block. */
 interface DayBlock {
@@ -73,6 +73,7 @@ const clockLabel = (m: number) => {
 
 export function AutomationBuilder({
   automation, templates, onChange, onEditStep, onAddStep, onPreview, onEditAudience,
+  onEditWhen, onEditGoal,
 }: {
   automation: Automation;
   templates: TemplateSummary[];
@@ -82,6 +83,10 @@ export function AutomationBuilder({
   onAddStep: (at: number) => void;
   onPreview: () => void;
   onEditAudience: () => void;
+  /** Change what starts it and how often. */
+  onEditWhen: () => void;
+  /** Change when it stops early, if ever. */
+  onEditGoal: () => void;
 }) {
   // The vocabulary, so nothing on this screen describes a predicate in words the engine
   // would not recognise.
@@ -145,13 +150,13 @@ export function AutomationBuilder({
                 </span>
               </>
             )}
-            <span className={`block text-sm font-medium ${isScheduled ? 'hidden' : ''}`}>
-              {def.trigger.kind === 'VISIT_COMPLETED'
-                ? `A ${def.trigger.domain === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`
-                : def.trigger.kind === 'REPORT_FINALIZED'
-                  ? 'A report is finalized'
-                  : `Every day at ${clockLabel(def.trigger.everyDayAtMinutes)}`}
-            </span>
+            {!isScheduled && (
+              // The server's sentence for the trigger, from the registry — this used to be
+              // written here, and knew two triggers out of eleven.
+              <button onClick={onEditWhen} className="block text-left text-sm font-medium hover:underline">
+                {automation.triggerText ?? 'Choose what starts this'}
+              </button>
+            )}
             <span className="mt-0.5 block text-xs text-muted-foreground">
               {automation.branchIds.length === 0 ? 'All branches' : `${automation.branchIds.length} branches`}
               {isScheduled
@@ -161,11 +166,7 @@ export function AutomationBuilder({
                   : ' · nothing enrolled until you activate'}
             </span>
             {!isScheduled && (
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {def.reentry.concurrency === 'ALLOW_PARALLEL'
-                  ? 'Every qualifying visit starts its own journey — a patient can have two running at once'
-                  : 'Only one journey per patient at a time'}
-              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{describeReentry(def.reentry)}</span>
             )}
           </span>
         </div>
@@ -324,16 +325,29 @@ export function AutomationBuilder({
       <div className={`divide-y rounded-lg border ${isScheduled ? 'hidden' : ''}`}>
         <div className="flex items-start gap-3 px-4 py-3">
           <span className={VERB}>Stop</span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">
-              When {describeCondition(def.goal.condition, catalog)}
-              {tail.length > 0 && ' — or after the last message'}
-            </span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">
-              Re-checked before every action, and counted for {def.goal.windowDays} days after the
-              trigger. No new step starts after the last day; one already due is still sent.
-            </span>
-          </span>
+          <button onClick={onEditGoal} className="min-w-0 flex-1 text-left">
+            {def.goal ? (
+              <>
+                <span className="block text-sm font-medium hover:underline first-letter:uppercase">
+                  When {describeCondition(def.goal.condition, catalog)}
+                  {tail.length > 0 && ' — or after the last step'}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Checked before every step, for {def.goal.windowDays} days after it starts. Nothing
+                  promotional is sent after that.
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="block text-sm font-medium hover:underline">After the last step</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Nothing stops it early. Click to stop it as soon as something happens — like the
+                  patient coming back.
+                </span>
+              </>
+            )}
+          </button>
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         </div>
       </div>
 

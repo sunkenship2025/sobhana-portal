@@ -37,9 +37,31 @@ export type Condition =
       unit?: string;
     };
 
+/**
+ * Every event-driven trigger the registry in triggers.ts knows. Mirrored here only so the
+ * type can be narrowed; automations-check fails if this list and the registry disagree.
+ */
+export const TRIGGER_KINDS = [
+  'VISIT_COMPLETED', 'VISIT_CANCELLED', 'CLINIC_NO_SHOW', 'PATIENT_REGISTERED',
+  'REPORT_FINALIZED', 'COUPON_ISSUED', 'VISIT_CREATED', 'PAYMENT_RECEIVED',
+  'PAYMENT_REFUNDED', 'CAMPAIGN_BUDGET', 'AUDIENCE_SWEEP',
+] as const;
+export type TriggerKind = (typeof TRIGGER_KINDS)[number];
+
 export type Trigger =
-  | { kind: 'VISIT_COMPLETED'; domain: 'CLINIC' | 'DIAGNOSTICS' }
-  | { kind: 'REPORT_FINALIZED' }
+  /**
+   * Any registered trigger, with whatever settings it takes (see its `fields` in
+   * triggers.ts). The settings are optional here because each trigger supplies its own
+   * default — a trigger never needs a new member of this union.
+   */
+  | {
+      kind: TriggerKind;
+      domain?: 'CLINIC' | 'DIAGNOSTICS';
+      hours?: number;
+      atPercent?: number;
+      everyDays?: number;
+      lookbackDays?: number;
+    }
   | {
       kind: 'SCHEDULE';
       everyDayAtMinutes: number;
@@ -69,7 +91,9 @@ export type Recipients =
   /** The patient this run is about. The default for anything patient-facing. */
   | { kind: 'RUN_PATIENT' }
   /** Named people, or everyone holding a role. Staff-facing. */
-  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' };
+  | { kind: 'USERS'; userIds?: string[]; role?: 'owner' | 'lab_incharge' | 'staff' | 'sales' }
+  /** The doctor the run's visit is referred by today. A self visit has none. */
+  | { kind: 'REFERRING_DOCTOR' };
 
 /** How a message is classified for contention — NOT Meta's billing category. */
 export type Intent =
@@ -243,7 +267,12 @@ export interface AutomationDefinition {
    * Declared ONCE and read twice: the stop condition is "goal met", and a conversion is
    * "goal met within windowDays of triggeredAt". Two subsystems guarantee they drift.
    */
-  goal: { condition: Condition; windowDays: number; stopReason?: string };
+  /**
+   * When the journey has done its job. OPTIONAL: a journey built from scratch may simply
+   * run its steps to the end — a staff alert has nothing to "convert". Without a goal
+   * there is no early stop and no conversion count, and nothing else changes.
+   */
+  goal?: { condition: Condition; windowDays: number; stopReason?: string };
   steps: Step[];
 }
 

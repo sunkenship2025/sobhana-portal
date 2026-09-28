@@ -23,6 +23,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
   listBlueprints, createFromBlueprint, listTemplates, listOffers, rupees,
+  listTriggers, createFromScratch,
   type Blueprint, type BlueprintField,
 } from './api';
 
@@ -33,6 +34,9 @@ export function CreateAutomation({ open, onClose, onCreated }: {
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [picked, setPicked] = useState<Blueprint | null>(null);
+  /** Starting from scratch: no blueprint, just a trigger. Everything else is built after. */
+  const [scratch, setScratch] = useState(false);
+  const [triggerKind, setTriggerKind] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [values, setValues] = useState<Values>({});
 
@@ -45,6 +49,11 @@ export function CreateAutomation({ open, onClose, onCreated }: {
   const { data: offerData } = useQuery({
     queryKey: ['offers'], queryFn: listOffers, enabled: open,
   });
+  const { data: triggerData } = useQuery({
+    queryKey: ['triggers'], queryFn: listTriggers, enabled: open,
+  });
+  const triggers = triggerData?.triggers ?? [];
+  const pickedTrigger = triggers.find((t) => t.kind === triggerKind) ?? null;
   const branches = useBranchStore((s) => s.branches);
 
   // Defaults come from the blueprint, so the server decides them once.
@@ -56,9 +65,9 @@ export function CreateAutomation({ open, onClose, onCreated }: {
   }, [picked]);
 
   const create = useMutation({
-    mutationFn: () => createFromBlueprint({
-      blueprintId: picked!.id, name: name.trim() || undefined, values,
-    }),
+    mutationFn: () => scratch
+      ? createFromScratch({ name: name.trim(), trigger: { kind: triggerKind, ...values } })
+      : createFromBlueprint({ blueprintId: picked!.id, name: name.trim() || undefined, values }),
     onSuccess: (a) => {
       toast.success('Created as a draft. Nothing sends until you activate it.');
       reset();
@@ -67,7 +76,15 @@ export function CreateAutomation({ open, onClose, onCreated }: {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const reset = () => { setStep(1); setPicked(null); setName(''); setValues({}); };
+  const reset = () => { setStep(1); setPicked(null); setScratch(false); setTriggerKind(null); setName(''); setValues({}); };
+
+  const chooseTrigger = (kind: string) => {
+    setTriggerKind(kind);
+    const t = triggers.find((x) => x.kind === kind);
+    const next: Values = {};
+    for (const f of t?.fields ?? []) if (f.default !== undefined) next[f.key] = f.default;
+    setValues(next);
+  };
 
   const missing = useMemo(() => {
     if (!picked) return [];
@@ -197,7 +214,7 @@ export function CreateAutomation({ open, onClose, onCreated }: {
     <Dialog open={open} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{step === 1 ? 'Create automation' : picked?.title}</DialogTitle>
+          <DialogTitle>{step === 1 ? 'Create automation' : scratch ? 'Start from scratch' : picked?.title}</DialogTitle>
           <DialogDescription>
             {step === 1
               ? 'What do you want to automate?'
@@ -208,6 +225,18 @@ export function CreateAutomation({ open, onClose, onCreated }: {
         {step === 1 ? (
           isLoading ? <LoadingState /> : (
             <div className="space-y-4">
+              <div className="rounded-lg border">
+                <button onClick={() => { setScratch(true); setStep(2); }}
+                  className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-muted/50">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Start from scratch</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Pick what starts it, then add the messages, checks and waits yourself. For
+                      anything the ready-made ones below don't cover.
+                    </span>
+                  </span>
+                </button>
+              </div>
               {groups.map((g) => (
                 <div key={g.group}>
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -228,6 +257,41 @@ export function CreateAutomation({ open, onClose, onCreated }: {
               ))}
             </div>
           )
+        ) : scratch ? (
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Name<span className="ml-1 text-muted-foreground">·  required</span></Label>
+              <Input className="mt-1.5" placeholder="e.g. Family offer for self patients"
+                value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">What starts it</Label>
+              <div className="mt-1.5 max-h-72 divide-y overflow-y-auto rounded-lg border">
+                {triggers.map((t) => (
+                  <button key={t.kind} type="button" onClick={() => chooseTrigger(t.kind)}
+                    className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left hover:bg-muted/50 ${triggerKind === t.kind ? 'bg-muted' : ''}`}>
+                    <span aria-hidden className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border-[3px] ${
+                      triggerKind === t.kind ? 'border-foreground' : 'border-muted-foreground/40'}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{t.label}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{t.help}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {pickedTrigger?.fields.map((f) => (
+              <div key={f.key}>
+                <Label className="text-xs">{f.label}</Label>
+                <div className="mt-1.5">{renderField(f)}</div>
+                {f.help && <p className="mt-1.5 text-xs text-muted-foreground">{f.help}</p>}
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              It is created as a draft with no steps. Nothing is sent until you add steps and
+              switch it on.
+            </p>
+          </div>
         ) : picked && (
           <div className="space-y-3">
             <div>
@@ -248,13 +312,17 @@ export function CreateAutomation({ open, onClose, onCreated }: {
         )}
 
         <DialogFooter>
-          {step === 2 && <Button variant="outline" onClick={() => setStep(1)}>Back</Button>}
+          {step === 2 && <Button variant="outline" onClick={() => { setStep(1); setScratch(false); setTriggerKind(null); }}>Back</Button>}
           <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
           {step === 2 && (
-            <Button disabled={create.isPending || missing.length > 0} onClick={() => create.mutate()}>
+            <Button
+              disabled={create.isPending || (scratch ? (!triggerKind || !name.trim()) : missing.length > 0)}
+              onClick={() => create.mutate()}>
               {create.isPending ? 'Creating…'
-                : missing.length > 0 ? `Needs ${missing[0].label.toLowerCase()}`
-                : 'Create draft'}
+                : scratch
+                  ? (!name.trim() ? 'Needs a name' : !triggerKind ? 'Choose what starts it' : 'Create draft')
+                  : missing.length > 0 ? `Needs ${missing[0].label.toLowerCase()}`
+                  : 'Create draft'}
             </Button>
           )}
         </DialogFooter>

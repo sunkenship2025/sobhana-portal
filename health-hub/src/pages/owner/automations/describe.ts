@@ -13,7 +13,7 @@
  * The vocabulary is the catalog the backend serves, so a predicate can never be
  * described by a label the engine does not recognise.
  */
-import type { Condition, PredicateMeta, Step, Jump } from './api';
+import type { Condition, PredicateMeta, Step, Jump, AutomationDefinition } from './api';
 
 const OP_WORDS: Record<string, string> = {
   gte: 'is at least', lte: 'is at most', gt: 'is more than',
@@ -99,4 +99,14 @@ export function dayOf(steps: Step[], index: number): string {
     if (s.kind === 'WAIT' && s.anchor === 'TRIGGER') return `Day ${s.days ?? 0}`;
   }
   return 'Straight away';
+}
+
+/** How often one patient can start this, in words. */
+export function describeReentry(r: AutomationDefinition['reentry']): string {
+  const how = r.mode === 'ONCE' ? 'Only once per patient, ever'
+    : r.mode === 'EVERY_N_DAYS' ? `At most once every ${r.days ?? 30} days per patient`
+    : 'Every time it happens';
+  return `${how} · ${r.concurrency === 'ALLOW_PARALLEL'
+    ? 'a patient can have two running at once'
+    : 'one running per patient at a time'}`;
 }

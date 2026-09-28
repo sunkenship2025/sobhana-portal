@@ -19,6 +19,7 @@ import { unknownPredicates, PREDICATE_CATALOG } from '../services/automations/pr
 import { listBlueprints, buildFromBlueprint } from '../services/automations/blueprints';
 import { STEP_CATALOG, validateDefinition } from '../services/automations/steps';
 import { FIELD_CATALOG } from '../services/automations/fields';
+import { TRIGGERS, listTriggers, describeTrigger } from '../services/automations/triggers';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 import { phoneKey } from '../services/automations/phone';
@@ -49,6 +50,55 @@ router.get('/templates', async (_req: AuthRequest, res) => {
 router.get('/fields', async (_req: AuthRequest, res) => {
   try { return res.json({ fields: FIELD_CATALOG }); }
   catch (e) { return fail(res, e); }
+});
+
+/** What can start a journey, with the questions each one asks. Served, like predicates. */
+router.get('/triggers', async (_req: AuthRequest, res) => {
+  try { return res.json({ triggers: listTriggers() }); }
+  catch (e) { return fail(res, e); }
+});
+
+/**
+ * Start from scratch: a trigger and nothing else. Every other part is added in the
+ * builder — which is the point: a journey no blueprint anticipated still gets built
+ * without anyone writing code.
+ */
+router.post('/from-scratch', async (req: AuthRequest, res) => {
+  try {
+    const { name, trigger } = req.body ?? {};
+    const t = trigger && typeof trigger.kind === 'string' ? TRIGGERS[trigger.kind] : undefined;
+    if (!t) return res.status(400).json({ error: 'Choose what starts this automation.' });
+    if (!String(name ?? '').trim()) return res.status(400).json({ error: 'Give it a name.' });
+
+    // Anything the trigger asks that was not answered takes the trigger's own default.
+    const config: Record<string, unknown> = { kind: t.kind };
+    for (const f of t.fields ?? []) {
+      const v = trigger[f.key];
+      config[f.key] = v === undefined || v === '' ? f.default : (f.type === 'NUMBER' ? Number(v) : v);
+    }
+
+    const a = await prisma.automation.create({
+      data: {
+        key: `SCRATCH_${Date.now().toString(36).toUpperCase()}`,
+        name: String(name).trim(),
+        group: 'Patient journeys',
+        definition: {
+          trigger: config,
+          // Safe defaults, all changeable in the builder: every time it happens, but one
+          // live journey per patient at a time; anyone the trigger catches; no goal yet.
+          reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+          audience: { fn: 'always' },
+          steps: [],
+        } as object,
+        enabled: false, activatedAt: null, holdoutPct: 0, priority: 3, branchIds: [],
+      },
+    });
+    await logAction({
+      branchId: req.branchId!, actionType: 'CREATE', entityType: 'Automation',
+      entityId: a.id, userId: req.user?.id, newValues: JSON.stringify({ fromScratch: t.kind }),
+    });
+    return res.status(201).json(a);
+  } catch (e) { return fail(res, e); }
 });
 
 router.get('/steps', async (_req: AuthRequest, res) => {
@@ -215,7 +265,11 @@ router.get('/patients/:patientId', async (req: AuthRequest, res) => {
 router.get('/:id', async (req: AuthRequest, res) => {
   try {
     const a = await prisma.automation.findUnique({ where: { id: req.params.id } });
-    return a ? res.json(a) : res.status(404).json({ error: 'NOT_FOUND' });
+    if (!a) return res.status(404).json({ error: 'NOT_FOUND' });
+    // The trigger in the registry's own words — the screen used to write this sentence
+    // itself, and knew two triggers out of eleven.
+    const def = a.definition as { trigger?: { kind: string } & Record<string, unknown> };
+    return res.json({ ...a, triggerText: def.trigger ? describeTrigger(def.trigger) : null });
   } catch (e) { return fail(res, e); }
 });
 
@@ -452,6 +506,19 @@ router.put('/:id', async (req: AuthRequest, res) => {
  */
 router.post('/:id/activate', async (req: AuthRequest, res) => {
   try {
+    // Activation is where a journey starts messaging real people, so it is checked here
+    // too — it was not, and a draft with broken steps (or none) could be switched on.
+    const current = await prisma.automation.findUnique({ where: { id: req.params.id } });
+    if (!current) return res.status(404).json({ error: 'NOT_FOUND' });
+    const def = current.definition as { steps?: unknown[] };
+    if (!def.steps || def.steps.length === 0) {
+      return res.status(400).json({ error: 'Add at least one step before switching this on.' });
+    }
+    const blocking = validateDefinition(def as never, await campaignIds()).filter((p) => p.blocking);
+    if (blocking.length) {
+      return res.status(400).json({ error: `${blocking[0].where}: ${blocking[0].problem}` });
+    }
+
     const a = await prisma.automation.update({
       where: { id: req.params.id },
       data: { enabled: true, activatedAt: new Date(), version: { increment: 1 } },
