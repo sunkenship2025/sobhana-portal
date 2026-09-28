@@ -31,14 +31,24 @@ import { getRedisClient } from '../lib/redis';
  * a disabled account or demoted role stays live for up to the TTL. Two things
  * bound that:
  *
- *  1. INVARIANT: every write to User must call invalidateAuthUser(). Today that
- *     is exactly two sites (role + isActive in routes/users.ts) — there is no
- *     other User mutation in the backend, and activeBranchId is set once at
- *     creation and never updated. ADD THE CALL if you add a third.
+ *  1. INVARIANT: every write to a cached User field (role, isActive, email,
+ *     activeBranchId) must call invalidateAuthUser(). The sites: routes/users.ts
+ *     (role, isActive, delete), routes/doctorLogins.ts (revoke), routes/auth.ts and
+ *     the portal-invite claim in routes/webhooks.ts. The doctor-login revoke was
+ *     missing, and a revoked doctor stayed signed in until the TTL ran out. ADD THE
+ *     CALL if you add another. Password writes need none: the hash is not cached.
  *  2. The TTL is the only guard for changes the app cannot see: a direct SQL
  *     edit, or a prisma/*.ts script (create-staff-users.ts and friends). It is
  *     also the only guard for Branch, which has NO write path in the backend at
- *     all — branches are created and toggled outside the app.
+ *     all — branches are created and toggled outside the app. So a branch or user
+ *     switched off by hand stays live for up to TTL_SECONDS.
+ *
+ * THE TTL MUST OUTLAST THE WORKLIST POLL. It was 60s — the same as the 60s refresh
+ * on Pending Results, Finalized and the clinic queues — so an idle screen found both
+ * keys just expired on almost every tick, and paid a Redis write AND a Postgres read
+ * per key per minute, all day, for an answer that had not changed. Revocation made
+ * inside the app is immediate regardless (point 1), so the TTL only bounds the
+ * out-of-band cases above.
  *
  * Lives in the general (LRU) Redis, not the security store: an evicted entry
  * degrades to a Postgres read, i.e. it fails SAFE. That is the opposite of a
@@ -46,7 +56,7 @@ import { getRedisClient } from '../lib/redis';
  */
 const USER_KEY = (id: string) => `auth:user:v1:${id}`;
 const BRANCH_KEY = (id: string) => `auth:branch:v1:${id}`;
-const TTL_SECONDS = 60;
+const TTL_SECONDS = 5 * 60;
 
 function loadUser(userId: string) {
   return prisma.user.findUnique({

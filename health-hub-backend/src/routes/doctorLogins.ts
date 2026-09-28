@@ -20,7 +20,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { branchContextMiddleware } from '../middleware/branch';
+import { branchContextMiddleware, invalidateAuthUser } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
@@ -210,6 +210,9 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       await tx.user.update({ where: { id: doctor.userId! }, data: { isActive: false } });
       await tx.clinicDoctor.update({ where: { id: doctor.id }, data: { userId: null } });
     });
+    // Revoking is the whole point of this route, and the authorization row is cached:
+    // without this a revoked doctor stayed signed in until the cache ran out.
+    await invalidateAuthUser(doctor.userId);
 
     await logAction({
       branchId: req.branchId!,
