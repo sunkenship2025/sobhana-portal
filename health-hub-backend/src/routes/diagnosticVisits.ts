@@ -2824,7 +2824,9 @@ router.post("/", async (req: AuthRequest, res) => {
     if (typeof couponCode === "string" && couponCode.trim()) {
       const svc = await import("../services/couponService");
       redeemCouponInTx = svc.redeemCouponInTx;
-      const v = await svc.validateCouponByCode(couponCode);
+      // The patient being billed — a coupon bound to its patient refuses anyone else,
+      // and refused EVERYONE while this was not passed.
+      const v = await svc.validateCouponByCode(couponCode, patientId);
       if (!v.ok || !v.coupon || !v.campaign) {
         return res.status(400).json({
           error: "COUPON_INVALID",
@@ -2836,7 +2838,9 @@ router.post("/", async (req: AuthRequest, res) => {
                 ? "This coupon has expired."
                 : v.reason === "NOT_FOUND"
                   ? "No coupon found for that code."
-                  : "This coupon can't be applied.",
+                  : v.reason === "WRONG_PATIENT"
+                    ? "This coupon was issued to a different patient."
+                    : "This coupon can't be applied.",
         });
       }
       // allowedProductIds non-empty ⇒ discount ONLY those products (the patient's

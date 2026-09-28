@@ -316,6 +316,17 @@ router.post(
               console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
             }
 
+            // A journey's question that WhatsApp refused must not sit waiting four days for
+            // an answer to a message the patient never got. Never allowed to break the ack.
+            if (statusValue === 'failed' && updated.count > 0) {
+              try {
+                const { askNotDelivered } = await import('../services/automations/engine');
+                await askNotDelivered(waMessageId, updateData.errorCode ?? null);
+              } catch (e: any) {
+                console.error(`[Webhook] automation wake failed for ${waMessageId}: ${e?.message}`);
+              }
+            }
+
             // Mirror onto the inbox thread message (WhatsApp-style ticks). Guard
             // forward-only: only overwrite a strictly-earlier state, so out-of-order
             // webhooks (a late 'delivered' after 'read') can't regress the tick.

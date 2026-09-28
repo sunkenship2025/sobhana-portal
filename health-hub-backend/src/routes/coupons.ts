@@ -20,7 +20,11 @@ router.get('/validate', async (req, res) => {
     return res.status(400).json({ ok: false, reason: 'NOT_FOUND', message: 'Enter a coupon code.' });
   }
   try {
-    const v = await validateCouponByCode(code);
+    // Who is being billed. Without it a coupon bound to its patient was refused for
+    // EVERYONE, the patient it was sent to included: the check reads a missing patient
+    // as the wrong one, which is the safe direction and was hitting every bound code.
+    const patientId = typeof req.query.patientId === 'string' && req.query.patientId ? req.query.patientId : null;
+    const v = await validateCouponByCode(code, patientId);
     if (!v.ok || !v.coupon || !v.campaign) {
       return res.json({
         ok: false,
@@ -32,7 +36,9 @@ router.get('/validate', async (req, res) => {
               ? 'This coupon has expired.'
               : v.reason === 'NOT_FOUND'
                 ? 'No coupon found for that code.'
-                : "This coupon can't be applied.",
+                : v.reason === 'WRONG_PATIENT'
+                  ? 'This coupon was issued to a different patient.'
+                  : "This coupon can't be applied.",
       });
     }
     return res.json({

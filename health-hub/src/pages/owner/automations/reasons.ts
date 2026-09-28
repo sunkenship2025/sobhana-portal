@@ -45,6 +45,7 @@ export const REASON_LABEL: Record<string, string> = {
   REPLIED: 'Answered',
   HANDED_TO_STAFF: 'Given to a person',
   LINE_BUSY: 'Another journey holds the line',
+  NOT_DELIVERED: 'WhatsApp did not deliver it',
   SUPPRESSED_ACTIVE_JOURNEY: 'Skipped — already in a journey',
   CAMPAIGN_INACTIVE: 'Offer switched off — no code issued',
   NO_SCHEDULE_ROW: 'No schedule for that branch',

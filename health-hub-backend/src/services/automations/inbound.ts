@@ -14,6 +14,7 @@
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { Outcome, type AutomationDefinition } from './types';
+import { phoneKey } from './phone';
 
 const STOP_WORDS = /^\s*(stop|unsubscribe|opt\s*out)\b/i;
 const START_WORDS = /^\s*(start|resume|subscribe)\b/i;
@@ -48,11 +49,13 @@ export interface InboundResolution {
  * when the patient uses the swipe gesture, and most people just type.
  */
 export async function resolveInbound(
-  phone: string,
+  from: string,
   body: string,
   buttonPayload: string | null,
   now: Date = new Date(),
 ): Promise<InboundResolution> {
+  // WhatsApp says `919876543210`; the line was held under `9876543210`. See phone.ts.
+  const phone = phoneKey(from);
   const result: InboundResolution = {
     runId: null, patientId: null, stepIndex: null,
     stopped: false, handedOff: false, optedOut: false, optedIn: false,
@@ -217,7 +220,7 @@ export async function holdLine(
   try {
     await prisma.awaitingReply.create({
       data: {
-        phone, automationRunId: runId, patientId,
+        phone: phoneKey(phone), automationRunId: runId, patientId,
         expiresAt: new Date(Date.now() + hours * 60 * 60 * 1000),
         match: match as object,
       },

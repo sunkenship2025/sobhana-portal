@@ -11,6 +11,7 @@
  * from a plain object, and is what the offline harness and the "Try it out" screen use.
  */
 import prisma from '../../lib/prisma';
+import { phoneKey, threadPhone } from './phone';
 import { computeBillFinancialsFromPersisted } from '../billFinancialService';
 
 export interface VisitFacts {
@@ -201,13 +202,13 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
     },
 
     async phoneOptedOut(phone) {
-      const row = await prisma.phoneOptOut.findUnique({ where: { phone }, select: { phone: true } });
+      const row = await prisma.phoneOptOut.findUnique({ where: { phone: phoneKey(phone) }, select: { phone: true } });
       return !!row;
     },
 
     async threadHeldByHuman(phone) {
       const c = await prisma.conversation.findUnique({
-        where: { phone },
+        where: { phone: threadPhone(phone) },
         select: { assignedToId: true, status: true },
       });
       return !!c?.assignedToId && c.status === 'OPEN';
@@ -215,7 +216,7 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
 
     async lineHeldByAnotherRun(phone, runId) {
       const slot = await prisma.awaitingReply.findUnique({
-        where: { phone },
+        where: { phone: phoneKey(phone) },
         select: { automationRunId: true, expiresAt: true },
       });
       if (!slot) return false;
@@ -403,10 +404,11 @@ export function memoryContext(facts: FactSet): AutomationContext {
     async lastProactiveMessageAt(patientId) {
       return facts.lastProactiveByPatient?.[patientId] ?? null;
     },
-    async phoneOptedOut(phone) { return (facts.optedOutPhones ?? []).includes(phone); },
-    async threadHeldByHuman(phone) { return (facts.humanHeldPhones ?? []).includes(phone); },
+    async phoneOptedOut(phone) { return (facts.optedOutPhones ?? []).map(phoneKey).includes(phoneKey(phone)); },
+    async threadHeldByHuman(phone) { return (facts.humanHeldPhones ?? []).map(phoneKey).includes(phoneKey(phone)); },
     async lineHeldByAnotherRun(phone, runId) {
-      const holder = facts.linesHeldByRun?.[phone];
+      const holder = Object.entries(facts.linesHeldByRun ?? {})
+        .find(([p]) => phoneKey(p) === phoneKey(phone))?.[1];
       return !!holder && holder !== runId;
     },
     async higherPriorityRunDue(patientId) {

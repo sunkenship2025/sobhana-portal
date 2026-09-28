@@ -23,6 +23,7 @@ import {
 } from '../health-hub/src/pages/owner/automations/editSteps';
 import { REASON_LABEL } from '../health-hub/src/pages/owner/automations/reasons';
 import { Outcome } from './src/services/automations/types';
+import { phoneKey, threadPhone } from './src/services/automations/phone';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2026-09-11T11:00:00.000Z'); // 16:30 IST — inside sending hours
@@ -1063,6 +1064,35 @@ async function main() {
         }
       }
     }
+  });
+
+  // ══ One phone, one key ════════════════════════════════════════════════════
+  //
+  // The line was held under the patient's ten digits and looked up under WhatsApp's
+  // twelve. Two real patients tapped Get my code and nothing happened; a STOP would have
+  // been written in one form and checked in the other. Every form must land on one key.
+
+  await check('every form of one number is the same key', () => {
+    const forms = ['9491234567', '919491234567', '+91 94912 34567', '09491234567', '+91-9491-234567'];
+    const keys = new Set(forms.map(phoneKey));
+    assert.deepStrictEqual([...keys], ['9491234567'], `forms split into ${[...keys].join(', ')}`);
+  });
+
+  await check('the inbox thread is found under the number WhatsApp reports', () => {
+    assert.strictEqual(threadPhone('9491234567'), '919491234567');
+    assert.strictEqual(threadPhone('919491234567'), '919491234567');
+  });
+
+  await check('a line held in one form is seen from the other', async () => {
+    const ctx = memoryContext({
+      now: T0, visits: [], patients: [],
+      linesHeldByRun: { '9491234567': 'RUN_A' },
+      optedOutPhones: ['919491234567'],
+      humanHeldPhones: ['919491234567'],
+    } as never);
+    assert.strictEqual(await ctx.lineHeldByAnotherRun('919491234567', 'RUN_B'), true, 'line not seen across forms');
+    assert.strictEqual(await ctx.phoneOptedOut('9491234567'), true, 'a STOP in one form did not stop the other');
+    assert.strictEqual(await ctx.threadHeldByHuman('9491234567'), true, 'a staff-held thread did not hold the journey off');
   });
 
   await check('every outcome the engine emits has words for it', () => {

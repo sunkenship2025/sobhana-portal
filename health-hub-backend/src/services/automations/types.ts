@@ -284,5 +284,7 @@ export const Outcome = {
   REPLIED: 'REPLIED',
   HANDED_TO_STAFF: 'HANDED_TO_STAFF',
   LINE_BUSY: 'LINE_BUSY',
+  /** WhatsApp accepted the question, then refused to deliver it (e.g. 131049). */
+  NOT_DELIVERED: 'NOT_DELIVERED',
 } as const;
 export type OutcomeCode = (typeof Outcome)[keyof typeof Outcome];

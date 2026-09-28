@@ -27,6 +27,7 @@ import { Outcome, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
 import { TRIGGERS } from './triggers';
 import { holdLine } from './inbound';
+import { phoneKey, threadPhone } from './phone';
 import {
   sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
 } from '../automatedMessageService';
@@ -409,6 +410,14 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         );
         if (c?.refused) {
           await log(runId, run.stepIndex, 'COUPON', c.refused);
+          // The message was going out anyway with COUPON_CODE bound to '' — "your code is
+          // ." to someone who had just tapped Get my code. When the words need the code
+          // and there is no code, the message does not go: a person picks the thread up
+          // instead, because the patient asked for something and silence is not an answer.
+          if (step.params.some((b) => b.from === 'COUPON_CODE')) {
+            await handToStaff(runId, run.stepIndex, phone, `No code could be issued: ${c.refused}`);
+            return;
+          }
         } else if (c) {
           couponCode = c.code;
           couponId = c.couponId;
@@ -538,7 +547,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       // Coming BACK to this step means the window closed with no answer — the reply
       // path moves stepIndex itself, so we only ever return here unanswered.
       const slot = phone
-        ? await prisma.awaitingReply.findUnique({ where: { phone }, select: { automationRunId: true, expiresAt: true } })
+        ? await prisma.awaitingReply.findUnique({ where: { phone: phoneKey(phone) }, select: { automationRunId: true, expiresAt: true } })
         : null;
       const asked = await prisma.automationStepLog.findFirst({
         where: { runId, stepIndex: run.stepIndex, outcome: Outcome.ASKED },
@@ -546,7 +555,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       });
       if (asked) {
         if (slot?.automationRunId === runId) {
-          await prisma.awaitingReply.delete({ where: { phone: phone! } }).catch(() => {});
+          await prisma.awaitingReply.delete({ where: { phone: phoneKey(phone!) } }).catch(() => {});
         }
         await log(runId, run.stepIndex, 'ASK', Outcome.NO_REPLY);
 
@@ -642,13 +651,19 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
       await log(runId, run.stepIndex, 'ASK', Outcome.ASKED,
         { template: step.template, buttons: step.buttons.map((b) => b.label) }, sent.messageLogId);
+      // Meta's refusal arrives by webhook a few seconds after it accepted the send. If it
+      // already has, askNotDelivered woke this run a moment ago — pushing the wake-up out
+      // by the whole window here would undo that.
+      const refusedAlready = sent.messageLogId
+        ? (await prisma.messageLog.findUnique({ where: { id: sent.messageLogId }, select: { status: true } }))?.status === 'FAILED'
+        : false;
       // Wake when the window closes, so silence is an outcome rather than a run that
       // sits forever.
       await prisma.automationRun.update({
         where: { id: runId },
         data: {
           state: 'PENDING',
-          nextActionAt: new Date(ctx.now.getTime() + waitHours * 60 * 60 * 1000),
+          nextActionAt: refusedAlready ? ctx.now : new Date(ctx.now.getTime() + waitHours * 60 * 60 * 1000),
         },
       });
       return;
@@ -656,20 +671,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
     case 'HANDOFF': {
       const toH = await resolveRecipients(undefined, run, { kind: 'RUN_PATIENT' });
-      const phoneH = toH.phones[0] ?? null;
-      if (phoneH) {
-        // Mark the thread as needing a person. Marketing then stays off it while they
-        // are there — a report still reaches the patient.
-        await prisma.conversation.updateMany({
-          where: { phone: phoneH },
-          data: { status: 'OPEN', unreadCount: { increment: 1 } },
-        });
-        await prisma.awaitingReply.deleteMany({ where: { phone: phoneH } });
-      }
-      await log(runId, run.stepIndex, 'HANDOFF', Outcome.HANDED_TO_STAFF, { note: step.note ?? null });
-      // The run ENDS here. A journey that wakes up three days into a human conversation
-      // is worse than no journey at all.
-      await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, run.stepIndex);
+      await handToStaff(runId, run.stepIndex, toH.phones[0] ?? null, step.note ?? null);
       return;
     }
 
@@ -678,6 +680,66 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       return;
     }
   }
+}
+
+/**
+ * Give the thread to a person and end the run.
+ *
+ * The inbox files a thread under the number as WhatsApp reports it — twelve digits —
+ * and this flagged it under the patient's ten. It matched no thread, ever: every
+ * handoff logged HANDED_TO_STAFF and put nothing in front of anyone.
+ */
+async function handToStaff(runId: string, stepIndex: number, phone: string | null, note: string | null) {
+  if (phone) {
+    // Mark the thread as needing a person. Marketing then stays off it while they
+    // are there — a report still reaches the patient.
+    await prisma.conversation.updateMany({
+      where: { phone: threadPhone(phone) },
+      data: { status: 'OPEN', unreadCount: { increment: 1 } },
+    });
+    await prisma.awaitingReply.deleteMany({ where: { phone: phoneKey(phone) } });
+  }
+  await log(runId, stepIndex, 'HANDOFF', Outcome.HANDED_TO_STAFF, { note });
+  // The run ENDS here. A journey that wakes up three days into a human conversation
+  // is worse than no journey at all.
+  await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, stepIndex);
+}
+
+/**
+ * WhatsApp accepted a question and then refused to deliver it.
+ *
+ * Meta says yes when we send and no a few seconds later by webhook — 131049, its
+ * per-person limit on marketing, did this to a third of the recovery offers in their
+ * first week. The run did not know. It held the patient's line for four days, waiting
+ * for an answer to a message that never arrived, and then sent the reminder.
+ *
+ * Nothing new is decided here. Waking the run is enough: the ASK step already treats
+ * coming back to it as "the window closed unanswered" — it releases the line, records
+ * NO_REPLY and follows onNoReply, which is the journey's own answer to silence.
+ */
+export async function askNotDelivered(waMessageId: string, errorCode: string | null): Promise<boolean> {
+  const msg = await prisma.messageLog.findFirst({
+    where: { waMessageId, automationRunId: { not: null } },
+    select: { automationRunId: true, automationStep: true },
+  });
+  if (!msg?.automationRunId || msg.automationStep === null) return false;
+
+  const run = await prisma.automationRun.findUnique({
+    where: { id: msg.automationRunId },
+    select: { stepIndex: true, state: true, definition: true },
+  });
+  const def = run?.definition as unknown as AutomationDefinition | undefined;
+  if (!run || run.stepIndex !== msg.automationStep || def?.steps[run.stepIndex]?.kind !== 'ASK') return false;
+
+  // Only a run still sitting on THAT question. One that has already moved on — answered,
+  // stopped, or past it — is left alone.
+  const woke = await prisma.automationRun.updateMany({
+    where: { id: msg.automationRunId, stepIndex: msg.automationStep, state: 'PENDING' },
+    data: { nextActionAt: new Date() },
+  });
+  if (woke.count !== 1) return false;
+  await log(msg.automationRunId, msg.automationStep, 'ASK', Outcome.NOT_DELIVERED, { errorCode });
+  return true;
 }
 
 async function goalValue(

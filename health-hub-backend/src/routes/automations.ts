@@ -20,6 +20,7 @@ import { listBlueprints, buildFromBlueprint } from '../services/automations/blue
 import { STEP_CATALOG, validateDefinition } from '../services/automations/steps';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
+import { phoneKey } from '../services/automations/phone';
 
 const router = Router();
 router.use(authMiddleware);
@@ -302,7 +303,7 @@ router.get('/consent/:patientId', async (req: AuthRequest, res) => {
     if (!p) return res.status(404).json({ error: 'NOT_FOUND' });
     const phone = p.identifiers.find((i) => i.isPrimary)?.value ?? p.identifiers[0]?.value ?? null;
     const optOut = phone
-      ? await prisma.phoneOptOut.findUnique({ where: { phone } })
+      ? await prisma.phoneOptOut.findUnique({ where: { phone: phoneKey(phone) } })
       : null;
     // Everyone else on this handset, because the opt-out applies to all of them.
     const sharedWith = phone
@@ -340,7 +341,7 @@ router.put('/consent/:patientId', async (req: AuthRequest, res) => {
     const phone = p.identifiers.find((i) => i.isPrimary)?.value ?? p.identifiers[0]?.value ?? null;
 
     if (phone) {
-      const existing = await prisma.phoneOptOut.findUnique({ where: { phone } });
+      const existing = await prisma.phoneOptOut.findUnique({ where: { phone: phoneKey(phone) } });
       if (existing?.source === 'INBOUND_STOP' && marketingOptIn) {
         return res.status(409).json({ error: 'PATIENT_OPTED_OUT_BY_REPLY' });
       }
@@ -355,8 +356,8 @@ router.put('/consent/:patientId', async (req: AuthRequest, res) => {
 
     if (!marketingOptIn && phone) {
       await prisma.phoneOptOut.upsert({
-        where: { phone },
-        create: { phone, source: 'STAFF', byUserId: req.user?.id ?? null, reason: reason ?? null },
+        where: { phone: phoneKey(phone) },
+        create: { phone: phoneKey(phone), source: 'STAFF', byUserId: req.user?.id ?? null, reason: reason ?? null },
         update: { source: 'STAFF', byUserId: req.user?.id ?? null, reason: reason ?? null, optedOutAt: new Date() },
       });
       // A patient part-way through a journey stops there rather than keeping a place
@@ -366,7 +367,7 @@ router.put('/consent/:patientId', async (req: AuthRequest, res) => {
         data: { state: 'STOPPED', stopReason: 'PHONE_OPTED_OUT', nextActionAt: null },
       });
     } else if (marketingOptIn && phone) {
-      await prisma.phoneOptOut.deleteMany({ where: { phone, source: { not: 'INBOUND_STOP' } } });
+      await prisma.phoneOptOut.deleteMany({ where: { phone: phoneKey(phone), source: { not: 'INBOUND_STOP' } } });
     }
 
     await logAction({

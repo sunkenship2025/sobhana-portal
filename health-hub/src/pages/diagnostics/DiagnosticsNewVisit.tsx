@@ -786,7 +786,10 @@ const DiagnosticsNewVisit = () => {
     if (discountMode !== "NONE") { setCouponInfo(null); setCouponError("Remove the manual discount to use a coupon."); return; }
     if (!token || !activeBranch) return;
     try {
-      const res = await fetch(`${API_BASE}/coupons/validate?code=${encodeURIComponent(code)}`, {
+      // The patient, so a code bound to its patient is checked against the right person.
+      // A brand-new patient has no id yet and cannot be the holder of an issued code.
+      const who = selectedPatient?.id ? `&patientId=${encodeURIComponent(selectedPatient.id)}` : "";
+      const res = await fetch(`${API_BASE}/coupons/validate?code=${encodeURIComponent(code)}${who}`, {
         headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranch.id },
       });
       const cdata = await res.json();
