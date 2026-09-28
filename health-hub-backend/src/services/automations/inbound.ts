@@ -28,6 +28,26 @@ interface MatchSpec {
   onUnmatched?: 'HANDOFF' | 'STOP' | 'CONTINUE';
 }
 
+/**
+ * Which button this reply is, by what it SAYS as well as by its payload.
+ *
+ * A quick-reply on a template carries whatever payload the send set, and the send sets
+ * none — so WhatsApp reports the button's own text ("Get my code") as the payload. The
+ * line is held under the step's payload ("GET_CODE"), so a real tap matched nothing and
+ * was handed to a person as a reply nobody understood. A patient who TYPES the button's
+ * words has said the same thing, and is read the same way.
+ */
+export function matchButton<T extends { payload: string; label: string }>(
+  buttons: T[], buttonPayload: string | null, body: string,
+): T | null {
+  const said = [buttonPayload, body]
+    .filter((x): x is string => !!x)
+    .map((x) => x.trim().toLowerCase());
+  return buttons.find((b) =>
+    said.includes(b.payload.trim().toLowerCase()) || said.includes(b.label.trim().toLowerCase()),
+  ) ?? null;
+}
+
 export interface InboundResolution {
   /** Set when the reply landed on an automation that was waiting for it. */
   runId: string | null;
@@ -134,6 +154,19 @@ export async function resolveInbound(
   } else if (spec.keywords) {
     const hit = spec.keywords.find((k) => new RegExp(`^\\s*${k.match}\\b`, 'i').test(body));
     if (hit) destination = hit.stepIndex;
+  }
+  // The payload a template button actually arrives with is its text. Read the question
+  // the run is on and match the reply against its buttons by label too.
+  if (destination === null) {
+    const on = await prisma.automationRun.findUnique({
+      where: { id: slot.automationRunId },
+      select: { stepIndex: true, definition: true },
+    });
+    const q = (on?.definition as unknown as AutomationDefinition | null)?.steps[on!.stepIndex];
+    if (q?.kind === 'ASK') {
+      const b = matchButton(q.buttons, buttonPayload, body);
+      if (b) destination = b.goTo;
+    }
   }
 
   // Claim before acting, the same way the day-sheet ticker claims a night: two rapid

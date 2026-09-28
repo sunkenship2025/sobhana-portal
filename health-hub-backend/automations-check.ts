@@ -24,6 +24,7 @@ import {
 import { REASON_LABEL } from '../health-hub/src/pages/owner/automations/reasons';
 import { Outcome } from './src/services/automations/types';
 import { phoneKey, threadPhone } from './src/services/automations/phone';
+import { matchButton } from './src/services/automations/inbound';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2026-09-11T11:00:00.000Z'); // 16:30 IST — inside sending hours
@@ -1093,6 +1094,16 @@ async function main() {
     assert.strictEqual(await ctx.lineHeldByAnotherRun('919491234567', 'RUN_B'), true, 'line not seen across forms');
     assert.strictEqual(await ctx.phoneOptedOut('9491234567'), true, 'a STOP in one form did not stop the other');
     assert.strictEqual(await ctx.threadHeldByHuman('9491234567'), true, 'a staff-held thread did not hold the journey off');
+  });
+
+  // A template's quick-reply arrives with its TEXT as the payload, because the send sets
+  // none. Matched only on GET_CODE, a real tap was read as a reply nobody understood.
+  await check('a tap is recognised by what WhatsApp actually sends', () => {
+    const buttons = [{ payload: 'GET_CODE', label: 'Get my code', goTo: 3 }];
+    assert.strictEqual(matchButton(buttons, 'Get my code', 'Get my code')?.goTo, 3, 'the real tap payload');
+    assert.strictEqual(matchButton(buttons, 'GET_CODE', 'Get my code')?.goTo, 3, 'a payload set at send');
+    assert.strictEqual(matchButton(buttons, null, '  get my CODE ')?.goTo, 3, 'the words, typed');
+    assert.strictEqual(matchButton(buttons, null, 'how much is the full panel'), null, 'anything else is not a tap');
   });
 
   await check('every outcome the engine emits has words for it', () => {
