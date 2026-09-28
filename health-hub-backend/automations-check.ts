@@ -1119,6 +1119,13 @@ async function main() {
     assert.strictEqual(f.waiting, 1, 'a run not yet due is waiting, not dropped');
     assert.strictEqual(f.treatedConverted, 2, 'intent-to-treat keeps the walk-in in its arm');
     assert.strictEqual(f.heldConverted, 1);
+
+    // WhatsApp accepted the send, then refused it (Meta's marketing limit): the run is
+    // still live, but it is not "not due yet" — it was messaged and never reached.
+    const g = journeyFunnel([...runs, run('refused', { state: 'PENDING' })], messages, 6, new Set(['refused']));
+    assert.strictEqual(g.refused, 1, 'a refused message is its own stage');
+    assert.strictEqual(g.waiting, 1, 'refused must not inflate "waiting for a first message"');
+    assert.strictEqual(g.messaged, 3, 'refused is not messaged');
   });
 
   // Taps were never written down — the reply moved the run and left no row — so nobody
@@ -1143,6 +1150,17 @@ async function main() {
     assert.deepStrictEqual(ask.answers, [{ label: 'Get my code', count: 2 }, { label: 'Not now', count: 1 }]);
     assert.strictEqual(ask.typed, 1);
     assert.strictEqual(ask.noReply, 1);
+
+    // Refused by WhatsApp after it accepted the send: never reached the patient, so it is
+    // neither asked nor unanswered — even once the window closes and NO_REPLY is logged.
+    const [r] = askAnswers(steps, [
+      log('a', 'ASKED'), log('a', 'REPLIED', 'Get my code'),
+      log('x', 'ASKED'), log('x', 'NO_REPLY'),
+      log('y', 'ASKED'),
+    ], new Set(['x:1', 'y:1']));
+    assert.strictEqual(r.asked, 1, 'only the question that arrived counts as asked');
+    assert.strictEqual(r.refused, 2);
+    assert.strictEqual(r.noReply, 0, 'a refused question cannot go unanswered');
   });
 
   // ─────────────────────────────────────────────────────────────────────────

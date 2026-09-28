@@ -81,10 +81,16 @@ export interface RunMessages {
 const convertedWithin = (r: Pick<FunnelRun, 'convertedAt' | 'triggeredAt'>, windowDays: number) =>
   !!r.convertedAt && r.convertedAt.getTime() - r.triggeredAt.getTime() <= windowDays * DAY_MS;
 
-export function journeyFunnel(runs: FunnelRun[], messages: Map<string, RunMessages>, windowDays: number) {
+export function journeyFunnel(
+  runs: FunnelRun[],
+  messages: Map<string, RunMessages>,
+  windowDays: number,
+  /** Runs where WhatsApp accepted a message and then refused to deliver it. */
+  refused: Set<string> = new Set(),
+) {
   const within = (r: FunnelRun) => convertedWithin(r, windowDays);
   const f = {
-    messaged: 0, delivered: 0, read: 0, waiting: 0,
+    messaged: 0, delivered: 0, read: 0, waiting: 0, refused: 0,
     beforeMessage: 0, afterMessage: 0, treatedConverted: 0, heldConverted: 0,
   };
   for (const r of runs) {
@@ -102,6 +108,9 @@ export function journeyFunnel(runs: FunnelRun[], messages: Map<string, RunMessag
       f.treatedConverted += 1;
       if (m && r.convertedAt! >= m.firstAt) f.afterMessage += 1;
       else f.beforeMessage += 1;
+    } else if (!m && refused.has(r.id)) {
+      // Still live, but not "not due yet": the message went and was refused.
+      f.refused += 1;
     } else if (!m && (r.state === 'PENDING' || r.state === 'RUNNING')) {
       f.waiting += 1;
     }
@@ -121,10 +130,21 @@ export interface AskLog {
  * it. Counted in patients from the step log, so it holds for any ASK on any journey —
  * "Get my code" is just the label one of them happens to use.
  */
-export function askAnswers(steps: Step[], logs: AskLog[]) {
+export function askAnswers(
+  steps: Step[],
+  logs: AskLog[],
+  /** `${runId}:${stepIndex}` of each question WhatsApp accepted and then refused. */
+  refusedAt: Set<string> = new Set(),
+) {
   return steps.flatMap((step, stepIndex) => {
     if (step.kind !== 'ASK') return [];
-    const mine = logs.filter((l) => l.stepIndex === stepIndex);
+    const here = logs.filter((l) => l.stepIndex === stepIndex);
+    // A refused question never reached the patient, so it cannot be answered or
+    // ignored — it is counted on its own, not as asked.
+    const refused = new Set(
+      here.filter((l) => refusedAt.has(`${l.runId}:${stepIndex}`)).map((l) => l.runId),
+    );
+    const mine = here.filter((l) => !refused.has(l.runId));
     const patients = (rows: AskLog[]) => new Set(rows.map((l) => l.runId)).size;
     const replies = mine.filter((l) => l.outcome === Outcome.REPLIED);
     const said = (answer: string | null) => patients(replies.filter(
@@ -134,6 +154,7 @@ export function askAnswers(steps: Step[], logs: AskLog[]) {
       stepIndex,
       template: step.template,
       asked: patients(mine.filter((l) => l.outcome === Outcome.ASKED)),
+      refused: refused.size,
       answers: step.buttons.map((b) => ({ label: b.label, count: said(b.label) })),
       /** Replied, but matched no button and no keyword — handed to a person. */
       typed: said(null),
@@ -179,10 +200,16 @@ export async function automationResults(automationId: string) {
   const held = journeys.filter((r) => r.holdout);
 
   const ids = runs.map((r) => r.id);
-  const [patientMessages, suppressed, askLogs, coupons] = await Promise.all([
+  const [patientMessages, refusedMessages, suppressed, askLogs, coupons] = await Promise.all([
     prisma.messageLog.findMany({
       where: { automationRunId: { in: ids }, patientId: { not: null }, status: { not: 'FAILED' } },
       select: { automationRunId: true, createdAt: true, deliveredAt: true, readAt: true },
+    }),
+    // Accepted by WhatsApp (it issued an id), then refused — e.g. Meta's per-person
+    // marketing limit. A send that failed on our side has no id and ends the run.
+    prisma.messageLog.findMany({
+      where: { automationRunId: { in: ids }, patientId: { not: null }, status: 'FAILED', waMessageId: { not: null } },
+      select: { automationRunId: true, automationStep: true },
     }),
     prisma.automationStepLog.groupBy({
       by: ['outcome'],
@@ -208,7 +235,10 @@ export async function automationResults(automationId: string) {
       read: !!prev?.read || !!m.readAt,
     });
   }
-  const funnel = journeyFunnel(journeys, messages, def.goal.windowDays);
+  const funnel = journeyFunnel(
+    journeys, messages, def.goal.windowDays,
+    new Set(refusedMessages.map((m) => m.automationRunId!)),
+  );
 
   const pT = treated.length ? funnel.treatedConverted / treated.length : 0;
   const pH = held.length ? funnel.heldConverted / held.length : 0;
@@ -245,7 +275,10 @@ export async function automationResults(automationId: string) {
     goal: def.goal,
     /** So the screen can name each question the way the builder does. */
     steps: def.steps,
-    asks: askAnswers(def.steps, askLogs),
+    asks: askAnswers(
+      def.steps, askLogs,
+      new Set(refusedMessages.map((m) => `${m.automationRunId}:${m.automationStep}`)),
+    ),
     /** Codes this journey actually put in someone's hand, and what became of them. */
     offer: {
       sent: codes.length,
@@ -264,6 +297,8 @@ export async function automationResults(automationId: string) {
       messaged: funnel.messaged, delivered: funnel.delivered, read: funnel.read,
       /** No message yet and still live — not due, rather than dropped. */
       waiting: funnel.waiting,
+      /** Every message to them was accepted by WhatsApp, then refused. */
+      refused: funnel.refused,
       live: runs.filter((r) => r.state === 'PENDING' || r.state === 'RUNNING').length,
       ended: runs.filter((r) => r.state === 'STOPPED' || r.state === 'DONE' || r.state === 'FAILED').length,
     },

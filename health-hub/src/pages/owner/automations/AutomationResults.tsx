@@ -126,6 +126,10 @@ export function AutomationResults({ automationId }: { automationId: string }) {
             <Stage label="Waiting for a first message" sub="not due yet"
               n={counts.waiting} pct={pct(counts.waiting)} muted />
           )}
+          {counts.refused > 0 && (
+            <Stage label="Not delivered" sub="WhatsApp refused every message"
+              n={counts.refused} pct={pct(counts.refused)} muted />
+          )}
           <Stage label="Messaged" n={counts.messaged} pct={pct(counts.messaged)} />
           <Stage label="Delivered" n={counts.delivered} pct={pct(counts.delivered)} />
           <Stage label="Read" sub="undercounts — receipts can be switched off"
@@ -152,6 +156,10 @@ export function AutomationResults({ automationId }: { automationId: string }) {
             </p>
             <div className="rounded-lg border bg-card">
               <Stage label="Asked" sub={describeStep(steps[q.stepIndex], catalog)} n={q.asked} pct={q.asked ? 100 : 0} />
+              {q.refused > 0 && (
+                <Stage label="Not delivered" sub="WhatsApp refused it, so it can't be answered"
+                  n={q.refused} pct={of(q.refused)} muted />
+              )}
               {q.answers.map((a) => (
                 <Stage key={a.label} label={`Tapped “${a.label}”`} n={a.count} pct={of(a.count)}
                   note={share(a.count, q.asked)} />

@@ -187,6 +187,8 @@ export interface Results {
   /** One per ASK step: what came back, per button, in patients. */
   asks: {
     stepIndex: number; template: string; asked: number;
+    /** Accepted by WhatsApp, then refused — never reached the patient. */
+    refused: number;
     answers: { label: string; count: number }[]; typed: number; noReply: number;
   }[];
   offer: { sent: number; used: number; refunded: number; expiredUnused: number; stillUsable: number };
@@ -194,7 +196,7 @@ export interface Results {
     runs: number; uniquePatients: number; treated: number; held: number;
     /** Patients, not messages. */
     messaged: number; delivered: number; read: number;
-    waiting: number; live: number; ended: number;
+    waiting: number; refused: number; live: number; ended: number;
   };
   converted: { treated: number; held: number; beforeMessage: number; afterMessage: number };
   rates: {
