@@ -109,7 +109,11 @@ export async function communicationPolicy(
   // 8 — frequency cap, across every automation. DEFER, never DROP: the message is
   // still wanted, just not today.
   if (input.patientId) {
-    const last = await ctx.lastProactiveMessageAt(input.patientId);
+    // The cap stops DIFFERENT journeys piling onto one person. It was also counting this
+    // journey's own Day-2 offer against its Day-5 reminder and against the code a patient
+    // had just asked for — holding both a week, past the offer's own expiry, so the claim
+    // flow could never deliver a code in time.
+    const last = await ctx.lastProactiveMessageAt(input.patientId, input.runId);
     if (last) {
       const eligibleAt = new Date(last.getTime() + FREQUENCY_CAP_DAYS * DAY_MS);
       if (eligibleAt > ctx.now) {

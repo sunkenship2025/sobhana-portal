@@ -387,6 +387,17 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         await advance(ctx.now);
         return;
       }
+      // A promotional message never goes out after its journey's window has closed —
+      // held by the cap or quiet hours past the last day, it ends here instead. The four
+      // Day-5 reminders held last night would otherwise have woken on Day 9 asking
+      // patients to claim an offer that expired on Day 6.
+      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now)) {
+        await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.MISSED_WINDOW, {
+          wouldSendAt: decision.kind === 'DEFER' ? decision.until : ctx.now,
+        });
+        await finish(runId, 'DONE', Outcome.MISSED_WINDOW, run.stepIndex);
+        return;
+      }
       if (decision.kind === 'DEFER') {
         // The step stays where it is. A delay moves when a step is sent; it never
         // moves when the next one is due.
@@ -598,6 +609,17 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         await advance(ctx.now);
         return;
       }
+      // A promotional message never goes out after its journey's window has closed —
+      // held by the cap or quiet hours past the last day, it ends here instead. The four
+      // Day-5 reminders held last night would otherwise have woken on Day 9 asking
+      // patients to claim an offer that expired on Day 6.
+      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now)) {
+        await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.MISSED_WINDOW, {
+          wouldSendAt: decision.kind === 'DEFER' ? decision.until : ctx.now,
+        });
+        await finish(runId, 'DONE', Outcome.MISSED_WINDOW, run.stepIndex);
+        return;
+      }
       if (decision.kind === 'DEFER') {
         await log(runId, run.stepIndex, 'DEFERRED', decision.reason, { until: decision.until });
         await prisma.automationRun.update({
@@ -740,6 +762,26 @@ export async function askNotDelivered(waMessageId: string, errorCode: string | n
   if (woke.count !== 1) return false;
   await log(msg.automationRunId, msg.automationStep, 'ASK', Outcome.NOT_DELIVERED, { errorCode });
   return true;
+}
+
+/**
+ * Would this message go out after the journey's window has closed?
+ *
+ * The window is the goal's own — "counts as converted within N days" — closing at the
+ * END of that day in IST, the same boundary an anchored offer expiry uses, so a patient
+ * who taps at 9pm on the last day is still inside it.
+ */
+export function lateForWindow(
+  triggeredAt: Date,
+  def: AutomationDefinition,
+  decision: { kind: string; until?: Date },
+  now: Date,
+): boolean {
+  const days = def.goal?.windowDays;
+  if (!days || days <= 0) return false;
+  const end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
+  const at = decision.kind === 'DEFER' && decision.until ? decision.until : now;
+  return at > end;
 }
 
 async function goalValue(

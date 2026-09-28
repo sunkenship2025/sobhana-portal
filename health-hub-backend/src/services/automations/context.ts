@@ -66,7 +66,11 @@ export interface AutomationContext {
   outstandingDueInPaise(visitId: string): Promise<number>;
   reportOpened(visitId: string): Promise<boolean>;
   daysSinceLastVisit(patientId: string): Promise<number | null>;
-  lastProactiveMessageAt(patientId: string): Promise<Date | null>;
+  /**
+   * The patient's most recent marketing message from ANY OTHER journey. The run asking
+   * is excluded: its own earlier messages are its designed cadence, not competition.
+   */
+  lastProactiveMessageAt(patientId: string, excludeRunId?: string): Promise<Date | null>;
   phoneOptedOut(phone: string): Promise<boolean>;
   threadHeldByHuman(phone: string): Promise<boolean>;
   lineHeldByAnotherRun(phone: string, runId: string): Promise<boolean>;
@@ -192,9 +196,16 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       return Math.floor((now.getTime() - last.createdAt.getTime()) / DAY_MS);
     },
 
-    async lastProactiveMessageAt(patientId) {
+    async lastProactiveMessageAt(patientId, excludeRunId) {
       const last = await prisma.messageLog.findFirst({
-        where: { patientId, templateCategory: 'MARKETING', status: { not: 'FAILED' } },
+        where: {
+          patientId, templateCategory: 'MARKETING', status: { not: 'FAILED' },
+          // NOT `automationRunId: { not: id }` alone — in SQL that also drops every
+          // message with no run at all (a manual campaign), which must still count.
+          ...(excludeRunId
+            ? { OR: [{ automationRunId: null }, { automationRunId: { not: excludeRunId } }] }
+            : {}),
+        },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       });
@@ -357,6 +368,8 @@ export interface FactSet {
   dueByVisit?: Record<string, number>;
   openedVisits?: string[];
   lastProactiveByPatient?: Record<string, Date>;
+  /** Per-message form, so a check can say which run sent what. */
+  proactiveMessages?: { patientId: string; runId: string | null; at: Date }[];
   optedOutPhones?: string[];
   humanHeldPhones?: string[];
   linesHeldByRun?: Record<string, string>;
@@ -401,7 +414,13 @@ export function memoryContext(facts: FactSet): AutomationContext {
       const latest = mine.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
       return Math.floor((facts.now.getTime() - latest.createdAt.getTime()) / DAY_MS);
     },
-    async lastProactiveMessageAt(patientId) {
+    async lastProactiveMessageAt(patientId, excludeRunId) {
+      if (facts.proactiveMessages) {
+        const mine = facts.proactiveMessages
+          .filter((m) => m.patientId === patientId && (!excludeRunId || m.runId !== excludeRunId))
+          .map((m) => m.at.getTime());
+        return mine.length ? new Date(Math.max(...mine)) : null;
+      }
       return facts.lastProactiveByPatient?.[patientId] ?? null;
     },
     async phoneOptedOut(phone) { return (facts.optedOutPhones ?? []).map(phoneKey).includes(phoneKey(phone)); },

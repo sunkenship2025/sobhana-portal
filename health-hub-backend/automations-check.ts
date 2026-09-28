@@ -9,7 +9,7 @@ import assert from 'assert';
 import { memoryContext, type VisitFacts } from './src/services/automations/context';
 import { evaluate, predicates, UnitMismatch, type Subject } from './src/services/automations/predicates';
 import { communicationPolicy } from './src/services/automations/policy';
-import { isHeldOut } from './src/services/automations/engine';
+import { isHeldOut, lateForWindow } from './src/services/automations/engine';
 import { journeyFunnel, askAnswers, type FunnelRun, type RunMessages } from './src/services/automations/queries';
 import { simulate } from './src/services/automations/preview';
 import { resolveDiscounts } from './src/services/automations/discounts';
@@ -286,6 +286,36 @@ async function main() {
       patientId: 'P1', phone: '919876543210', intent: 'REACTIVE', runId: 'r',
     });
     assert.strictEqual(d.kind, 'SEND', 'a report-ready message was blocked by marketing consent');
+  });
+
+  // The weekly cap is for DIFFERENT journeys piling onto one person. Counting a journey's
+  // own Day-2 offer held its Day-5 reminder and the code a patient had just asked for a
+  // whole week — past the offer's own expiry.
+  await check("a journey's own earlier offer does not cap its next message", async () => {
+    const threeDaysAgo = new Date(T0.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const ctx = gate({}, { proactiveMessages: [{ patientId: 'P1', runId: 'RUN_A', at: threeDaysAgo }] });
+    const own = await communicationPolicy(ctx, { patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'RUN_A' });
+    assert.strictEqual(own.kind, 'SEND', "the journey's own offer held its reminder");
+    const other = await communicationPolicy(ctx, { patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'RUN_B' });
+    assert.strictEqual((other as { reason?: string }).reason, 'FREQUENCY_CAP', "another journey's offer must still cap");
+  });
+
+  await check('a campaign sent outside any journey still counts against the cap', async () => {
+    const ctx = gate({}, { proactiveMessages: [{ patientId: 'P1', runId: null, at: new Date(T0.getTime() - 2 * 86400000) }] });
+    const d = await communicationPolicy(ctx, { patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'RUN_A' });
+    assert.strictEqual((d as { reason?: string }).reason, 'FREQUENCY_CAP', 'a manual campaign stopped counting');
+  });
+
+  await check('a promotional message is never sent after its window has closed', () => {
+    const def = { goal: { condition: { fn: 'always' }, windowDays: 6 } } as never;
+    const trig = new Date('2026-09-22T14:43:00Z');                     // 22 Sep 20:13 IST
+    const day6At9pm = new Date('2026-09-28T15:30:00Z');                 // 28 Sep 21:00 IST
+    const day7 = new Date('2026-09-29T03:00:00Z');                      // 29 Sep 08:30 IST
+    const day9 = new Date('2026-10-01T03:00:00Z');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'SEND' }, day6At9pm), false, 'a 9pm tap on the last day is still inside');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'SEND' }, day7), true, 'sent on day 7');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'DEFER', until: day9 }, day6At9pm), true, 'held into day 9');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'DEFER', until: day7 }, day6At9pm), true, 'held to the next morning, past the last day');
   });
 
   await check('a phone that replied STOP silences marketing for every patient on it', async () => {
