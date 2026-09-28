@@ -28,6 +28,7 @@ import { resolveRecipients } from './recipients';
 import { TRIGGERS } from './triggers';
 import { holdLine } from './inbound';
 import { phoneKey, threadPhone } from './phone';
+import { resolveFields } from './fields';
 import {
   sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
 } from '../automatedMessageService';
@@ -435,12 +436,18 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         }
       }
 
-      const branch = run.branchId
-        ? await prisma.branch.findUnique({ where: { id: run.branchId }, select: { name: true } })
-        : null;
-      const patientRow = run.patientId
-        ? await prisma.patient.findUnique({ where: { id: run.patientId }, select: { name: true } })
-        : null;
+      // Every blank filled from fields.ts, or nothing sent. The fields describe the RUN's
+      // patient and visit, so a staff alert can still say whose bill is due.
+      const filled = await resolveFields(step.params, {
+        runId, patientId: run.patientId, branchId: run.branchId,
+        subjectType: run.subjectType, subjectId: run.subjectId, couponCode, now: ctx.now,
+      });
+      if (filled.missing.length > 0) {
+        if (couponId) await voidPendingCoupon(couponId);
+        await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.FIELD_MISSING, { fields: filled.missing });
+        await advance(ctx.now);
+        return;
+      }
 
       // Every resolved number, not just the first. A patient is one phone; a staff
       // alert is "tell the three people who need to know", and sending to one of them
@@ -449,9 +456,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         runId, stepIndex: run.stepIndex,
         patientId: to.patientId, branchId: run.branchId,
         phone: phone!, phones: to.phones, template: step.template, language: step.language ?? 'en',
-        params: step.params, couponCode,
-        patientFirstName: patientRow?.name ?? null,
-        branchName: branch?.name ?? null,
+        values: filled.values,
         contextId: run.subjectId,
       });
 
@@ -649,18 +654,22 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         return;
       }
 
-      const branchA = run.branchId
-        ? await prisma.branch.findUnique({ where: { id: run.branchId }, select: { name: true } })
-        : null;
-      const patientA = run.patientId
-        ? await prisma.patient.findUnique({ where: { id: run.patientId }, select: { name: true } })
-        : null;
+      const filledA = await resolveFields(step.params, {
+        runId, patientId: run.patientId, branchId: run.branchId,
+        subjectType: run.subjectType, subjectId: run.subjectId, now: ctx.now,
+      });
+      if (filledA.missing.length > 0) {
+        // The line was claimed a moment ago for an answer that will now never be asked for.
+        await prisma.awaitingReply.deleteMany({ where: { automationRunId: runId } });
+        await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.FIELD_MISSING, { fields: filledA.missing });
+        await advance(ctx.now);
+        return;
+      }
 
       const sent = await sendForStep({
         runId, stepIndex: run.stepIndex, patientId: to.patientId, branchId: run.branchId,
         phone: phone!, template: step.template, language: step.language ?? 'en',
-        params: step.params, couponCode: null,
-        patientFirstName: patientA?.name ?? null, branchName: branchA?.name ?? null,
+        values: filledA.values,
         contextId: run.subjectId,
       });
 

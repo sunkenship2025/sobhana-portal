@@ -25,6 +25,7 @@ import { REASON_LABEL } from '../health-hub/src/pages/owner/automations/reasons'
 import { Outcome } from './src/services/automations/types';
 import { phoneKey, threadPhone } from './src/services/automations/phone';
 import { matchButton } from './src/services/automations/inbound';
+import { resolveFields, istDate, FIELD_CATALOG } from './src/services/automations/fields';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2026-09-11T11:00:00.000Z'); // 16:30 IST — inside sending hours
@@ -1134,6 +1135,73 @@ async function main() {
     assert.strictEqual(matchButton(buttons, 'GET_CODE', 'Get my code')?.goTo, 3, 'a payload set at send');
     assert.strictEqual(matchButton(buttons, null, '  get my CODE ')?.goTo, 3, 'the words, typed');
     assert.strictEqual(matchButton(buttons, null, 'how much is the full panel'), null, 'anything else is not a tap');
+  });
+
+  // ══ Message fields ═════════════════════════════════════════════════════════
+  const src = { runId: 'R', patientId: 'P1', branchId: 'B1', subjectType: 'VISIT', subjectId: 'V1', now: T0 };
+  const noDb = {
+    patient: async () => ({ name: 'Ravi Kumar' }), branch: async () => ({ name: 'Chintal' }),
+    visit: async () => ({ id: 'V1', createdAt: new Date('2026-09-23T15:12:00Z') }),
+  };
+
+  // The Day-5 reminder issues nothing — it reminds the patient of a code issued days
+  // earlier. It was bound to the code THIS step issued, i.e. none, and went out blank.
+  await check("a reminder that issues nothing still shows the journey's code", async () => {
+    const r = await resolveFields([{ from: 'COUPON_CODE' }, { from: 'COUPON_EXPIRY' }], src, {
+      ...noDb, coupon: async () => ({ code: 'OPR-4K9X2', expiresAt: new Date('2026-09-29T18:29:59.999Z'), discountPercentage: 50 }),
+    });
+    assert.deepStrictEqual(r.missing, []);
+    assert.deepStrictEqual(r.values, ['OPR-4K9X2', '29 Sep 2026']);
+  });
+
+  await check('a blank with nothing to fill it stops the message instead of sending a hole', async () => {
+    const r = await resolveFields([{ from: 'PATIENT_FIRST_NAME' }, { from: 'COUPON_CODE' }], src, {
+      ...noDb, coupon: async () => null,
+    });
+    assert.deepStrictEqual(r.missing, ['COUPON_CODE'], 'a missing code must be reported, not bound to ""');
+  });
+
+  await check('the code this step issued wins over looking one up', async () => {
+    const r = await resolveFields([{ from: 'COUPON_CODE' }], { ...src, couponCode: 'NEW-1' }, {
+      ...noDb, coupon: async () => ({ code: 'OLD-9', expiresAt: T0, discountPercentage: 50 }),
+    });
+    assert.deepStrictEqual(r.values, ['NEW-1']);
+  });
+
+  await check('an expiry at 23:59 IST reads as that day, never the UTC day before', () => {
+    assert.strictEqual(istDate(new Date('2026-09-29T18:29:59.999Z')), '29 Sep 2026');
+    assert.strictEqual(istDate(new Date('2026-09-29T19:00:00Z')), '30 Sep 2026');
+  });
+
+  await check('first name, fixed text, and a field nobody defined', async () => {
+    const r = await resolveFields([{ from: 'PATIENT_FIRST_NAME' }, { from: 'LITERAL', value: 'Sobhana' }, { from: 'NOPE' }], src, noDb);
+    assert.deepStrictEqual(r.values.slice(0, 2), ['Ravi', 'Sobhana']);
+    assert.deepStrictEqual(r.missing, ['NOPE']);
+  });
+
+  await check('saving refuses an offer field in a journey that issues no offer', () => {
+    const bad = validateDefinition({ trigger: { kind: 'VISIT_COMPLETED' }, steps: [
+      { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [{ from: 'COUPON_CODE' }] } as never,
+    ] }).filter((p) => p.blocking);
+    assert.ok(bad.some((p) => /issues an offer/.test(p.problem)), 'an offer field with no offer was allowed');
+    const unknown = validateDefinition({ trigger: { kind: 'VISIT_COMPLETED' }, steps: [
+      { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [{ from: 'NOPE' }] } as never,
+    ] }).filter((p) => p.blocking);
+    assert.ok(unknown.some((p) => /not a field/.test(p.problem)));
+  });
+
+  await check('the live OP recovery journey passes the new field rules', () => {
+    const def = opDef();
+    const blocking = validateDefinition(def as never).filter((p) => p.blocking);
+    assert.deepStrictEqual(blocking, []);
+    // The reminder is exactly the step that used to go out blank.
+    const reminder = def.steps.find((st) => st.kind === 'SEND' && !st.issueOffer
+      && st.params.some((b) => b.from === 'COUPON_CODE'));
+    assert.ok(reminder, 'the remind-with-code step is where this matters');
+  });
+
+  await check('every field the builder is served has a label and an example', () => {
+    for (const f of FIELD_CATALOG) assert.ok(f.label && f.example, `${f.from} would show up blank in the picker`);
   });
 
   await check('every outcome the engine emits has words for it', () => {

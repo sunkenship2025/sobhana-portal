@@ -24,11 +24,19 @@ export type Condition =
   | { not: Condition }
   | { fn: string; args?: Record<string, unknown>; op?: Op; value?: unknown; unit?: string };
 
-export type ParamBinding =
-  | { from: 'PATIENT_FIRST_NAME' }
-  | { from: 'BRANCH_NAME' }
-  | { from: 'COUPON_CODE' }
-  | { from: 'LITERAL'; value: string };
+/** MIRRORS backend types.ts: `from` names an entry in the served field catalog (fields.ts). */
+export type ParamBinding = { from: string; value?: string };
+
+/** One thing a message blank can be filled with. Served — see listFields. */
+export interface FieldMeta {
+  from: string;
+  label: string;
+  group: 'Patient' | 'Visit' | 'Offer' | 'Centre' | 'Other';
+  example: string;
+  help?: string;
+  needsOffer?: boolean;
+  needsVisit?: boolean;
+}
 
 /** Who a message is addressed to. Shared by every sending action — see spec §9.12. */
 export type Recipients =
@@ -410,6 +418,7 @@ export interface StepMeta {
 }
 /** Served so the builder can tell when it has fallen behind the engine. */
 export const listStepKinds = () => apiRequest<{ steps: StepMeta[] }>(`${AUT}/steps`);
+export const listFields = () => apiRequest<{ fields: FieldMeta[] }>(`${AUT}/fields`);
 
 export interface DefinitionProblem { where: string; problem: string; blocking: boolean }
 export const validateDefinition = (definition: AutomationDefinition) =>

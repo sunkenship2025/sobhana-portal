@@ -11,6 +11,8 @@
  * What this gives us is the CHECK: the UI can compare what it can render against what
  * the engine can run, and say so out loud when it falls behind instead of hiding a step.
  */
+import { FIELD_CATALOG } from './fields';
+
 export interface StepMeta {
   kind: string;
   label: string;
@@ -64,6 +66,7 @@ export function validateDefinition(def: {
   const problems: DefinitionProblem[] = [];
   const steps = def.steps ?? [];
   const known = new Set(STEP_CATALOG.map((s) => s.kind));
+  const journeyIssuesOffer = steps.some((st) => !!(st as { issueOffer?: unknown }).issueOffer);
 
   if (steps.length === 0) {
     problems.push({ where: 'steps', problem: 'This journey has no steps, so it would do nothing.', blocking: true });
@@ -119,6 +122,21 @@ export function validateDefinition(def: {
         }
       }
     }
+
+    // Every blank must name a field the engine can fill. An offer field in a journey that
+    // never issues an offer can only ever resolve to nothing, so the message would never
+    // send — refuse that here, where it is a sentence, not a silent skip in production.
+    const params = (step.params as { from?: string; value?: string }[] | undefined) ?? [];
+    params.forEach((b, n) => {
+      const meta = FIELD_CATALOG.find((f) => f.from === b.from);
+      if (!meta) {
+        problems.push({ where: `step ${i + 1}`, problem: `Blank ${n + 1} is filled from "${b.from ?? 'nothing'}", which is not a field the engine knows.`, blocking: true });
+      } else if (meta.from === 'LITERAL' && !(b.value ?? '').trim()) {
+        problems.push({ where: `step ${i + 1}`, problem: `Blank ${n + 1} is set to fixed text but the text is empty.`, blocking: true });
+      } else if (meta.needsOffer && !journeyIssuesOffer) {
+        problems.push({ where: `step ${i + 1}`, problem: `Blank ${n + 1} shows the ${meta.label.toLowerCase()}, but nothing in this journey issues an offer.`, blocking: true });
+      }
+    });
 
     if (step.kind === 'ASK') {
       const buttons = (step.buttons as unknown[] | undefined) ?? [];

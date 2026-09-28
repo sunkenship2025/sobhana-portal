@@ -21,7 +21,6 @@ import {
   type TemplateComponent,
 } from '../whatsappCloudService';
 import { randomBytes, createHash } from 'crypto';
-import type { ParamBinding } from './types';
 
 export interface SendInput {
   runId: string;
@@ -33,10 +32,8 @@ export interface SendInput {
   phones?: string[];
   template: string;
   language: string;
-  params: ParamBinding[];
-  couponCode?: string | null;
-  patientFirstName?: string | null;
-  branchName?: string | null;
+  /** Every blank, already filled — see fields.ts. Never a partial message. */
+  values: string[];
   contextId: string;
 }
 
@@ -45,15 +42,6 @@ export interface SendOutcome {
   waMessageId: string | null;
   alreadySent: boolean;
   failed?: string;
-}
-
-function bind(b: ParamBinding, input: SendInput): string {
-  switch (b.from) {
-    case 'PATIENT_FIRST_NAME': return (input.patientFirstName ?? '').split(' ')[0] || 'there';
-    case 'BRANCH_NAME': return input.branchName ?? '';
-    case 'COUPON_CODE': return input.couponCode ?? '';
-    case 'LITERAL': return b.value;
-  }
 }
 
 /**
@@ -87,7 +75,7 @@ export async function sendForStep(input: SendInput): Promise<SendOutcome> {
     logger.warn(`[automations] template lookup failed for ${input.template}: ${(e as Error).message}`);
   }
 
-  const values = input.params.map((p) => bind(p, input));
+  const values = input.values;
   if (paramCount !== null && paramCount !== values.length) {
     return {
       messageLogId: '',

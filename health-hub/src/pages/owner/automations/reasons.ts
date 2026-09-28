@@ -36,6 +36,7 @@ export const REASON_LABEL: Record<string, string> = {
   QUIET_HOURS: 'Outside sending hours',
   WAITING_ANOTHER_AUTOMATION: 'Waiting its turn',
   UNIT_MISMATCH: 'Result unit changed',
+  FIELD_MISSING: 'Not sent — a blank in the message had nothing to fill it',
   SEND_FAILED: 'Send failed',
   // The reply vocabulary. Every one of these was reaching the Activity feed and the
   // "Why" filter as a raw SCREAMING_SNAKE code — including the suppressed-visit record,

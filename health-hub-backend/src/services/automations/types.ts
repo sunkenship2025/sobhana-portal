@@ -78,11 +78,12 @@ export type Intent =
   /** We initiated. Contends with every other proactive journey for one person's attention. */
   | 'PROACTIVE';
 
-export type ParamBinding =
-  | { from: 'PATIENT_FIRST_NAME' }
-  | { from: 'BRANCH_NAME' }
-  | { from: 'COUPON_CODE' }
-  | { from: 'LITERAL'; value: string };
+/**
+ * What fills one blank in a message. `from` names an entry in fields.ts — the catalog is
+ * the source of truth, and validateDefinition refuses a name it does not contain.
+ * `value` is only for LITERAL (fixed text).
+ */
+export type ParamBinding = { from: string; value?: string };
 
 export type Step =
   | {
@@ -278,6 +279,8 @@ export const Outcome = {
   QUIET_HOURS: 'QUIET_HOURS',
   WAITING_ANOTHER_AUTOMATION: 'WAITING_ANOTHER_AUTOMATION',
   UNIT_MISMATCH: 'UNIT_MISMATCH',
+  /** A blank in the message could not be filled, so it was not sent. */
+  FIELD_MISSING: 'FIELD_MISSING',
   SEND_FAILED: 'SEND_FAILED',
   ASKED: 'ASKED',
   NO_REPLY: 'NO_REPLY',

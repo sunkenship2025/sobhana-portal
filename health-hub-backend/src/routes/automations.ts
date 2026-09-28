@@ -18,6 +18,7 @@ import { dryRun, simulate } from '../services/automations/preview';
 import { unknownPredicates, PREDICATE_CATALOG } from '../services/automations/predicates';
 import { listBlueprints, buildFromBlueprint } from '../services/automations/blueprints';
 import { STEP_CATALOG, validateDefinition } from '../services/automations/steps';
+import { FIELD_CATALOG } from '../services/automations/fields';
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 import { phoneKey } from '../services/automations/phone';
@@ -44,6 +45,12 @@ router.get('/templates', async (_req: AuthRequest, res) => {
  * The engine's grammar. Served so the builder can compare what it renders against what
  * the engine runs, and say so when it falls behind rather than hiding a step.
  */
+/** What can fill a blank in a message. Served, like predicates, so a new field is a backend entry. */
+router.get('/fields', async (_req: AuthRequest, res) => {
+  try { return res.json({ fields: FIELD_CATALOG }); }
+  catch (e) { return fail(res, e); }
+});
+
 router.get('/steps', async (_req: AuthRequest, res) => {
   try { return res.json({ steps: STEP_CATALOG }); }
   catch (e) { return fail(res, e); }
