@@ -40,6 +40,55 @@ function referralExample(discountPct: number, sharePct: number) {
   };
 }
 
+type CampaignRow = NonNullable<Awaited<ReturnType<typeof prisma.couponCampaign.findUnique>>>;
+type CouponCounts = { campaignId: string; status: string; _count: { _all: number } }[];
+
+/**
+ * What the Offers screens are given about one offer — the list AND the detail.
+ *
+ * They each built their own. The list grew `issued`, `redeemed` and a `budget` block;
+ * the detail kept spreading the raw row, which has none of them, so opening an offer
+ * read `o.budget.committedInPaise` off undefined and the screen threw on the click —
+ * every offer, including the one a live journey hands out, could be listed and never
+ * opened or switched on. One function means the two cannot disagree again.
+ */
+function summarizeOffer(c: CampaignRow, counts: CouponCounts) {
+  const mine = counts.filter((x) => x.campaignId === c.id);
+  const by = (s: string) => mine.find((x) => x.status === s)?._count._all ?? 0;
+  const issued = by('ISSUED') + by('REDEEMED');
+  return {
+    id: c.id,
+    code: c.code,
+    name: c.name,
+    isActive: c.isActive,
+    discountPercentage: c.discountPercentage,
+    scope: c.scope,
+    validityDays: c.validityDays,
+    distribution: c.distribution,
+    bindToPatient: c.bindToPatient,
+    referrerSharePct: c.referrerSharePct,
+    issued,
+    redeemed: by('REDEEMED'),
+    expired: by('EXPIRED'),
+    voided: by('VOID'),
+    /// PENDING means the message carrying the code never left. Not a live code.
+    pending: by('PENDING'),
+    budget: {
+      maxDiscountBudgetInPaise: c.maxDiscountBudgetInPaise,
+      maxDiscountPerBillInPaise: c.maxDiscountPerBillInPaise,
+      maxRedemptions: c.maxRedemptions,
+      reservedInPaise: c.reservedInPaise,
+      committedInPaise: c.committedInPaise,
+      /// Exhausted counts what is RESERVED as well as spent: counting only
+      /// redemptions lets a campaign issue far past its budget and discover it
+      /// when redemption catches up.
+      exhausted:
+        c.maxDiscountBudgetInPaise !== null &&
+        c.reservedInPaise + c.committedInPaise >= c.maxDiscountBudgetInPaise,
+    },
+  };
+}
+
 router.get('/', async (_req: AuthRequest, res) => {
   try {
     const campaigns = await prisma.couponCampaign.findMany({ orderBy: { createdAt: 'desc' } });
@@ -50,80 +99,65 @@ router.get('/', async (_req: AuthRequest, res) => {
 
     return res.json({
       offers: campaigns.map((c) => {
-        const mine = counts.filter((x) => x.campaignId === c.id);
-        const by = (s: string) => mine.find((x) => x.status === s)?._count._all ?? 0;
-        const issued = by('ISSUED') + by('REDEEMED');
-        return {
-          id: c.id,
-          code: c.code,
-          name: c.name,
-          isActive: c.isActive,
-          discountPercentage: c.discountPercentage,
-          scope: c.scope,
-          validityDays: c.validityDays,
-          distribution: c.distribution,
-          bindToPatient: c.bindToPatient,
-          referrerSharePct: c.referrerSharePct,
-          issued,
-          redeemed: by('REDEEMED'),
-          expired: by('EXPIRED'),
-          voided: by('VOID'),
-          /// PENDING means the message carrying the code never left. Not a live code.
-          pending: by('PENDING'),
-          budget: {
-            maxDiscountBudgetInPaise: c.maxDiscountBudgetInPaise,
-            maxDiscountPerBillInPaise: c.maxDiscountPerBillInPaise,
-            maxRedemptions: c.maxRedemptions,
-            reservedInPaise: c.reservedInPaise,
-            committedInPaise: c.committedInPaise,
-            /// Exhausted counts what is RESERVED as well as spent: counting only
-            /// redemptions lets a campaign issue far past its budget and discover it
-            /// when redemption catches up.
-            exhausted:
-              c.maxDiscountBudgetInPaise !== null &&
-              c.reservedInPaise + c.committedInPaise >= c.maxDiscountBudgetInPaise,
-          },
-        };
+        return summarizeOffer(c, counts);
       }),
     });
   } catch (e) { return fail(res, e); }
 });
 
+/**
+ * Everything the offer detail screen is given. Exported so the render check loads the
+ * SAME payload production sends, rather than a hand-written guess at it — a guess is
+ * exactly how the list and the detail came to disagree in the first place.
+ */
+export async function buildOfferDetail(id: string) {
+  const c = await prisma.couponCampaign.findUnique({
+    where: { id },
+    include: { products: { select: { id: true, name: true } } },
+  });
+  if (!c) return null;
+
+  const [redeemedSum, usedByAutomations] = await Promise.all([
+    prisma.bill.aggregate({
+      where: { couponId: { in: (await prisma.coupon.findMany({
+        where: { campaignId: c.id, status: 'REDEEMED' }, select: { id: true },
+      })).map((x) => x.id) } },
+      _sum: { couponDiscountInPaise: true },
+    }),
+    prisma.automation.findMany({
+      where: { definition: { path: ['steps'], array_contains: [] } },
+      select: { id: true, name: true },
+    }).catch(() => [] as { id: string; name: string }[]),
+  ]);
+
+  const counts = await prisma.coupon.groupBy({
+    by: ['campaignId', 'status'],
+    where: { campaignId: c.id },
+    _count: { _all: true },
+  });
+
+  return {
+    ...c,
+    ...summarizeOffer(c, counts),
+    discountGivenInPaise: redeemedSum._sum.couponDiscountInPaise ?? 0,
+    usedByAutomations,
+    /// Three ways to answer "who pays for the discount on a referred patient",
+    /// computed rather than described so the screen does not have to do the arithmetic.
+    referralExamples: {
+      centreAbsorbs: referralExample(c.discountPercentage ?? 0, 0),
+      split: referralExample(c.discountPercentage ?? 0, 50),
+      doctorShares: referralExample(c.discountPercentage ?? 0, 100),
+      current: referralExample(c.discountPercentage ?? 0, c.referrerSharePct),
+    },
+    stackingRule: 'LARGER_IN_RUPEES_WINS',
+  };
+}
+
 router.get('/:id', async (req: AuthRequest, res) => {
   try {
-    const c = await prisma.couponCampaign.findUnique({
-      where: { id: req.params.id },
-      include: { products: { select: { id: true, name: true } } },
-    });
-    if (!c) return res.status(404).json({ error: 'NOT_FOUND' });
-
-    const [redeemedSum, usedByAutomations] = await Promise.all([
-      prisma.bill.aggregate({
-        where: { couponId: { in: (await prisma.coupon.findMany({
-          where: { campaignId: c.id, status: 'REDEEMED' }, select: { id: true },
-        })).map((x) => x.id) } },
-        _sum: { couponDiscountInPaise: true },
-      }),
-      prisma.automation.findMany({
-        where: { definition: { path: ['steps'], array_contains: [] } },
-        select: { id: true, name: true },
-      }).catch(() => [] as { id: string; name: string }[]),
-    ]);
-
-    return res.json({
-      ...c,
-      discountGivenInPaise: redeemedSum._sum.couponDiscountInPaise ?? 0,
-      usedByAutomations,
-      /// Three ways to answer "who pays for the discount on a referred patient",
-      /// computed rather than described so the screen does not have to do the arithmetic.
-      referralExamples: {
-        centreAbsorbs: referralExample(c.discountPercentage ?? 0, 0),
-        split: referralExample(c.discountPercentage ?? 0, 50),
-        doctorShares: referralExample(c.discountPercentage ?? 0, 100),
-        current: referralExample(c.discountPercentage ?? 0, c.referrerSharePct),
-      },
-      stackingRule: 'LARGER_IN_RUPEES_WINS',
-    });
+    const detail = await buildOfferDetail(req.params.id);
+    if (!detail) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json(detail);
   } catch (e) { return fail(res, e); }
 });
 

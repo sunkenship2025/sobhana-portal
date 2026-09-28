@@ -104,9 +104,9 @@ function Money({ ex, title, selected, onSelect }: {
   );
 }
 
-function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) {
+export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const qc = useQueryClient();
-  const { data: o, isLoading } = useQuery({ queryKey: ['offer', id], queryFn: () => getOffer(id) });
+  const { data: o, isLoading, error } = useQuery({ queryKey: ['offer', id], queryFn: () => getOffer(id) });
   const [draft, setDraft] = useState<Record<string, unknown>>({});
 
   const save = useMutation({
@@ -120,6 +120,20 @@ function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // A failed load used to leave the spinner up forever — indistinguishable from a click
+  // that did nothing.
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> Offers
+        </button>
+        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+          This offer could not be loaded: {(error as Error).message}
+        </p>
+      </div>
+    );
+  }
   if (isLoading || !o) return <LoadingState />;
   const share = (draft.referrerSharePct as number) ?? o.referrerSharePct;
   const dirty = Object.keys(draft).length > 0;
