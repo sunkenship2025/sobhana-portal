@@ -185,7 +185,8 @@ export function AutomationResults({ automationId }: { automationId: string }) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Offer</p>
           <div className="rounded-lg border bg-card">
             <Stage label="Codes sent" n={offer.sent} pct={offer.sent ? 100 : 0} />
-            <Stage label="Used at a bill" sub={`− ${rupees(money.discountGivenInPaise)} discount`}
+            <Stage label="Used at a bill"
+              sub={`${offer.redemptions > offer.used ? `${offer.redemptions} bills · ` : ''}− ${rupees(money.discountGivenInPaise)} discount`}
               n={offer.used} pct={(offer.used / Math.max(1, offer.sent)) * 100} note={share(offer.used, offer.sent)} />
             {offer.refunded > 0 && (
               <Stage label="Used, then refunded" sub="the discount came back"

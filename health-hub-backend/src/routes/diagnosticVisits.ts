@@ -2833,14 +2833,16 @@ router.post("/", async (req: AuthRequest, res) => {
           reason: v.reason,
           message:
             v.reason === "ALREADY_REDEEMED"
-              ? "This coupon has already been used."
+              ? "This code has already been used up."
               : v.reason === "EXPIRED"
                 ? "This coupon has expired."
                 : v.reason === "NOT_FOUND"
                   ? "No coupon found for that code."
                   : v.reason === "WRONG_PATIENT"
                     ? "This coupon was issued to a different patient."
-                    : "This coupon can't be applied.",
+                    : v.reason === "OWN_CODE"
+                      ? "This code is for the patient's family and friends — it can't be used by the person it was given to."
+                      : "This coupon can't be applied.",
         });
       }
       // allowedProductIds non-empty ⇒ discount ONLY those products (the patient's
@@ -3020,6 +3022,9 @@ router.post("/", async (req: AuthRequest, res) => {
             visitId: visit.id,
             billId: createdBill.id,
             userId: req.user!.id,
+            // Who used it and for how much — the record of each use, and the budget.
+            patientId,
+            discountInPaise: couponContext.discountInPaise,
           });
         }
 
@@ -4067,6 +4072,10 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
           where: { id: visit.id },
           data: { status: "CANCELLED" },
         });
+        // A code used on this bill gets its use back, and its discount stops counting as
+        // given. Nothing did this before: a cancelled bill kept its code "used".
+        const { reverseRedemptionsForBill } = await import("../services/couponService");
+        await reverseRedemptionsForBill(tx, bill.id, "VISIT_CANCELLED", now);
         // Whole visit voided → revoke every public link to it. Partial refunds
         // leave links live so the updated bill/report stays viewable.
         //  - bill token gates the bill PDF AND the /r/:token report gateway

@@ -186,7 +186,7 @@ router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Res
     // Non-active states
     if (coupon.status === CouponStatus.REDEEMED) {
       return res.send(shell(t, `<h1>Coupon already used</h1>
-        <p class="note">This code (<b>${escapeHtml(coupon.code)}</b>) has already been redeemed. Each coupon works once.</p>`));
+        <p class="note">This code (<b>${escapeHtml(coupon.code)}</b>) has already been used${coupon.maxUses > 1 ? ` on all ${coupon.maxUses} visits it covers` : ''}.</p>`));
     }
     if (coupon.status === CouponStatus.VOID || coupon.status === CouponStatus.EXPIRED || coupon.expiresAt < new Date()) {
       return res.send(shell(t, `<h1>Coupon expired</h1>
@@ -196,6 +196,9 @@ router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Res
     // Active coupon
     const pct = Math.round(c.discountPercentage ?? 0);
     const scopeText = c.scope === 'WHOLE_BILL' ? 'on your visit' : 'on all tests';
+    const left = coupon.maxUses - coupon.useCount;
+    const usesText = coupon.maxUses > 1 ? `${left} of ${coupon.maxUses} uses left` : 'one-time use';
+    const whoText = c.holder === 'NOT_ISSUED_PATIENT' ? ' For your family and friends — not for your own visit.' : '';
     const inner = `
       <div class="eyebrow">${escapeHtml(c.name)}</div>
       <h1>Thank you for donating blood</h1>
@@ -206,8 +209,8 @@ router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Res
         <div class="chip"><div><span class="ck">Your code</span><span class="code" id="code">${escapeHtml(coupon.code)}</span></div>
           <button class="copy" id="cb" onclick="copyCode()">Copy</button></div>
       </div>
-      <div class="valid">Valid until <b>${fmtDate(coupon.expiresAt)}</b> &middot; one-time use</div>
-      <p class="fine">Redeemable ${scopeText} at any Sobhana Diagnostics branch. One redemption per code. Cannot be combined with other discounts.</p>`;
+      <div class="valid">Valid until <b>${fmtDate(coupon.expiresAt)}</b> &middot; ${usesText}</div>
+      <p class="fine">Redeemable ${scopeText} at any Sobhana Diagnostics branch.${whoText} Cannot be combined with other discounts.</p>`;
     return res.send(shell(t, inner, COPY_SCRIPT));
   } catch (err) {
     console.error('coupon gateway error:', err);

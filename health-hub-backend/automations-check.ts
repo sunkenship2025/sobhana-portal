@@ -28,6 +28,8 @@ import { Outcome } from './src/services/automations/types';
 import { phoneKey, threadPhone } from './src/services/automations/phone';
 import { matchButton } from './src/services/automations/inbound';
 import { resolveFields, istDate, FIELD_CATALOG } from './src/services/automations/fields';
+import { holderAllows, statusAfterReversal } from './src/services/couponService';
+import { PREDICATE_CATALOG } from './src/services/automations/predicates';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2026-09-11T11:00:00.000Z'); // 16:30 IST — inside sending hours
@@ -1336,6 +1338,49 @@ async function main() {
     assert.strictEqual(r.asked, 1, 'only the question that arrived counts as asked');
     assert.strictEqual(r.refused, 2);
     assert.strictEqual(r.noReply, 0, 'a refused question cannot go unanswered');
+  });
+
+  // ── Who may use a code, and what a refund gives back ─────────────────────
+  await check('a family code is refused for its own patient and accepted for everyone else', () => {
+    assert.strictEqual(holderAllows('NOT_ISSUED_PATIENT', 'P1', 'P1'), 'OWN_CODE');
+    assert.strictEqual(holderAllows('NOT_ISSUED_PATIENT', 'P1', 'P2'), 'OK');
+    // A relative registering for the first time has no record yet — they are not the holder.
+    assert.strictEqual(holderAllows('NOT_ISSUED_PATIENT', 'P1', null), 'OK');
+    assert.strictEqual(holderAllows('ISSUED_PATIENT_ONLY', 'P1', 'P2'), 'WRONG_PATIENT');
+    assert.strictEqual(holderAllows('ISSUED_PATIENT_ONLY', 'P1', null), 'WRONG_PATIENT', 'a bound code with no patient is refused');
+    assert.strictEqual(holderAllows('ISSUED_PATIENT_ONLY', 'P1', 'P1'), 'OK');
+    assert.strictEqual(holderAllows('ANYONE', 'P1', 'P2'), 'OK');
+    // A shared code issued to nobody has no holder to compare with.
+    assert.strictEqual(holderAllows('NOT_ISSUED_PATIENT', null, 'P1'), 'OK');
+  });
+
+  await check('a refunded use comes back to the code only while the code is in date', () => {
+    assert.deepStrictEqual(statusAfterReversal(new Date(T0.getTime() + DAY), T0), { status: 'ISSUED', usable: true });
+    assert.deepStrictEqual(statusAfterReversal(new Date(T0.getTime() - 1), T0), { status: 'REFUNDED', usable: false });
+  });
+
+  // ── How they came ─────────────────────────────────────────────────────────
+  await check('"how they came" answers self / doctor / partner, and nothing for a non-visit', async () => {
+    const ctx = memoryContext({ now: T0, referralSourceByVisit: { V1: 'SELF', V2: 'DOCTOR' } });
+    assert.strictEqual(await predicates.referralSource(ctx, subject, {}), 'SELF');
+    assert.strictEqual(await predicates.referralSource(ctx, { ...subject, id: 'V2' }, {}), 'DOCTOR');
+    assert.strictEqual(await predicates.referralSource(ctx, { ...subject, type: 'PATIENT', id: 'P1' }, {}), null);
+    // Unknown is unknown — a family offer must not go to someone we cannot place.
+    assert.strictEqual(await predicates.referralSource(ctx, { ...subject, id: 'V9' }, {}), null);
+    assert.strictEqual(await evaluate({ fn: 'referralSource', op: 'eq', value: 'SELF' }, ctx, subject), true);
+    assert.strictEqual(await evaluate({ fn: 'referralSource', op: 'eq', value: 'SELF' }, ctx, { ...subject, id: 'V2' }), false);
+  });
+
+  await check('every text condition offers its values as a list, and every listed one exists', () => {
+    const text = PREDICATE_CATALOG.filter((p) => p.returns === 'TEXT');
+    assert.ok(text.length > 0);
+    for (const p of text) {
+      assert.ok(p.choices && p.choices.length > 0, `${p.fn} is TEXT with no choices — the builder would show a bare box`);
+      assert.ok(predicates[p.fn], `${p.fn} is offered but not implemented`);
+    }
+    // OP recovery's Day-5 fork reads "still usable or being sent" — both must be choosable.
+    const cs = PREDICATE_CATALOG.find((p) => p.fn === 'couponState')!;
+    for (const v of ['ISSUED', 'PENDING']) assert.ok(cs.choices!.some((c) => c.value === v), `couponState missing ${v}`);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -42,6 +42,8 @@ function referralExample(discountPct: number, sharePct: number) {
 
 type CampaignRow = NonNullable<Awaited<ReturnType<typeof prisma.couponCampaign.findUnique>>>;
 type CouponCounts = { campaignId: string; status: string; _count: { _all: number } }[];
+/** Standing uses per campaign, from CouponRedemption — the only source of "used". */
+type UseCounts = { campaignId: string; uses: number; codesUsed: number }[];
 
 /**
  * What the Offers screens are given about one offer — the list AND the detail.
@@ -52,10 +54,11 @@ type CouponCounts = { campaignId: string; status: string; _count: { _all: number
  * every offer, including the one a live journey hands out, could be listed and never
  * opened or switched on. One function means the two cannot disagree again.
  */
-function summarizeOffer(c: CampaignRow, counts: CouponCounts) {
+function summarizeOffer(c: CampaignRow, counts: CouponCounts, useCounts: UseCounts = []) {
   const mine = counts.filter((x) => x.campaignId === c.id);
   const by = (s: string) => mine.find((x) => x.status === s)?._count._all ?? 0;
-  const issued = by('ISSUED') + by('REDEEMED');
+  const issued = by('ISSUED') + by('REDEEMED') + by('REFUNDED') + by('EXPIRED');
+  const u = useCounts.find((x) => x.campaignId === c.id);
   return {
     id: c.id,
     code: c.code,
@@ -65,10 +68,16 @@ function summarizeOffer(c: CampaignRow, counts: CouponCounts) {
     scope: c.scope,
     validityDays: c.validityDays,
     distribution: c.distribution,
-    bindToPatient: c.bindToPatient,
+    bindToPatient: c.holder === 'ISSUED_PATIENT_ONLY',
+    /** Who may use a code: anyone, only the patient it was given to, or anyone BUT them. */
+    holder: c.holder,
+    maxUsesPerCode: c.maxUsesPerCode,
     referrerSharePct: c.referrerSharePct,
     issued,
-    redeemed: by('REDEEMED'),
+    /** Codes used at least once — a partly used family code counts. */
+    redeemed: u?.codesUsed ?? 0,
+    /** Standing uses: one family code can account for several bills. */
+    uses: u?.uses ?? 0,
     expired: by('EXPIRED'),
     voided: by('VOID'),
     /// PENDING means the message carrying the code never left. Not a live code.
@@ -89,6 +98,16 @@ function summarizeOffer(c: CampaignRow, counts: CouponCounts) {
   };
 }
 
+/** Standing uses per campaign, counted from CouponRedemption. */
+async function useCountsFor(campaignIds: string[]): Promise<UseCounts> {
+  if (campaignIds.length === 0) return [];
+  return prisma.$queryRaw<UseCounts>`
+    SELECT c."campaignId", COUNT(*)::int AS uses, COUNT(DISTINCT r."couponId")::int AS "codesUsed"
+    FROM "CouponRedemption" r JOIN "Coupon" c ON c."id" = r."couponId"
+    WHERE r."reversedAt" IS NULL AND c."campaignId" = ANY(${campaignIds})
+    GROUP BY c."campaignId"`;
+}
+
 router.get('/', async (_req: AuthRequest, res) => {
   try {
     const campaigns = await prisma.couponCampaign.findMany({ orderBy: { createdAt: 'desc' } });
@@ -96,10 +115,11 @@ router.get('/', async (_req: AuthRequest, res) => {
       by: ['campaignId', 'status'],
       _count: { _all: true },
     });
+    const useCounts = await useCountsFor(campaigns.map((c) => c.id));
 
     return res.json({
       offers: campaigns.map((c) => {
-        return summarizeOffer(c, counts);
+        return summarizeOffer(c, counts, useCounts);
       }),
     });
   } catch (e) { return fail(res, e); }
@@ -118,11 +138,11 @@ export async function buildOfferDetail(id: string) {
   if (!c) return null;
 
   const [redeemedSum, usedByAutomations] = await Promise.all([
-    prisma.bill.aggregate({
-      where: { couponId: { in: (await prisma.coupon.findMany({
-        where: { campaignId: c.id, status: 'REDEEMED' }, select: { id: true },
-      })).map((x) => x.id) } },
-      _sum: { couponDiscountInPaise: true },
+    // Every standing use's own discount. A refunded use stops counting; summing the bills
+    // that point at a code would keep counting it.
+    prisma.couponRedemption.aggregate({
+      where: { reversedAt: null, coupon: { campaignId: c.id } },
+      _sum: { discountInPaise: true },
     }),
     prisma.automation.findMany({
       where: { definition: { path: ['steps'], array_contains: [] } },
@@ -138,8 +158,8 @@ export async function buildOfferDetail(id: string) {
 
   return {
     ...c,
-    ...summarizeOffer(c, counts),
-    discountGivenInPaise: redeemedSum._sum.couponDiscountInPaise ?? 0,
+    ...summarizeOffer(c, counts, await useCountsFor([c.id])),
+    discountGivenInPaise: redeemedSum._sum.discountInPaise ?? 0,
     usedByAutomations,
     /// Three ways to answer "who pays for the discount on a referred patient",
     /// computed rather than described so the screen does not have to do the arithmetic.
@@ -161,6 +181,18 @@ router.get('/:id', async (req: AuthRequest, res) => {
   } catch (e) { return fail(res, e); }
 });
 
+/**
+ * Who may use a code, from a request. `holder` is the setting; the old on/off
+ * `bindToPatient` still works for any client that sends it, and the column is kept in
+ * step until nothing reads it.
+ */
+function holderFields(body: Record<string, unknown>): { holder: 'ANYONE' | 'ISSUED_PATIENT_ONLY' | 'NOT_ISSUED_PATIENT'; bindToPatient: boolean } {
+  const holder = body.holder === 'ISSUED_PATIENT_ONLY' || body.holder === 'NOT_ISSUED_PATIENT' || body.holder === 'ANYONE'
+    ? body.holder
+    : body.bindToPatient === true ? 'ISSUED_PATIENT_ONLY' : 'ANYONE';
+  return { holder, bindToPatient: holder === 'ISSUED_PATIENT_ONLY' };
+}
+
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const { code, name, discountPercentage, discountReason, validityDays, scope, whatsappTemplate } = req.body ?? {};
@@ -179,7 +211,8 @@ router.post('/', async (req: AuthRequest, res) => {
         // away from money going out the door before anyone agreed the numbers.
         isActive: false,
         distribution: req.body.distribution ?? 'UNIQUE_PER_PATIENT',
-        bindToPatient: req.body.bindToPatient ?? false,
+        ...holderFields(req.body),
+        maxUsesPerCode: Math.max(1, Math.round(Number(req.body.maxUsesPerCode ?? 1)) || 1),
         referrerSharePct: req.body.referrerSharePct ?? 0,
         maxDiscountBudgetInPaise: req.body.maxDiscountBudgetInPaise ?? null,
         maxDiscountPerBillInPaise: req.body.maxDiscountPerBillInPaise ?? null,
@@ -208,11 +241,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     const fields = [
       'name', 'discountPercentage', 'discountReason', 'validityDays', 'scope',
-      'isActive', 'bindToPatient', 'referrerSharePct', 'whatsappTemplate',
+      'isActive', 'referrerSharePct', 'whatsappTemplate',
       'maxDiscountBudgetInPaise', 'maxDiscountPerBillInPaise', 'maxRedemptions',
     ] as const;
     const data: Record<string, unknown> = {};
     for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
+    if (req.body.holder !== undefined || req.body.bindToPatient !== undefined) Object.assign(data, holderFields(req.body));
+    if (req.body.maxUsesPerCode !== undefined) data.maxUsesPerCode = Math.max(1, Math.round(Number(req.body.maxUsesPerCode)) || 1);
 
     if (typeof data.referrerSharePct === 'number') {
       data.referrerSharePct = Math.min(100, Math.max(0, Math.round(data.referrerSharePct)));
@@ -248,7 +283,7 @@ router.get('/:id/coupons', async (req: AuthRequest, res) => {
       select: {
         id: true, code: true, status: true, patientId: true, phone: true,
         expiresAt: true, createdAt: true, redeemedAt: true, redeemedVisitId: true,
-        automationRunId: true,
+        automationRunId: true, useCount: true, maxUses: true,
       },
     });
     const hasMore = rows.length > take;

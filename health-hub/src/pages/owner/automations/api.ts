@@ -212,7 +212,7 @@ export interface Results {
     refused: number;
     answers: { label: string; count: number }[]; typed: number; noReply: number;
   }[];
-  offer: { sent: number; used: number; refunded: number; expiredUnused: number; stillUsable: number };
+  offer: { sent: number; used: number; redemptions: number; refunded: number; expiredUnused: number; stillUsable: number };
   counts: {
     runs: number; uniquePatients: number; treated: number; held: number;
     /** Patients, not messages. */
@@ -278,7 +278,12 @@ export interface PatientAutomations {
   coupons: {
     id: string; code: string; status: string; expiresAt: string; createdAt: string;
     issuedVisitId: string | null; redeemedVisitId: string | null; automationRunId: string | null;
-    campaign: { name: string; discountPercentage: number | null; scope: string; maxDiscountPerBillInPaise: number | null };
+    useCount: number; maxUses: number;
+    redemptions: { visitId: string; patientId: string | null; createdAt: string; discountInPaise: number }[];
+    campaign: {
+      name: string; discountPercentage: number | null; scope: string;
+      maxDiscountPerBillInPaise: number | null; holder: OfferHolder;
+    };
   }[];
 }
 export const getPatientAutomations = (patientId: string) =>
@@ -322,11 +327,26 @@ export const stopAutomation = (id: string) =>
 
 // ── Offers ──────────────────────────────────────────────────────────────────
 
+/** Who may use a code at the counter. */
+export type OfferHolder = 'ANYONE' | 'ISSUED_PATIENT_ONLY' | 'NOT_ISSUED_PATIENT';
+export const OFFER_HOLDERS: { value: OfferHolder; label: string; help: string }[] = [
+  { value: 'ANYONE', label: 'Anyone with the code',
+    help: 'Families share a phone, and someone collecting for a relative is normal here' },
+  { value: 'ISSUED_PATIENT_ONLY', label: 'Only the patient it was given to',
+    help: 'Refused at the counter for anyone else' },
+  { value: 'NOT_ISSUED_PATIENT', label: 'Family & friends, not the patient',
+    help: 'Refused at the counter for the patient it was given to' },
+];
+
 export interface OfferRow {
   id: string; code: string; name: string; isActive: boolean;
   discountPercentage: number | null; scope: string; validityDays: number;
   distribution: string; bindToPatient: boolean; referrerSharePct: number;
-  issued: number; redeemed: number; expired: number; voided: number; pending: number;
+  holder: OfferHolder;
+  /** How many bills one code can discount. 1 for most offers; a family code, several. */
+  maxUsesPerCode: number;
+  /** Codes used at least once, and standing uses — they differ once a code has several. */
+  issued: number; redeemed: number; uses: number; expired: number; voided: number; pending: number;
   budget: {
     maxDiscountBudgetInPaise: number | null; maxDiscountPerBillInPaise: number | null;
     maxRedemptions: number | null; reservedInPaise: number; committedInPaise: number;
@@ -379,6 +399,8 @@ export interface PredicateMeta {
   scope?: string;
   unit?: 'RUPEES' | 'DAYS' | 'YEARS';
   help?: string;
+  /** The only values a TEXT fact takes. The builder offers these instead of a box. */
+  choices?: { value: string; label: string }[];
 }
 /** Served by the backend so a predicate that does not exist can never be offered. */
 export const listPredicates = () =>

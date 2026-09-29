@@ -21,7 +21,9 @@ const OP_WORDS: Record<string, string> = {
 };
 
 function valueWords(value: unknown, meta?: PredicateMeta): string {
-  if (Array.isArray(value)) return value.map((v) => String(v).toLowerCase()).join(' or ');
+  const word = (v: unknown) => meta?.choices?.find((c) => c.value === v)?.label.toLowerCase() ?? String(v).toLowerCase();
+  if (Array.isArray(value)) return value.map(word).join(' or ');
+  if (meta?.choices) return word(value);
   if (meta?.unit === 'RUPEES') return `₹${Math.round(Number(value) / 100).toLocaleString('en-IN')}`;
   if (meta?.unit === 'DAYS') return `${value} days`;
   if (meta?.unit === 'YEARS') return `${value} years`;

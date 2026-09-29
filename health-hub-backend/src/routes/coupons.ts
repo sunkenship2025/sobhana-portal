@@ -31,19 +31,22 @@ router.get('/validate', async (req, res) => {
         reason: v.reason,
         message:
           v.reason === 'ALREADY_REDEEMED'
-            ? 'This coupon has already been used.'
+            ? 'This code has already been used up.'
             : v.reason === 'EXPIRED'
               ? 'This coupon has expired.'
               : v.reason === 'NOT_FOUND'
                 ? 'No coupon found for that code.'
                 : v.reason === 'WRONG_PATIENT'
                   ? 'This coupon was issued to a different patient.'
-                  : "This coupon can't be applied.",
+                  : v.reason === 'OWN_CODE'
+                    ? "This code is for the patient's family and friends — it can't be used by the person it was given to."
+                    : "This coupon can't be applied.",
       });
     }
     return res.json({
       ok: true,
       code: v.coupon.code,
+      usesLeft: v.coupon.usesLeft,
       discountType: v.campaign.discountType,
       discountPercentage: v.campaign.discountPercentage,
       scope: v.campaign.scope,

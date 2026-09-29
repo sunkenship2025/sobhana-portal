@@ -29,6 +29,7 @@ import { TRIGGERS } from './triggers';
 import { holdLine } from './inbound';
 import { phoneKey, threadPhone } from './phone';
 import { resolveFields } from './fields';
+import { expireCoupons } from '../couponService';
 import {
   sendDaySheet, istParts, previousDate, GRACE_MINUTES as SHEET_GRACE_MINUTES, DAY_SHEET,
 } from '../automatedMessageService';
@@ -1023,6 +1024,8 @@ export async function tick(now: Date = new Date()): Promise<void> {
     let goals = { converted: 0, reversed: 0 };
     if (now.getTime() - goalsSweptAt >= GOAL_SWEEP_MS) {
       goals = await reconcileConversions(ctx);
+      // Rides the same half-hourly pass, so it wakes the database no more often.
+      await expireCoupons(now);
       goalsSweptAt = now.getTime();
     }
     const { converted, reversed } = goals;

@@ -23,7 +23,7 @@ export function PatientOffersHeld({ patientId }: { patientId: string }) {
   });
 
   const live = (data?.coupons ?? []).filter(
-    (c) => c.status === 'ISSUED' && new Date(c.expiresAt) > new Date(),
+    (c) => c.status === 'ISSUED' && new Date(c.expiresAt) > new Date() && c.useCount < c.maxUses,
   );
   if (live.length === 0) return null;
 
@@ -44,9 +44,13 @@ export function PatientOffersHeld({ patientId }: { patientId: string }) {
                   `, up to ${rupees(c.campaign.maxDiscountPerBillInPaise)}`}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
+                {c.campaign.holder === 'NOT_ISSUED_PATIENT' && 'For their family & friends, not for this patient · '}
                 Issued {shortDate(c.createdAt)}
                 {c.automationRunId && ' by a journey'} · expires {shortDate(c.expiresAt)}
-                {days > 0 && `, in ${days} day${days === 1 ? '' : 's'}`} · not used yet
+                {days > 0 && `, in ${days} day${days === 1 ? '' : 's'}`} ·{' '}
+                {c.useCount === 0
+                  ? c.maxUses > 1 ? `${c.maxUses} uses, none used yet` : 'not used yet'
+                  : `${c.maxUses - c.useCount} of ${c.maxUses} uses left`}
               </span>
             </span>
           </div>

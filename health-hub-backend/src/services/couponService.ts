@@ -75,7 +75,7 @@ export interface IssuedCoupon {
 export async function issueCoupon(input: IssueCouponInput): Promise<IssuedCoupon> {
   const campaign = await prisma.couponCampaign.findUnique({
     where: { id: input.campaignId },
-    select: { id: true, code: true, validityDays: true, isActive: true },
+    select: { id: true, code: true, validityDays: true, isActive: true, maxUsesPerCode: true },
   });
   if (!campaign) throw new Error(`CouponCampaign not found: ${input.campaignId}`);
   if (!campaign.isActive) throw new Error(`CouponCampaign inactive: ${campaign.code}`);
@@ -99,6 +99,8 @@ export async function issueCoupon(input: IssueCouponInput): Promise<IssuedCoupon
           issuedByUserId: input.issuedByUserId ?? null,
           allowedProductIds: input.allowedProductIds ?? [],
           expiresAt,
+          // Snapshotted: editing the offer later never changes a code already handed out.
+          maxUses: Math.max(1, campaign.maxUsesPerCode),
         },
         select: { id: true },
       });
@@ -149,6 +151,8 @@ export type CouponRejection =
   | 'CAMPAIGN_INACTIVE'
   /// The code belongs to a different patient and the campaign is patient-bound.
   | 'WRONG_PATIENT'
+  /// A family-and-friends code presented for the very patient it was given to.
+  | 'OWN_CODE'
   /// Minted but its message never left; it is not a live code.
   | 'NOT_ISSUED';
 
@@ -161,6 +165,8 @@ export interface CouponValidation {
     status: CouponStatus;
     expiresAt: Date;
     allowedProductIds: string[];
+    /** Bills this code can still discount. */
+    usesLeft: number;
   };
   campaign?: {
     id: string;
@@ -187,6 +193,29 @@ export interface CouponValidation {
  * patient-bound campaign REFUSES when it is absent — the safe direction, since the
  * alternative is a bound coupon that silently binds to nobody.
  */
+/**
+ * Who may use a code, against the patient being billed. Pure, so the rules are checked
+ * offline. By patient RECORD, never phone: families share phones, and a family offer
+ * blocked by phone would block exactly the people it is for.
+ */
+export function holderAllows(
+  holder: 'ANYONE' | 'ISSUED_PATIENT_ONLY' | 'NOT_ISSUED_PATIENT',
+  issuedPatientId: string | null,
+  redeemingPatientId: string | null | undefined,
+): 'OK' | 'WRONG_PATIENT' | 'OWN_CODE' {
+  // A code issued to nobody in particular has no holder to compare with.
+  if (!issuedPatientId) return 'OK';
+  if (holder === 'ISSUED_PATIENT_ONLY') {
+    // A missing patient reads as the wrong one: the safe direction for a bound code.
+    return redeemingPatientId === issuedPatientId ? 'OK' : 'WRONG_PATIENT';
+  }
+  if (holder === 'NOT_ISSUED_PATIENT') {
+    // A brand-new registration has no record yet, and cannot be the holder.
+    return redeemingPatientId && redeemingPatientId === issuedPatientId ? 'OWN_CODE' : 'OK';
+  }
+  return 'OK';
+}
+
 export async function validateCouponByCode(
   rawCode: string,
   redeemingPatientId?: string | null,
@@ -199,7 +228,7 @@ export async function validateCouponByCode(
         select: {
           id: true, code: true, name: true, isActive: true,
           discountType: true, discountPercentage: true, discountReason: true, scope: true,
-          maxDiscountPerBillInPaise: true, referrerSharePct: true, bindToPatient: true,
+          maxDiscountPerBillInPaise: true, referrerSharePct: true, holder: true,
         },
       },
     },
@@ -216,19 +245,17 @@ export async function validateCouponByCode(
   }
   if (!campaign.isActive) return { ok: false, reason: 'CAMPAIGN_INACTIVE' };
 
-  // Patient binding. OFF by default and deliberately so: families share a phone here
-  // and someone collecting a relative's coupon is a normal Tuesday. When a campaign
-  // does turn it on, this is the line that makes "unique per patient" mean something —
-  // before it existed, any code worked for anyone holding it.
-  if (campaign.bindToPatient && coupon.patientId) {
-    if (!redeemingPatientId || redeemingPatientId !== coupon.patientId) {
-      return { ok: false, reason: 'WRONG_PATIENT' };
-    }
-  }
+  // Who may use it — see holderAllows. The billing screen and the bill route both pass
+  // the patient being billed; before they did, a bound code refused everyone.
+  const who = holderAllows(campaign.holder, coupon.patientId, redeemingPatientId);
+  if (who !== 'OK') return { ok: false, reason: who };
 
   return {
     ok: true,
-    coupon: { id: coupon.id, code: coupon.code, status: coupon.status, expiresAt: coupon.expiresAt, allowedProductIds: coupon.allowedProductIds },
+    coupon: {
+      id: coupon.id, code: coupon.code, status: coupon.status, expiresAt: coupon.expiresAt,
+      allowedProductIds: coupon.allowedProductIds, usesLeft: coupon.maxUses - coupon.useCount,
+    },
     campaign: {
       id: campaign.id, code: campaign.code, name: campaign.name,
       discountType: campaign.discountType, discountPercentage: campaign.discountPercentage,
@@ -272,28 +299,140 @@ export interface RedeemCouponInput {
   visitId: string;
   billId: string;
   userId: string;
+  /** The patient being billed — for a family offer, not the one the code was issued to. */
+  patientId?: string | null;
+  /** What this bill was actually discounted, for "discount given" and the budget. */
+  discountInPaise?: number;
 }
 
 /**
- * Atomically flip ISSUED -> REDEEMED. Throws if the coupon is no longer
- * redeemable (already used / expired / void) so the surrounding bill tx rolls
- * back. Call validateCouponByCode() first for a friendly pre-check; this is the
- * race-proof guard.
+ * Use one of a code's uses, inside the bill's own transaction.
+ *
+ * The increment is a single conditional UPDATE — prisma cannot say `useCount < maxUses`
+ * — so two bills racing for a code's last use cannot both have it. The last use turns
+ * the code REDEEMED; earlier uses leave it ISSUED with uses to spare. The first use also
+ * fills Coupon.redeemed* for older readers; CouponRedemption is the record of every use.
+ *
+ * Throws if the code has no use left, expired, or is not live, so the bill rolls back.
  */
 export async function redeemCouponInTx(tx: Tx, input: RedeemCouponInput): Promise<void> {
-  const res = await tx.coupon.updateMany({
-    where: { id: input.couponId, status: CouponStatus.ISSUED, expiresAt: { gt: new Date() } },
+  const rows = await tx.$queryRaw<{ campaignId: string; reservedPerUseInPaise: number }[]>`
+    UPDATE "Coupon" SET
+      "useCount" = "useCount" + 1,
+      "status" = CASE WHEN "useCount" + 1 >= "maxUses" THEN 'REDEEMED'::"CouponStatus" ELSE "status" END,
+      "redeemedAt" = COALESCE("redeemedAt", now()),
+      "redeemedVisitId" = COALESCE("redeemedVisitId", ${input.visitId}),
+      "redeemedBillId" = COALESCE("redeemedBillId", ${input.billId}),
+      "redeemedByUserId" = COALESCE("redeemedByUserId", ${input.userId}),
+      "updatedAt" = now()
+    WHERE "id" = ${input.couponId} AND "status" = 'ISSUED'
+      AND "useCount" < "maxUses" AND "expiresAt" > now()
+    RETURNING "campaignId", "reservedPerUseInPaise"`;
+  if (rows.length !== 1) {
+    throw new Error('COUPON_NOT_REDEEMABLE'); // used up, expired, or gone
+  }
+
+  const phone = input.patientId
+    ? (await tx.patientIdentifier.findFirst({
+        where: { patientId: input.patientId, type: 'PHONE' },
+        orderBy: { isPrimary: 'desc' }, select: { value: true },
+      }))?.value ?? null
+    : null;
+  const discount = Math.max(0, Math.round(input.discountInPaise ?? 0));
+  await tx.couponRedemption.create({
     data: {
-      status: CouponStatus.REDEEMED,
-      redeemedAt: new Date(),
-      redeemedVisitId: input.visitId,
-      redeemedBillId: input.billId,
-      redeemedByUserId: input.userId,
+      couponId: input.couponId, visitId: input.visitId, billId: input.billId,
+      patientId: input.patientId ?? null, phone, redeemedByUserId: input.userId,
+      discountInPaise: discount,
     },
   });
-  if (res.count !== 1) {
-    throw new Error('COUPON_NOT_REDEEMABLE'); // already used, expired, or gone
+  // The budget: this use's promise becomes money actually given. Recording the spend
+  // never happened before — committedInPaise was read everywhere and written nowhere.
+  const { campaignId, reservedPerUseInPaise } = rows[0];
+  await tx.couponCampaign.update({
+    where: { id: campaignId },
+    data: {
+      committedInPaise: { increment: discount },
+      ...(reservedPerUseInPaise > 0 ? { reservedInPaise: { decrement: reservedPerUseInPaise } } : {}),
+    },
+  });
+}
+
+/**
+ * What a code becomes when one of its uses is reversed. Pure, for the offline checks.
+ * A code still in date gets the use back (Pranav's decision: a refunded use returns to
+ * the code); an expired one records that it was used and then refunded.
+ */
+export function statusAfterReversal(expiresAt: Date, now: Date): { status: 'ISSUED' | 'REFUNDED'; usable: boolean } {
+  return expiresAt > now ? { status: 'ISSUED', usable: true } : { status: 'REFUNDED', usable: false };
+}
+
+/**
+ * The bill was cancelled or fully refunded: every use of a code on it is undone.
+ *
+ * Nothing wrote CouponStatus.REFUNDED before this — a cancelled bill kept its code
+ * "used" and its discount counted as given, so Results' "used, then refunded" was
+ * always 0. Returns how many uses were reversed.
+ */
+export async function reverseRedemptionsForBill(tx: Tx, billId: string, reason: string, now = new Date()): Promise<number> {
+  const live = await tx.couponRedemption.findMany({
+    where: { billId, reversedAt: null },
+    select: {
+      id: true, discountInPaise: true,
+      coupon: { select: { id: true, campaignId: true, expiresAt: true, reservedPerUseInPaise: true } },
+    },
+  });
+  for (const r of live) {
+    const claimed = await tx.couponRedemption.updateMany({
+      where: { id: r.id, reversedAt: null }, data: { reversedAt: now, reversedReason: reason },
+    });
+    if (claimed.count !== 1) continue;
+    const next = statusAfterReversal(r.coupon.expiresAt, now);
+    await tx.coupon.update({
+      where: { id: r.coupon.id },
+      data: { useCount: { decrement: 1 }, status: next.status },
+    });
+    await tx.couponCampaign.update({
+      where: { id: r.coupon.campaignId },
+      data: {
+        committedInPaise: { decrement: r.discountInPaise },
+        // The use is promised again only if the code can still be used.
+        ...(next.usable && r.coupon.reservedPerUseInPaise > 0
+          ? { reservedInPaise: { increment: r.coupon.reservedPerUseInPaise } } : {}),
+      },
+    });
   }
+  return live.length;
+}
+
+/**
+ * Codes past their date are marked EXPIRED and their unused budget is released.
+ *
+ * Nothing wrote EXPIRED before — expiry was only ever worked out on read — so budget set
+ * aside for a code nobody used stayed set aside for good. Runs on the automation engine's
+ * half-hourly pass, which already wakes the database; it adds no wake-up of its own.
+ */
+export async function expireCoupons(now = new Date()): Promise<number> {
+  const due = await prisma.coupon.findMany({
+    where: { status: CouponStatus.ISSUED, expiresAt: { lte: now } },
+    select: { id: true, campaignId: true, maxUses: true, useCount: true, reservedPerUseInPaise: true },
+    take: 500,
+  });
+  let expired = 0;
+  for (const c of due) {
+    const claimed = await prisma.coupon.updateMany({
+      where: { id: c.id, status: CouponStatus.ISSUED }, data: { status: CouponStatus.EXPIRED },
+    });
+    if (claimed.count !== 1) continue;
+    expired += 1;
+    const unused = Math.max(0, c.maxUses - c.useCount) * c.reservedPerUseInPaise;
+    if (unused > 0) {
+      await prisma.couponCampaign.update({
+        where: { id: c.campaignId }, data: { reservedInPaise: { decrement: unused } },
+      });
+    }
+  }
+  return expired;
 }
 
 // ============================================================================
@@ -308,7 +447,7 @@ export async function getCouponByToken(rawToken: string) {
       campaign: {
         select: {
           name: true, discountType: true, discountPercentage: true,
-          discountReason: true, landingTheme: true, scope: true,
+          discountReason: true, landingTheme: true, scope: true, holder: true,
         },
       },
     },

@@ -222,7 +222,11 @@ export async function automationResults(automationId: string) {
     }),
     prisma.coupon.findMany({
       where: { automationRunId: { in: ids } },
-      select: { id: true, status: true, expiresAt: true },
+      select: {
+        id: true, status: true, expiresAt: true, useCount: true, maxUses: true,
+        // Every use, reversed ones included — the only source of "used" and "given".
+        redemptions: { select: { discountInPaise: true, reversedAt: true } },
+      },
     }),
   ]);
 
@@ -257,11 +261,13 @@ export async function automationResults(automationId: string) {
   // reached the patient.
   const now = new Date();
   const codes = coupons.filter((c) => c.status !== 'PENDING' && c.status !== 'VOID');
-  const used = codes.filter((c) => c.status === 'REDEEMED');
-  const redeemedBills = await prisma.bill.aggregate({
-    where: { couponId: { in: used.map((c) => c.id) } },
-    _sum: { couponDiscountInPaise: true },
-  });
+  // Counted from CouponRedemption, not Coupon.status: a family code used by two of its
+  // three relatives is still ISSUED, and read by status it looked unused, with its
+  // discount missing from what was given.
+  const liveUses = (c: (typeof codes)[number]) => c.redemptions.filter((r) => !r.reversedAt);
+  const used = codes.filter((c) => liveUses(c).length > 0);
+  const redemptions = codes.reduce((n, c) => n + liveUses(c).length, 0);
+  const discountGiven = codes.reduce((n, c) => n + liveUses(c).reduce((m, r) => m + r.discountInPaise, 0), 0);
 
   const uniquePatients = new Set(runs.map((r) => r.patientId).filter(Boolean)).size;
 
@@ -284,11 +290,17 @@ export async function automationResults(automationId: string) {
     /** Codes this journey actually put in someone's hand, and what became of them. */
     offer: {
       sent: codes.length,
+      /** Codes with at least one live use. */
       used: used.length,
-      /** Used, then the bill was cancelled or refunded — the discount came back. */
-      refunded: codes.filter((c) => c.status === 'REFUNDED').length,
-      expiredUnused: codes.filter((c) => c.status === 'EXPIRED' || (c.status === 'ISSUED' && c.expiresAt <= now)).length,
-      stillUsable: codes.filter((c) => c.status === 'ISSUED' && c.expiresAt > now).length,
+      /** Live uses — one family code can account for several. */
+      redemptions,
+      /** Used, then every use was reversed (bill cancelled or refunded). */
+      refunded: codes.filter((c) => c.redemptions.length > 0 && liveUses(c).length === 0).length,
+      /** Never used at all, and now past its date. */
+      expiredUnused: codes.filter((c) => c.redemptions.length === 0
+        && (c.status === 'EXPIRED' || (c.status === 'ISSUED' && c.expiresAt <= now))).length,
+      /** Still in date with at least one use left — partly used family codes included. */
+      stillUsable: codes.filter((c) => c.status === 'ISSUED' && c.expiresAt > now && c.useCount < c.maxUses).length,
     },
     counts: {
       runs: runs.length,
@@ -325,7 +337,7 @@ export async function automationResults(automationId: string) {
     skipped: suppressed.map((s) => ({ reason: s.outcome, count: s._count._all })),
     money: {
       couponsRedeemed: used.length,
-      discountGivenInPaise: redeemedBills._sum.couponDiscountInPaise ?? 0,
+      discountGivenInPaise: discountGiven,
       /** Estimated: lift × treated. Null without a control group — see `controlled`. */
       incrementalPatients: controlled ? Math.max(0, Math.round((pT - pH) * treated.length)) : null,
       messageCostInPaise: null as number | null,
@@ -502,7 +514,13 @@ export async function patientAutomations(patientId: string) {
     select: {
       id: true, code: true, status: true, expiresAt: true, createdAt: true,
       issuedVisitId: true, redeemedVisitId: true, automationRunId: true,
-      campaign: { select: { name: true, discountPercentage: true, scope: true, maxDiscountPerBillInPaise: true } },
+      useCount: true, maxUses: true,
+      // Every use, not just the first: a family code shows who it was used for.
+      redemptions: {
+        where: { reversedAt: null }, orderBy: { createdAt: 'asc' },
+        select: { visitId: true, patientId: true, createdAt: true, discountInPaise: true },
+      },
+      campaign: { select: { name: true, discountPercentage: true, scope: true, maxDiscountPerBillInPaise: true, holder: true } },
     },
   });
 

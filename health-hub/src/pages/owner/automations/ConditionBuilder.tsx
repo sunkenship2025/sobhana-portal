@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { listPredicates, type Condition, type Op, type PredicateMeta } from './api';
 
 type Leaf = Extract<Condition, { fn: string }>;
@@ -60,10 +61,13 @@ const OPS: { value: Op; label: string; for: PredicateMeta['returns'][] }[] = [
 function displayValue(leaf: Leaf, meta?: PredicateMeta): string {
   if (leaf.value === undefined || leaf.value === null) return '';
   if (meta?.unit === 'RUPEES') return String(Math.round(Number(leaf.value) / 100));
+  if (Array.isArray(leaf.value)) return leaf.value.join(', ');
   return String(leaf.value);
 }
 
-function parseValue(raw: string, meta?: PredicateMeta): number | string {
+function parseValue(raw: string, meta?: PredicateMeta, op?: Op): number | string | string[] {
+  // "is one of" compares against a list; a plain string there never matched anything.
+  if (meta?.returns === 'TEXT' && op === 'in') return raw.split(',').map((s) => s.trim()).filter(Boolean);
   if (meta?.returns === 'TEXT') return raw;
   const n = Number(raw);
   if (!Number.isFinite(n)) return 0;
@@ -107,7 +111,9 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave,
         ...g[which],
         meta.returns === 'BOOLEAN'
           ? { fn: meta.fn }
-          : { fn: meta.fn, op: 'gte' as Op, value: 0 },
+          : meta.returns === 'TEXT'
+            ? { fn: meta.fn, op: 'eq' as Op, value: meta.choices?.[0]?.value ?? '' }
+            : { fn: meta.fn, op: 'gte' as Op, value: 0 },
       ],
     }));
 
@@ -205,18 +211,29 @@ function Row({ which, leaf, i, meta, update, remove }: {
       )}
       {meta && meta.returns !== 'BOOLEAN' && (
         <>
-          <Select value={leaf.op ?? 'gte'}
-            onValueChange={(v) => update(which, i, { op: v as Op })}>
+          <Select value={leaf.op ?? (meta.returns === 'TEXT' ? 'eq' : 'gte')}
+            onValueChange={(v) => {
+              // Keep the value's shape in step: one value for "is", a list for "is one of".
+              const op = v as Op;
+              const list = Array.isArray(leaf.value) ? leaf.value.map(String) : leaf.value != null && leaf.value !== '' ? [String(leaf.value)] : [];
+              const value = meta.returns !== 'TEXT' ? leaf.value : op === 'in' ? list : list[0] ?? '';
+              update(which, i, { op, value });
+            }}>
             <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
               {ops.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input
-            className="h-8 w-24"
-            value={displayValue(leaf, meta)}
-            onChange={(e) => update(which, i, { value: parseValue(e.target.value, meta) })}
-          />
+          {meta.choices ? (
+            <ChoiceValue leaf={leaf} choices={meta.choices}
+              onChange={(value) => update(which, i, { value })} />
+          ) : (
+            <Input
+              className="h-8 w-24"
+              value={displayValue(leaf, meta)}
+              onChange={(e) => update(which, i, { value: parseValue(e.target.value, meta, leaf.op) })}
+            />
+          )}
           {meta.unit && (
             <span className="text-xs text-muted-foreground">
               {meta.unit === 'RUPEES' ? 'rupees' : meta.unit === 'DAYS' ? 'days' : 'years'}
@@ -232,6 +249,45 @@ function Row({ which, leaf, i, meta, update, remove }: {
     </div>
   );
   }
+
+/** A TEXT value from its served list: one for "is", several for "is one of". */
+function ChoiceValue({ leaf, choices, onChange }: {
+  leaf: Leaf; choices: { value: string; label: string }[];
+  onChange: (value: string | string[]) => void;
+}) {
+  const labelOf = (v: unknown) => choices.find((c) => c.value === v)?.label ?? String(v);
+  if (leaf.op !== 'in') {
+    return (
+      <Select value={String(leaf.value ?? '')} onValueChange={onChange}>
+        <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Choose" /></SelectTrigger>
+        <SelectContent>
+          {choices.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    );
+  }
+  const picked = Array.isArray(leaf.value) ? leaf.value.map(String) : [];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="flex h-8 w-56 items-center rounded-md border px-3 text-left text-sm">
+          <span className="truncate">{picked.length ? picked.map(labelOf).join(', ') : 'Choose'}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 space-y-1 p-2">
+        {choices.map((c) => (
+          <label key={c.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+            <Checkbox checked={picked.includes(c.value)}
+              onCheckedChange={(on) => onChange(on
+                ? choices.map((x) => x.value).filter((v) => v === c.value || picked.includes(v))
+                : picked.filter((v) => v !== c.value))} />
+            {c.label}
+          </label>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** Search-first, because a permanently visible field tree reads like a database. */
 function FieldPicker({ catalog, onPick, trigger }: {

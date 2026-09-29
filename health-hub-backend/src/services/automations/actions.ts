@@ -234,14 +234,20 @@ export async function issueCouponForStep(
     return { couponId: '', code: '', alreadyIssued: false, refused: 'CAMPAIGN_INACTIVE' };
   }
 
-  // Worst-case exposure of one more coupon: the per-bill cap when set, otherwise we
-  // cannot bound it and the reservation is skipped rather than guessed.
-  const exposure = campaign.maxDiscountPerBillInPaise ?? 0;
-  if (campaign.maxDiscountBudgetInPaise !== null && exposure > 0) {
+  // Worst-case exposure of one more code: the per-bill cap for EACH use it allows, set
+  // aside now so a code in someone's hand is never refused at the counter for budget.
+  // No cap means the exposure cannot be bounded, and the reservation is skipped rather
+  // than guessed.
+  const uses = Math.max(1, campaign.maxUsesPerCode);
+  const perUse = campaign.maxDiscountPerBillInPaise ?? 0;
+  const exposure = perUse * uses;
+  const budget = campaign.maxDiscountBudgetInPaise;
+  const reserving = budget !== null && exposure > 0;
+  if (budget !== null && reserving) {
     const claimed = await prisma.couponCampaign.updateMany({
       where: {
         id: campaignId,
-        reservedInPaise: { lte: campaign.maxDiscountBudgetInPaise - campaign.committedInPaise - exposure },
+        reservedInPaise: { lte: budget - campaign.committedInPaise - exposure },
       },
       data: { reservedInPaise: { increment: exposure } },
     });
@@ -274,6 +280,8 @@ export async function issueCouponForStep(
       expiresAt: expiresAt ?? new Date(Date.now() + campaign.validityDays * 24 * 60 * 60 * 1000),
       automationRunId: runId,
       automationStep: stepIndex,
+      maxUses: uses,
+      reservedPerUseInPaise: reserving ? perUse : 0,
     },
     select: { id: true, code: true },
   });
@@ -285,19 +293,21 @@ export async function activateCoupon(couponId: string): Promise<void> {
   await prisma.coupon.updateMany({ where: { id: couponId, status: 'PENDING' }, data: { status: 'ISSUED' } });
 }
 
-/** Void after a failed send, and hand the reserved budget back. */
+/** Void after a failed send, and hand back everything that was set aside for it. */
 export async function voidPendingCoupon(couponId: string): Promise<void> {
   const coupon = await prisma.coupon.findUnique({
     where: { id: couponId },
-    select: { status: true, campaign: { select: { id: true, maxDiscountPerBillInPaise: true } } },
+    select: { status: true, campaignId: true, maxUses: true, reservedPerUseInPaise: true },
   });
   if (!coupon || coupon.status !== 'PENDING') return;
-  await prisma.coupon.updateMany({ where: { id: couponId, status: 'PENDING' }, data: { status: 'VOID' } });
-  const exposure = coupon.campaign.maxDiscountPerBillInPaise ?? 0;
-  if (exposure > 0) {
+  const voided = await prisma.coupon.updateMany({ where: { id: couponId, status: 'PENDING' }, data: { status: 'VOID' } });
+  // What THIS code reserved, per use, times its uses — not the campaign's current cap,
+  // which may have been edited since the code was issued.
+  const held = coupon.reservedPerUseInPaise * coupon.maxUses;
+  if (voided.count === 1 && held > 0) {
     await prisma.couponCampaign.update({
-      where: { id: coupon.campaign.id },
-      data: { reservedInPaise: { decrement: exposure } },
+      where: { id: coupon.campaignId },
+      data: { reservedInPaise: { decrement: held } },
     });
   }
 }

@@ -279,6 +279,12 @@ export const predicates: Record<string, Predicate> = {
     return ctx.couponState(String(runId));
   },
 
+  /** SELF | DOCTOR | PARTNER — how the patient came for this visit. */
+  async referralSource(ctx, subject) {
+    if (subject.type !== 'VISIT') return null;
+    return ctx.referralSource(subject.id);
+  },
+
   async always() {
     return true;
   },
@@ -388,6 +394,11 @@ export interface PredicateMeta {
   scope?: string;
   unit?: 'RUPEES' | 'DAYS' | 'YEARS';
   help?: string;
+  /**
+   * The only values a TEXT fact takes, in the operator's words. With these the builder
+   * offers a list instead of a box — nobody should have to know to type "ISSUED".
+   */
+  choices?: { value: string; label: string }[];
 }
 
 export const PREDICATE_CATALOG: PredicateMeta[] = [
@@ -411,7 +422,22 @@ export const PREDICATE_CATALOG: PredicateMeta[] = [
     returns: 'BOOLEAN', scope: 'since this visit, same branch',
     help: 'The default conversion question counts any branch, because revenue is revenue. This is the narrower one.' },
   { fn: 'couponState', label: 'State of the offer this journey issued', group: 'Money', returns: 'TEXT',
-    help: 'ISSUED, REDEEMED, EXPIRED or VOID.' },
+    help: 'A code that covers several bills stays usable until its last use.',
+    choices: [
+      { value: 'PENDING', label: 'Being sent' },
+      { value: 'ISSUED', label: 'Still usable' },
+      { value: 'REDEEMED', label: 'Used up' },
+      { value: 'EXPIRED', label: 'Expired' },
+      { value: 'REFUNDED', label: 'Refunded after it expired' },
+      { value: 'VOID', label: 'Never sent' },
+    ] },
+  { fn: 'referralSource', label: 'How they came', group: 'Visit', returns: 'TEXT', scope: 'this visit',
+    help: 'Who sent the patient for this visit. A lab we send samples out to is not a source.',
+    choices: [
+      { value: 'SELF', label: 'On their own' },
+      { value: 'DOCTOR', label: 'Referred by a doctor' },
+      { value: 'PARTNER', label: 'Sent by a partner' },
+    ] },
   { fn: 'testDoneSinceThisVisit', label: 'Tests done', group: 'Diagnostics', returns: 'BOOLEAN',
     scope: 'since this visit',
     help: 'Any diagnostics after the triggering visit, including a walk-in we did not cause. Generous on purpose — being wrong here costs one unsent message.' },
@@ -423,7 +449,8 @@ export const PREDICATE_CATALOG: PredicateMeta[] = [
   { fn: 'visitValueInPaise', label: 'Visit value', group: 'Visit', returns: 'NUMBER', unit: 'RUPEES', scope: 'this visit' },
   { fn: 'daysSinceLastVisit', label: 'Days since their last visit', group: 'Visit', returns: 'NUMBER', unit: 'DAYS' },
   { fn: 'patientAgeYears', label: 'Age', group: 'Patient', returns: 'NUMBER', unit: 'YEARS' },
-  { fn: 'patientGender', label: 'Gender', group: 'Patient', returns: 'TEXT' },
+  { fn: 'patientGender', label: 'Gender', group: 'Patient', returns: 'TEXT',
+    choices: [{ value: 'M', label: 'Male' }, { value: 'F', label: 'Female' }, { value: 'O', label: 'Other' }] },
   { fn: 'agreedToOffers', label: 'Agreed to offers', group: 'Patient', returns: 'BOOLEAN',
     help: 'Consent is also enforced at send time, so a journey cannot message someone who has not agreed even if this is left out.' },
   { fn: 'outstandingDueInPaise', label: 'Amount still due', group: 'Money', returns: 'NUMBER', unit: 'RUPEES', scope: 'this visit' },

@@ -955,6 +955,13 @@ model CouponCampaign {
   /// Only the patient it was issued to may redeem it. Default OFF: families share a
   /// phone here and someone collecting for a relative is normal.
   bindToPatient Boolean @default(false)
+  /// WHO may use a code — replaces bindToPatient (kept only until nothing reads it):
+  /// ANYONE, only the patient it was issued to, or anyone EXCEPT that patient (a
+  /// family-and-friends offer). Checked against the patient being billed.
+  holder         CouponHolder @default(ANYONE)
+  /// How many bills one code may discount. Snapshotted onto each Coupon at issue, so
+  /// editing the offer never changes a code already in someone's hand.
+  maxUsesPerCode Int          @default(1)
 
   /// Liability caps. Budget is counted at REDEMPTION (committed) plus everything live
   /// and unexpired (reserved) — counting only redemptions lets you issue 3x the budget
@@ -999,10 +1006,18 @@ model Coupon {
   /// against the same budget.
   automationRunId   String?
   automationStep    Int?
+  /// Uses allowed (snapshot of the offer's maxUsesPerCode at issue) and uses made.
+  /// The code stays ISSUED while useCount < maxUses; the last use makes it REDEEMED.
+  maxUses               Int      @default(1)
+  useCount              Int      @default(0)
+  /// Budget set aside per use at issue (the per-bill cap), released as uses are made,
+  /// reversed, or the code expires unused. 0 when nothing was reserved.
+  reservedPerUseInPaise Int      @default(0)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  campaign CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  campaign    CouponCampaign     @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  redemptions CouponRedemption[]
 
   @@index([campaignId])
   @@index([status])
@@ -1010,6 +1025,42 @@ model Coupon {
   @@index([phone])
   @@index([expiresAt])
   @@index([automationRunId])
+}
+
+/// Who may use a code. See CouponCampaign.holder.
+enum CouponHolder {
+  ANYONE
+  ISSUED_PATIENT_ONLY
+  NOT_ISSUED_PATIENT
+}
+
+/// One use of a code on one bill — the source of truth for "used", "discount given" and
+/// "whose code did who use". Coupon.redeemed* keeps the FIRST use only, for older readers.
+/// Visit and bill are scalar links, like Coupon's own: a hard-deleted bill must never
+/// take the record of a discount with it, or block a migration that copies one.
+model CouponRedemption {
+  id               String    @id @default(cuid())
+  couponId         String
+  visitId          String
+  billId           String
+  /// The patient billed — for a family offer, not the one the code was issued to.
+  patientId        String?
+  /// The billed patient's phone. Same phone as the holder is a signal, never a block:
+  /// families share phones.
+  phone            String?
+  redeemedByUserId String?
+  discountInPaise  Int       @default(0)
+  createdAt        DateTime  @default(now())
+  /// The bill was cancelled or fully refunded; the use went back to the code.
+  reversedAt       DateTime?
+  reversedReason   String?
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, billId])
+  @@index([couponId])
+  @@index([patientId])
+  @@index([visitId])
 }
 
 enum CouponStatus {

@@ -99,6 +99,11 @@ export interface AutomationContext {
   /** How many times one particular test has been done, ever or within a window. */
   testCodeCount(patientId: string, testCode: string, withinDays?: number): Promise<number>;
   couponState(runId: string): Promise<string | null>;
+  /**
+   * How the patient came for this visit: SELF, DOCTOR or PARTNER. A partner we send
+   * work OUT to is a vendor, not a source, so their visits are still SELF.
+   */
+  referralSource(visitId: string): Promise<'SELF' | 'DOCTOR' | 'PARTNER' | null>;
   resultOf(testOrderId: string, testCode: string): Promise<ResultFacts | null>;
 }
 
@@ -297,6 +302,20 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       return c.status;
     },
 
+    async referralSource(visitId) {
+      const v = await prisma.visit.findUnique({
+        where: { id: visitId },
+        select: {
+          partnerVisit: { select: { kind: true } },
+          // Live links only: a visit converted to Self keeps its old link, soft-deleted.
+          referrals: { where: { deletedAt: null }, select: { id: true }, take: 1 },
+        },
+      });
+      if (!v) return null;
+      if (v.partnerVisit && v.partnerVisit.kind !== 'OUTBOUND_VENDOR') return 'PARTNER';
+      return v.referrals.length > 0 ? 'DOCTOR' : 'SELF';
+    },
+
     async higherPriorityRunDue(patientId, priority, runId) {
       const rival = await prisma.automationRun.findFirst({
         where: {
@@ -379,6 +398,7 @@ export interface FactSet {
   /** "patientId:TESTCODE" -> results newest first. */
   resultHistory?: Record<string, ResultFacts[]>;
   couponStateByRun?: Record<string, string>;
+  referralSourceByVisit?: Record<string, 'SELF' | 'DOCTOR' | 'PARTNER'>;
 }
 
 /**
@@ -449,6 +469,9 @@ export function memoryContext(facts: FactSet): AutomationContext {
     },
     async couponState(runId) {
       return facts.couponStateByRun?.[runId] ?? null;
+    },
+    async referralSource(visitId) {
+      return facts.referralSourceByVisit?.[visitId] ?? null;
     },
     async resultOf(testOrderId, testCode) {
       return facts.results?.[`${testOrderId}:${testCode}`] ?? null;

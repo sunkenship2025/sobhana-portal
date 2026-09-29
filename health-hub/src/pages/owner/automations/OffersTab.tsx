@@ -13,12 +13,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
 import { toast } from 'sonner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { listOffers, getOffer, saveOffer, createOffer, rupees, type ReferralExample } from './api';
+import {
+  listOffers, getOffer, saveOffer, createOffer, rupees, OFFER_HOLDERS,
+  type OfferHolder, type ReferralExample,
+} from './api';
 
 export function OffersTab() {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -61,7 +65,9 @@ export function OffersTab() {
                 <span className="block text-xs text-muted-foreground">
                   {o.discountPercentage}% off {o.scope === 'TESTS_ONLY' ? 'tests' : 'the whole bill'}
                   {' · '}{o.distribution === 'UNIQUE_PER_PATIENT' ? 'unique per patient' : 'one shared code'}
+                  {o.holder === 'NOT_ISSUED_PATIENT' && ' · for family & friends'}
                   {' · '}{o.issued} issued, {o.redeemed} used
+                  {o.uses > o.redeemed && ` (${o.uses} bills)`}
                 </span>
               </span>
               {o.budget.maxDiscountBudgetInPaise != null && (
@@ -135,7 +141,9 @@ export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) 
     );
   }
   if (isLoading || !o) return <LoadingState />;
-  const share = (draft.referrerSharePct as number) ?? o.referrerSharePct;
+  // What is on screen: the edit when there is one — a cleared box included — else the saved value.
+  const shown = <T,>(k: string, saved: T) => (k in draft ? (draft[k] as T) : saved);
+  const share = shown('referrerSharePct', o.referrerSharePct);
   const dirty = Object.keys(draft).length > 0;
 
   return (
@@ -161,7 +169,7 @@ export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { n: o.issued, label: 'Issued' },
-          { n: o.redeemed, label: 'Used' },
+          { n: o.redeemed, label: o.uses > o.redeemed ? `Used, on ${o.uses} bills` : 'Used' },
           { n: o.issued ? `${Math.round((o.redeemed / o.issued) * 100)}%` : '—', label: 'Of those issued' },
           { n: rupees(o.discountGivenInPaise), label: o.budget.maxDiscountBudgetInPaise != null
               ? `of ${rupees(o.budget.maxDiscountBudgetInPaise)} budget` : 'given away' },
@@ -196,22 +204,18 @@ export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) 
         <div className="divide-y rounded-lg border">
           <LimitRow label="Total budget"
             sub={`${rupees(o.budget.committedInPaise)} used · ${rupees(o.budget.reservedInPaise)} promised but not yet redeemed`}
-            value={o.budget.maxDiscountBudgetInPaise}
+            value={shown('maxDiscountBudgetInPaise', o.budget.maxDiscountBudgetInPaise)}
             onChange={(v) => setDraft({ ...draft, maxDiscountBudgetInPaise: v })} />
           <LimitRow label="Most one bill can be discounted"
             sub="Without this, 15% of a ₹40,000 bill is ₹6,000"
-            value={o.budget.maxDiscountPerBillInPaise}
+            value={shown('maxDiscountPerBillInPaise', o.budget.maxDiscountPerBillInPaise)}
             onChange={(v) => setDraft({ ...draft, maxDiscountPerBillInPaise: v })} />
-          <div className="flex items-center gap-3 px-4 py-3">
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">Only the patient it was issued to may use it</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                Off by default — families share a phone, and someone collecting for a relative is normal here
-              </span>
-            </span>
-            <Switch checked={(draft.bindToPatient as boolean) ?? o.bindToPatient}
-              onCheckedChange={(v) => setDraft({ ...draft, bindToPatient: v })} />
-          </div>
+          <HolderRow value={shown('holder', o.holder)}
+            onChange={(v) => setDraft({ ...draft, holder: v })} />
+          <LimitRow label="Bills one code can be used on"
+            sub="1 for most offers. A code for a patient's family might cover 3 visits — each one sets aside the per-bill cap from the budget when it is sent"
+            value={shown('maxUsesPerCode', o.maxUsesPerCode)} plain
+            onChange={(v) => setDraft({ ...draft, maxUsesPerCode: v })} />
           <div className="flex items-center gap-3 bg-muted/30 px-4 py-3">
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">
@@ -240,9 +244,31 @@ export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) 
   );
 }
 
-function LimitRow({ label, sub, value, onChange }: {
-  label: string; sub: string; value: number | null; onChange: (v: number | null) => void;
+/** Who may use a code at the counter. */
+function HolderRow({ value, onChange }: { value: OfferHolder; onChange: (v: OfferHolder) => void }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">Who can use a code</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          {OFFER_HOLDERS.find((h) => h.value === value)?.help}
+        </span>
+      </span>
+      <Select value={value} onValueChange={(v) => onChange(v as OfferHolder)}>
+        <SelectTrigger className="h-9 w-60"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {OFFER_HOLDERS.map((h) => <SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/** A number on the right of a row: rupees by default, `plain` for a count. */
+function LimitRow({ label, sub, value, onChange, plain }: {
+  label: string; sub: string; value: number | null; onChange: (v: number | null) => void; plain?: boolean;
 }) {
+  const scale = plain ? 1 : 100;
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <span className="min-w-0 flex-1">
@@ -251,10 +277,10 @@ function LimitRow({ label, sub, value, onChange }: {
       </span>
       <Input
         className="h-9 w-32 text-right" placeholder="No limit"
-        value={value == null ? '' : Math.round(value / 100)}
+        value={value == null ? '' : Math.round(value / scale)}
         onChange={(e) => {
           const n = e.target.value.trim();
-          onChange(n === '' ? null : Math.max(0, Math.round(Number(n) * 100)));
+          onChange(n === '' ? null : Math.max(0, Math.round(Number(n) * scale)) || 0);
         }}
       />
     </div>
@@ -278,6 +304,9 @@ function NewOfferDialog({ open, onClose, onCreated }: {
   const [days, setDays] = useState('30');
   const [budget, setBudget] = useState('');
   const [perBill, setPerBill] = useState('');
+  const [scope, setScope] = useState('TESTS_ONLY');
+  const [holder, setHolder] = useState<OfferHolder>('ANYONE');
+  const [uses, setUses] = useState('1');
 
   const create = useMutation({
     mutationFn: () => createOffer({
@@ -286,7 +315,9 @@ function NewOfferDialog({ open, onClose, onCreated }: {
       discountPercentage: Number(pct) || 0,
       discountReason: name.trim() || 'Campaign offer',
       validityDays: Number(days) || 30,
-      scope: 'TESTS_ONLY',
+      scope,
+      holder,
+      maxUsesPerCode: Math.max(1, Math.round(Number(uses)) || 1),
       maxDiscountBudgetInPaise: budget ? Math.round(Number(budget) * 100) : null,
       maxDiscountPerBillInPaise: perBill ? Math.round(Number(perBill) * 100) : null,
     }),
@@ -294,6 +325,7 @@ function NewOfferDialog({ open, onClose, onCreated }: {
       toast.success('Created, inactive. Turn it on when the numbers are agreed.');
       qc.invalidateQueries({ queryKey: ['offers'] });
       setCode(''); setName(''); setBudget(''); setPerBill('');
+      setScope('TESTS_ONLY'); setHolder('ANYONE'); setUses('1');
       onCreated(o.id);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -328,6 +360,27 @@ function NewOfferDialog({ open, onClose, onCreated }: {
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
+              <Label className="text-xs">Off</Label>
+              <Select value={scope} onValueChange={setScope}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TESTS_ONLY">Tests only</SelectItem>
+                  <SelectItem value="WHOLE_BILL">The whole bill</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1">
+              <Label className="text-xs">Who can use a code</Label>
+              <Select value={holder} onValueChange={(v) => setHolder(v as OfferHolder)}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {OFFER_HOLDERS.map((h) => <SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
               <Label className="text-xs">Expires after (days)</Label>
               <Input className="mt-1.5" value={days} onChange={(e) => setDays(e.target.value)} />
             </div>
@@ -335,6 +388,10 @@ function NewOfferDialog({ open, onClose, onCreated }: {
               <Label className="text-xs">Most one bill (₹)</Label>
               <Input className="mt-1.5" placeholder="No cap"
                 value={perBill} onChange={(e) => setPerBill(e.target.value)} />
+            </div>
+            <div className="w-28">
+              <Label className="text-xs">Bills per code</Label>
+              <Input className="mt-1.5" value={uses} onChange={(e) => setUses(e.target.value)} />
             </div>
           </div>
           <div>
