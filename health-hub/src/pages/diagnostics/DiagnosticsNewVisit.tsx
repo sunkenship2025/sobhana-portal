@@ -773,12 +773,13 @@ const DiagnosticsNewVisit = () => {
       )
     : 0;
   const couponCoversNothing = !!couponInfo && couponInfo.scope !== "WHOLE_BILL" && couponAllowed.length > 0 && couponScopeAmount === 0;
-  // A coupon and a manual discount can now be stacked. Mirror the backend clamp
-  // (billFinancialService): the coupon can't discount more than what remains
-  // after the manual discount, so net never goes below 0 and "Discount applied"
-  // (discount + coupon) never exceeds the bill.
-  const couponDiscount = Math.min(couponDiscountRaw, Math.max(0, totalAmount - discountAmount));
-  const netPayable = Math.max(0, totalAmount - discountAmount - couponDiscount);
+  // Staff discount or code: the larger one applies, compared in rupees — as the bill
+  // route decides. The two used to be added together here and at the bill.
+  const staffDiscountWins = !!couponInfo && !couponCoversNothing && discountAmount > 0 && discountAmount >= couponDiscountRaw;
+  const couponWins = !!couponInfo && !couponCoversNothing && !staffDiscountWins && couponDiscountRaw > 0;
+  const appliedStaffDiscount = couponWins ? 0 : discountAmount;
+  const couponDiscount = couponWins ? Math.min(couponDiscountRaw, totalAmount) : 0;
+  const netPayable = Math.max(0, totalAmount - appliedStaffDiscount - couponDiscount);
   const paidNumeric =
     paidAmount.trim() === "" ? netPayable : Number(paidAmount);
   const safePaidAmount = Number.isFinite(paidNumeric)
@@ -794,7 +795,6 @@ const DiagnosticsNewVisit = () => {
   const validateCoupon = async () => {
     const code = couponCode.trim();
     if (!code) { setCouponInfo(null); setCouponError(""); return; }
-    if (discountMode !== "NONE") { setCouponInfo(null); setCouponError("Remove the manual discount to use a coupon."); return; }
     if (!token || !activeBranch) return;
     try {
       // The patient, so a code bound to its patient is checked against the right person.
@@ -1247,7 +1247,7 @@ const DiagnosticsNewVisit = () => {
           discountType: discountMode === "NONE" ? undefined : discountMode,
           discountValue:
             discountMode === "NONE" ? undefined : safeDiscountNumeric,
-          couponCode: couponInfo && !couponCoversNothing ? couponInfo.code : undefined,
+          couponCode: couponWins ? couponInfo!.code : undefined,
           paidAmount: safePaidAmount,
           sendWhatsApp: showNewPatientForm
             ? newPatient.whatsappOptIn
@@ -2795,12 +2795,18 @@ const DiagnosticsNewVisit = () => {
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); validateCoupon(); } }}
                       placeholder="Enter coupon code"
                     />
-                    {couponInfo && !couponCoversNothing && (
+                    {staffDiscountWins && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        Not used: the staff discount is larger. The code stays with the patient.
+                      </p>
+                    )}
+                    {couponWins && (
                       <p className="text-xs text-emerald-700 mt-1">
                         {couponInfo.campaignName}: {couponInfo.discountPercentage}% off{" "}
                         {couponInfo.scope === "WHOLE_BILL" ? "the bill" : couponAllowed.length > 0 ? "the tests it covers" : "tests"}
                         {couponInfo.maxDiscountPerBillInPaise != null && `, up to ${formatMoney(couponInfo.maxDiscountPerBillInPaise / 100)}`} applied
                         {couponInfo.usesLeft > 1 && ` · ${couponInfo.usesLeft - 1} more use${couponInfo.usesLeft - 1 === 1 ? "" : "s"} after this bill`}
+                        {discountAmount > 0 && " · the staff discount is not added on top"}
                       </p>
                     )}
                     {couponCoversNothing && (
@@ -2835,7 +2841,7 @@ const DiagnosticsNewVisit = () => {
                       Discount applied
                     </div>
                     <div className="font-semibold">
-                      -{formatMoney(discountAmount + couponDiscount)}
+                      -{formatMoney(appliedStaffDiscount + couponDiscount)}
                     </div>
 
                     <div className="font-semibold text-muted-foreground">
@@ -3096,10 +3102,10 @@ const DiagnosticsNewVisit = () => {
               <span className="text-muted-foreground">Total</span>
               <span className="font-medium">{formatMoney(totalAmount)}</span>
             </div>
-            {discountAmount > 0 && (
+            {appliedStaffDiscount + couponDiscount > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Discount</span>
-                <span className="font-medium">-{formatMoney(discountAmount)}</span>
+                <span className="font-medium">-{formatMoney(appliedStaffDiscount + couponDiscount)}</span>
               </div>
             )}
             <div className="flex justify-between border-t pt-2">

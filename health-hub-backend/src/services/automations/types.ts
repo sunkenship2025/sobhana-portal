@@ -300,6 +300,10 @@ export const Outcome = {
   NOT_OPTED_IN_MARKETING: 'NOT_OPTED_IN_MARKETING',
   LINK_DISABLED: 'LINK_DISABLED',
   CRITICAL_VALUE: 'CRITICAL_VALUE',
+  /** The visit that started the journey was cancelled afterwards. */
+  VISIT_CANCELLED: 'VISIT_CANCELLED',
+  /** "Who qualifies" no longer held when the next message was due — e.g. a referral corrected. */
+  NO_LONGER_QUALIFIES: 'NO_LONGER_QUALIFIES',
   HUMAN_HOLDS_THREAD: 'HUMAN_HOLDS_THREAD',
   LINE_HELD_BY_ANOTHER_RUN: 'LINE_HELD_BY_ANOTHER_RUN',
   TEMPLATE_PAUSED: 'TEMPLATE_PAUSED',

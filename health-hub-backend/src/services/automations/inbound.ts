@@ -257,18 +257,36 @@ export async function resolveInbound(
  * The single-column primary key IS the feature: one automation may hold one number, and
  * a second wanting it is refused by the database rather than by a convention.
  */
+/** A run that has ended gives its line back, whatever ended it. */
+export async function releaseLine(runId: string): Promise<void> {
+  await prisma.awaitingReply.deleteMany({ where: { automationRunId: runId } });
+}
+
+/** Every line still held by a run that is no longer waiting — after a bulk stop. */
+export async function releaseLinesOfEndedRuns(): Promise<number> {
+  return prisma.$executeRaw`
+    DELETE FROM "AwaitingReply" a WHERE NOT EXISTS (
+      SELECT 1 FROM "AutomationRun" r WHERE r."id" = a."automationRunId" AND r."state" IN ('PENDING', 'RUNNING'))`;
+}
+
 export async function holdLine(
   phone: string,
   runId: string,
   patientId: string,
   match: MatchSpec,
   hours = 24,
+  /** The engine's clock — the window is measured on the same clock that closes it. */
+  now: Date = new Date(),
 ): Promise<boolean> {
+  // A slot whose window has closed holds nothing. Its run stopped without coming back
+  // to release it — the patient came in while it waited, or staff stopped it — and the
+  // row, left in place, refused every later question to this number as "line busy".
+  await prisma.awaitingReply.deleteMany({ where: { phone: phoneKey(phone), expiresAt: { lte: now } } });
   try {
     await prisma.awaitingReply.create({
       data: {
         phone: phoneKey(phone), automationRunId: runId, patientId,
-        expiresAt: new Date(Date.now() + hours * 60 * 60 * 1000),
+        expiresAt: new Date(now.getTime() + hours * 60 * 60 * 1000),
         match: match as object,
       },
     });

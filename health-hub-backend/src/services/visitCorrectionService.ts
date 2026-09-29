@@ -29,6 +29,7 @@ import { resolveProducts } from "./productOrderService";
 import { categorize } from "./payoutCategorize";
 import { applyPartnerDoctorMode } from "./partnerRateService";
 import { recomputeBillFinancialsForSubtotal } from "./billFinancialService";
+import { settleCouponForVisit } from "./couponService";
 import { DiagnosticWorkflowMode, Prisma } from "@prisma/client";
 import type { PartnerDoctorCommissionMode } from "@prisma/client";
 
@@ -771,6 +772,9 @@ export async function swapVisitProduct(params: {
         });
       }
     }
+    // A code's discount follows the tests it covers: swapped for a cheaper or an
+    // uncovered product, the discount comes down with it — never up.
+    await settleCouponForVisit(tx, visitId);
   }, { timeout: 30_000 });
 
   await logAction({
@@ -1091,6 +1095,8 @@ export async function addProductsToVisit(params: {
           },
         });
       }
+      // Added tests never raise a code's discount; this keeps the stored status right.
+      await settleCouponForVisit(tx, visitId);
     },
     { timeout: 30_000 },
   );

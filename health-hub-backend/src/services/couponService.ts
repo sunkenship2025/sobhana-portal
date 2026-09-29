@@ -18,6 +18,7 @@
 import crypto from 'crypto';
 import { Prisma, BillDiscountType, CouponStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
+import { computeBillFinancialsFromPersisted } from './billFinancialService';
 
 type Tx = Prisma.TransactionClient;
 
@@ -189,7 +190,10 @@ export type CouponRejection =
   /// A family-and-friends code presented for the very patient it was given to.
   | 'OWN_CODE'
   /// Minted but its message never left; it is not a live code.
-  | 'NOT_ISSUED';
+  | 'NOT_ISSUED'
+  /// An offer with no per-bill cap has nothing set aside per code, so its total budget
+  /// is checked when a bill uses one — and this one's is spent.
+  | 'BUDGET_USED_UP';
 
 export interface CouponValidation {
   ok: boolean;
@@ -251,6 +255,27 @@ export function holderAllows(
   return 'OK';
 }
 
+/**
+ * Two patient records for one person: the same name, gender and age (within a year) and
+ * a phone in common — exactly the test registration uses to warn of a duplicate. A
+ * father and son who share a name, phone and gender still differ in age, so a relative
+ * is never mistaken for the holder.
+ */
+export async function samePerson(a: string, b: string): Promise<boolean> {
+  const rows = await prisma.patient.findMany({
+    where: { id: { in: [a, b] } },
+    select: { id: true, name: true, gender: true, yearOfBirth: true, identifiers: { where: { type: 'PHONE' }, select: { value: true } } },
+  });
+  if (rows.length !== 2) return false;
+  const [x, y] = rows;
+  const name = (n: string) => n.toUpperCase().replace(/\s+/g, ' ').trim();
+  const digits = (v: string) => v.replace(/\D/g, '').slice(-10);
+  const phones = new Set(x.identifiers.map((i) => digits(i.value)));
+  return name(x.name) === name(y.name) && x.gender === y.gender
+    && Math.abs(x.yearOfBirth - y.yearOfBirth) <= 1
+    && y.identifiers.some((i) => phones.has(digits(i.value)));
+}
+
 export async function validateCouponByCode(
   rawCode: string,
   redeemingPatientId?: string | null,
@@ -264,6 +289,7 @@ export async function validateCouponByCode(
           id: true, code: true, name: true, isActive: true,
           discountType: true, discountPercentage: true, discountReason: true, scope: true,
           maxDiscountPerBillInPaise: true, referrerSharePct: true, holder: true,
+          maxDiscountBudgetInPaise: true, committedInPaise: true, reservedInPaise: true,
         },
       },
     },
@@ -282,8 +308,22 @@ export async function validateCouponByCode(
 
   // Who may use it — see holderAllows. The billing screen and the bill route both pass
   // the patient being billed; before they did, a bound code refused everyone.
-  const who = holderAllows(campaign.holder, coupon.patientId, redeemingPatientId);
+  let who = holderAllows(campaign.holder, coupon.patientId, redeemingPatientId);
+  // The holder on a second record is still the holder: a duplicate the counter confirmed
+  // past the warning, or typed in afresh. Checked by record alone, a family code was one
+  // re-registration away from being used by the patient it was given to.
+  if (campaign.holder !== 'ANYONE' && coupon.patientId && redeemingPatientId
+      && redeemingPatientId !== coupon.patientId
+      && (await samePerson(coupon.patientId, redeemingPatientId))) {
+    who = campaign.holder === 'NOT_ISSUED_PATIENT' ? 'OWN_CODE' : 'OK';
+  }
   if (who !== 'OK') return { ok: false, reason: who };
+
+  // Nothing was set aside for this code, so the total budget is checked now.
+  if (coupon.reservedPerUseInPaise === 0 && campaign.maxDiscountBudgetInPaise !== null
+      && campaign.committedInPaise + campaign.reservedInPaise >= campaign.maxDiscountBudgetInPaise) {
+    return { ok: false, reason: 'BUDGET_USED_UP' };
+  }
 
   return {
     ok: true,
@@ -381,16 +421,92 @@ export async function redeemCouponInTx(tx: Tx, input: RedeemCouponInput): Promis
       discountInPaise: discount,
     },
   });
-  // The budget: this use's promise becomes money actually given. Recording the spend
-  // never happened before — committedInPaise was read everywhere and written nowhere.
+  // The budget: this use's promise becomes money actually given, and the total budget
+  // holds. One conditional UPDATE, so two counters cannot both spend the last of it. A
+  // code with its cap set aside always fits — its share was claimed when it was sent;
+  // one with nothing set aside is refused here when the budget is spent, and the bill
+  // rolls back with it.
   const { campaignId, reservedPerUseInPaise } = rows[0];
-  await tx.couponCampaign.update({
-    where: { id: campaignId },
-    data: {
-      committedInPaise: { increment: discount },
-      ...(reservedPerUseInPaise > 0 ? { reservedInPaise: { decrement: reservedPerUseInPaise } } : {}),
-    },
+  const spent = await tx.$queryRaw<{ id: string }[]>`
+    UPDATE "CouponCampaign" SET
+      "committedInPaise" = "committedInPaise" + ${discount},
+      "reservedInPaise" = GREATEST(0, "reservedInPaise" - ${reservedPerUseInPaise}),
+      "updatedAt" = now()
+    WHERE "id" = ${campaignId} AND (
+      "maxDiscountBudgetInPaise" IS NULL
+      OR "committedInPaise" + ${discount} + GREATEST(0, "reservedInPaise" - ${reservedPerUseInPaise}) <= "maxDiscountBudgetInPaise"
+    )
+    RETURNING "id"`;
+  if (spent.length !== 1) throw new Error('OFFER_BUDGET_USED_UP');
+}
+
+/** An order as far as a code's discount is concerned. */
+export interface CouponOrder { productId?: string | null; priceInPaise: number; workflowMode?: string | null }
+
+/**
+ * What a code's discount is worked out on, over these orders: every order for a
+ * whole-bill offer; otherwise the reportable tests, only those the code names if it
+ * names any. The one rule, for the bill and for every change made to it later.
+ */
+export function couponInScopeInPaise(scope: string, allowedProductIds: string[], orders: CouponOrder[]): number {
+  return orders.reduce((sum, o) => {
+    if (scope === 'WHOLE_BILL') return sum + o.priceInPaise;
+    const reportable = (o.workflowMode ?? 'REPORTABLE') === 'REPORTABLE';
+    const covered = allowedProductIds.length === 0 || (!!o.productId && allowedProductIds.includes(o.productId));
+    return sum + (reportable && covered ? o.priceInPaise : 0);
+  }, 0);
+}
+
+/**
+ * What the code on a bill is worth for the orders still on it — never more than it was
+ * when the bill was made. A test cancelled, swapped for a cheaper one or removed takes
+ * its part of the discount with it; before, the whole discount stayed, and refunding one
+ * of two tests on a 50% code left the other one free.
+ */
+export async function couponWorthNow(
+  db: Tx | typeof prisma,
+  bill: { couponId: string | null; couponDiscountInPaise: number | null },
+  liveOrders: CouponOrder[],
+): Promise<number> {
+  const current = Math.max(0, Math.round(bill.couponDiscountInPaise ?? 0));
+  if (!bill.couponId || current === 0) return current;
+  const c = await db.coupon.findUnique({
+    where: { id: bill.couponId },
+    select: { allowedProductIds: true, campaign: { select: { scope: true, discountType: true, discountPercentage: true, maxDiscountPerBillInPaise: true } } },
   });
+  if (!c) return current;
+  const inScope = couponInScopeInPaise(c.campaign.scope, c.allowedProductIds, liveOrders);
+  return Math.min(current, computeCouponDiscountInPaise(c.campaign, inScope));
+}
+
+/**
+ * After the orders on a visit change, bring its code discount down to what the code is
+ * worth now: the bill, the use, and the offer's spend together, and the bill's payment
+ * status with them. Call inside the transaction that changed the orders. Never raises
+ * a discount.
+ */
+export async function settleCouponForVisit(tx: Tx, visitId: string): Promise<{ from: number; to: number } | null> {
+  const bill = await tx.bill.findFirst({ where: { visitId }, include: { transactions: true } });
+  if (!bill?.couponId || !(bill.couponDiscountInPaise > 0)) return null;
+  const orders = await tx.testOrder.findMany({
+    where: { visitId, cancelledAt: null, replacedAt: null },
+    select: { productId: true, priceInPaise: true, workflowMode: true },
+  });
+  const from = bill.couponDiscountInPaise;
+  const to = await couponWorthNow(tx, bill, orders);
+  if (to >= from) return { from, to: from };
+  const after = computeBillFinancialsFromPersisted({ ...bill, couponDiscountInPaise: to });
+  await tx.bill.update({ where: { id: bill.id }, data: { couponDiscountInPaise: to, paymentStatus: after.paymentStatus } });
+  const use = await tx.couponRedemption.findFirst({
+    where: { billId: bill.id, reversedAt: null },
+    select: { id: true, discountInPaise: true, coupon: { select: { campaignId: true } } },
+  });
+  if (use) {
+    await tx.couponRedemption.update({ where: { id: use.id }, data: { discountInPaise: to } });
+    const cut = Math.max(0, use.discountInPaise - to);
+    if (cut > 0) await tx.couponCampaign.update({ where: { id: use.coupon.campaignId }, data: { committedInPaise: { decrement: cut } } });
+  }
+  return { from, to };
 }
 
 /**

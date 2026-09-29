@@ -51,6 +51,9 @@ interface RefundPreview {
   nextNetAmountInPaise: number;
   nextDueAmountInPaise: number;
   cancelsWholeVisit: boolean;
+  /** An offer code's discount, before and after — re-worked on the tests that stay. */
+  couponDiscountBeforeInPaise?: number;
+  couponDiscountAfterInPaise?: number;
   /** Report already finalized and the current user is not an owner. */
   ownerRequired?: boolean;
 }
@@ -288,6 +291,14 @@ export function RefundDialog({ visit, open, onOpenChange, preselectOrderIds }: R
                 {preview?.cancelsWholeVisit && (
                   <p className="pt-1 text-xs text-muted-foreground">
                     This cancels every test — the whole visit will be marked cancelled.
+                    {(preview.couponDiscountBeforeInPaise ?? 0) > 0 && " The offer code gets its use back."}
+                  </p>
+                )}
+                {preview && !preview.cancelsWholeVisit
+                  && (preview.couponDiscountAfterInPaise ?? 0) < (preview.couponDiscountBeforeInPaise ?? 0) && (
+                  <p className="pt-1 text-xs text-muted-foreground">
+                    The offer code's discount now covers only the tests kept:
+                    {" "}{formatCurrency(preview.couponDiscountBeforeInPaise ?? 0)} becomes {formatCurrency(preview.couponDiscountAfterInPaise ?? 0)}.
                   </p>
                 )}
                 {preview?.ownerRequired && (

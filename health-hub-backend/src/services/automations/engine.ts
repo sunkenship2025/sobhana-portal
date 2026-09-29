@@ -26,7 +26,7 @@ import {
 import { Outcome, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
 import { TRIGGERS } from './triggers';
-import { holdLine } from './inbound';
+import { holdLine, releaseLine } from './inbound';
 import { phoneKey, threadPhone } from './phone';
 import { resolveFields } from './fields';
 import { expireCoupons } from '../couponService';
@@ -277,6 +277,7 @@ async function finish(runId: string, state: string, reason: string, stepIndex: n
     where: { id: runId },
     data: { state, stopReason: reason, nextActionAt: null },
   });
+  await releaseLine(runId);
   await log(runId, stepIndex, 'STOPPED', reason);
 }
 
@@ -296,6 +297,52 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
   if (!step) {
     await finish(runId, 'DONE', Outcome.STOPPED_BY_STEP, run.stepIndex);
     return;
+  }
+
+  // The visit that started this journey has since been cancelled. Everything the journey
+  // says rests on that visit having happened — a thank-you, an offer for the family, a
+  // nudge about tests the doctor advised — so it ends before its next action. A journey
+  // started BY a cancellation is the exception: the cancelled visit is its whole subject.
+  if (run.subjectType === 'VISIT' && def.trigger.kind !== 'VISIT_CANCELLED' && step.kind !== 'WAIT') {
+    const started = await ctx.visit(run.subjectId);
+    if (started?.status === 'CANCELLED') {
+      await finish(runId, 'STOPPED', Outcome.VISIT_CANCELLED, run.stepIndex);
+      return;
+    }
+  }
+
+  // "Who qualifies", again, before anything reaches the patient. It was read once, at
+  // entry — so a self visit corrected to doctor-referred the next morning still got the
+  // family offer that evening. What made them qualify has to still be true when we speak.
+  if ((step.kind === 'SEND' || step.kind === 'ASK') && run.patientId) {
+    let still = true;
+    try {
+      still = await evaluate(def.audience, ctx, subject);
+    } catch {
+      still = true; // unreadable is not a reason to drop someone who qualified
+    }
+    if (!still) {
+      await finish(runId, 'STOPPED', Outcome.NO_LONGER_QUALIFIES, run.stepIndex);
+      return;
+    }
+  }
+
+  // "When it stops", checked before every action — as the builder and Setup both say.
+  // It was only ever read to count Results, so a journey that relied on it (rather than a
+  // CHECK step of its own) went on reminding people who had already come in.
+  if (def.goal && (step.kind === 'SEND' || step.kind === 'ASK' || step.kind === 'HANDOFF')
+      && ctx.now.getTime() - run.triggeredAt.getTime() <= def.goal.windowDays * DAY_MS) {
+    let met = false;
+    try {
+      met = await evaluate(def.goal.condition, ctx, subject);
+    } catch (e) {
+      // Unreadable is not "met": the step goes ahead, and the reason is on record.
+      await log(runId, run.stepIndex, 'CHECK', Outcome.UNIT_MISMATCH, { goal: true, message: (e as Error).message });
+    }
+    if (met) {
+      await finish(runId, 'STOPPED', def.goal.stopReason ?? Outcome.STOPPED_GOAL_MET, run.stepIndex);
+      return;
+    }
   }
 
   const advance = async (nextAt: Date | null) => {
@@ -360,6 +407,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
             nextActionAt: null,
           },
         });
+        await releaseLine(runId);
         return;
       }
       await advance(ctx.now);
@@ -660,6 +708,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
           onUnmatched: step.onUnmatched,
         },
         waitHours,
+        ctx.now,
       );
       if (!held) {
         await log(runId, run.stepIndex, 'DEFERRED', Outcome.LINE_BUSY);

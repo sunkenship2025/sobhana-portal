@@ -40,7 +40,9 @@ router.get('/validate', async (req, res) => {
                   ? 'This coupon was issued to a different patient.'
                   : v.reason === 'OWN_CODE'
                     ? "This code is for the patient's family and friends — it can't be used by the person it was given to."
-                    : "This coupon can't be applied.",
+                    : v.reason === 'BUDGET_USED_UP'
+                      ? "This offer's budget has been used up."
+                      : "This coupon can't be applied.",
       });
     }
     return res.json({

@@ -1442,6 +1442,33 @@ async function main() {
     assert.ok(!keywordMatches('', 'anything'), 'an empty keyword matches nothing');
   });
 
+  await check('"Try it" matches the engine: a service follow-up reaches someone not agreed to offers', async () => {
+    const def: AutomationDefinition = {
+      trigger: { kind: 'VISIT_COMPLETED', domain: 'CLINIC' },
+      reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+      audience: { fn: 'always' },
+      steps: [{ kind: 'WAIT', anchor: 'TRIGGER', days: 2 }, { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [] }],
+    } as never;
+    const noConsent = { ...seed, marketingOptIn: false };
+    const offer = await simulate(def, noConsent, []);
+    assert.strictEqual(offer.find((x) => x.kind === 'SEND')?.outcome, 'NOT_OPTED_IN_MARKETING');
+    const service = await simulate({ ...def, policy: { skipMarketingConsent: true } } as never, noConsent, []);
+    assert.strictEqual(service.find((x) => x.kind === 'SEND')?.outcome, 'SENT');
+  });
+
+  await check('"Try it" matches the engine: "When it stops" ends the walk before a message', async () => {
+    const def = {
+      trigger: { kind: 'VISIT_COMPLETED', domain: 'CLINIC' },
+      reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+      audience: { fn: 'always' },
+      goal: { condition: { fn: 'testDoneSinceThisVisit' }, windowDays: 14 },
+      steps: [{ kind: 'WAIT', anchor: 'TRIGGER', days: 3 }, { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [] }],
+    } as never;
+    const walked = await simulate(def, seed, [{ onDay: 1, kind: 'DIAGNOSTICS_DONE' }]);
+    assert.ok(!walked.some((x) => x.kind === 'SEND'), JSON.stringify(walked.map((x) => x.kind)));
+    assert.strictEqual(walked[walked.length - 1].outcome, 'STOPPED_GOAL_MET');
+  });
+
   await check('a code that would expire before its message goes out is refused at save', () => {
     const late = validateDefinition({
       trigger: { kind: 'REPORT_FINALIZED' },

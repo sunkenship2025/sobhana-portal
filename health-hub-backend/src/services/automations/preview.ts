@@ -183,7 +183,9 @@ export async function simulate(
   const out: SimulatedStep[] = [];
   const triggerVisit: VisitFacts = {
     id: seed.visitId, patientId: seed.patientId, branchId: seed.branchId,
-    domain: 'CLINIC', status: 'COMPLETED', totalAmountInPaise: seed.visitValueInPaise,
+    // The kind of visit the trigger watches; "any visit" is walked as a clinic one.
+    domain: (definition.trigger as { domain?: string }).domain === 'DIAGNOSTICS' ? 'DIAGNOSTICS' : 'CLINIC',
+    status: 'COMPLETED', totalAmountInPaise: seed.visitValueInPaise,
     createdAt: seed.triggeredAt, sourceVisitId: null, patientLinkDisabledAt: null,
   };
 
@@ -259,9 +261,20 @@ export async function simulate(
       continue;
     }
 
+    // "When it stops", before anything that reaches the patient — as the engine does.
+    if ((step.kind === 'SEND' || step.kind === 'ASK') && definition.goal
+        && clock.getTime() - seed.triggeredAt.getTime() <= definition.goal.windowDays * DAY_MS
+        && (await evaluate(definition.goal.condition, ctx, subject).catch(() => false))) {
+      out.push({ day, at: clock, kind: 'STOP', outcome: definition.goal.stopReason ?? 'STOPPED_GOAL_MET' });
+      return out;
+    }
+
     if (step.kind === 'SEND') {
       const decision = await communicationPolicy(ctx, {
         patientId: seed.patientId, phone: seed.phone, intent: step.intent, runId: 'sim', visitId: seed.visitId,
+        // As the engine does: a service follow-up is not held back for offer consent. The
+        // walk said "not agreed to offers" for patients the real journey messages.
+        skipMarketingConsent: definition.policy?.skipMarketingConsent,
       });
       const sent = decision.kind === 'SEND';
       // One coupon per RUN however many steps ask for one — the same rule the engine
@@ -293,6 +306,7 @@ export async function simulate(
       const decision = await communicationPolicy(ctx, {
         patientId: seed.patientId, phone: seed.phone, intent: step.intent,
         runId: 'sim', visitId: seed.visitId,
+        skipMarketingConsent: definition.policy?.skipMarketingConsent,
       });
       if (decision.kind !== 'SEND') {
         out.push({ day, at: clock, kind: 'ASK', outcome: decision.reason,

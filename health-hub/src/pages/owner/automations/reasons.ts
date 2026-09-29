@@ -28,6 +28,8 @@ export const REASON_LABEL: Record<string, string> = {
   NOT_OPTED_IN_MARKETING: 'Never agreed to offers',
   LINK_DISABLED: 'Online access switched off',
   CRITICAL_VALUE: 'Critical result on the visit',
+  VISIT_CANCELLED: 'The visit was cancelled',
+  NO_LONGER_QUALIFIES: 'No longer qualified',
   NO_MATCHING_TESTS: 'No tests the offer covers',
   HUMAN_HOLDS_THREAD: 'Staff handling the conversation',
   LINE_HELD_BY_ANOTHER_RUN: 'Another journey is waiting for a reply',

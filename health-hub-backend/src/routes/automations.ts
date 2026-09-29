@@ -11,6 +11,7 @@ import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import { logAction } from '../services/auditService';
 import prisma from '../lib/prisma';
+import { releaseLine, releaseLinesOfEndedRuns } from '../services/automations/inbound';
 import {
   listAutomations, automationResults, activity, runDetail, patientAutomations,
 } from '../services/automations/queries';
@@ -249,6 +250,7 @@ router.post('/runs/:runId/stop', async (req: AuthRequest, res) => {
       where: { id: req.params.runId, state: { in: ['PENDING', 'RUNNING'] } },
       data: { state: 'STOPPED', stopReason: 'STOPPED_BY_STAFF', nextActionAt: null },
     });
+    await releaseLine(req.params.runId);
     if (updated.count === 1) {
       await prisma.automationStepLog.create({
         data: { runId: req.params.runId, stepIndex: 0, kind: 'STOPPED', outcome: 'STOPPED_BY_STAFF' },
@@ -447,6 +449,7 @@ router.put('/consent/:patientId', async (req: AuthRequest, res) => {
         where: { patientId: req.params.patientId, state: { in: ['PENDING', 'RUNNING'] } },
         data: { state: 'STOPPED', stopReason: 'PHONE_OPTED_OUT', nextActionAt: null },
       });
+      await releaseLinesOfEndedRuns();
     } else if (marketingOptIn && phone) {
       await prisma.phoneOptOut.deleteMany({ where: { phone: phoneKey(phone), source: { not: 'INBOUND_STOP' } } });
     }
@@ -599,6 +602,7 @@ router.post('/:id/stop', async (req: AuthRequest, res) => {
       where: { automationId: a.id, state: { in: ['PENDING', 'RUNNING'] } },
       data: { state: 'STOPPED', stopReason: 'STOPPED_AUTOMATION_STOPPED', nextActionAt: null },
     });
+    await releaseLinesOfEndedRuns();
     await logAction({
       branchId: req.branchId!, actionType: 'UPDATE', entityType: 'Automation',
       entityId: a.id, userId: req.user?.id, newValues: JSON.stringify({ stopped: true, runsCancelled: killed.count }),

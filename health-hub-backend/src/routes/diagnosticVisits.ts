@@ -55,6 +55,7 @@ import {
   CorrectionError,
 } from "../services/visitCorrectionService";
 import { buildDiagnosticBillItems } from "../services/billItemService";
+import { couponWorthNow, settleCouponForVisit } from "../services/couponService";
 import {
   deriveDiagnosticVisitComposition,
   isPureBillOnlyVisit,
@@ -2842,24 +2843,19 @@ router.post("/", async (req: AuthRequest, res) => {
                     ? "This coupon was issued to a different patient."
                     : v.reason === "OWN_CODE"
                       ? "This code is for the patient's family and friends — it can't be used by the person it was given to."
-                      : "This coupon can't be applied.",
+                      : v.reason === "BUDGET_USED_UP"
+                        ? "This offer's budget has been used up."
+                        : "This coupon can't be applied.",
         });
       }
       // allowedProductIds non-empty ⇒ discount ONLY those products (the patient's
       // abnormal panels); empty ⇒ all in-scope tests (original campaign-scope behaviour).
+      // The same rule every later change to this bill re-applies (couponInScopeInPaise).
       const allowedProducts = v.coupon.allowedProductIds ?? [];
       const inScopeInPaise =
         v.campaign.scope === "WHOLE_BILL"
           ? totalAmountInPaise
-          : testOrderData.reduce((s: number, o: any) => {
-              const reportable =
-                (o.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
-                DiagnosticWorkflowMode.REPORTABLE;
-              const inScope =
-                allowedProducts.length === 0 ||
-                (o.productId && allowedProducts.includes(o.productId));
-              return s + (reportable && inScope ? o.priceInPaise || 0 : 0);
-            }, 0);
+          : svc.couponInScopeInPaise(v.campaign.scope, allowedProducts, testOrderData);
       // A code for particular tests with none of them on this bill would be used up for
       // ₹0 — refuse it, so the patient keeps it for the visit it was meant for.
       if (allowedProducts.length > 0 && v.campaign.scope !== "WHOLE_BILL" && inScopeInPaise === 0) {
@@ -2875,14 +2871,35 @@ router.post("/", async (req: AuthRequest, res) => {
       };
     }
 
+    // "If staff also give a concession, the larger one applies" — the rule the Offers
+    // screen states, compared in rupees. Both used to be applied, one after the other.
+    // The one that loses is not spent: a code set aside stays in the patient's hand.
+    let appliedDiscountType = discountType;
+    let appliedDiscountValue = discountValue;
+    let appliedDiscountReason = discountReason;
+    let couponSetAside: string | null = null;
+    if (couponContext && discountType && discountType !== "NONE" && Number(discountValue) > 0) {
+      const staffInPaise = discountType === "PERCENTAGE"
+        ? Math.round((totalAmountInPaise * Number(discountValue)) / 100)
+        : Math.round(Number(discountValue) * 100);
+      if (staffInPaise >= couponContext.discountInPaise) {
+        couponSetAside = couponContext.code;
+        couponContext = null;
+      } else {
+        appliedDiscountType = "NONE";
+        appliedDiscountValue = 0;
+        appliedDiscountReason = null;
+      }
+    }
+
     let billFinancials;
     try {
       billFinancials = normalizeBillFinancialInput(
         {
           totalAmountInPaise,
-          discountType,
-          discountValue,
-          discountReason,
+          discountType: appliedDiscountType,
+          discountValue: appliedDiscountValue,
+          discountReason: appliedDiscountReason,
           couponDiscountInPaise: couponContext?.discountInPaise ?? 0,
           paidAmount,
         },
@@ -3321,6 +3338,10 @@ router.post("/", async (req: AuthRequest, res) => {
     );
 
     return res.status(201).json({
+      // Which discount the bill took, when staff and a code both offered one.
+      ...(couponSetAside ? { couponSetAside } : {}),
+      ...(appliedDiscountType === "NONE" && discountType && discountType !== "NONE" && couponContext
+        ? { staffDiscountSetAside: true } : {}),
       id: completeVisit!.id,
       billNumber: completeVisit!.billNumber,
       patientId: completeVisit!.patientId,
@@ -3421,6 +3442,16 @@ router.post("/", async (req: AuthRequest, res) => {
         error: "DUPLICATE_VISIT",
         existingBillNumber: err.existingBillNumber,
         message: `This patient was already registered as ${err.existingBillNumber} moments ago. No second bill was created.`,
+      });
+    }
+    // The code passed its check and then lost a race — its last use, or the offer's
+    // last rupee, went to another counter a moment earlier. Nothing was billed.
+    if (err?.message === "COUPON_NOT_REDEEMABLE" || err?.message === "OFFER_BUDGET_USED_UP") {
+      return res.status(409).json({
+        error: err.message,
+        message: err.message === "COUPON_NOT_REDEEMABLE"
+          ? "This code was used up or expired a moment ago. Nothing was billed — bill again without it."
+          : "This offer's budget ran out a moment ago. Nothing was billed — bill again without the code.",
       });
     }
     console.error("Create diagnostic visit error:", err);
@@ -3939,8 +3970,19 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
 
     const nextReversedChargeInPaise =
       Math.max(0, bill.reversedChargeInPaise ?? 0) + totalReversalInPaise;
+    // A code's discount belongs to the tests it was worked out on. When some of them go
+    // and others stay, it is re-worked on what stays — the whole discount kept against
+    // a reversed full price handed the remaining tests out free. A whole-visit cancel
+    // gives the code's use back instead (reverseRedemptionsForBill, below).
+    const liveAfter = visit.testOrders.filter(
+      (order) => !order.cancelledAt && !order.replacedAt && !targetIdSet.has(order.id),
+    );
+    const couponAfterInPaise = liveAfter.length > 0
+      ? await couponWorthNow(prisma, bill, liveAfter)
+      : Math.max(0, bill.couponDiscountInPaise ?? 0);
     const afterReversal = computeBillFinancialsFromPersisted({
       ...bill,
+      couponDiscountInPaise: couponAfterInPaise,
       reversedChargeInPaise: nextReversedChargeInPaise,
     });
     // Money to hand back = whatever the patient has paid beyond the new net.
@@ -3958,6 +4000,7 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
     const finalFinancials = computeBillFinancialsFromPersisted({
       ...bill,
       transactions: undefined,
+      couponDiscountInPaise: couponAfterInPaise,
       reversedChargeInPaise: nextReversedChargeInPaise,
       refundedAmountInPaise: nextRefundedAmountInPaise,
       paidAmountInPaise: nextPaidAmountInPaise,
@@ -3975,6 +4018,8 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
         refundInPaise,
         nextNetAmountInPaise: finalFinancials.netAmountInPaise,
         nextDueAmountInPaise: finalFinancials.dueAmountInPaise,
+        couponDiscountBeforeInPaise: Math.max(0, bill.couponDiscountInPaise ?? 0),
+        couponDiscountAfterInPaise: couponAfterInPaise,
         nextPaymentStatus: finalFinancials.paymentStatus,
         cancelsWholeVisit: remainingActiveOrders.length === 0,
         // Told in the preview rather than as a 403 on submit, so the dialog can
@@ -4057,6 +4102,9 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
           },
         });
       }
+
+      // The code's discount, re-worked on the tests that stay (see couponAfterInPaise).
+      if (remainingActiveOrders.length > 0) await settleCouponForVisit(tx, visit.id);
 
       await tx.bill.update({
         where: { id: bill.id },
@@ -4535,6 +4583,8 @@ router.delete("/:id/tests/:testOrderId", async (req: AuthRequest, res) => {
             : {}),
         },
       });
+      // A removed test takes its part of a code's discount with it.
+      await settleCouponForVisit(tx, id);
     });
 
     // Audit log for test removal

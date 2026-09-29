@@ -258,9 +258,16 @@ export function recomputeBillFinancialsForSubtotal(
   // net (and paymentStatus) that still counts the cancelled charge, matching
   // the bug in computeBillFinancialsFromPersisted this mirrors.
   const reversedChargeInPaise = Math.max(0, Math.round(bill.reversedChargeInPaise ?? 0));
+  // The campaign code's line too, capped as everywhere else. Leaving it out stored a
+  // net — and a payment status — as if the code had never been used, on every add,
+  // swap or removal of a test on a bill that used one.
+  const couponDiscountInPaise = Math.min(
+    Math.max(0, subtotal - nextDiscountAmountInPaise),
+    Math.max(0, Math.round(bill.couponDiscountInPaise ?? 0)),
+  );
   const nextNetAmountInPaise = Math.max(
     0,
-    subtotal - nextDiscountAmountInPaise - reversedChargeInPaise,
+    subtotal - nextDiscountAmountInPaise - couponDiscountInPaise - reversedChargeInPaise,
   );
   // Resolve the actual amount paid: prefer the transactions list when it has
   // entries (authoritative), otherwise fall back to the cached field on the
@@ -301,6 +308,7 @@ export function recomputeBillFinancialsForSubtotal(
     discountType: bill.discountType ?? null,
     discountPercentage: bill.discountPercentage ?? null,
     discountAmountInPaise: nextDiscountAmountInPaise,
+    couponDiscountInPaise,
     paidAmountInPaise,
     netAmountInPaise: nextNetAmountInPaise,
     dueAmountInPaise,
