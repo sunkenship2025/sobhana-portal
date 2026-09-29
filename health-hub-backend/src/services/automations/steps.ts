@@ -77,7 +77,8 @@ export function validateDefinition(def: {
   steps?: { kind?: string; [k: string]: unknown }[];
   goal?: { windowDays?: number; condition?: Condition };
   audience?: Condition;
-}, knownCampaignIds?: Set<string>): DefinitionProblem[] {
+  reentry?: { mode?: string; days?: number; concurrency?: string };
+}, knownCampaignIds?: Set<string> | Map<string, number>): DefinitionProblem[] {
   const problems: DefinitionProblem[] = [];
   const steps = def.steps ?? [];
   const known = new Set(STEP_CATALOG.map((s) => s.kind));
@@ -152,6 +153,29 @@ export function validateDefinition(def: {
             problem: `The code expires at the end of day ${expiry.days}, but this message goes out on day ${sendDay} — it would arrive already expired.`,
             blocking: true,
           });
+        }
+
+        // One live code per patient. If the code can outlast the gap before the same
+        // patient can start this journey again, they can hold two at once — two family
+        // codes, six uses, where one was meant. The gap is "How often", or the journey's
+        // own length when only one can run per patient at a time.
+        const validity = typeof id === 'string' && knownCampaignIds instanceof Map ? knownCampaignIds.get(id) : undefined;
+        const lastDay = expiry?.anchor === 'TRIGGER' && typeof expiry.days === 'number' ? expiry.days
+          : expiry?.anchor === 'ISSUE' && typeof expiry.days === 'number' ? sendDay + expiry.days
+          : validity !== undefined ? sendDay + validity : null;
+        const r = def.reentry;
+        if (lastDay !== null && r && r.mode !== 'ONCE') {
+          const gap = Math.max(
+            r.mode === 'EVERY_N_DAYS' ? r.days ?? 0 : 0,
+            r.concurrency === 'ONE_ACTIVE_PER_PATIENT' ? earliestDay(steps, steps.length) : 0,
+          );
+          if (lastDay > gap) {
+            problems.push({
+              where: `step ${i + 1}`,
+              problem: `The code can be used until day ${lastDay}, but the same patient can start this again ${gap === 0 ? 'on their next visit' : `after ${gap} days`}, so they could hold two codes at once. Set "How often" to at most once every ${lastDay} days, or let the code expire by day ${gap}.`,
+              blocking: false,
+            });
+          }
         }
       }
     }

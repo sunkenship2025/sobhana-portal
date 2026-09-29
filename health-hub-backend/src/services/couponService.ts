@@ -304,7 +304,9 @@ export async function validateCouponByCode(
   if (coupon.status === CouponStatus.EXPIRED || coupon.expiresAt < new Date()) {
     return { ok: false, reason: 'EXPIRED' };
   }
-  if (!campaign.isActive) return { ok: false, reason: 'CAMPAIGN_INACTIVE' };
+  // Switching an offer off stops NEW codes — every place a code is minted checks it. A
+  // code already in a patient's hand keeps working until it expires: they were promised
+  // it (Pranav's decision). The budget and the code's own date still bound it.
 
   // Who may use it — see holderAllows. The billing screen and the bill route both pass
   // the patient being billed; before they did, a bound code refused everyone.

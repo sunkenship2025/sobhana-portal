@@ -2850,6 +2850,10 @@ model Automation {
   holdoutPct Int      @default(0)
   /// 1-5. Breaks contention when two proactive journeys want the same patient today.
   priority   Int      @default(3)
+  /// Where enrolment has read up to, so each sweep reads FORWARD: { through } — the last
+  /// trigger timestamp read — for event triggers; { period, cursor, done } for a periodic
+  /// sweep over patients. Null = from activatedAt.
+  sweepState Json?
   branchIds  String[] @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

@@ -54,10 +54,9 @@ export function isHeldOut(automationId: string, patientId: string, pct: number):
 function cycleKeyFor(def: AutomationDefinition, subjectId: string, now: Date): string {
   switch (def.reentry.mode) {
     case 'ONCE': return 'once';
-    case 'EVERY_N_DAYS': {
-      const days = Math.max(1, def.reentry.days ?? 30);
-      return `d${Math.floor(now.getTime() / (days * DAY_MS))}`;
-    }
+    // "Every N days" limits the PATIENT (patientReentry, at enrolment). Keyed on a
+    // calendar window here, the same old visit started the journey again every N days.
+    case 'EVERY_N_DAYS':
     case 'PER_EVENT':
     default:
       return subjectId;
@@ -149,117 +148,198 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       continue;
     }
 
-    let candidates: Awaited<ReturnType<typeof trigger.findSubjects>>;
-    try {
-      candidates = await trigger.findSubjects({
-        now: ctx.now,
-        since: a.activatedAt!,
-        branchIds: a.branchIds,
-        config: def.trigger as unknown as Record<string, unknown>,
-        limit: BATCH,
-      });
-    } catch (e) {
-      logger.warn(`[automations] ${a.key} trigger failed: ${(e as Error).message}`);
-      continue;
-    }
+    // Read FORWARD from where the last sweep stopped, a page at a time. Reading from
+    // activation every tick returned the same oldest page for ever: OP recovery enrolled
+    // its first 50 visits and then never looked at another one.
+    const config = def.trigger as unknown as Record<string, unknown>;
+    const state = (a.sweepState ?? {}) as SweepState;
+    const period = trigger.period ? trigger.period(config, ctx.now) : null;
+    if (period && state.period === period && state.done) continue; // this period is read
+    let since = state.through
+      ? new Date(Math.max(a.activatedAt!.getTime(), new Date(state.through).getTime() - SWEEP_OVERLAP_MS))
+      : a.activatedAt!;
+    let cursor: string | null = period && state.period === period ? state.cursor ?? null : null;
+    let through = state.through ? new Date(state.through) : null;
+    let done = false;
+    let limit = BATCH;
 
-    for (const c of candidates) {
-      const cycleKey = c.cycleKey ?? cycleKeyFor(def, c.subjectId, ctx.now);
-      const already = await prisma.automationRun.findUnique({
-        where: { automationId_subjectId_cycleKey: { automationId: a.id, subjectId: c.subjectId, cycleKey } },
-        select: { id: true },
-      });
-      if (already) continue;
-
-      // "Once" and "every N days" are about the PATIENT. They were keyed on the subject —
-      // for a visit trigger, the visit — so every new visit was a new subject and neither
-      // limited anything: a regular would have been enrolled on every visit.
-      const limit = patientReentry(def.reentry, ctx.now);
-      if (c.patientId && limit.check) {
-        const before = await prisma.automationRun.count({
-          where: {
-            automationId: a.id, patientId: c.patientId,
-            // A suppressed or held-back run still counts: the patient was considered.
-            ...(limit.since ? { triggeredAt: { gte: limit.since } } : {}),
-          },
+    for (let page = 0; page < SWEEP_PAGES; page += 1) {
+      let candidates: Awaited<ReturnType<typeof trigger.findSubjects>>;
+      try {
+        candidates = await trigger.findSubjects({
+          now: ctx.now, since, branchIds: a.branchIds, config, limit, cursor,
         });
-        if (before > 0) continue;
+      } catch (e) {
+        logger.warn(`[automations] ${a.key} trigger failed: ${(e as Error).message}`);
+        break;
       }
 
-      if (def.reentry.concurrency === 'ONE_ACTIVE_PER_PATIENT' && c.patientId) {
-        const live = await prisma.automationRun.count({
-          where: { automationId: a.id, patientId: c.patientId, state: { in: ['PENDING', 'RUNNING'] } },
+      for (const c of candidates) {
+        const cycleKey = c.cycleKey ?? cycleKeyFor(def, c.subjectId, ctx.now);
+        const already = await prisma.automationRun.findUnique({
+          where: { automationId_subjectId_cycleKey: { automationId: a.id, subjectId: c.subjectId, cycleKey } },
+          select: { id: true },
         });
-        if (live > 0) {
-          // Write the miss down rather than skipping silently. Two things follow from
-          // one row: analytics can say how many chances were passed over, and the
-          // unique key means this visit is never reconsidered once the other journey
-          // ends — a suppressed opportunity is skipped, not queued.
-          try {
-            const suppressed = await prisma.automationRun.create({
-              data: {
-                automationId: a.id, version: a.version,
-                subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
-                patientId: c.patientId, branchId: c.branchId,
-                definition: a.definition as object,
-                triggeredAt: c.triggeredAt,
-                state: 'STOPPED', stopReason: 'SUPPRESSED_ACTIVE_JOURNEY',
-                nextActionAt: null, holdout: false,
-              },
-              select: { id: true },
-            });
-            await log(suppressed.id, 0, 'SUPPRESSED', 'SUPPRESSED_ACTIVE_JOURNEY',
-              { reason: 'this patient already has a live journey on this automation' });
-          } catch {
-            // Already recorded by another tick.
+        if (already) continue;
+
+        // "Once" and "every N days" are about the PATIENT. They were keyed on the subject —
+        // for a visit trigger, the visit — so every new visit was a new subject and neither
+        // limited anything: a regular would have been enrolled on every visit.
+        const limit = patientReentry(def.reentry, ctx.now);
+        if (c.patientId && limit.check) {
+          const before = await prisma.automationRun.count({
+            where: {
+              automationId: a.id, patientId: c.patientId,
+              // A suppressed or held-back run still counts: the patient was considered. A
+              // visit passed over by THIS limit does not — or a regular who comes every ten
+              // days would push the window forward on every visit and never qualify again.
+              OR: [{ stopReason: null }, { stopReason: { not: Outcome.SUPPRESSED_REENTRY } }],
+              ...(limit.since ? { triggeredAt: { gte: limit.since } } : {}),
+            },
+          });
+          if (before > 0) {
+            // Written down, so this visit is never considered again. Left unrecorded it was
+            // re-read, and once the earlier journey slid out of "every 15 days" the old
+            // visit enrolled late — a second code the rule was there to prevent.
+            try {
+              const passed = await prisma.automationRun.create({
+                data: {
+                  automationId: a.id, version: a.version,
+                  subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
+                  patientId: c.patientId, branchId: c.branchId,
+                  definition: a.definition as object,
+                  triggeredAt: c.triggeredAt,
+                  state: 'STOPPED', stopReason: Outcome.SUPPRESSED_REENTRY,
+                  nextActionAt: null, holdout: false,
+                },
+                select: { id: true },
+              });
+              await log(passed.id, 0, 'SUPPRESSED', Outcome.SUPPRESSED_REENTRY,
+                { reason: `already started this ${def.reentry.mode === 'ONCE' ? 'once' : `within ${def.reentry.days} days`}` });
+            } catch {
+              // Already recorded by another tick.
+            }
+            continue;
           }
+        }
+
+        if (def.reentry.concurrency === 'ONE_ACTIVE_PER_PATIENT' && c.patientId) {
+          const live = await prisma.automationRun.count({
+            where: { automationId: a.id, patientId: c.patientId, state: { in: ['PENDING', 'RUNNING'] } },
+          });
+          if (live > 0) {
+            // Write the miss down rather than skipping silently. Two things follow from
+            // one row: analytics can say how many chances were passed over, and the
+            // unique key means this visit is never reconsidered once the other journey
+            // ends — a suppressed opportunity is skipped, not queued.
+            try {
+              const suppressed = await prisma.automationRun.create({
+                data: {
+                  automationId: a.id, version: a.version,
+                  subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
+                  patientId: c.patientId, branchId: c.branchId,
+                  definition: a.definition as object,
+                  triggeredAt: c.triggeredAt,
+                  state: 'STOPPED', stopReason: 'SUPPRESSED_ACTIVE_JOURNEY',
+                  nextActionAt: null, holdout: false,
+                },
+                select: { id: true },
+              });
+              await log(suppressed.id, 0, 'SUPPRESSED', 'SUPPRESSED_ACTIVE_JOURNEY',
+                { reason: 'this patient already has a live journey on this automation' });
+            } catch {
+              // Already recorded by another tick.
+            }
+            continue;
+          }
+        }
+
+        const subject: Subject = {
+          type: trigger.subjectType,
+          id: c.subjectId,
+          patientId: c.patientId,
+          branchId: c.branchId,
+          triggeredAt: c.triggeredAt,
+        };
+        const trace: EvalTrace[] = [];
+        let qualifies = false;
+        try {
+          qualifies = await evaluate(def.audience, ctx, subject, trace);
+        } catch (e) {
+          logger.warn(`[automations] audience failed for ${a.key}/${c.subjectId}: ${(e as Error).message}`);
           continue;
+        }
+        if (!qualifies) continue;
+
+        try {
+          const run = await prisma.automationRun.create({
+            data: {
+              automationId: a.id,
+              version: a.version,
+              subjectType: trigger.subjectType,
+              subjectId: c.subjectId,
+              cycleKey,
+              patientId: c.patientId,
+              branchId: c.branchId,
+              definition: a.definition as object,
+              triggeredAt: c.triggeredAt,
+              nextActionAt: ctx.now,
+              holdout: c.patientId ? isHeldOut(a.id, c.patientId, a.holdoutPct) : false,
+            },
+            select: { id: true, holdout: true },
+          });
+          await log(run.id, 0, 'ENROLLED', Outcome.ENROLLED, { trace, holdout: run.holdout });
+          created += 1;
+        } catch {
+          // Unique violation: another tick got there first. The intended outcome.
         }
       }
 
-      const subject: Subject = {
-        type: trigger.subjectType,
-        id: c.subjectId,
-        patientId: c.patientId,
-        branchId: c.branchId,
-        triggeredAt: c.triggeredAt,
-      };
-      const trace: EvalTrace[] = [];
-      let qualifies = false;
-      try {
-        qualifies = await evaluate(def.audience, ctx, subject, trace);
-      } catch (e) {
-        logger.warn(`[automations] audience failed for ${a.key}/${c.subjectId}: ${(e as Error).message}`);
-        continue;
+      // Advance. A short page is the end of what there is to read.
+      const last = candidates[candidates.length - 1];
+      if (last) {
+        if (period) cursor = last.subjectId;
+        else if (!through || last.triggeredAt > through) through = last.triggeredAt;
       }
-      if (!qualifies) continue;
+      if (candidates.length < limit) { done = true; break; }
+      if (!period) {
+        if (last.triggeredAt.getTime() <= since.getTime()) {
+          // A full page all at one instant: a bulk update stamps hundreds of rows alike,
+          // and paging by time cannot get past it — the sweep would stop here for good.
+          // Read that instant whole with bigger pages, then step past it.
+          if (limit >= SWEEP_INSTANT_MAX) {
+            logger.warn(`[automations] ${a.key}: over ${SWEEP_INSTANT_MAX} subjects at ${since.toISOString()}; stepping past`);
+            since = new Date(since.getTime() + 1);
+            limit = BATCH;
+          } else {
+            limit = Math.min(SWEEP_INSTANT_MAX, limit * 4);
+          }
+          continue;
+        }
+        since = last.triggeredAt;
+        limit = BATCH;
+      }
+    }
 
-      try {
-        const run = await prisma.automationRun.create({
-          data: {
-            automationId: a.id,
-            version: a.version,
-            subjectType: trigger.subjectType,
-            subjectId: c.subjectId,
-            cycleKey,
-            patientId: c.patientId,
-            branchId: c.branchId,
-            definition: a.definition as object,
-            triggeredAt: c.triggeredAt,
-            nextActionAt: ctx.now,
-            holdout: c.patientId ? isHeldOut(a.id, c.patientId, a.holdoutPct) : false,
-          },
-          select: { id: true, holdout: true },
-        });
-        await log(run.id, 0, 'ENROLLED', Outcome.ENROLLED, { trace, holdout: run.holdout });
-        created += 1;
-      } catch {
-        // Unique violation: another tick got there first. The intended outcome.
-      }
+    const next: SweepState = period
+      ? { period, cursor: cursor ?? undefined, done }
+      : { through: through?.toISOString() };
+    if (JSON.stringify(next) !== JSON.stringify(state)) {
+      // Raw, so bookkeeping does not move the automation's own updatedAt.
+      await prisma.$executeRaw`UPDATE "Automation" SET "sweepState" = ${JSON.stringify(next)}::jsonb WHERE "id" = ${a.id}`;
     }
   }
   return created;
 }
+
+/** How far enrolment has read, per automation. See Automation.sweepState. */
+interface SweepState { through?: string; period?: string; cursor?: string; done?: boolean }
+/** Re-read this much behind the mark, for rows saved a moment after the last sweep read. */
+const SWEEP_OVERLAP_MS = 5 * 60 * 1000;
+/** Pages per automation per sweep, so one busy day cannot stall a tick. */
+const SWEEP_PAGES = 20;
+/** The most subjects read at one instant before stepping past it. */
+const SWEEP_INSTANT_MAX = 5000;
 
 // ── Step execution ──────────────────────────────────────────────────────────
 
@@ -947,7 +1027,7 @@ export async function reconcileConversions(
         { OR: [{ convertedAt: null, triggeredAt: { gte: horizon } }, { convertedAt: { gte: horizon } }] },
         // A suppressed row is a chance passed over, not a journey — its patient's live
         // run answers. Spelled with the null arm because `not` alone drops live runs.
-        { OR: [{ stopReason: null }, { stopReason: { not: 'SUPPRESSED_ACTIVE_JOURNEY' } }] },
+        { OR: [{ stopReason: null }, { stopReason: { notIn: ['SUPPRESSED_ACTIVE_JOURNEY', Outcome.SUPPRESSED_REENTRY] } }] },
       ],
     },
     select: {

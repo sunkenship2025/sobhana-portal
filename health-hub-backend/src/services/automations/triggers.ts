@@ -37,6 +37,8 @@ export interface TriggerContext {
   /** Trigger-specific settings from the definition. */
   config: Record<string, unknown>;
   limit: number;
+  /** A periodic sweep's place within its period: the last subject id already read. */
+  cursor?: string | null;
 }
 
 export interface TriggerDef {
@@ -59,6 +61,12 @@ export interface TriggerDef {
    * left at that, a still-matching patient is enrolled again at every check.
    */
   defaultReentry?: { mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS'; days?: number };
+  /**
+   * For a periodic sweep: the name of the current period. The engine walks every subject
+   * once per period, a page at a time by `cursor`, then rests until the period changes.
+   * Absent for event triggers, which the engine reads forward by timestamp instead.
+   */
+  period?: (config: Record<string, unknown>, now: Date) => string;
   findSubjects: (ctx: TriggerContext) => Promise<Candidate[]>;
 }
 
@@ -382,19 +390,24 @@ export const TRIGGERS: Record<string, TriggerDef> = {
     subjectType: 'PATIENT',
     describe: (c) => `Every ${num(c, 'everyDays', 30)} days, anyone who matches`,
     defaultReentry: { mode: 'EVERY_N_DAYS', days: 180 },
-    async findSubjects({ now, config, limit }) {
+    period: (config, now) => `sweep-${Math.floor(now.getTime() / (Math.max(1, num(config, 'everyDays', 30)) * DAY_MS))}`,
+    async findSubjects({ now, config, limit, cursor }) {
       const everyDays = Math.max(1, num(config, 'everyDays', 30));
       // The period bucket. Same string for every candidate in this window, so the
       // unique key admits each patient once per period and no more.
       const bucket = `sweep-${Math.floor(now.getTime() / (everyDays * DAY_MS))}`;
 
-      // A coarse candidate set the audience then narrows. Bounded on purpose: this runs
-      // every tick and must never try to walk the whole patient table.
+      // A page of the candidate set the audience then narrows, after `cursor`. It used to
+      // be the same first page every time — the oldest fifty patients were the only ones
+      // a sweep ever considered. The engine now walks the pages across ticks.
       const lookbackDays = Math.max(everyDays, num(config, 'lookbackDays', 730));
       const rows = await prisma.patient.findMany({
-        where: { visits: { some: { createdAt: { gte: new Date(now.getTime() - lookbackDays * DAY_MS) } } } },
+        where: {
+          visits: { some: { createdAt: { gte: new Date(now.getTime() - lookbackDays * DAY_MS) } } },
+          ...(cursor ? { id: { gt: cursor } } : {}),
+        },
         select: { id: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { id: 'asc' },
         take: limit,
       });
       return rows.map((p) => ({

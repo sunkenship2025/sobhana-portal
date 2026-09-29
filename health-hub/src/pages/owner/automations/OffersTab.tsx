@@ -166,7 +166,9 @@ export function OfferDetail({ id, onBack }: { id: string; onBack: () => void }) 
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">{o.isActive ? 'Active' : 'Inactive'}</span>
+          <span className="text-sm text-muted-foreground">
+            {o.isActive ? 'Active' : 'Off — no new codes; codes already sent still work'}
+          </span>
           <Switch checked={o.isActive} onCheckedChange={(v) => save.mutate({ isActive: v })} />
         </div>
       </div>

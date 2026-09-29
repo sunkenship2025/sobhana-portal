@@ -1469,6 +1469,38 @@ async function main() {
     assert.strictEqual(walked[walked.length - 1].outcome, 'STOPPED_GOAL_MET');
   });
 
+  await check('one live code per patient: the builder warns when a patient could hold two', () => {
+    const offers = new Map([['fam', 30], ['op', 6]]);
+    const family = (reentry: object, expiry?: object) => ({
+      trigger: { kind: 'VISIT_COMPLETED', domain: 'DIAGNOSTICS' }, reentry, audience: { fn: 'always' },
+      steps: [
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 1 },
+        { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [], issueOffer: { campaignId: 'fam', ...(expiry ? { expiry } : {}) } },
+      ],
+    }) as never;
+    const warns = (d: never) => validateDefinition(d, offers).filter((p) => /two codes at once/.test(p.problem));
+    // Every visit, 30-day codes: a patient with two self visits holds two.
+    assert.strictEqual(warns(family({ mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' })).length, 1);
+    // Every 15 days, but the offer's 30-day codes outlive that.
+    assert.strictEqual(warns(family({ mode: 'EVERY_N_DAYS', days: 15, concurrency: 'ONE_ACTIVE_PER_PATIENT' })).length, 1);
+    // Every 15 days, code ends on day 15: never two at once.
+    assert.strictEqual(warns(family({ mode: 'EVERY_N_DAYS', days: 15, concurrency: 'ONE_ACTIVE_PER_PATIENT' }, { anchor: 'TRIGGER', days: 15, endOfDayIST: true })).length, 0);
+    // Only once ever: nothing to overlap with.
+    assert.strictEqual(warns(family({ mode: 'ONCE', concurrency: 'ONE_ACTIVE_PER_PATIENT' })).length, 0);
+    // OP recovery: a 6-day code on a 6-day journey, one at a time — no warning.
+    const op = {
+      trigger: { kind: 'VISIT_COMPLETED', domain: 'CLINIC' }, reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+      audience: { fn: 'always' },
+      steps: [
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 2 },
+        { kind: 'SEND', template: 't', intent: 'PROACTIVE', params: [], issueOffer: { campaignId: 'op', expiry: { anchor: 'TRIGGER', days: 6, endOfDayIST: true } } },
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 6 }, { kind: 'STOP', reason: 'STOPPED_BY_STEP' },
+      ],
+    } as never;
+    assert.strictEqual(warns(op).length, 0);
+    assert.ok(validateDefinition(family({ mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' }), offers).every((p) => !p.blocking || !/two codes/.test(p.problem)), 'a warning, not a block');
+  });
+
   await check('a code that would expire before its message goes out is refused at save', () => {
     const late = validateDefinition({
       trigger: { kind: 'REPORT_FINALIZED' },

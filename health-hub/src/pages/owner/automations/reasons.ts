@@ -51,6 +51,7 @@ export const REASON_LABEL: Record<string, string> = {
   LINE_BUSY: 'Another journey holds the line',
   NOT_DELIVERED: 'WhatsApp did not deliver it',
   SUPPRESSED_ACTIVE_JOURNEY: 'Skipped — already in a journey',
+  SUPPRESSED_REENTRY: 'Skipped — had this recently',
   CAMPAIGN_INACTIVE: 'Offer switched off — no code issued',
   NO_SCHEDULE_ROW: 'No schedule for that branch',
   WHATSAPP_DISABLED: 'WhatsApp switched off',
@@ -63,5 +64,5 @@ export const reasonLabel = (code: string) => REASON_LABEL[code] ?? code;
 export type Vocab = 'run' | 'outcome';
 export const vocabOf = (code: string): Vocab =>
   ['STOPPED_GOAL_MET', 'HELD_OUT', 'PHONE_OPTED_OUT', 'CONVERSION_REVERSED', 'STOPPED_BY_STAFF',
-   'SUPPRESSED_ACTIVE_JOURNEY']
+   'SUPPRESSED_ACTIVE_JOURNEY', 'SUPPRESSED_REENTRY']
     .includes(code) ? 'outcome' : 'run';

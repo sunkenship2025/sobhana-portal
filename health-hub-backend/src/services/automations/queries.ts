@@ -195,7 +195,7 @@ export async function automationResults(automationId: string) {
   // journey. It qualified, so it is counted as one — but it is not a journey, never
   // converts, and is always filed treated, so leaving it in the arms drags the treated
   // rate down against the held one.
-  const journeys = runs.filter((r) => r.stopReason !== 'SUPPRESSED_ACTIVE_JOURNEY');
+  const journeys = runs.filter((r) => r.stopReason !== 'SUPPRESSED_ACTIVE_JOURNEY' && r.stopReason !== 'SUPPRESSED_REENTRY');
   const treated = journeys.filter((r) => !r.holdout);
   const held = journeys.filter((r) => r.holdout);
 

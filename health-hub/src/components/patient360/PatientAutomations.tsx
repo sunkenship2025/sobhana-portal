@@ -45,13 +45,13 @@ export function PatientOffersHeld({ patientId }: { patientId: string }) {
                   `, up to ${rupees(c.campaign.maxDiscountPerBillInPaise)}`}
               </span>
               {(() => {
-                // The same checks the counter makes before taking the code.
-                const off = !c.campaign.isActive;
+                // The check the counter makes before taking the code. An offer switched off
+                // still honours codes already sent, so only a spent budget refuses one.
                 const spent = c.reservedPerUseInPaise === 0 && c.campaign.maxDiscountBudgetInPaise != null
                   && c.campaign.committedInPaise + c.campaign.reservedInPaise >= c.campaign.maxDiscountBudgetInPaise;
-                return off || spent ? (
+                return spent ? (
                   <span className="mt-0.5 block text-xs text-destructive">
-                    {off ? 'This offer is switched off' : "This offer's budget has run out"} — the counter will refuse the code.
+                    This offer's budget has run out — the counter will refuse the code.
                   </span>
                 ) : null;
               })()}

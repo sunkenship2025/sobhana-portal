@@ -304,6 +304,8 @@ export const Outcome = {
   VISIT_CANCELLED: 'VISIT_CANCELLED',
   /** "Who qualifies" no longer held when the next message was due — e.g. a referral corrected. */
   NO_LONGER_QUALIFIES: 'NO_LONGER_QUALIFIES',
+  /** Passed over by "How often": the patient already started this within the limit. */
+  SUPPRESSED_REENTRY: 'SUPPRESSED_REENTRY',
   HUMAN_HOLDS_THREAD: 'HUMAN_HOLDS_THREAD',
   LINE_HELD_BY_ANOTHER_RUN: 'LINE_HELD_BY_ANOTHER_RUN',
   TEMPLATE_PAUSED: 'TEMPLATE_PAUSED',

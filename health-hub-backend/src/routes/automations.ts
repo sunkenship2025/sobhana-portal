@@ -109,9 +109,10 @@ router.get('/steps', async (_req: AuthRequest, res) => {
 });
 
 /** Every campaign an offer step may legitimately name. */
-async function campaignIds(): Promise<Set<string>> {
-  const rows = await prisma.couponCampaign.findMany({ select: { id: true } });
-  return new Set(rows.map((r) => r.id));
+/** Every offer, with how many days its codes last — validation reads both. */
+async function campaignIds(): Promise<Map<string, number>> {
+  const rows = await prisma.couponCampaign.findMany({ select: { id: true, validityDays: true } });
+  return new Map(rows.map((r) => [r.id, r.validityDays]));
 }
 
 /** Read a definition back and say what is wrong with it, before it can be saved. */
