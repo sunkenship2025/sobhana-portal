@@ -6,9 +6,9 @@
     "blanks": "{{1}} first name · {{2}} the offer code · {{3}} the offer's expiry date. In the builder: First name, Offer code, Offer expiry date.",
     "not_said": "No per-bill cap and no number of uses: both are settings on the offer that may change. 'T&C apply' covers them.",
     "no_copy_code_button": "A COPY_CODE button needs the code sent as a button parameter, which the automation engine does not send — every message would be refused. The code is in the body instead, as in op_recovery_code_v1.",
-    "how_to_submit": "node scripts/submit-wa-templates.mjs whatsapp-self-family-template.json"
+    "how_to_submit": "node scripts/submit-wa-templates.mjs whatsapp-self-family-template.json",
+    "no_footer": "No 'Reply STOP' footer, by Pranav's call. STOP still works: a reply of STOP is handled by the engine whatever the template says."
   },
-
   "templates": [
     {
       "name": "self_family_offer_v1",
@@ -18,11 +18,15 @@
         {
           "type": "BODY",
           "text": "Hi {{1}}, thank you for choosing Sobhana Diagnostics.\n\nHere is a *50% discount on diagnostic tests* for your family and friends.\n\nCode: *{{2}}*\nValid till: {{3}}\n\nShare it with anyone you care about. They just show this code at the billing counter at any Sobhana branch.\n\nThis code is for your family and friends only. It cannot be used on your own tests. T&C apply.",
-          "example": { "body_text": [["Lakshmi", "FAMI-4K9X2A", "29 Oct 2026"]] }
-        },
-        {
-          "type": "FOOTER",
-          "text": "Reply STOP to stop these messages"
+          "example": {
+            "body_text": [
+              [
+                "Lakshmi",
+                "FAMI-4K9X2A",
+                "29 Oct 2026"
+              ]
+            ]
+          }
         }
       ]
     }
