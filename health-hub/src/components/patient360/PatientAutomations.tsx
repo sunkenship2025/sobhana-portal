@@ -44,6 +44,17 @@ export function PatientOffersHeld({ patientId }: { patientId: string }) {
                 {c.campaign.maxDiscountPerBillInPaise != null &&
                   `, up to ${rupees(c.campaign.maxDiscountPerBillInPaise)}`}
               </span>
+              {(() => {
+                // The same checks the counter makes before taking the code.
+                const off = !c.campaign.isActive;
+                const spent = c.reservedPerUseInPaise === 0 && c.campaign.maxDiscountBudgetInPaise != null
+                  && c.campaign.committedInPaise + c.campaign.reservedInPaise >= c.campaign.maxDiscountBudgetInPaise;
+                return off || spent ? (
+                  <span className="mt-0.5 block text-xs text-destructive">
+                    {off ? 'This offer is switched off' : "This offer's budget has run out"} — the counter will refuse the code.
+                  </span>
+                ) : null;
+              })()}
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {c.campaign.holder === 'NOT_ISSUED_PATIENT' && 'For their family & friends, not for this patient · '}
                 Issued {shortDate(c.createdAt)}

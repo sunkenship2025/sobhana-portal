@@ -280,11 +280,12 @@ export interface PatientAutomations {
   coupons: {
     id: string; code: string; status: string; expiresAt: string; createdAt: string;
     issuedVisitId: string | null; redeemedVisitId: string | null; automationRunId: string | null;
-    useCount: number; maxUses: number; allowedProductIds: string[];
+    useCount: number; maxUses: number; allowedProductIds: string[]; reservedPerUseInPaise: number;
     redemptions: { visitId: string; patientId: string | null; createdAt: string; discountInPaise: number }[];
     campaign: {
       name: string; discountPercentage: number | null; scope: string;
       maxDiscountPerBillInPaise: number | null; holder: OfferHolder;
+      isActive: boolean; maxDiscountBudgetInPaise: number | null; committedInPaise: number; reservedInPaise: number;
     };
   }[];
 }

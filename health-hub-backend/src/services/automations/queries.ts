@@ -514,13 +514,18 @@ export async function patientAutomations(patientId: string) {
     select: {
       id: true, code: true, status: true, expiresAt: true, createdAt: true,
       issuedVisitId: true, redeemedVisitId: true, automationRunId: true,
-      useCount: true, maxUses: true, allowedProductIds: true,
+      useCount: true, maxUses: true, allowedProductIds: true, reservedPerUseInPaise: true,
       // Every use, not just the first: a family code shows who it was used for.
       redemptions: {
         where: { reversedAt: null }, orderBy: { createdAt: 'asc' },
         select: { visitId: true, patientId: true, createdAt: true, discountInPaise: true },
       },
-      campaign: { select: { name: true, discountPercentage: true, scope: true, maxDiscountPerBillInPaise: true, holder: true } },
+      campaign: { select: {
+        name: true, discountPercentage: true, scope: true, maxDiscountPerBillInPaise: true, holder: true,
+        // What the counter checks before taking the code, so the card never promises one
+        // the counter will refuse.
+        isActive: true, maxDiscountBudgetInPaise: true, committedInPaise: true, reservedInPaise: true,
+      } },
     },
   });
 

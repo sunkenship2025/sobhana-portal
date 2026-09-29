@@ -772,7 +772,9 @@ const DiagnosticsNewVisit = () => {
         couponInfo.maxDiscountPerBillInPaise != null ? couponInfo.maxDiscountPerBillInPaise / 100 : Infinity,
       )
     : 0;
-  const couponCoversNothing = !!couponInfo && couponInfo.scope !== "WHOLE_BILL" && couponAllowed.length > 0 && couponScopeAmount === 0;
+  // Tests are on the bill, and none of them is one this code discounts — it would be
+  // used up for ₹0. Before any test is picked there is nothing to judge yet.
+  const couponCoversNothing = !!couponInfo && couponInfo.scope !== "WHOLE_BILL" && selectedProducts.length > 0 && couponScopeAmount === 0;
   // Staff discount or code: the larger one applies, compared in rupees — as the bill
   // route decides. The two used to be added together here and at the bill.
   const staffDiscountWins = !!couponInfo && !couponCoversNothing && discountAmount > 0 && discountAmount >= couponDiscountRaw;
@@ -820,6 +822,14 @@ const DiagnosticsNewVisit = () => {
       setCouponError("Couldn't validate the coupon. Try again.");
     }
   };
+
+  // The code is checked against the patient being billed. Picking a different patient
+  // after entering it — the wrong family member first, then the right one — used to keep
+  // the first answer on screen.
+  useEffect(() => {
+    if (couponCode.trim()) validateCoupon();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPatient?.id]);
 
   // --- Keyboard-flow validation gating -------------------------------------
   // Enter advances only when the current field is valid, so the operator can't
@@ -871,6 +881,8 @@ const DiagnosticsNewVisit = () => {
 
   const guardDiscountReason = () => {
     if (
+      // A staff discount the code outweighs is not applied, so it needs no reason.
+      !couponWins &&
       discountMode !== "NONE" &&
       safeDiscountNumeric > 0 &&
       discountReason.trim() === ""
@@ -1243,10 +1255,11 @@ const DiagnosticsNewVisit = () => {
                 payments: [{ type: paymentMode, amount: safePaidAmount }],
                 paymentType: paymentMode,
               }),
-          discountReason: discountMode === "NONE" ? undefined : discountReason,
-          discountType: discountMode === "NONE" ? undefined : discountMode,
+          // The code outweighs the staff discount, so only the code goes.
+          discountReason: discountMode === "NONE" || couponWins ? undefined : discountReason,
+          discountType: discountMode === "NONE" || couponWins ? undefined : discountMode,
           discountValue:
-            discountMode === "NONE" ? undefined : safeDiscountNumeric,
+            discountMode === "NONE" || couponWins ? undefined : safeDiscountNumeric,
           couponCode: couponWins ? couponInfo!.code : undefined,
           paidAmount: safePaidAmount,
           sendWhatsApp: showNewPatientForm
@@ -1266,6 +1279,19 @@ const DiagnosticsNewVisit = () => {
             duration: 8000,
           });
           setShowConfirmDialog(false);
+          return;
+        }
+        // The code was refused at the bill — used up by another counter a moment ago,
+        // the offer's budget ran out, or it does not hold for this patient. Nothing was
+        // billed. Take it off so the total shown is the real one and a retry goes through.
+        if (/^COUPON_|^OFFER_BUDGET/.test(error.error ?? "")) {
+          setCouponInfo(null);
+          setCouponError(error.message || "This code can't be used.");
+          setShowConfirmDialog(false);
+          toast.error(error.message || "This code can't be used.", {
+            description: "Nothing was billed. The total now shows without the code.",
+            duration: 8000,
+          });
           return;
         }
         throw new Error(error.message || "Failed to create visit");
@@ -2795,6 +2821,11 @@ const DiagnosticsNewVisit = () => {
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); validateCoupon(); } }}
                       placeholder="Enter coupon code"
                     />
+                    {couponInfo && selectedProducts.length === 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {couponInfo.campaignName}: {couponInfo.discountPercentage}% off — add the tests and it applies.
+                      </p>
+                    )}
                     {staffDiscountWins && (
                       <p className="text-xs text-amber-700 mt-1">
                         Not used: the staff discount is larger. The code stays with the patient.
@@ -2810,7 +2841,11 @@ const DiagnosticsNewVisit = () => {
                       </p>
                     )}
                     {couponCoversNothing && (
-                      <p className="text-xs text-destructive mt-1">This code covers particular tests, and none of them are on this bill.</p>
+                      <p className="text-xs text-destructive mt-1">
+                        {couponAllowed.length > 0
+                          ? "This code covers particular tests, and none of them are on this bill."
+                          : "Nothing on this bill is a test this code covers."}
+                      </p>
                     )}
                     {couponError && (
                       <p className="text-xs text-destructive mt-1">{couponError}</p>
