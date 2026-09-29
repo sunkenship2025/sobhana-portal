@@ -20,7 +20,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  listOffers, getOffer, saveOffer, createOffer, rupees, OFFER_HOLDERS,
+  listOffers, getOffer, saveOffer, createOffer, rupees, offerTerms, OFFER_HOLDERS,
   type OfferHolder, type ReferralExample,
 } from './api';
 
@@ -63,9 +63,7 @@ export function OffersTab() {
               <span className="min-w-0 flex-1">
                 <span className="block font-mono text-sm font-medium">{o.code}</span>
                 <span className="block text-xs text-muted-foreground">
-                  {o.discountPercentage}% off {o.scope === 'TESTS_ONLY' ? 'tests' : 'the whole bill'}
-                  {' · '}{o.distribution === 'UNIQUE_PER_PATIENT' ? 'unique per patient' : 'one shared code'}
-                  {o.holder === 'NOT_ISSUED_PATIENT' && ' · for family & friends'}
+                  {offerTerms(o)}
                   {' · '}{o.issued} issued, {o.redeemed} used
                   {o.uses > o.redeemed && ` (${o.uses} bills)`}
                 </span>
@@ -307,6 +305,7 @@ function NewOfferDialog({ open, onClose, onCreated }: {
   const [scope, setScope] = useState('TESTS_ONLY');
   const [holder, setHolder] = useState<OfferHolder>('ANYONE');
   const [uses, setUses] = useState('1');
+  const pctValid = Number(pct) > 0 && Number(pct) <= 100;
 
   const create = useMutation({
     mutationFn: () => createOffer({
@@ -349,8 +348,10 @@ function NewOfferDialog({ open, onClose, onCreated }: {
                 value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
             </div>
             <div className="w-28">
-              <Label className="text-xs">Discount</Label>
-              <Input className="mt-1.5" value={pct} onChange={(e) => setPct(e.target.value)} />
+              <Label className="text-xs">Discount (%)</Label>
+              <Input className="mt-1.5" value={pct} onChange={(e) => setPct(e.target.value)}
+                aria-invalid={!pctValid} />
+              {!pctValid && <p className="mt-1 text-xs text-destructive">1 to 100</p>}
             </div>
           </div>
           <div>
@@ -360,7 +361,7 @@ function NewOfferDialog({ open, onClose, onCreated }: {
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <Label className="text-xs">Off</Label>
+              <Label className="text-xs">Discount applies to</Label>
               <Select value={scope} onValueChange={setScope}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -408,7 +409,7 @@ function NewOfferDialog({ open, onClose, onCreated }: {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={!code.trim() || create.isPending} onClick={() => create.mutate()}>
+          <Button disabled={!code.trim() || !pctValid || create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? 'Creating…' : 'Create'}
           </Button>
         </DialogFooter>

@@ -50,6 +50,11 @@ router.get('/validate', async (req, res) => {
       discountType: v.campaign.discountType,
       discountPercentage: v.campaign.discountPercentage,
       scope: v.campaign.scope,
+      // The counter's preview applies these exactly as the bill will. Without them it
+      // showed 50% of the whole test total while the bill took the capped amount, and
+      // the difference surfaced as a due nobody had explained to the patient.
+      maxDiscountPerBillInPaise: v.campaign.maxDiscountPerBillInPaise,
+      allowedProductIds: v.coupon.allowedProductIds,
       campaignName: v.campaign.name,
       discountReason: v.campaign.discountReason,
       expiresAt: v.coupon.expiresAt,

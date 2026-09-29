@@ -56,7 +56,7 @@ export type Trigger =
    */
   | {
       kind: TriggerKind;
-      domain?: 'CLINIC' | 'DIAGNOSTICS';
+      domain?: 'CLINIC' | 'DIAGNOSTICS' | 'ANY';
       hours?: number;
       atPercent?: number;
       everyDays?: number;

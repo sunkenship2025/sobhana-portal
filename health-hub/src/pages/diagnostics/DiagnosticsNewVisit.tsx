@@ -132,7 +132,10 @@ const DiagnosticsNewVisit = () => {
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [couponCode, setCouponCode] = useState("");
-  const [couponInfo, setCouponInfo] = useState<{ code: string; discountPercentage: number; scope: string; campaignName: string } | null>(null);
+  const [couponInfo, setCouponInfo] = useState<{
+    code: string; discountPercentage: number; scope: string; campaignName: string;
+    maxDiscountPerBillInPaise: number | null; allowedProductIds: string[]; usesLeft: number;
+  } | null>(null);
   const [couponError, setCouponError] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
@@ -748,7 +751,10 @@ const DiagnosticsNewVisit = () => {
         ? Math.min(safeDiscountNumeric, totalAmount)
         : 0;
   // Campaign coupon: a SEPARATE discount line. TESTS_ONLY applies to REPORTABLE
-  // test items; WHOLE_BILL applies to the whole bill. Backend recomputes authoritatively.
+  // test items — only the ones the code covers, when it names some; WHOLE_BILL applies
+  // to the whole bill. Mirrors the bill route, including the per-bill cap, so the amount
+  // collected here is the amount the bill records.
+  const couponAllowed = couponInfo?.allowedProductIds ?? [];
   const couponScopeAmount = couponInfo
     ? couponInfo.scope === "WHOLE_BILL"
       ? totalAmount
@@ -756,12 +762,17 @@ const DiagnosticsNewVisit = () => {
           const p = products.find((x) => x.id === pid);
           const wf = p?.workflowMode;
           const isTest = !wf || wf === "REPORTABLE";
-          return sum + (isTest ? (p?.effectivePrice ?? 0) : 0);
+          const covered = couponAllowed.length === 0 || couponAllowed.includes(pid);
+          return sum + (isTest && covered ? (p?.effectivePrice ?? 0) : 0);
         }, 0)
     : 0;
   const couponDiscountRaw = couponInfo
-    ? Math.round(((couponScopeAmount * Math.min(couponInfo.discountPercentage ?? 0, 100)) / 100) * 100) / 100
+    ? Math.min(
+        Math.round(((couponScopeAmount * Math.min(couponInfo.discountPercentage ?? 0, 100)) / 100) * 100) / 100,
+        couponInfo.maxDiscountPerBillInPaise != null ? couponInfo.maxDiscountPerBillInPaise / 100 : Infinity,
+      )
     : 0;
+  const couponCoversNothing = !!couponInfo && couponInfo.scope !== "WHOLE_BILL" && couponAllowed.length > 0 && couponScopeAmount === 0;
   // A coupon and a manual discount can now be stacked. Mirror the backend clamp
   // (billFinancialService): the coupon can't discount more than what remains
   // after the manual discount, so net never goes below 0 and "Discount applied"
@@ -794,7 +805,11 @@ const DiagnosticsNewVisit = () => {
       });
       const cdata = await res.json();
       if (cdata.ok) {
-        setCouponInfo({ code: cdata.code, discountPercentage: cdata.discountPercentage ?? 0, scope: cdata.scope, campaignName: cdata.campaignName });
+        setCouponInfo({
+          code: cdata.code, discountPercentage: cdata.discountPercentage ?? 0, scope: cdata.scope,
+          campaignName: cdata.campaignName, maxDiscountPerBillInPaise: cdata.maxDiscountPerBillInPaise ?? null,
+          allowedProductIds: cdata.allowedProductIds ?? [], usesLeft: cdata.usesLeft ?? 1,
+        });
         setCouponError("");
       } else {
         setCouponInfo(null);
@@ -1232,7 +1247,7 @@ const DiagnosticsNewVisit = () => {
           discountType: discountMode === "NONE" ? undefined : discountMode,
           discountValue:
             discountMode === "NONE" ? undefined : safeDiscountNumeric,
-          couponCode: couponInfo ? couponInfo.code : undefined,
+          couponCode: couponInfo && !couponCoversNothing ? couponInfo.code : undefined,
           paidAmount: safePaidAmount,
           sendWhatsApp: showNewPatientForm
             ? newPatient.whatsappOptIn
@@ -2780,8 +2795,16 @@ const DiagnosticsNewVisit = () => {
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); validateCoupon(); } }}
                       placeholder="Enter coupon code"
                     />
-                    {couponInfo && (
-                      <p className="text-xs text-emerald-700 mt-1">{couponInfo.campaignName}: {couponInfo.discountPercentage}% off tests applied</p>
+                    {couponInfo && !couponCoversNothing && (
+                      <p className="text-xs text-emerald-700 mt-1">
+                        {couponInfo.campaignName}: {couponInfo.discountPercentage}% off{" "}
+                        {couponInfo.scope === "WHOLE_BILL" ? "the bill" : couponAllowed.length > 0 ? "the tests it covers" : "tests"}
+                        {couponInfo.maxDiscountPerBillInPaise != null && `, up to ${formatMoney(couponInfo.maxDiscountPerBillInPaise / 100)}`} applied
+                        {couponInfo.usesLeft > 1 && ` · ${couponInfo.usesLeft - 1} more use${couponInfo.usesLeft - 1 === 1 ? "" : "s"} after this bill`}
+                      </p>
+                    )}
+                    {couponCoversNothing && (
+                      <p className="text-xs text-destructive mt-1">This code covers particular tests, and none of them are on this bill.</p>
                     )}
                     {couponError && (
                       <p className="text-xs text-destructive mt-1">{couponError}</p>

@@ -33,7 +33,7 @@ import { useQuery as useRQ } from '@tanstack/react-query';
 import {
   getAutomation, listTemplates, saveAutomation, activateAutomation, pauseAutomation,
   stopAutomation, previewAutomation, simulateAutomation, reasonLabel, listRecipients,
-  validateDefinition, listStepKinds, listPredicates, listOffers, rupees,
+  validateDefinition, listStepKinds, listPredicates, listOffers, offerTerms, rupees,
   type Automation, type AutomationDefinition, type Step, type TemplateSummary,
   type StepMeta, type Condition,
 } from './api';
@@ -396,6 +396,20 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
   const [editCondition, setEditCondition] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const current = local ?? step;
+  // How long until the journey's next dated step — the natural time to hold the line for
+  // an answer. Typing 24 where this is 72 silently frees the number two days early.
+  const untilNextDay = (() => {
+    if (index === null) return null;
+    const steps = automation.definition.steps;
+    const dayAt = (i: number) => { const s = steps[i]; return s?.kind === 'WAIT' && s.anchor === 'TRIGGER' ? s.days ?? 0 : null; };
+    let from = 0;
+    for (let i = index; i >= 0; i -= 1) { const d = dayAt(i); if (d !== null) { from = d; break; } }
+    for (let i = index + 1; i < steps.length; i += 1) {
+      const d = dayAt(i);
+      if (d !== null && d > from) return { day: d, hours: (d - from) * 24 };
+    }
+    return null;
+  })();
   const all = automation.definition.steps;
 
   const commit = () => {
@@ -631,7 +645,7 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 <div>
                   <Label className="text-xs">Hold the line for</Label>
                   <Input className="mt-1.5 w-28" value={current.waitHours ?? ''}
-                    placeholder="24"
+                    placeholder={String(untilNextDay?.hours ?? 24)}
                     onChange={(e) => {
                       const v = e.target.value.trim();
                       setLocal({ ...current, waitHours: v === '' ? undefined : Math.max(1, Number(v)) });
@@ -639,6 +653,7 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     Hours. No other journey may message this number while it waits. Silence is an
                     outcome — the journey moves on when the window shuts.
+                    {untilNextDay && ` The next step is on day ${untilNextDay.day}, ${untilNextDay.hours} hours after this one.`}
                   </p>
                 </div>
               </div>
@@ -837,7 +852,8 @@ function OfferFields({ issueOffer, onChange }: {
         <SelectContent>
           {offers.map((o) => (
             <SelectItem key={o.id} value={o.id}>
-              {o.code} — {o.discountPercentage}%{o.isActive ? '' : ' (switched off)'}
+              <span className="font-mono">{o.code}</span>
+              <span className="text-muted-foreground"> — {offerTerms(o)}</span>
             </SelectItem>
           ))}
         </SelectContent>

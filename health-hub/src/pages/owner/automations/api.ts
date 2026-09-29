@@ -109,12 +109,14 @@ export interface AutomationDefinition {
    */
   trigger:
     | { kind: 'SCHEDULE'; everyDayAtMinutes: number; graceHours?: number }
-    | { kind: string; domain?: 'CLINIC' | 'DIAGNOSTICS'; hours?: number; atPercent?: number; everyDays?: number; lookbackDays?: number };
+    | { kind: string; domain?: 'CLINIC' | 'DIAGNOSTICS' | 'ANY'; hours?: number; atPercent?: number; everyDays?: number; lookbackDays?: number };
   reentry: {
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS'; days?: number;
     concurrency: 'ALLOW_PARALLEL' | 'ONE_ACTIVE_PER_PATIENT';
   };
   audience: Condition;
+  /** MIRRORS backend types.ts. Absent = the safe defaults: offers consent needed, STOP silences everything. */
+  policy?: { skipMarketingConsent?: boolean; stopScope?: 'GLOBAL' | 'THIS_JOURNEY' };
   /** Optional: a journey from scratch may just run its steps. See backend types.ts. */
   goal?: { condition: Condition; windowDays: number; stopReason?: string };
   steps: Step[];
@@ -354,6 +356,20 @@ export interface OfferRow {
   };
 }
 export const listOffers = () => apiRequest<{ offers: OfferRow[] }>(OFF);
+
+/**
+ * An offer's terms in one line — the same words wherever an offer is picked, so choosing
+ * the family code over the patient-only one never rests on remembering which code is which.
+ */
+export function offerTerms(o: OfferRow): string {
+  return [
+    `${o.discountPercentage}% off ${o.scope === 'WHOLE_BILL' ? 'the whole bill' : 'tests'}`
+      + (o.budget.maxDiscountPerBillInPaise != null ? `, up to ${rupees(o.budget.maxDiscountPerBillInPaise)} a bill` : ''),
+    o.holder === 'NOT_ISSUED_PATIENT' ? 'for family & friends' : o.holder === 'ISSUED_PATIENT_ONLY' ? 'only the patient it is sent to' : null,
+    o.maxUsesPerCode > 1 ? `${o.maxUsesPerCode} bills per code` : null,
+    o.isActive ? null : 'switched off',
+  ].filter(Boolean).join(' · ');
+}
 
 export interface ReferralExample {
   billInPaise: number; discountInPaise: number; doctorPaidInPaise: number;

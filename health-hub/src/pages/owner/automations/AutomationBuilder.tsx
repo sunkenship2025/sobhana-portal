@@ -436,6 +436,50 @@ export function AutomationBuilder({
               </SelectContent>
             </Select>
           </div>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">Who it can go to</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {def.policy?.skipMarketingConsent
+                  ? 'A follow-up to care they were given, so it goes to patients who have not agreed to offers too. Anyone who replied STOP still gets nothing.'
+                  : 'Only patients who agreed to receive offers.'}
+              </span>
+            </span>
+            <Select
+              value={def.policy?.skipMarketingConsent ? 'SERVICE' : 'OFFERS'}
+              onValueChange={(v) => onChange({
+                definition: { ...def, policy: { ...def.policy, skipMarketingConsent: v === 'SERVICE' || undefined } },
+              })}
+            >
+              <SelectTrigger className="h-9 w-52"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="OFFERS">Agreed to offers</SelectItem>
+                <SelectItem value="SERVICE">Every patient (service follow-up)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">When a patient replies STOP</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {def.policy?.stopScope === 'THIS_JOURNEY'
+                  ? "A STOP in reply to this journey's question ends only this journey. Reports, bills and other journeys still reach them."
+                  : 'Nothing from any journey reaches that number again, until they reply START.'}
+              </span>
+            </span>
+            <Select
+              value={def.policy?.stopScope ?? 'GLOBAL'}
+              onValueChange={(v) => onChange({
+                definition: { ...def, policy: { ...def.policy, stopScope: v === 'THIS_JOURNEY' ? 'THIS_JOURNEY' : undefined } },
+              })}
+            >
+              <SelectTrigger className="h-9 w-52"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="GLOBAL">Stop everything</SelectItem>
+                <SelectItem value="THIS_JOURNEY">Stop only this journey</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <LockedRow
             title="Only between 8:00 AM and 9:00 PM"
             sub="Set for the whole centre. Reports and bills are not held."

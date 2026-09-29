@@ -2860,6 +2860,14 @@ router.post("/", async (req: AuthRequest, res) => {
                 (o.productId && allowedProducts.includes(o.productId));
               return s + (reportable && inScope ? o.priceInPaise || 0 : 0);
             }, 0);
+      // A code for particular tests with none of them on this bill would be used up for
+      // ₹0 — refuse it, so the patient keeps it for the visit it was meant for.
+      if (allowedProducts.length > 0 && v.campaign.scope !== "WHOLE_BILL" && inScopeInPaise === 0) {
+        return res.status(400).json({
+          error: "COUPON_NOT_APPLICABLE",
+          message: "This code covers particular tests, and none of them are on this bill.",
+        });
+      }
       couponContext = {
         couponId: v.coupon.id,
         code: v.coupon.code,

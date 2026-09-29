@@ -193,10 +193,15 @@ function holderFields(body: Record<string, unknown>): { holder: 'ANYONE' | 'ISSU
   return { holder, bindToPatient: holder === 'ISSUED_PATIENT_ONLY' };
 }
 
+const pctOk = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100;
+
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const { code, name, discountPercentage, discountReason, validityDays, scope, whatsappTemplate } = req.body ?? {};
     if (!code || !name) return res.status(400).json({ error: 'CODE_AND_NAME_REQUIRED' });
+    if (discountPercentage !== undefined && !pctOk(discountPercentage)) {
+      return res.status(400).json({ error: 'BAD_DISCOUNT', message: 'The discount must be between 1% and 100%.' });
+    }
 
     const c = await prisma.couponCampaign.create({
       data: {
@@ -237,6 +242,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
     // screen will faithfully display.
     if (req.body.distribution === 'SHARED_CODE') {
       return res.status(400).json({ error: 'SHARED_CODE_NOT_IMPLEMENTED' });
+    }
+    if (req.body.discountPercentage !== undefined && !pctOk(req.body.discountPercentage)) {
+      return res.status(400).json({ error: 'BAD_DISCOUNT', message: 'The discount must be between 1% and 100%.' });
     }
 
     const fields = [

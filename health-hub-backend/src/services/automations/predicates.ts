@@ -432,7 +432,7 @@ export const PREDICATE_CATALOG: PredicateMeta[] = [
       { value: 'VOID', label: 'Never sent' },
     ] },
   { fn: 'referralSource', label: 'How they came', group: 'Visit', returns: 'TEXT', scope: 'this visit',
-    help: 'Who sent the patient for this visit. A lab we send samples out to is not a source.',
+    help: 'Who sent the patient for this visit. A lab we send samples out to is not a source, and a clinic (OP) visit has no referring doctor, so it reads as on their own.',
     choices: [
       { value: 'SELF', label: 'On their own' },
       { value: 'DOCTOR', label: 'Referred by a doctor' },

@@ -22,7 +22,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
-  listBlueprints, createFromBlueprint, listTemplates, listOffers, rupees,
+  listBlueprints, createFromBlueprint, listTemplates, listOffers, offerTerms,
   listTriggers, createFromScratch,
   type Blueprint, type BlueprintField,
 } from './api';
@@ -187,12 +187,7 @@ export function CreateAutomation({ open, onClose, onCreated }: {
                   v === o.id ? 'border-foreground' : 'border-muted-foreground/40'}`} />
                 <span className="min-w-0 flex-1">
                   <span className="block font-mono text-sm">{o.code}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {o.discountPercentage}% off {o.scope === 'TESTS_ONLY' ? 'tests' : 'the whole bill'}
-                    {o.budget.maxDiscountPerBillInPaise != null &&
-                      `, up to ${rupees(o.budget.maxDiscountPerBillInPaise)} a bill`}
-                    {!o.isActive && ' · switched off'}
-                  </span>
+                  <span className="block text-xs text-muted-foreground">{offerTerms(o)}</span>
                 </span>
               </button>
             ))}

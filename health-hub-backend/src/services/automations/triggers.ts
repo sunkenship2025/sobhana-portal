@@ -64,6 +64,19 @@ const num = (c: Record<string, unknown>, k: string, d: number) => {
   return Number.isFinite(n) ? n : d;
 };
 
+/** Which visits a visit trigger watches. ANY covers both, for journeys about the patient, not the service. */
+const VISIT_KINDS = [
+  { value: 'CLINIC', label: 'A clinic (OP) visit' },
+  { value: 'DIAGNOSTICS', label: 'A diagnostic visit' },
+  { value: 'ANY', label: 'Any visit' },
+];
+const visitDomain = (c: Record<string, unknown>, d: 'CLINIC' | 'DIAGNOSTICS') => {
+  const v = str(c, 'domain', d);
+  return v === 'ANY' ? {} : { domain: v as 'CLINIC' | 'DIAGNOSTICS' };
+};
+const visitWord = (c: Record<string, unknown>, d: string) =>
+  ({ CLINIC: 'clinic ', DIAGNOSTICS: 'diagnostic ', ANY: '' } as Record<string, string>)[str(c, 'domain', d)] ?? '';
+
 const visitSelect = {
   id: true, patientId: true, branchId: true, updatedAt: true,
 } as const;
@@ -73,14 +86,14 @@ export const TRIGGERS: Record<string, TriggerDef> = {
     kind: 'VISIT_COMPLETED',
     label: 'A visit is completed',
     help: "A consultation is finished, or every report on a diagnostic visit is ready.",
-    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: VISIT_KINDS }],
     group: 'Visits',
     subjectType: 'VISIT',
-    describe: (c) => `A ${str(c, 'domain', 'CLINIC') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is completed`,
+    describe: (c) => `A ${visitWord(c, 'CLINIC')}visit is completed`,
     async findSubjects({ since, branchIds, config, limit }) {
       const rows = await prisma.visit.findMany({
         where: {
-          domain: str(config, 'domain', 'CLINIC') as 'CLINIC' | 'DIAGNOSTICS',
+          ...visitDomain(config, 'CLINIC'),
           status: 'COMPLETED',
           updatedAt: { gte: since },
           ...(branchIds.length ? { branchId: { in: branchIds } } : {}),
@@ -99,14 +112,14 @@ export const TRIGGERS: Record<string, TriggerDef> = {
     kind: 'VISIT_CANCELLED',
     label: 'A visit is cancelled',
     help: "A visit is cancelled at the counter.",
-    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'CLINIC', options: VISIT_KINDS }],
     group: 'Visits',
     subjectType: 'VISIT',
-    describe: (c) => `A ${str(c, 'domain', 'CLINIC') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is cancelled`,
+    describe: (c) => `A ${visitWord(c, 'CLINIC')}visit is cancelled`,
     async findSubjects({ since, branchIds, config, limit }) {
       const rows = await prisma.visit.findMany({
         where: {
-          domain: str(config, 'domain', 'CLINIC') as 'CLINIC' | 'DIAGNOSTICS',
+          ...visitDomain(config, 'CLINIC'),
           status: 'CANCELLED',
           updatedAt: { gte: since },
           ...(branchIds.length ? { branchId: { in: branchIds } } : {}),
@@ -232,14 +245,14 @@ export const TRIGGERS: Record<string, TriggerDef> = {
     kind: 'VISIT_CREATED',
     label: 'A visit is registered',
     help: "A visit is registered at the counter.",
-    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'DIAGNOSTICS', options: [{ value: 'CLINIC', label: 'A clinic (OP) visit' }, { value: 'DIAGNOSTICS', label: 'A diagnostic visit' }] }],
+    fields: [{ key: 'domain', label: 'Which kind of visit', type: 'CHOICE', required: true, default: 'DIAGNOSTICS', options: VISIT_KINDS }],
     group: 'Visits',
     subjectType: 'VISIT',
-    describe: (c) => `A ${str(c, 'domain', 'DIAGNOSTICS') === 'CLINIC' ? 'clinic' : 'diagnostic'} visit is registered`,
+    describe: (c) => `A ${visitWord(c, 'DIAGNOSTICS')}visit is registered`,
     async findSubjects({ since, branchIds, config, limit }) {
       const rows = await prisma.visit.findMany({
         where: {
-          domain: str(config, 'domain', 'DIAGNOSTICS') as 'CLINIC' | 'DIAGNOSTICS',
+          ...visitDomain(config, 'DIAGNOSTICS'),
           status: { not: 'CANCELLED' },
           createdAt: { gte: since },
           ...(branchIds.length ? { branchId: { in: branchIds } } : {}),
