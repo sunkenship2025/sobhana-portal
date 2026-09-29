@@ -90,6 +90,12 @@ export async function communicationPolicy(
   if (input.visitId) {
     const v = await ctx.visit(input.visitId);
     if (v?.patientLinkDisabledAt) return drop(Outcome.LINK_DISABLED);
+    // 5b — a critical result on this visit. The lab calls the patient; a journey does
+    // not follow up with an offer. Only messages TO the patient: a staff alert about the
+    // same visit has no patientId and still goes.
+    if (input.intent === 'PROACTIVE' && input.patientId && (await ctx.visitHasCriticalResult(input.visitId))) {
+      return drop(Outcome.CRITICAL_VALUE);
+    }
   }
 
   // 6 — a person is mid-conversation. Marketing waits; a finalized report does not.

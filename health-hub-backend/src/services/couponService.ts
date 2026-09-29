@@ -139,6 +139,41 @@ export async function resolveAbnormalProductIds(patientId: string): Promise<stri
   return rows.map((r) => r.productId).filter(Boolean);
 }
 
+const ABNORMAL = ['HIGH', 'LOW', 'CRITICAL_HIGH', 'CRITICAL_LOW'];
+
+/** The products whose results came back abnormal on one visit. */
+export async function abnormalProductIdsOnVisit(visitId: string): Promise<string[]> {
+  const rows = await prisma.testOrder.findMany({
+    where: { visitId, productId: { not: null }, testResults: { some: { flag: { in: ABNORMAL as never } } } },
+    select: { productId: true },
+    distinct: ['productId'],
+  });
+  return rows.map((r) => r.productId!).filter(Boolean);
+}
+
+/**
+ * Which products a new code from this offer discounts — [] meaning every test in
+ * scope, as before. Null means the offer is for particular tests and there are none:
+ * a code issued then would discount EVERYTHING, because an empty list reads as "all",
+ * so the caller must refuse instead.
+ *
+ * ponytail: products, not analytes. HbA1c ordered inside a diabetes panel resolves to
+ * the panel's product, so a standalone HbA1c retest is not covered. Map by test
+ * definition if retests are commonly re-ordered as a different product.
+ */
+export async function allowedProductsFor(
+  campaign: { forTests: string; testProductIds: string[] },
+  who: { patientId: string | null; visitId: string | null },
+): Promise<string[] | null> {
+  const found =
+    campaign.forTests === 'LISTED' ? campaign.testProductIds
+    : campaign.forTests === 'ABNORMAL_ON_VISIT' ? (who.visitId ? await abnormalProductIdsOnVisit(who.visitId) : [])
+    : campaign.forTests === 'STILL_ABNORMAL' ? (who.patientId ? await resolveAbnormalProductIds(who.patientId) : [])
+    : null;
+  if (found === null) return [];
+  return found.length > 0 ? found : null;
+}
+
 // ============================================================================
 // VALIDATE + DISCOUNT (pre-tx, for the billing screen)
 // ============================================================================

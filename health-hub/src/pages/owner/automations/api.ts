@@ -280,7 +280,7 @@ export interface PatientAutomations {
   coupons: {
     id: string; code: string; status: string; expiresAt: string; createdAt: string;
     issuedVisitId: string | null; redeemedVisitId: string | null; automationRunId: string | null;
-    useCount: number; maxUses: number;
+    useCount: number; maxUses: number; allowedProductIds: string[];
     redemptions: { visitId: string; patientId: string | null; createdAt: string; discountInPaise: number }[];
     campaign: {
       name: string; discountPercentage: number | null; scope: string;
@@ -329,6 +329,17 @@ export const stopAutomation = (id: string) =>
 
 // ── Offers ──────────────────────────────────────────────────────────────────
 
+/** Which tests a code discounts — with scope, the one "Discount applies to" choice. */
+export type OfferTests = 'ALL' | 'LISTED' | 'ABNORMAL_ON_VISIT' | 'STILL_ABNORMAL';
+export const APPLIES_TO: { value: string; label: string; help: string }[] = [
+  { value: 'ALL', label: 'All tests', help: 'Every test on the bill. Consultations are not discounted.' },
+  { value: 'WHOLE_BILL', label: 'The whole bill', help: 'Tests and consultation alike.' },
+  { value: 'LISTED', label: 'Particular tests', help: 'Only the items you choose below, as billed. A test billed inside a package is covered only if that package is listed.' },
+  { value: 'ABNORMAL_ON_VISIT', label: 'Tests that came back abnormal', help: 'Every test that came back high or low on the visit the journey is about — all of them, if there were several. For one test only, choose Particular tests. A patient with no abnormal result gets no code.' },
+  { value: 'STILL_ABNORMAL', label: 'Tests still abnormal', help: 'Every test whose latest result for the patient is still high or low, from any visit. A patient with none gets no code.' },
+];
+export const appliesTo = (o: { scope: string; forTests: OfferTests }) => (o.scope === 'WHOLE_BILL' ? 'WHOLE_BILL' : o.forTests);
+
 /** Who may use a code at the counter. */
 export type OfferHolder = 'ANYONE' | 'ISSUED_PATIENT_ONLY' | 'NOT_ISSUED_PATIENT';
 export const OFFER_HOLDERS: { value: OfferHolder; label: string; help: string }[] = [
@@ -347,6 +358,7 @@ export interface OfferRow {
   holder: OfferHolder;
   /** How many bills one code can discount. 1 for most offers; a family code, several. */
   maxUsesPerCode: number;
+  forTests: OfferTests; testProductIds: string[];
   /** Codes used at least once, and standing uses — they differ once a code has several. */
   issued: number; redeemed: number; uses: number; expired: number; voided: number; pending: number;
   budget: {
@@ -362,8 +374,12 @@ export const listOffers = () => apiRequest<{ offers: OfferRow[] }>(OFF);
  * the family code over the patient-only one never rests on remembering which code is which.
  */
 export function offerTerms(o: OfferRow): string {
+  const what = appliesTo(o) === 'WHOLE_BILL' ? 'the whole bill'
+    : o.forTests === 'LISTED' ? `${o.testProductIds.length} particular test${o.testProductIds.length === 1 ? '' : 's'}`
+    : o.forTests === 'ABNORMAL_ON_VISIT' ? 'the tests that came back abnormal'
+    : o.forTests === 'STILL_ABNORMAL' ? 'tests still abnormal' : 'tests';
   return [
-    `${o.discountPercentage}% off ${o.scope === 'WHOLE_BILL' ? 'the whole bill' : 'tests'}`
+    `${o.discountPercentage}% off ${what}`
       + (o.budget.maxDiscountPerBillInPaise != null ? `, up to ${rupees(o.budget.maxDiscountPerBillInPaise)} a bill` : ''),
     o.holder === 'NOT_ISSUED_PATIENT' ? 'for family & friends' : o.holder === 'ISSUED_PATIENT_ONLY' ? 'only the patient it is sent to' : null,
     o.maxUsesPerCode > 1 ? `${o.maxUsesPerCode} bills per code` : null,
@@ -378,6 +394,8 @@ export interface ReferralExample {
 export interface OfferDetail extends OfferRow {
   discountReason: string; whatsappTemplate: string;
   discountGivenInPaise: number;
+  usedByAutomations: { id: string; name: string }[];
+  testProducts: { id: string; name: string; code: string }[];
   referralExamples: {
     centreAbsorbs: ReferralExample; split: ReferralExample;
     doctorShares: ReferralExample; current: ReferralExample;
@@ -417,7 +435,21 @@ export interface PredicateMeta {
   help?: string;
   /** The only values a TEXT fact takes. The builder offers these instead of a box. */
   choices?: { value: string; label: string }[];
+  /** MIRRORS backend ArgMeta: the settings the condition asks for (which test, how long). */
+  args?: ArgMeta[];
 }
+export interface ArgMeta {
+  key: string; label: string; kind: 'TEST' | 'NUMBER' | 'CHOICE';
+  optional?: boolean; emptyLabel?: string; unit?: 'DAYS';
+  choices?: { value: string; label: string }[];
+}
+/** Tests a condition can name. */
+export const listTests = (q: string) =>
+  apiRequest<{ tests: { code: string; name: string }[] }>(`${AUT}/tests?q=${encodeURIComponent(q)}`);
+/** Billable products, for an offer on particular tests. */
+export const searchProducts = (q: string) =>
+  apiRequest<{ results: { id: string; name: string; code: string }[] }>(
+    `${API_BASE}/billable-products?search=${encodeURIComponent(q)}&page=1&pageSize=20`);
 /** Served by the backend so a predicate that does not exist can never be offered. */
 export const listPredicates = () =>
   apiRequest<{ predicates: PredicateMeta[] }>(`${AUT}/predicates`);

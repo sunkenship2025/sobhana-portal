@@ -39,7 +39,8 @@ export function PatientOffersHeld({ patientId }: { patientId: string }) {
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">
                 {c.campaign.discountPercentage}% off{' '}
-                {c.campaign.scope === 'TESTS_ONLY' ? 'tests' : 'the bill'}
+                {c.campaign.scope !== 'TESTS_ONLY' ? 'the bill'
+                  : c.allowedProductIds.length ? `${c.allowedProductIds.length} particular test${c.allowedProductIds.length === 1 ? '' : 's'}` : 'tests'}
                 {c.campaign.maxDiscountPerBillInPaise != null &&
                   `, up to ${rupees(c.campaign.maxDiscountPerBillInPaise)}`}
               </span>

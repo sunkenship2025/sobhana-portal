@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -507,7 +507,7 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                       })}>
                       <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="STOP">Stop — came in</SelectItem>
+                        <SelectItem value="STOP">Stop — done</SelectItem>
                         <SelectItem value="CONTINUE">Continue</SelectItem>
                         {automation.definition.steps.map((_, j) => (
                           <SelectItem key={j} value={String(j)}>Jump to step {j + 1}</SelectItem>
@@ -571,34 +571,73 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   <div className="mt-1.5 divide-y rounded-lg border">
                     {current.buttons.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm">
-                        <Input className="h-8 w-36" value={b.label}
+                        <Input className="h-8 w-36" value={b.label} aria-label={`Answer ${i + 1}`}
                           onChange={(e) => {
                             const next = [...current.buttons];
                             next[i] = { ...b, label: e.target.value };
                             setLocal({ ...current, buttons: next });
                           }} />
                         <span className="text-xs text-muted-foreground">goes to</span>
-                        <Select
-                          value={String(b.goTo)}
-                          onValueChange={(v) => {
+                        <JumpSelect value={b.goTo} steps={automation.definition.steps.length}
+                          onChange={(goTo) => {
                             const next = [...current.buttons];
-                            next[i] = { ...b, goTo: v === 'STOP' ? 'STOP' : Number(v) };
+                            next[i] = { ...b, goTo };
                             setLocal({ ...current, buttons: next });
-                          }}>
-                          <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="STOP">End the journey</SelectItem>
-                            {automation.definition.steps.map((_, j) => (
-                              <SelectItem key={j} value={String(j)}>Step {j + 1}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          }} />
+                        {current.buttons.length > 1 && (
+                          <button aria-label={`Remove answer ${i + 1}`} className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setLocal({ ...current, buttons: current.buttons.filter((_, j) => j !== i) })}>
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     ))}
+                    {current.buttons.length < 3 && (
+                      <button className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50"
+                        onClick={() => setLocal({
+                          ...current,
+                          buttons: [...current.buttons, { payload: `ANSWER_${current.buttons.length + 1}`, label: '', goTo: 'STOP' }],
+                        })}>
+                        + Add an answer
+                      </button>
+                    )}
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    At most three — WhatsApp shows no more. A decline can end the journey rather
-                    than jump anywhere.
+                    Word them exactly as the template's buttons. At most three — WhatsApp shows no more.
+                  </p>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Words they might type instead</Label>
+                  <div className="mt-1.5 divide-y rounded-lg border">
+                    {(current.keywords ?? []).map((k, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm">
+                        <Input className="h-8 w-36" value={k.match} aria-label={`Typed word ${i + 1}`}
+                          onChange={(e) => {
+                            const next = [...(current.keywords ?? [])];
+                            next[i] = { ...k, match: e.target.value };
+                            setLocal({ ...current, keywords: next });
+                          }} />
+                        <span className="text-xs text-muted-foreground">goes to</span>
+                        <JumpSelect value={k.goTo} steps={automation.definition.steps.length}
+                          onChange={(goTo) => {
+                            const next = [...(current.keywords ?? [])];
+                            next[i] = { ...k, goTo };
+                            setLocal({ ...current, keywords: next });
+                          }} />
+                        <button aria-label={`Remove typed word ${i + 1}`} className="text-muted-foreground hover:text-destructive"
+                          onClick={() => setLocal({ ...current, keywords: (current.keywords ?? []).filter((_, j) => j !== i) })}>
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50"
+                      onClick={() => setLocal({ ...current, keywords: [...(current.keywords ?? []), { match: '', goTo: 'STOP' }] })}>
+                      + Add a word
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    A reply that starts with the word counts, in any language — for people who type instead of tapping.
                   </p>
                 </div>
 
@@ -695,6 +734,13 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   </Select>
                 </div>
 
+                {/* The offer comes before the blanks: "the code" and "its expiry" can only fill a
+                    blank once something issues a code, and a form is filled top to bottom. */}
+                <OfferFields
+                  issueOffer={current.issueOffer}
+                  onChange={(issueOffer) => setLocal({ ...current, issueOffer })}
+                />
+
                 <BlanksEditor
                   template={templates.find((x) => x.name === current.template)}
                   params={current.params}
@@ -703,11 +749,6 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                 />
 
                 <RecipientsPicker to={current.to} onChange={(to) => setLocal({ ...current, to })} />
-
-                <OfferFields
-                  issueOffer={current.issueOffer}
-                  onChange={(issueOffer) => setLocal({ ...current, issueOffer })}
-                />
 
                 <div>
                   <Label className="text-xs">Kind</Label>
@@ -825,7 +866,7 @@ function OfferFields({ issueOffer, onChange }: {
   if (!issueOffer) {
     return (
       <button
-        onClick={() => onChange({ campaignId: '', expiry: { anchor: 'TRIGGER', days: 6, endOfDayIST: true } })}
+        onClick={() => onChange({ campaignId: '' })}
         className="w-full rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/40"
       >
         + Issue an offer with this message
@@ -833,8 +874,11 @@ function OfferFields({ issueOffer, onChange }: {
     );
   }
 
-  const expiry = issueOffer.expiry ?? { anchor: 'TRIGGER' as const, days: 6, endOfDayIST: true };
   const chosen = offers.find((o) => o.id === issueOffer.campaignId);
+  // No expiry of its own means the offer's validity, counted from sending — the default,
+  // because a fixed "day 6 after the trigger" arrived already expired on a day-90 reminder.
+  const expiry = issueOffer.expiry;
+  const days = expiry?.days ?? chosen?.validityDays ?? 30;
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
@@ -875,13 +919,23 @@ function OfferFields({ issueOffer, onChange }: {
         <Label className="text-xs">Expires</Label>
         <div className="mt-1.5 space-y-2 rounded-lg border p-2.5">
           <label className="flex items-start gap-2.5 text-sm">
-            <input type="radio" className="mt-1" checked={expiry.anchor === 'TRIGGER'}
-              onChange={() => onChange({ ...issueOffer, expiry: { ...expiry, anchor: 'TRIGGER' } })} />
+            <input type="radio" className="mt-1" checked={!expiry}
+              onChange={() => onChange({ campaignId: issueOffer.campaignId })} />
+            <span>
+              The offer's own validity
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {chosen ? `${chosen.validityDays} days` : 'The days set on the offer'}, counted from when the code is sent.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="radio" className="mt-1" checked={expiry?.anchor === 'TRIGGER'}
+              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'TRIGGER', days, endOfDayIST: true } })} />
             <span>
               End of day
-              <Input type="number" className="mx-2 inline-block h-7 w-16" value={expiry.days}
+              <Input type="number" className="mx-2 inline-block h-7 w-16" value={days}
                 onChange={(e) => onChange({
-                  ...issueOffer, expiry: { ...expiry, anchor: 'TRIGGER', days: Number(e.target.value) },
+                  ...issueOffer, expiry: { anchor: 'TRIGGER', days: Number(e.target.value), endOfDayIST: true },
                 })} />
               after the trigger
               <span className="mt-1 block text-xs text-muted-foreground">
@@ -890,22 +944,39 @@ function OfferFields({ issueOffer, onChange }: {
             </span>
           </label>
           <label className="flex items-start gap-2.5 text-sm">
-            <input type="radio" className="mt-1" checked={expiry.anchor === 'ISSUE'}
-              onChange={() => onChange({ ...issueOffer, expiry: { ...expiry, anchor: 'ISSUE' } })} />
+            <input type="radio" className="mt-1" checked={expiry?.anchor === 'ISSUE'}
+              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'ISSUE', days, endOfDayIST: true } })} />
             <span>
-              <Input type="number" className="mr-2 inline-block h-7 w-16" value={expiry.days}
+              <Input type="number" className="mr-2 inline-block h-7 w-16" value={days}
                 onChange={(e) => onChange({
-                  ...issueOffer, expiry: { ...expiry, anchor: 'ISSUE', days: Number(e.target.value) },
+                  ...issueOffer, expiry: { anchor: 'ISSUE', days: Number(e.target.value), endOfDayIST: true },
                 })} />
-              days from when they claim it
+              days from when they get it
               <span className="mt-1 block text-xs text-muted-foreground">
-                Every claim starts a fresh window — the deadline stops being a deadline.
+                Counted from sending, or from the tap when they claim it — so every claim starts a fresh window.
               </span>
             </span>
           </label>
         </div>
       </div>
     </div>
+  );
+}
+
+/** Where an answer sends the journey: end it, or any step. */
+function JumpSelect({ value, steps, onChange }: {
+  value: number | 'STOP'; steps: number; onChange: (v: number | 'STOP') => void;
+}) {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(v === 'STOP' ? 'STOP' : Number(v))}>
+      <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="STOP">End the journey</SelectItem>
+        {Array.from({ length: steps }, (_, j) => (
+          <SelectItem key={j} value={String(j)}>Step {j + 1}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

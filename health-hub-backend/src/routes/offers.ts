@@ -72,6 +72,9 @@ function summarizeOffer(c: CampaignRow, counts: CouponCounts, useCounts: UseCoun
     /** Who may use a code: anyone, only the patient it was given to, or anyone BUT them. */
     holder: c.holder,
     maxUsesPerCode: c.maxUsesPerCode,
+    /** Which tests a code discounts: all, the listed products, or the abnormal ones. */
+    forTests: c.forTests,
+    testProductIds: c.testProductIds,
     referrerSharePct: c.referrerSharePct,
     issued,
     /** Codes used at least once — a partly used family code counts. */
@@ -144,11 +147,17 @@ export async function buildOfferDetail(id: string) {
       where: { reversedAt: null, coupon: { campaignId: c.id } },
       _sum: { discountInPaise: true },
     }),
-    prisma.automation.findMany({
-      where: { definition: { path: ['steps'], array_contains: [] } },
-      select: { id: true, name: true },
-    }).catch(() => [] as { id: string; name: string }[]),
+    // Filtered here, not in SQL: `array_contains: []` matched every automation, so the
+    // screen said every offer was used by every journey, day sheets included.
+    prisma.automation.findMany({ select: { id: true, name: true, definition: true } })
+      .then((all) => all
+        .filter((a) => ((a.definition as { steps?: { issueOffer?: { campaignId?: string } }[] })?.steps ?? [])
+          .some((s) => s.issueOffer?.campaignId === c.id))
+        .map((a) => ({ id: a.id, name: a.name }))),
   ]);
+  const testProducts = c.testProductIds.length
+    ? await prisma.billableProduct.findMany({ where: { id: { in: c.testProductIds } }, select: { id: true, name: true, code: true } })
+    : [];
 
   const counts = await prisma.coupon.groupBy({
     by: ['campaignId', 'status'],
@@ -161,6 +170,7 @@ export async function buildOfferDetail(id: string) {
     ...summarizeOffer(c, counts, await useCountsFor([c.id])),
     discountGivenInPaise: redeemedSum._sum.discountInPaise ?? 0,
     usedByAutomations,
+    testProducts,
     /// Three ways to answer "who pays for the discount on a referred patient",
     /// computed rather than described so the screen does not have to do the arithmetic.
     referralExamples: {
@@ -195,12 +205,23 @@ function holderFields(body: Record<string, unknown>): { holder: 'ANYONE' | 'ISSU
 
 const pctOk = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100;
 
+/** Which tests a code discounts. Anything unrecognised is "all tests", the old behaviour. */
+function testsFields(body: Record<string, unknown>): { forTests: 'ALL' | 'LISTED' | 'ABNORMAL_ON_VISIT' | 'STILL_ABNORMAL'; testProductIds: string[] } {
+  const forTests = (['LISTED', 'ABNORMAL_ON_VISIT', 'STILL_ABNORMAL'] as const).find((v) => v === body.forTests) ?? 'ALL';
+  const ids = Array.isArray(body.testProductIds) ? body.testProductIds.filter((x): x is string => typeof x === 'string') : [];
+  // Only a listed offer keeps its list; the others resolve their tests per code.
+  return { forTests, testProductIds: forTests === 'LISTED' ? [...new Set(ids)] : [] };
+}
+
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const { code, name, discountPercentage, discountReason, validityDays, scope, whatsappTemplate } = req.body ?? {};
     if (!code || !name) return res.status(400).json({ error: 'CODE_AND_NAME_REQUIRED' });
     if (discountPercentage !== undefined && !pctOk(discountPercentage)) {
       return res.status(400).json({ error: 'BAD_DISCOUNT', message: 'The discount must be between 1% and 100%.' });
+    }
+    if (req.body.forTests === 'LISTED' && testsFields(req.body).testProductIds.length === 0) {
+      return res.status(400).json({ error: 'NO_TESTS_LISTED', message: 'Choose at least one test, or let it apply to all tests.' });
     }
 
     const c = await prisma.couponCampaign.create({
@@ -210,13 +231,16 @@ router.post('/', async (req: AuthRequest, res) => {
         discountPercentage: discountPercentage ?? 15,
         discountReason: discountReason ?? name,
         validityDays: validityDays ?? 30,
-        scope: scope ?? 'TESTS_ONLY',
+        // A code for particular tests discounts tests; the bill ignores a test list on a
+        // whole-bill offer, so the two cannot be combined.
+        scope: testsFields(req.body).forTests !== 'ALL' ? 'TESTS_ONLY' : scope ?? 'TESTS_ONLY',
         whatsappTemplate: whatsappTemplate ?? '',
         // Created INACTIVE. An offer that is live the moment it is saved is one slip
         // away from money going out the door before anyone agreed the numbers.
         isActive: false,
         distribution: req.body.distribution ?? 'UNIQUE_PER_PATIENT',
         ...holderFields(req.body),
+        ...testsFields(req.body),
         maxUsesPerCode: Math.max(1, Math.round(Number(req.body.maxUsesPerCode ?? 1)) || 1),
         referrerSharePct: req.body.referrerSharePct ?? 0,
         maxDiscountBudgetInPaise: req.body.maxDiscountBudgetInPaise ?? null,
@@ -256,6 +280,15 @@ router.put('/:id', async (req: AuthRequest, res) => {
     for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
     if (req.body.holder !== undefined || req.body.bindToPatient !== undefined) Object.assign(data, holderFields(req.body));
     if (req.body.maxUsesPerCode !== undefined) data.maxUsesPerCode = Math.max(1, Math.round(Number(req.body.maxUsesPerCode)) || 1);
+    if (req.body.forTests !== undefined || req.body.testProductIds !== undefined) {
+      Object.assign(data, testsFields({ forTests: before.forTests, testProductIds: before.testProductIds, ...req.body }));
+    }
+    if ((data.forTests ?? before.forTests) !== 'ALL' && (data.scope ?? before.scope) === 'WHOLE_BILL') {
+      return res.status(400).json({ error: 'TESTS_ON_WHOLE_BILL', message: 'An offer for particular tests discounts those tests, not the whole bill.' });
+    }
+    if (data.forTests === 'LISTED' && (data.testProductIds as string[]).length === 0) {
+      return res.status(400).json({ error: 'NO_TESTS_LISTED', message: 'Choose at least one test, or let it apply to all tests.' });
+    }
 
     if (typeof data.referrerSharePct === 'number') {
       data.referrerSharePct = Math.min(100, Math.max(0, Math.round(data.referrerSharePct)));

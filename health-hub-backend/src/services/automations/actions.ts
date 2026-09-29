@@ -21,6 +21,7 @@ import {
   type TemplateComponent,
 } from '../whatsappCloudService';
 import { randomBytes, createHash } from 'crypto';
+import { allowedProductsFor } from '../couponService';
 
 export interface SendInput {
   runId: string;
@@ -163,7 +164,7 @@ export interface CouponOutcome {
   couponId: string;
   code: string;
   alreadyIssued: boolean;
-  refused?: 'OFFER_EXHAUSTED' | 'CAMPAIGN_INACTIVE';
+  refused?: 'OFFER_EXHAUSTED' | 'CAMPAIGN_INACTIVE' | 'NO_MATCHING_TESTS';
 }
 
 function mintCode(prefix: string): string {
@@ -234,6 +235,13 @@ export async function issueCouponForStep(
     return { couponId: '', code: '', alreadyIssued: false, refused: 'CAMPAIGN_INACTIVE' };
   }
 
+  // Which tests it discounts, fixed now. Resolved before any budget is set aside, so a
+  // refusal here leaves nothing reserved.
+  const allowedProductIds = await allowedProductsFor(campaign, { patientId, visitId: issuedVisitId });
+  if (allowedProductIds === null) {
+    return { couponId: '', code: '', alreadyIssued: false, refused: 'NO_MATCHING_TESTS' };
+  }
+
   // Worst-case exposure of one more code: the per-bill cap for EACH use it allows, set
   // aside now so a code in someone's hand is never refused at the counter for budget.
   // No cap means the exposure cannot be bounded, and the reservation is skipped rather
@@ -282,6 +290,7 @@ export async function issueCouponForStep(
       automationStep: stepIndex,
       maxUses: uses,
       reservedPerUseInPaise: reserving ? perUse : 0,
+      allowedProductIds,
     },
     select: { id: true, code: true },
   });

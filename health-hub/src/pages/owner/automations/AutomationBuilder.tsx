@@ -500,8 +500,8 @@ export function AutomationBuilder({
             hard
           />
           <LockedRow
-            title="A critical result never enters a journey"
-            sub="The lab is alerted instead."
+            title="No journey messages a patient about a visit with a critical result"
+            sub="Staff alerts still go — a journey can tell the lab in charge."
             hard
           />
           <LockedRow

@@ -279,6 +279,31 @@ export const predicates: Record<string, Predicate> = {
     return ctx.couponState(String(runId));
   },
 
+  /** Any result on this visit came back high or low — or, given a testCode, that test's. */
+  async abnormalThisVisit(ctx, subject, args) {
+    if (subject.type !== 'VISIT') return false;
+    const codes = await ctx.abnormalOnVisit(subject.id);
+    return args.testCode ? codes.includes(String(args.testCode)) : codes.length > 0;
+  },
+
+  /** Any result on this visit came back critical — for alerting staff, never for offers. */
+  async criticalThisVisit(ctx, subject) {
+    if (subject.type !== 'VISIT') return false;
+    return ctx.visitHasCriticalResult(subject.id);
+  },
+
+  /**
+   * The goal of a retest journey: a test that was abnormal on this visit was done again
+   * on a later one. Given a testCode, that test; otherwise any of the abnormal ones.
+   */
+  async abnormalRetestedSinceThisVisit(ctx, subject, args) {
+    if (subject.type !== 'VISIT' || !subject.patientId) return false;
+    const visit = await ctx.visit(subject.id);
+    if (!visit) return false;
+    const codes = args.testCode ? [String(args.testCode)] : await ctx.abnormalOnVisit(subject.id);
+    return ctx.testDoneAfterVisit(subject.patientId, subject.id, visit.createdAt, codes);
+  },
+
   /** SELF | DOCTOR | PARTNER — how the patient came for this visit. */
   async referralSource(ctx, subject) {
     if (subject.type !== 'VISIT') return null;
@@ -399,25 +424,82 @@ export interface PredicateMeta {
    * offers a list instead of a box — nobody should have to know to type "ISSUED".
    */
   choices?: { value: string; label: string }[];
+  /**
+   * The settings a condition takes — which test, within how many days, which kind of
+   * visit — so the builder can ask for them. Without these, "HbA1c came back abnormal"
+   * could only be written by hand in the definition.
+   */
+  args?: ArgMeta[];
+}
+
+export interface ArgMeta {
+  key: string;
+  label: string;
+  kind: 'TEST' | 'NUMBER' | 'CHOICE';
+  /** Optional settings may be left empty; the label for "empty" is `emptyLabel`. */
+  optional?: boolean;
+  emptyLabel?: string;
+  unit?: 'DAYS';
+  choices?: { value: string; label: string }[];
+}
+
+const TEST_ARG: ArgMeta = { key: 'testCode', label: 'Test', kind: 'TEST' };
+const WITHIN_DAYS: ArgMeta = { key: 'withinDays', label: 'In the last', kind: 'NUMBER', unit: 'DAYS', optional: true, emptyLabel: 'ever' };
+const VISIT_DOMAIN: ArgMeta = {
+  key: 'domain', label: 'Kind of visit', kind: 'CHOICE', optional: true, emptyLabel: 'Any visit',
+  choices: [{ value: 'CLINIC', label: 'Clinic (OP)' }, { value: 'DIAGNOSTICS', label: 'Diagnostic' }],
+};
+
+/**
+ * Settings a condition needs and does not have, as sentences for the person saving it.
+ * A missing testCode used to be read as "" and simply never match, so the condition was
+ * silently false.
+ */
+export function missingArgs(condition: Condition, found: string[] = []): string[] {
+  if ('all' in condition) condition.all.forEach((c) => missingArgs(c, found));
+  else if ('any' in condition) condition.any.forEach((c) => missingArgs(c, found));
+  else if ('not' in condition) missingArgs(condition.not, found);
+  else {
+    const meta = PREDICATE_CATALOG.find((p) => p.fn === condition.fn);
+    for (const a of meta?.args ?? []) {
+      const v = condition.args?.[a.key];
+      if (!a.optional && (v === undefined || v === null || v === '')) {
+        found.push(`"${meta!.label}" needs a ${a.label.toLowerCase()} chosen`);
+      }
+    }
+  }
+  return found;
 }
 
 export const PREDICATE_CATALOG: PredicateMeta[] = [
   { fn: 'visitCount', label: 'Number of visits', group: 'Visit', returns: 'NUMBER',
-    scope: 'ever, or within a window',
-    help: 'Add domain (CLINIC or DIAGNOSTICS) and withinDays to narrow it.' },
+    args: [VISIT_DOMAIN, WITHIN_DAYS] },
   { fn: 'spendInPaise', label: 'Amount spent', group: 'Money', returns: 'NUMBER', unit: 'RUPEES',
-    scope: 'ever, or within a window' },
+    args: [VISIT_DOMAIN, WITHIN_DAYS] },
   { fn: 'hasEverDoneDiagnostics', label: 'Has ever done tests', group: 'Diagnostics', returns: 'BOOLEAN',
     help: 'Never been is a different campaign from not been lately.' },
   { fn: 'daysSinceLastDiagnostics', label: 'Days since their last test', group: 'Diagnostics', returns: 'NUMBER', unit: 'DAYS' },
-  { fn: 'previousResultValue', label: 'Previous result value', group: 'Diagnostics', returns: 'NUMBER' },
+  { fn: 'previousResultValue', label: 'Previous result value', group: 'Diagnostics', returns: 'NUMBER',
+    args: [TEST_ARG] },
   { fn: 'resultChangePct', label: 'Change since the previous result', group: 'Diagnostics', returns: 'NUMBER',
-    help: 'Percent. Positive means it went up.' },
-  { fn: 'consecutiveAbnormal', label: 'Abnormal results in a row', group: 'Diagnostics', returns: 'NUMBER' },
+    help: 'Percent. Positive means it went up.', args: [TEST_ARG] },
+  { fn: 'consecutiveAbnormal', label: 'Abnormal results in a row', group: 'Diagnostics', returns: 'NUMBER',
+    args: [TEST_ARG] },
+  { fn: 'abnormalThisVisit', label: 'A result came back abnormal', group: 'Diagnostics', returns: 'BOOLEAN',
+    scope: 'this visit',
+    help: 'High or low. A critical result never reaches a patient message — the lab calls instead.',
+    args: [{ ...TEST_ARG, optional: true, emptyLabel: 'Any test' }] },
+  { fn: 'criticalThisVisit', label: 'A result came back critical', group: 'Diagnostics', returns: 'BOOLEAN',
+    scope: 'this visit',
+    help: 'For telling your team. Patient messages about this visit are never sent.' },
+  { fn: 'abnormalRetestedSinceThisVisit', label: 'An abnormal test was done again', group: 'Diagnostics',
+    returns: 'BOOLEAN', scope: 'since this visit',
+    help: 'The natural "stop when" for a retest reminder: the test that came back abnormal was repeated on a later visit.',
+    args: [{ ...TEST_ARG, optional: true, emptyLabel: 'Any test abnormal on this visit' }] },
   { fn: 'resultHasReferenceRange', label: 'Result has a reference range', group: 'Diagnostics', returns: 'BOOLEAN',
     help: 'A result with no range is one nobody can call abnormal.' },
   { fn: 'testCodeCount', label: 'Times a particular test was done', group: 'Diagnostics', returns: 'NUMBER',
-    help: 'Give it a testCode. Zero means never — a different campaign from "not lately".' },
+    help: 'Zero means never — a different campaign from "not lately".', args: [TEST_ARG, WITHIN_DAYS] },
   { fn: 'testDoneSinceThisVisitAtBranch', label: 'Tests done at this branch', group: 'Diagnostics',
     returns: 'BOOLEAN', scope: 'since this visit, same branch',
     help: 'The default conversion question counts any branch, because revenue is revenue. This is the narrower one.' },

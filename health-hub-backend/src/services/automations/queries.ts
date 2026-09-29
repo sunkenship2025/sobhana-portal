@@ -514,7 +514,7 @@ export async function patientAutomations(patientId: string) {
     select: {
       id: true, code: true, status: true, expiresAt: true, createdAt: true,
       issuedVisitId: true, redeemedVisitId: true, automationRunId: true,
-      useCount: true, maxUses: true,
+      useCount: true, maxUses: true, allowedProductIds: true,
       // Every use, not just the first: a family code shows who it was used for.
       redemptions: {
         where: { reversedAt: null }, orderBy: { createdAt: 'asc' },

@@ -37,6 +37,20 @@ interface MatchSpec {
  * was handed to a person as a reply nobody understood. A patient who TYPES the button's
  * words has said the same thing, and is read the same way.
  */
+
+/**
+ * A reply that STARTS with the word, as a whole word: "code please" matches "code",
+ * "codeine" does not. The word is escaped — typed by staff in the builder, "c++" was a
+ * regex that threw — and the word boundary is Unicode-aware: `\b` treats Telugu letters
+ * as non-word characters, so a Telugu keyword could never match.
+ */
+export function keywordMatches(word: string, body: string): boolean {
+  const w = word.trim();
+  if (!w) return false;
+  const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\s*${escaped}(?![\\p{L}\\p{N}\\p{M}])`, 'iu').test(body);
+}
+
 export function matchButton<T extends { payload: string; label: string }>(
   buttons: T[], buttonPayload: string | null, body: string,
 ): T | null {
@@ -152,7 +166,7 @@ export async function resolveInbound(
   if (buttonPayload && spec.buttons && spec.buttons[buttonPayload] !== undefined) {
     destination = spec.buttons[buttonPayload];
   } else if (spec.keywords) {
-    const hit = spec.keywords.find((k) => new RegExp(`^\\s*${k.match}\\b`, 'i').test(body));
+    const hit = spec.keywords.find((k) => keywordMatches(k.match, body));
     if (hit) destination = hit.stepIndex;
   }
   // The payload a template button actually arrives with is its text. Read the question

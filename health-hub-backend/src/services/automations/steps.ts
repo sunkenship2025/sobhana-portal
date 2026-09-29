@@ -13,6 +13,8 @@
  */
 import { FIELD_CATALOG } from './fields';
 import { TRIGGERS } from './triggers';
+import { missingArgs } from './predicates';
+import type { Condition } from './types';
 
 export interface StepMeta {
   kind: string;
@@ -59,10 +61,22 @@ export interface DefinitionProblem {
  * catch it. The engine cannot refuse at runtime without stranding a patient mid-journey,
  * so it has to be refused at save.
  */
+/** The earliest day after the trigger a step can run: anchored waits set it, relative ones add to it. */
+function earliestDay(steps: { kind?: string; [k: string]: unknown }[], index: number): number {
+  let day = 0;
+  for (let i = 0; i < index; i += 1) {
+    const s = steps[i] as { kind?: string; anchor?: string; days?: number };
+    if (s.kind !== 'WAIT') continue;
+    day = s.anchor === 'TRIGGER' ? Math.max(day, s.days ?? 0) : day + (s.days ?? 0);
+  }
+  return day;
+}
+
 export function validateDefinition(def: {
   trigger?: { kind?: string };
   steps?: { kind?: string; [k: string]: unknown }[];
-  goal?: { windowDays?: number };
+  goal?: { windowDays?: number; condition?: Condition };
+  audience?: Condition;
 }, knownCampaignIds?: Set<string>): DefinitionProblem[] {
   const problems: DefinitionProblem[] = [];
   const steps = def.steps ?? [];
@@ -128,6 +142,17 @@ export function validateDefinition(def: {
             blocking: true,
           });
         }
+        // Anchored to the trigger, the code's last day is fixed. Sent after it, the code
+        // arrives already expired — a 90-day retest reminder with a day-6 expiry did.
+        const expiry = (offer as { expiry?: { anchor?: string; days?: number } }).expiry;
+        const sendDay = earliestDay(steps, i);
+        if (expiry?.anchor === 'TRIGGER' && typeof expiry.days === 'number' && expiry.days < sendDay) {
+          problems.push({
+            where: `step ${i + 1}`,
+            problem: `The code expires at the end of day ${expiry.days}, but this message goes out on day ${sendDay} — it would arrive already expired.`,
+            blocking: true,
+          });
+        }
       }
     }
 
@@ -162,6 +187,13 @@ export function validateDefinition(def: {
           blocking: true,
         });
       }
+      // A blank answer or typed word can never be matched, so its branch is unreachable.
+      (buttons as { label?: string }[]).forEach((b, n) => {
+        if (!(b.label ?? '').trim()) problems.push({ where: `step ${i + 1}`, problem: `Answer ${n + 1} has no words, so no reply can ever match it.`, blocking: true });
+      });
+      ((step.keywords as { match?: string }[] | undefined) ?? []).forEach((k, n) => {
+        if (!(k.match ?? '').trim()) problems.push({ where: `step ${i + 1}`, problem: `Typed word ${n + 1} is empty.`, blocking: true });
+      });
     }
   });
 
@@ -174,6 +206,17 @@ export function validateDefinition(def: {
       problem: 'The journey ends on a wait, so nothing happens after it. Add what should follow, or a stop.',
       blocking: false,
     });
+  }
+
+  // A condition missing its test reads "" and never matches — silently false forever.
+  const conditions: [string, Condition | undefined][] = [
+    ['Who qualifies', def.audience],
+    ['When it stops', def.goal?.condition],
+    ...steps.map((s, i): [string, Condition | undefined] =>
+      [`step ${i + 1}`, s.kind === 'CHECK' ? (s as { condition?: Condition }).condition : undefined]),
+  ];
+  for (const [where, c] of conditions) {
+    if (c) for (const problem of missingArgs(c)) problems.push({ where, problem, blocking: true });
   }
 
   return problems;

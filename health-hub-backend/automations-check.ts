@@ -26,10 +26,10 @@ import {
 import { REASON_LABEL } from '../health-hub/src/pages/owner/automations/reasons';
 import { Outcome } from './src/services/automations/types';
 import { phoneKey, threadPhone } from './src/services/automations/phone';
-import { matchButton } from './src/services/automations/inbound';
+import { matchButton, keywordMatches } from './src/services/automations/inbound';
 import { resolveFields, istDate, FIELD_CATALOG } from './src/services/automations/fields';
-import { holderAllows, statusAfterReversal } from './src/services/couponService';
-import { PREDICATE_CATALOG } from './src/services/automations/predicates';
+import { holderAllows, statusAfterReversal, allowedProductsFor } from './src/services/couponService';
+import { PREDICATE_CATALOG, missingArgs } from './src/services/automations/predicates';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = new Date('2026-09-11T11:00:00.000Z'); // 16:30 IST — inside sending hours
@@ -1251,7 +1251,7 @@ async function main() {
   });
 
   await check('the codes that are not in the Outcome enum are labelled too', () => {
-    for (const c of ['SUPPRESSED_ACTIVE_JOURNEY', 'CAMPAIGN_INACTIVE']) {
+    for (const c of ['SUPPRESSED_ACTIVE_JOURNEY', 'CAMPAIGN_INACTIVE', 'NO_MATCHING_TESTS']) {
       assert.ok(REASON_LABEL[c], `${c} is written by the engine but has no words`);
     }
   });
@@ -1381,6 +1381,101 @@ async function main() {
     // OP recovery's Day-5 fork reads "still usable or being sent" — both must be choosable.
     const cs = PREDICATE_CATALOG.find((p) => p.fn === 'couponState')!;
     for (const v of ['ISSUED', 'PENDING']) assert.ok(cs.choices!.some((c) => c.value === v), `couponState missing ${v}`);
+  });
+
+  // ── Per-test journeys ─────────────────────────────────────────────────────
+  const LATER = new Date(T0.getTime() + 30 * DAY);
+  const results = (extra: Partial<Parameters<typeof memoryContext>[0]> = {}) => memoryContext({
+    now: LATER, visits: [visit({ domain: 'DIAGNOSTICS' })], patients: [patient()],
+    abnormalByVisit: { V1: ['HBA1C', 'TSH'] }, ...extra,
+  });
+
+  await check('"a result came back abnormal": any test, or the one chosen', async () => {
+    const ctx = results();
+    assert.strictEqual(await predicates.abnormalThisVisit(ctx, subject, {}), true);
+    assert.strictEqual(await predicates.abnormalThisVisit(ctx, subject, { testCode: 'HBA1C' }), true);
+    assert.strictEqual(await predicates.abnormalThisVisit(ctx, subject, { testCode: 'LIPID' }), false);
+    assert.strictEqual(await predicates.abnormalThisVisit(results({ abnormalByVisit: {} }), subject, {}), false);
+  });
+
+  await check('"an abnormal test was done again" counts a later visit, never the same one', async () => {
+    const same = results({ testsDone: [{ patientId: 'P1', visitId: 'V1', at: new Date(T0.getTime() + DAY), testCode: 'HBA1C' }] });
+    assert.strictEqual(await predicates.abnormalRetestedSinceThisVisit(same, subject, {}), false, 'its own visit is not a retest');
+    const later = results({ testsDone: [{ patientId: 'P1', visitId: 'V2', at: new Date(T0.getTime() + 20 * DAY), testCode: 'HBA1C' }] });
+    assert.strictEqual(await predicates.abnormalRetestedSinceThisVisit(later, subject, {}), true);
+    assert.strictEqual(await predicates.abnormalRetestedSinceThisVisit(later, subject, { testCode: 'TSH' }), false, 'a different test was repeated');
+    // A test that was normal on this visit, repeated later, is not "an abnormal one done again".
+    const other = results({ testsDone: [{ patientId: 'P1', visitId: 'V2', at: new Date(T0.getTime() + 20 * DAY), testCode: 'CBC' }] });
+    assert.strictEqual(await predicates.abnormalRetestedSinceThisVisit(other, subject, {}), false);
+  });
+
+  await check('a critical result stops patient messages about that visit, never staff alerts', async () => {
+    const ctx = gate({}, { criticalVisits: ['V1'] });
+    const toPatient = await communicationPolicy(ctx, { patientId: 'P1', phone: '919876543210', intent: 'PROACTIVE', runId: 'r', visitId: 'V1' });
+    assert.deepStrictEqual(toPatient, { kind: 'DROP', reason: 'CRITICAL_VALUE' });
+    const toStaff = await communicationPolicy(ctx, { patientId: null, phone: '919811111111', intent: 'PROACTIVE', runId: 'r', visitId: 'V1' });
+    assert.notStrictEqual((toStaff as { reason?: string }).reason, 'CRITICAL_VALUE', 'the lab must still be told');
+    const report = await communicationPolicy(ctx, { patientId: 'P1', phone: '919876543210', intent: 'REACTIVE', runId: 'r', visitId: 'V1' });
+    assert.notStrictEqual((report as { reason?: string }).reason, 'CRITICAL_VALUE', 'the report itself still goes');
+    assert.strictEqual(await predicates.criticalThisVisit(ctx, subject, {}), true);
+  });
+
+  await check('a condition missing its test is refused at save, in words', () => {
+    assert.deepStrictEqual(missingArgs({ fn: 'testCodeCount', op: 'eq', value: 0 }), ['"Times a particular test was done" needs a test chosen']);
+    assert.deepStrictEqual(missingArgs({ fn: 'testCodeCount', args: { testCode: 'HBA1C' }, op: 'eq', value: 0 }), []);
+    assert.deepStrictEqual(missingArgs({ fn: 'abnormalThisVisit' }), [], 'optional test: "any test"');
+    const problems = validateDefinition({
+      trigger: { kind: 'REPORT_FINALIZED' },
+      audience: { all: [{ fn: 'consecutiveAbnormal', op: 'gte', value: 2 }] },
+      steps: [{ kind: 'WAIT', anchor: 'TRIGGER', days: 90 }],
+    } as never);
+    assert.ok(problems.some((p) => p.blocking && /needs a test chosen/.test(p.problem)), JSON.stringify(problems));
+  });
+
+  await check('a typed keyword matches as a whole first word, in any script, whatever staff typed', () => {
+    assert.ok(keywordMatches('code', 'code please') && keywordMatches('code', '  CODE'));
+    assert.ok(!keywordMatches('code', 'codeine'), 'a longer word is not the keyword');
+    assert.ok(!keywordMatches('code', 'send code'), 'only a reply that starts with it');
+    assert.ok(keywordMatches('c++', 'c++ yes'), 'regex characters are literal, not a crash');
+    assert.ok(keywordMatches('కోడ్', 'కోడ్ కావాలి'), 'a Telugu keyword matches');
+    assert.ok(!keywordMatches('కోడ్', 'కోడ్లు'), 'and respects Telugu word ends');
+    assert.ok(!keywordMatches('', 'anything'), 'an empty keyword matches nothing');
+  });
+
+  await check('a code that would expire before its message goes out is refused at save', () => {
+    const late = validateDefinition({
+      trigger: { kind: 'REPORT_FINALIZED' },
+      steps: [
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 90 },
+        { kind: 'SEND', template: 't', params: [], intent: 'PROACTIVE',
+          issueOffer: { campaignId: 'c1', expiry: { anchor: 'TRIGGER', days: 6, endOfDayIST: true } } },
+      ],
+    } as never, new Set(['c1']));
+    assert.ok(late.some((p) => p.blocking && /arrive already expired/.test(p.problem)), JSON.stringify(late));
+    const fromSend = validateDefinition({
+      trigger: { kind: 'REPORT_FINALIZED' },
+      steps: [
+        { kind: 'WAIT', anchor: 'TRIGGER', days: 90 },
+        { kind: 'SEND', template: 't', params: [], intent: 'PROACTIVE',
+          issueOffer: { campaignId: 'c1', expiry: { anchor: 'ISSUE', days: 15, endOfDayIST: true } } },
+      ],
+    } as never, new Set(['c1']));
+    assert.ok(!fromSend.some((p) => /expired/.test(p.problem)), 'an expiry counted from sending is fine');
+  });
+
+  await check('every condition setting is described well enough for the builder to ask for it', () => {
+    for (const p of PREDICATE_CATALOG) for (const a of p.args ?? []) {
+      assert.ok(a.label, `${p.fn}.${a.key} has no label`);
+      if (a.kind === 'CHOICE') assert.ok(a.choices?.length, `${p.fn}.${a.key} is a choice with no choices`);
+      if (a.optional) assert.ok(a.emptyLabel, `${p.fn}.${a.key} is optional but "empty" has no words`);
+    }
+  });
+
+  await check('an offer for particular tests with none to discount is refused, never "all tests"', async () => {
+    assert.deepStrictEqual(await allowedProductsFor({ forTests: 'ALL', testProductIds: [] }, { patientId: 'P1', visitId: 'V1' }), []);
+    assert.deepStrictEqual(await allowedProductsFor({ forTests: 'LISTED', testProductIds: ['prod_1'] }, { patientId: 'P1', visitId: 'V1' }), ['prod_1']);
+    assert.strictEqual(await allowedProductsFor({ forTests: 'LISTED', testProductIds: [] }, { patientId: 'P1', visitId: 'V1' }), null);
+    assert.strictEqual(await allowedProductsFor({ forTests: 'ABNORMAL_ON_VISIT', testProductIds: [] }, { patientId: 'P1', visitId: null }), null);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

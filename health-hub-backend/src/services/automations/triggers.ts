@@ -53,6 +53,12 @@ export interface TriggerDef {
    * so the builder renders both with one component. Absent = nothing to ask.
    */
   fields?: BlueprintField[];
+  /**
+   * How often one patient may start it, when a journey is started from scratch. Most
+   * triggers are events and "every time it happens" is right; a sweep is not an event —
+   * left at that, a still-matching patient is enrolled again at every check.
+   */
+  defaultReentry?: { mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS'; days?: number };
   findSubjects: (ctx: TriggerContext) => Promise<Candidate[]>;
 }
 
@@ -375,6 +381,7 @@ export const TRIGGERS: Record<string, TriggerDef> = {
     group: 'Patients',
     subjectType: 'PATIENT',
     describe: (c) => `Every ${num(c, 'everyDays', 30)} days, anyone who matches`,
+    defaultReentry: { mode: 'EVERY_N_DAYS', days: 180 },
     async findSubjects({ now, config, limit }) {
       const everyDays = Math.max(1, num(config, 'everyDays', 30));
       // The period bucket. Same string for every candidate in this window, so the

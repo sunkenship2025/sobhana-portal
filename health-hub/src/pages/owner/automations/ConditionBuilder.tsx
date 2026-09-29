@@ -20,21 +20,26 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
-import { listPredicates, type Condition, type Op, type PredicateMeta } from './api';
+import { listPredicates, listTests, type ArgMeta, type Condition, type Op, type PredicateMeta } from './api';
 
 type Leaf = Extract<Condition, { fn: string }>;
 
-/** The editor works on two flat groups; anything richer round-trips untouched. */
+/**
+ * The editor works on two flat groups; anything richer round-trips untouched. "Everyone"
+ * is the absence of conditions, not one of them — kept as a leaf, adding the first real
+ * condition saved "everyone and how they came".
+ */
 function toGroups(c: Condition): { all: Leaf[]; any: Leaf[] } {
   const out = { all: [] as Leaf[], any: [] as Leaf[] };
+  const real = (x: Condition): x is Leaf => 'fn' in x && x.fn !== 'always';
   if ('all' in c) {
     for (const child of c.all) {
-      if ('any' in child) out.any.push(...(child.any.filter((x) => 'fn' in x) as Leaf[]));
-      else if ('fn' in child) out.all.push(child);
+      if ('any' in child) out.any.push(...child.any.filter(real));
+      else if (real(child)) out.all.push(child);
     }
   } else if ('any' in c) {
-    out.any.push(...(c.any.filter((x) => 'fn' in x) as Leaf[]));
-  } else if ('fn' in c) {
+    out.any.push(...c.any.filter(real));
+  } else if (real(c)) {
     out.all.push(c);
   }
   return out;
@@ -94,6 +99,13 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave,
   if (open && key !== openedWith) { setKey(openedWith); setGroups(toGroups(condition)); }
 
   const metaOf = (fn: string) => catalog.find((p) => p.fn === fn);
+  // A required setting left empty reads as "" and never matches — say so before Done.
+  const unset = [...groups.all, ...groups.any].flatMap((leaf) => {
+    const meta = metaOf(leaf.fn);
+    return (meta?.args ?? [])
+      .filter((a) => !a.optional && (leaf.args?.[a.key] ?? '') === '')
+      .map((arg) => ({ label: meta!.label, arg }));
+  });
 
   const update = (which: 'all' | 'any', i: number, patch: Partial<Leaf>) =>
     setGroups((g) => ({
@@ -180,8 +192,13 @@ export function ConditionBuilder({ open, condition, matchCount, onClose, onSave,
         </div>
 
         <DialogFooter>
+          {unset.length > 0 && (
+            <span className="mr-auto self-center text-xs text-destructive">
+              Choose the {unset[0].arg.label.toLowerCase()} for “{unset[0].label}”
+            </span>
+          )}
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave(fromGroups(groups))}>Done</Button>
+          <Button disabled={unset.length > 0} onClick={() => onSave(fromGroups(groups))}>Done</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -209,6 +226,10 @@ function Row({ which, leaf, i, meta, update, remove }: {
           {meta.scope}
         </span>
       )}
+      {meta?.args?.map((arg) => (
+        <ArgControl key={arg.key} arg={arg} args={leaf.args ?? {}}
+          onChange={(patch) => update(which, i, { args: clean({ ...(leaf.args ?? {}), ...patch }) })} />
+      ))}
       {meta && meta.returns !== 'BOOLEAN' && (
         <>
           <Select value={leaf.op ?? (meta.returns === 'TEXT' ? 'eq' : 'gte')}
@@ -249,6 +270,90 @@ function Row({ which, leaf, i, meta, update, remove }: {
     </div>
   );
   }
+
+/** Settings with nothing in them are left out, so an optional one reads as "any". */
+const clean = (o: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== ''));
+
+/** One setting of a condition, in the same small controls as the rest of the row. */
+function ArgControl({ arg, args, onChange }: {
+  arg: ArgMeta; args: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void;
+}) {
+  if (arg.kind === 'TEST') return <TestPicker arg={arg} args={args} onChange={onChange} />;
+  if (arg.kind === 'CHOICE') {
+    const ANY = '__any';
+    return (
+      <Select value={String(args[arg.key] ?? ANY)}
+        onValueChange={(v) => onChange({ [arg.key]: v === ANY ? undefined : v })}>
+        <SelectTrigger className="h-8 w-36" aria-label={arg.label}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {arg.optional && <SelectItem value={ANY}>{arg.emptyLabel}</SelectItem>}
+          {arg.choices?.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      {arg.label}
+      <Input className="h-8 w-16" aria-label={arg.label} placeholder={arg.emptyLabel}
+        value={args[arg.key] == null ? '' : String(args[arg.key])}
+        onChange={(e) => {
+          const n = e.target.value.trim();
+          onChange({ [arg.key]: n === '' ? undefined : Math.max(1, Math.round(Number(n)) || 1) });
+        }} />
+      {arg.unit === 'DAYS' && 'days'}
+    </span>
+  );
+}
+
+/** Search the test catalog; the chosen test's name is kept beside its code for reading back. */
+function TestPicker({ arg, args, onChange }: {
+  arg: ArgMeta; args: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const { data, isFetching } = useQuery({
+    queryKey: ['tests', q], queryFn: () => listTests(q), enabled: open, staleTime: 60_000,
+  });
+  const code = args.testCode as string | undefined;
+  const name = (args.testName as string | undefined) ?? code;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className={`flex h-8 max-w-56 items-center rounded-md border px-3 text-left text-sm ${
+          !code && !arg.optional ? 'border-destructive/50 text-muted-foreground' : ''}`}>
+          <span className="truncate">{name ?? (arg.optional ? arg.emptyLabel : 'Choose a test')}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-2">
+        <div className="relative mb-2">
+          <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          <Input autoFocus className="h-8 pl-7" placeholder="Search tests" value={q}
+            onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="max-h-60 overflow-y-auto">
+          {arg.optional && (
+            <button className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={() => { onChange({ testCode: undefined, testName: undefined }); setOpen(false); }}>
+              {arg.emptyLabel}
+            </button>
+          )}
+          {(data?.tests ?? []).map((t) => (
+            <button key={t.code} className="flex w-full items-baseline justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={() => { onChange({ testCode: t.code, testName: t.name }); setOpen(false); }}>
+              <span className="truncate">{t.name}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">{t.code}</span>
+            </button>
+          ))}
+          {!isFetching && data && data.tests.length === 0 && (
+            <p className="px-2 py-1.5 text-sm text-muted-foreground">No test matches “{q}”.</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** A TEXT value from its served list: one for "is", several for "is one of". */
 function ChoiceValue({ leaf, choices, onChange }: {

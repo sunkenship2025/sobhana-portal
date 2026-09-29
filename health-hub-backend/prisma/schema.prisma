@@ -962,6 +962,11 @@ model CouponCampaign {
   /// How many bills one code may discount. Snapshotted onto each Coupon at issue, so
   /// editing the offer never changes a code already in someone's hand.
   maxUsesPerCode Int          @default(1)
+  /// WHICH tests a code discounts, resolved when the code is issued and frozen onto
+  /// Coupon.allowedProductIds: all of them, the products listed here, or the tests that
+  /// came back abnormal (on the journey's visit, or still abnormal for the patient).
+  forTests       CouponTests  @default(ALL)
+  testProductIds String[]     @default([])
 
   /// Liability caps. Budget is counted at REDEMPTION (committed) plus everything live
   /// and unexpired (reserved) — counting only redemptions lets you issue 3x the budget
@@ -1032,6 +1037,14 @@ enum CouponHolder {
   ANYONE
   ISSUED_PATIENT_ONLY
   NOT_ISSUED_PATIENT
+}
+
+/// Which tests an offer's codes discount. See CouponCampaign.forTests.
+enum CouponTests {
+  ALL
+  LISTED
+  ABNORMAL_ON_VISIT
+  STILL_ABNORMAL
 }
 
 /// One use of a code on one bill — the source of truth for "used", "discount given" and

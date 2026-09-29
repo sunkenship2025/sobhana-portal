@@ -84,9 +84,10 @@ router.post('/from-scratch', async (req: AuthRequest, res) => {
         group: 'Patient journeys',
         definition: {
           trigger: config,
-          // Safe defaults, all changeable in the builder: every time it happens, but one
-          // live journey per patient at a time; anyone the trigger catches; no goal yet.
-          reentry: { mode: 'PER_EVENT', concurrency: 'ONE_ACTIVE_PER_PATIENT' },
+          // Safe defaults, all changeable in the builder: every time it happens (a sweep:
+          // at most every 180 days), one live journey per patient at a time; anyone the
+          // trigger catches; no goal yet.
+          reentry: { ...(t.defaultReentry ?? { mode: 'PER_EVENT' }), concurrency: 'ONE_ACTIVE_PER_PATIENT' },
           audience: { fn: 'always' },
           steps: [],
         } as object,
@@ -260,6 +261,25 @@ router.post('/runs/:runId/stop', async (req: AuthRequest, res) => {
 router.get('/patients/:patientId', async (req: AuthRequest, res) => {
   try { return res.json(await patientAutomations(req.params.patientId)); }
   catch (e) { return fail(res, e); }
+});
+
+/**
+ * Tests a condition can name, for the builder's picker. Results are matched against
+ * both catalogs (TestDefinition and the older LabTest), so both are offered, one row
+ * per code.
+ */
+router.get('/tests', async (req: AuthRequest, res) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const match = q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { code: { contains: q, mode: 'insensitive' as const } }] } : {};
+    const [defs, labs] = await Promise.all([
+      prisma.testDefinition.findMany({ where: { isLatest: true, status: 'ACTIVE', ...match }, select: { code: true, name: true }, orderBy: { name: 'asc' }, take: 30 }),
+      prisma.labTest.findMany({ where: { isActive: true, ...match }, select: { code: true, name: true }, orderBy: { name: 'asc' }, take: 30 }),
+    ]);
+    const byCode = new Map<string, { code: string; name: string }>();
+    for (const t of [...defs, ...labs]) if (!byCode.has(t.code)) byCode.set(t.code, t);
+    return res.json({ tests: [...byCode.values()].slice(0, 30) });
+  } catch (e) { return fail(res, e); }
 });
 
 router.get('/:id', async (req: AuthRequest, res) => {
@@ -440,6 +460,27 @@ router.put('/consent/:patientId', async (req: AuthRequest, res) => {
   } catch (e) { return fail(res, e); }
 });
 
+/** The first test (name or code) that a fixed-text blank mentions, if any. */
+async function testNamedInFixedText(def: AutomationDefinition): Promise<{ where: string; name: string } | null> {
+  const typed = def.steps.flatMap((s, i) =>
+    ((s as { params?: { from: string; value?: string }[] }).params ?? [])
+      .filter((p) => p.from === 'LITERAL' && (p.value ?? '').trim())
+      .map((p) => ({ where: `step ${i + 1}`, text: p.value! })));
+  if (typed.length === 0) return null;
+  const [defs, labs] = await Promise.all([
+    prisma.testDefinition.findMany({ where: { isLatest: true }, select: { name: true, code: true } }),
+    prisma.labTest.findMany({ select: { name: true, code: true } }),
+  ]);
+  const names = [...new Set([...defs, ...labs].flatMap((t) => [t.name, t.code]).map((n) => n.trim()).filter((n) => n.length >= 3))];
+  for (const { where, text } of typed) {
+    for (const name of names) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(text)) return { where, name };
+    }
+  }
+  return null;
+}
+
 /** Saving never activates. Activation is its own act, with its own confirmation. */
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
@@ -452,6 +493,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
       ...def.steps.flatMap((s) => (s.kind === 'CHECK' ? unknownPredicates(s.condition) : [])),
     ];
     if (unknown.length) return res.status(400).json({ error: `UNKNOWN_PREDICATE: ${unknown.join(', ')}` });
+
+    // "No test name or finding in a message" is promised on the Setup screen. Fields
+    // never fill one in; typed fixed text is the one way to break it, so it is read here.
+    const named = await testNamedInFixedText(def);
+    if (named) {
+      return res.status(400).json({ error: `${named.where}: the fixed text mentions "${named.name}". Messages never name a test — family members share phones.` });
+    }
 
     // A goTo pointing nowhere is a run that stops dead in production, and nothing in the
     // shape of the JSON catches it. Refuse at save rather than strand a patient.

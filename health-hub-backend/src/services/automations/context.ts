@@ -104,6 +104,12 @@ export interface AutomationContext {
    * work OUT to is a vendor, not a source, so their visits are still SELF.
    */
   referralSource(visitId: string): Promise<'SELF' | 'DOCTOR' | 'PARTNER' | null>;
+  /** Test codes whose result on this visit came back HIGH or LOW. */
+  abnormalOnVisit(visitId: string): Promise<string[]>;
+  /** Any CRITICAL_HIGH / CRITICAL_LOW result on this visit — the lab calls, a journey does not. */
+  visitHasCriticalResult(visitId: string): Promise<boolean>;
+  /** Was any of these tests done for the patient on a later visit than this one? */
+  testDoneAfterVisit(patientId: string, visitId: string, after: Date, testCodes: string[]): Promise<boolean>;
   resultOf(testOrderId: string, testCode: string): Promise<ResultFacts | null>;
 }
 
@@ -316,6 +322,32 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       return v.referrals.length > 0 ? 'DOCTOR' : 'SELF';
     },
 
+    async abnormalOnVisit(visitId) {
+      const rows = await prisma.testResult.findMany({
+        where: { testOrder: { visitId }, flag: { in: ['HIGH', 'LOW'] } },
+        select: { testDefinition: { select: { code: true } }, test: { select: { code: true } } },
+      });
+      return [...new Set(rows.map((r) => r.testDefinition?.code ?? r.test.code))];
+    },
+
+    async visitHasCriticalResult(visitId) {
+      const n = await prisma.testResult.count({
+        where: { testOrder: { visitId }, flag: { in: ['CRITICAL_HIGH', 'CRITICAL_LOW'] } },
+      });
+      return n > 0;
+    },
+
+    async testDoneAfterVisit(patientId, visitId, after, testCodes) {
+      if (testCodes.length === 0) return false;
+      const n = await prisma.testResult.count({
+        where: {
+          testOrder: { visit: { patientId, id: { not: visitId }, createdAt: { gt: after }, status: { not: 'CANCELLED' } } },
+          OR: [{ testDefinition: { code: { in: testCodes } } }, { test: { code: { in: testCodes } } }],
+        },
+      });
+      return n > 0;
+    },
+
     async higherPriorityRunDue(patientId, priority, runId) {
       const rival = await prisma.automationRun.findFirst({
         where: {
@@ -399,6 +431,11 @@ export interface FactSet {
   resultHistory?: Record<string, ResultFacts[]>;
   couponStateByRun?: Record<string, string>;
   referralSourceByVisit?: Record<string, 'SELF' | 'DOCTOR' | 'PARTNER'>;
+  /** visitId -> test codes that came back HIGH or LOW. */
+  abnormalByVisit?: Record<string, string[]>;
+  criticalVisits?: string[];
+  /** Tests done on later visits: which patient, which visit, when, which code. */
+  testsDone?: { patientId: string; visitId: string; at: Date; testCode: string }[];
 }
 
 /**
@@ -472,6 +509,12 @@ export function memoryContext(facts: FactSet): AutomationContext {
     },
     async referralSource(visitId) {
       return facts.referralSourceByVisit?.[visitId] ?? null;
+    },
+    async abnormalOnVisit(visitId) { return facts.abnormalByVisit?.[visitId] ?? []; },
+    async visitHasCriticalResult(visitId) { return (facts.criticalVisits ?? []).includes(visitId); },
+    async testDoneAfterVisit(patientId, visitId, after, codes) {
+      return (facts.testsDone ?? []).some((t) =>
+        t.patientId === patientId && t.visitId !== visitId && t.at > after && codes.includes(t.testCode));
     },
     async resultOf(testOrderId, testCode) {
       return facts.results?.[`${testOrderId}:${testCode}`] ?? null;

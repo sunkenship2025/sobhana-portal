@@ -46,7 +46,10 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new ApiError(response.status, error.message || `HTTP ${response.status}`);
+    // Many routes answer { error: "the sentence" } with no `message`; reading only
+    // `message` turned every one of those into "HTTP 400" on screen.
+    const said = error.message || (typeof error.error === 'string' ? error.error : '');
+    throw new ApiError(response.status, said || `HTTP ${response.status}`);
   }
 
   return response.json();

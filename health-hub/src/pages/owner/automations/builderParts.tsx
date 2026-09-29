@@ -98,7 +98,7 @@ export function BlanksEditor({ template, params, onChange, journeyHasOffer }: {
                   </SelectContent>
                 </Select>
                 {b.from === 'LITERAL' && (
-                  <Input className="h-8 w-full" placeholder="Type the text"
+                  <Input className="h-8 w-full" placeholder="Type the text — never a test name or result"
                     value={b.value ?? ''} onChange={(e) => set(i, { from: 'LITERAL', value: e.target.value })} />
                 )}
               </div>

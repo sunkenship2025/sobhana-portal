@@ -41,10 +41,21 @@ export function describeCondition(c: Condition, catalog: PredicateMeta[]): strin
   // Falling back to the raw function name is the honest failure: it is ugly, and it is
   // never wrong. Inventing a friendly sentence for an unknown predicate would be.
   const label = meta?.label ?? c.fn;
-  const scoped = meta?.scope ? `${label} (${meta.scope})` : label;
+  const scoped = (meta?.scope ? `${label} (${meta.scope})` : label).toLowerCase() + argWords(c.args, meta);
 
-  if (c.op === undefined) return scoped.toLowerCase();
-  return `${scoped.toLowerCase()} ${OP_WORDS[c.op] ?? c.op} ${valueWords(c.value, meta)}`;
+  if (c.op === undefined) return scoped;
+  return `${scoped} ${OP_WORDS[c.op] ?? c.op} ${valueWords(c.value, meta)}`;
+}
+
+/** A condition's settings, read back: which test, over how long, which visits. */
+function argWords(args: Record<string, unknown> | undefined, meta?: PredicateMeta): string {
+  return (meta?.args ?? []).map((a) => {
+    const v = args?.[a.key];
+    if (v === undefined || v === '') return '';
+    if (a.kind === 'TEST') return ` — ${String(args?.testName ?? v)}`;
+    if (a.kind === 'NUMBER') return ` in the last ${v} days`;
+    return `, ${a.choices?.find((x) => x.value === v)?.label.toLowerCase() ?? String(v)} visits`;
+  }).join('');
 }
 
 /** Where a branch goes, in the same words the drawer offers. */
