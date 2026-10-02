@@ -152,6 +152,12 @@ export type Step =
        */
       retryHeldBack?: boolean;
       /**
+       * Words that name a day ("expires tomorrow") are true on that day only. When Meta holds
+       * such a message back, this other approved template — same blanks, said for the next
+       * day ("expires today") — goes at the start of the next day instead.
+       */
+      nextDayTemplate?: string;
+      /**
        * Issued with this message. ONE per run, not one per step: a patient who can claim
        * from either the first message or the reminder must still end up with a single
        * code, and both steps asking for one is the normal case rather than the edge.
@@ -217,6 +223,8 @@ export type Step =
       intent: Intent;
       /** As on SEND. A question asked again keeps its original answer window. */
       retryHeldBack?: boolean;
+      /** As on SEND. */
+      nextDayTemplate?: string;
       /** Payload -> where to go. The payload is what the button actually carries. */
       buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
       /** Best-effort fallback for people who type instead of tapping. */

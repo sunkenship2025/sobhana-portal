@@ -1,0 +1,35 @@
+{
+  "_readme": {
+    "purpose": "The next-morning versions of the two 'expires tomorrow' reminders. When Meta holds a 'tomorrow' reminder back, the journey sends one of these at 8 AM the next day instead (the step's 'If Meta holds it back, the next morning send').",
+    "truth": "The code is valid to the end of its last day, so on that day 'expires today' is true all day.",
+    "pairs": "op_recovery_expiring_code_v1 -> op_recovery_expiring_code_today_v1 (blank: the code); op_recovery_expiring_claim_v1 -> op_recovery_expiring_claim_today_v1 (blank: first name; same 'Get my code' button). Same blanks as the message they stand in for.",
+    "how_to_submit": "node scripts/submit-wa-templates.mjs whatsapp-op-expires-today-templates.json"
+  },
+  "templates": [
+    {
+      "name": "op_recovery_expiring_code_today_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your 50% off code expires today.\n\n*{{1}}*\n\nShow this at any Sobhana branch today, before it runs out. One-time use, and it covers the whole bill for your tests.",
+          "example": { "body_text": [["OPRE-4K9X2"]] }
+        }
+      ]
+    },
+    {
+      "name": "op_recovery_expiring_claim_today_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, your *50% off* diagnostics offer expires today.\n\nTap below to get your code before it runs out.",
+          "example": { "body_text": [["Lakshmi"]] }
+        },
+        { "type": "BUTTONS", "buttons": [{ "type": "QUICK_REPLY", "text": "Get my code" }] }
+      ]
+    }
+  ]
+}

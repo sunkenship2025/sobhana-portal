@@ -708,9 +708,8 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   </p>
                 </div>
 
-                <HeldBackField value={current.retryHeldBack}
-                  words={templates.find((x) => x.name === current.template)?.bodyText}
-                  onChange={(retryHeldBack) => setLocal({ ...current, retryHeldBack })} />
+                <HeldBackField step={current} templates={templates}
+                  onChange={(patch) => setLocal({ ...current, ...patch })} />
               </div>
             )}
 
@@ -782,9 +781,8 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                   </p>
                 </div>
 
-                <HeldBackField value={current.retryHeldBack}
-                  words={templates.find((x) => x.name === current.template)?.bodyText}
-                  onChange={(retryHeldBack) => setLocal({ ...current, retryHeldBack })} />
+                <HeldBackField step={current} templates={templates}
+                  onChange={(patch) => setLocal({ ...current, ...patch })} />
               </div>
             )}
 
@@ -993,29 +991,53 @@ function OfferFields({ issueOffer, onChange }: {
 
 /**
  * What happens when Meta holds this message back (its per-person marketing limit). Read
- * the way the engine reads it: absent means try again, unless the words name a day.
+ * the way the engine reads it: absent means try again while the message is still useful,
+ * unless the words name a day — then only a next-day version, if one is chosen, goes.
  */
-function HeldBackField({ value, words, onChange }: {
-  value?: boolean; words?: string | null; onChange: (v: boolean) => void;
+function HeldBackField({ step, templates, onChange }: {
+  step: { template: string; retryHeldBack?: boolean; nextDayTemplate?: string };
+  templates: TemplateSummary[];
+  onChange: (patch: { retryHeldBack?: boolean; nextDayTemplate?: string }) => void;
 }) {
-  const namesADay = /\b(today|tonight|tomorrow)\b/i.test(words ?? '');
-  const retry = value ?? !namesADay;
+  const own = templates.find((t) => t.name === step.template);
+  const namesADay = /\b(today|tonight|tomorrow)\b/i.test(own?.bodyText ?? '');
+  // A next-day version must fill the same blanks, or the send would be refused.
+  const sameBlanks = templates.filter((t) => t.name !== step.template && t.paramCount === own?.paramCount);
+  if (namesADay && step.retryHeldBack === undefined) {
+    return (
+      <div>
+        <Label className="text-xs">If Meta holds it back, the next morning send</Label>
+        <Select value={step.nextDayTemplate ?? 'NONE'}
+          onValueChange={(v) => onChange({ nextDayTemplate: v === 'NONE' ? undefined : v })}>
+          <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="NONE">Nothing — it is sent once only</SelectItem>
+            {sameBlanks.map((t) => <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {step.nextDayTemplate
+            ? `Its words name a day, so a later copy would be untrue. Instead, at 8 AM the next day, ${step.nextDayTemplate} goes — choose one that says it for that day ("expires today").`
+            : 'Its words name a day ("tomorrow"), so a later copy would be untrue. Choose a version said for the next day ("expires today") to try once more at 8 AM.'}
+        </p>
+      </div>
+    );
+  }
+  const retry = step.retryHeldBack ?? true;
   return (
     <div>
       <Label className="text-xs">If Meta holds it back</Label>
-      <Select value={retry ? 'RETRY' : 'ONCE'} onValueChange={(v) => onChange(v === 'RETRY')}>
+      <Select value={retry ? 'RETRY' : 'ONCE'} onValueChange={(v) => onChange({ retryHeldBack: v === 'RETRY' })}>
         <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="RETRY">Try again after 1, 3 and 7 days</SelectItem>
+          <SelectItem value="RETRY">Try again while it is still useful</SelectItem>
           <SelectItem value="ONCE">Send once only</SelectItem>
         </SelectContent>
       </Select>
       <p className="mt-1.5 text-xs text-muted-foreground">
         {retry
-          ? 'Never at night or on a Sunday, and only while it still makes sense: before the journey\'s next message and before its code runs out. If they write to us meanwhile, it goes in the chat at once.'
-          : namesADay && value === undefined
-            ? 'The words name a day ("tomorrow"), so a later try would make them untrue.'
-            : 'Meta limits marketing messages per person across every business. Bills and reports are never held back.'}
+          ? 'After 1, 2, 4 and 7 days — but only before the journey\'s next message, with a day of its code still left, never at night or on a Sunday. If they write to us meanwhile, it goes in the chat at once.'
+          : 'Meta limits marketing messages per person across every business. Bills and reports are never held back.'}
       </p>
     </div>
   );

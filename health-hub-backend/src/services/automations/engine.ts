@@ -646,10 +646,11 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
       // Every resolved number, not just the first. A patient is one phone; a staff
       // alert is "tell the three people who need to know", and sending to one of them
       // is the failure that looks like success.
+      const template = await templateForTry(runId, run.stepIndex, step, ctx.now);
       const out = await sendForStep({
         runId, stepIndex: run.stepIndex,
         patientId: to.patientId, branchId: run.branchId,
-        phone: phone!, phones: to.phones, template: step.template, language: step.language ?? 'en',
+        phone: phone!, phones: to.phones, template, language: step.language ?? 'en',
         values: filled.values,
         contextId: run.subjectId,
         inChat: inChat ? {} : undefined,
@@ -682,7 +683,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
       await log(
         runId, run.stepIndex, 'SEND',
         out.alreadySent ? Outcome.ALREADY_SENT : inChat ? Outcome.SENT_IN_CHAT : Outcome.SENT,
-        { template: step.template, couponCode }, out.messageLogId,
+        { template, couponCode }, out.messageLogId,
       );
       await advance(ctx.now);
       return;
@@ -868,9 +869,10 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
         return;
       }
 
+      const askTemplate = await templateForTry(runId, run.stepIndex, step, ctx.now);
       const sent = await sendForStep({
         runId, stepIndex: run.stepIndex, patientId: to.patientId, branchId: run.branchId,
-        phone: phone!, template: step.template, language: step.language ?? 'en',
+        phone: phone!, template: askTemplate, language: step.language ?? 'en',
         values: filledA.values,
         contextId: run.subjectId,
         inChat: inChat ? { buttons: step.buttons.map((b) => ({ id: b.payload, title: b.label })) } : undefined,
@@ -884,7 +886,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
       }
 
       await log(runId, run.stepIndex, 'ASK', Outcome.ASKED,
-        { template: step.template, buttons: step.buttons.map((b) => b.label), ...(inChat ? { inChat: true } : {}) }, sent.messageLogId, ctx.now);
+        { template: askTemplate, buttons: step.buttons.map((b) => b.label), ...(inChat ? { inChat: true } : {}) }, sent.messageLogId, ctx.now);
       // Meta's refusal arrives by webhook a few seconds after it accepted the send. If it
       // already has, notDelivered woke this run a moment ago — pushing the wake-up out
       // by the whole window here would undo that.
@@ -943,8 +945,28 @@ async function handToStaff(runId: string, stepIndex: number, phone: string | nul
  * When a message Meta held back is tried again: days after the FIRST refusal. Meta: wait
  * at least a day, then widen the gaps. WATI retries daily for 7 days, AiSensy three times;
  * nobody publishes a recovery rate. Ours: about one in four got through on a later day.
+ * Every journey gets as many of these as its message's useful life allows (nextRetryAt) —
+ * a short window gets tight daily tries, a long one spread-out ones.
  */
-const RETRY_DAYS = [1, 3, 7];
+const RETRY_DAYS = [1, 2, 4, 7];
+
+/** A try must leave the patient at least this long to use the code it carries. */
+const USEFUL_FOR_MS = 8 * 3600_000;
+
+/** The words for this try: the step's own, or on a later day its next-day version. */
+async function templateForTry(runId: string, stepIndex: number, step: Extract<Step, { kind: 'SEND' | 'ASK' }>, now: Date): Promise<string> {
+  if (!step.nextDayTemplate || !(await retryPending(runId, stepIndex))) return step.template;
+  const since = await heldSince(runId, stepIndex);
+  return since && istParts(since).date !== istParts(now).date ? step.nextDayTemplate : step.template;
+}
+
+/** When the first try of this step was held back: the clock every later try counts from. */
+async function heldSince(runId: string, stepIndex: number): Promise<Date | null> {
+  const first = await prisma.automationStepLog.findFirst({
+    where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED }, orderBy: { at: 'asc' }, select: { at: true },
+  });
+  return first?.at ?? null;
+}
 
 /**
  * Is this step's message waiting for its next try? Counted, not read off the newest row:
@@ -984,26 +1006,35 @@ const NAMES_A_DAY = /\b(today|tonight|tomorrow)\b/i;
 /**
  * The next time a held-back message may be tried, or null for "no more".
  *
- * A try only goes while the message still means what it says: before the journey's next
- * scheduled point (its next message is the next try, and carries the same offer), inside
- * a question's original answer window, while the code it carries is alive, and inside
- * the journey's window. Never on a Sunday; quiet hours are the send's own business.
+ * Every message has a useful life, and tries happen only inside it: before the journey's
+ * next message (which carries the same offer and gets its own tries), inside a question's
+ * original answer window, while the code it carries has a working day left, and inside
+ * the journey's window. Words that name a day ("tomorrow") are true on that day only: they
+ * get one more try only if the step says how to put it the next day, sent at that day's
+ * start. Never on a Sunday; quiet hours are the send's own business.
  */
 async function nextRetryAt(
   runId: string, stepIndex: number, step: Extract<Step, { kind: 'SEND' | 'ASK' }>,
   run: { triggeredAt: Date }, def: AutomationDefinition, words: string | null, now: Date,
 ): Promise<Date | null> {
   if (step.retryHeldBack === false) return null;
-  if (step.retryHeldBack === undefined && NAMES_A_DAY.test(words ?? '')) return null;
-  const tries = await prisma.automationStepLog.findMany({
-    where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED }, orderBy: { at: 'asc' }, select: { at: true },
-  });
-  if (tries.length >= RETRY_DAYS.length) return null;
-  const first = tries[0]?.at ?? now;
-  let at = new Date(Math.max(first.getTime() + RETRY_DAYS[tries.length] * DAY_MS, now.getTime() + DAY_MS));
+  const tries = await prisma.automationStepLog.count({ where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED } });
+  let at: Date;
+  if (step.retryHeldBack === undefined && NAMES_A_DAY.test(words ?? '')) {
+    if (!step.nextDayTemplate || tries > 0) return null;
+    at = new Date(new Date(`${istParts(now).date}T08:00:00+05:30`).getTime() + DAY_MS);
+  } else {
+    if (tries >= RETRY_DAYS.length) return null;
+    const first = (await heldSince(runId, stepIndex)) ?? now;
+    at = new Date(Math.max(first.getTime() + RETRY_DAYS[tries] * DAY_MS, now.getTime() + DAY_MS));
+  }
   while (isSundayIST(at)) at = new Date(at.getTime() + DAY_MS);
 
-  const nextWait = def.steps.slice(stepIndex + 1).find((x): x is Extract<Step, { kind: 'WAIT' }> => x.kind === 'WAIT');
+  // The journey's next MESSAGE: the first wait after this step with something still to say
+  // after it. A last wait that only leads to the end is not one.
+  const later = def.steps.slice(stepIndex + 1);
+  const nextWait = later.find((x, i): x is Extract<Step, { kind: 'WAIT' }> =>
+    x.kind === 'WAIT' && later.slice(i + 1).some((y) => y.kind === 'SEND' || y.kind === 'ASK'));
   if (nextWait && waitUntil(nextWait, run.triggeredAt, now) <= at) return null;
   if (step.kind === 'ASK') {
     const asked = await prisma.automationStepLog.findFirst({
@@ -1012,7 +1043,7 @@ async function nextRetryAt(
     if (asked && asked.at.getTime() + (step.waitHours ?? 24) * 3600_000 <= at.getTime()) return null;
   }
   const code = await prisma.coupon.findFirst({ where: { automationRunId: runId }, select: { expiresAt: true } });
-  if (code && code.expiresAt <= at) return null;
+  if (code && code.expiresAt.getTime() - USEFUL_FOR_MS <= at.getTime()) return null;
   if (lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, at)) return null;
   return at;
 }
@@ -1133,7 +1164,17 @@ export function lateForWindow(
 ): boolean {
   const days = def.goal?.windowDays;
   if (!days || days <= 0) return false;
-  const end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
+  let end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
+  // While the journey's own offer is still alive the journey is still open: an offer that
+  // skips Sundays outlives a window counted in plain days, and "expires today" on the
+  // code's last day is not late.
+  for (const st of def.steps ?? []) {
+    const e = (st as { issueOffer?: { expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean } } }).issueOffer?.expiry;
+    if (e?.anchor === 'TRIGGER') {
+      const offerEnds = couponExpiry(e, triggeredAt, now, e.days);
+      if (offerEnds > end) end = offerEnds;
+    }
+  }
   const at = decision.kind === 'DEFER' && decision.until ? decision.until : now;
   return at > end;
 }
