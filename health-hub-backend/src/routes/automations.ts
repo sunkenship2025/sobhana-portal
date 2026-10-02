@@ -24,11 +24,19 @@ import { TRIGGERS, listTriggers, describeTrigger } from '../services/automations
 import { listMessageTemplates } from '../services/whatsappCloudService';
 import type { AutomationDefinition } from '../services/automations/types';
 import { phoneKey } from '../services/automations/phone';
+import { automationsMayHaveWork } from '../services/automations/engine';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 router.use(requireRole('owner'));
+// Activating, saving or resuming a journey is work the engine has to see now. Without
+// this it learned of a newly switched-on journey only when an unrelated visit was saved,
+// or at its hourly look — "start now" waited up to an hour.
+router.use((req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) automationsMayHaveWork(); });
+  next();
+});
 
 const fail = (res: any, e: unknown, code = 500) =>
   res.status(code).json({ error: (e as Error).message ?? 'FAILED' });
