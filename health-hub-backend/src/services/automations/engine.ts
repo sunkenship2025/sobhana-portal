@@ -70,12 +70,15 @@ async function log(
   outcome: string,
   detail?: unknown,
   messageLogId?: string,
+  /** The engine's clock, where a later decision measures from this row. */
+  at?: Date,
 ): Promise<void> {
   await prisma.automationStepLog.create({
     data: {
       runId, stepIndex, kind, outcome,
       detail: (detail ?? undefined) as object | undefined,
       messageLogId: messageLogId ?? null,
+      ...(at ? { at } : {}),
     },
   });
 }
@@ -392,7 +395,10 @@ async function finish(runId: string, state: string, reason: string, stepIndex: n
   await log(runId, stepIndex, 'STOPPED', reason);
 }
 
-export async function executeOneStep(runId: string, ctx: AutomationContext): Promise<void> {
+/** inChat: the patient has just written to us — see deliverHeldInChat. */
+export interface StepOptions { inChat?: boolean }
+
+export async function executeOneStep(runId: string, ctx: AutomationContext, opts: StepOptions = {}): Promise<void> {
   const run = await prisma.automationRun.findUnique({ where: { id: runId } });
   if (!run || run.state !== 'RUNNING') return;
 
@@ -454,6 +460,17 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       await finish(runId, 'STOPPED', def.goal.stopReason ?? Outcome.STOPPED_GOAL_MET, run.stepIndex);
       return;
     }
+  }
+
+  // A try of a message Meta held back never goes on a Sunday — including tries scheduled
+  // before that rule existed. A reply in the chat the patient just opened is not a try.
+  if ((step.kind === 'SEND' || step.kind === 'ASK') && !opts.inChat && isSundayIST(ctx.now)
+      && (await retryPending(runId, run.stepIndex))) {
+    let monday = new Date(ctx.now.getTime() + DAY_MS);
+    while (isSundayIST(monday)) monday = new Date(monday.getTime() + DAY_MS);
+    await prisma.automationRun.update({ where: { id: runId }, data: { state: 'PENDING', nextActionAt: monday } });
+    await log(runId, run.stepIndex, 'DEFERRED', Outcome.NOT_ON_SUNDAY, { until: monday });
+    return;
   }
 
   const advance = async (nextAt: Date | null) => {
@@ -531,6 +548,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       // otherwise now works without the engine learning a second way to address people.
       const to = await resolveRecipients(step.to, run, { kind: 'RUN_PATIENT' });
       const phone = to.phones[0] ?? null;
+      const inChat = opts.inChat || (!!to.patientId && (await chatWindowOpen(runId, phone, ctx.now)));
 
       // Enrolled, evaluated, never messaged — which is what makes it a control group
       // rather than an exclusion.
@@ -574,7 +592,8 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         await finish(runId, 'DONE', Outcome.MISSED_WINDOW, run.stepIndex);
         return;
       }
-      if (decision.kind === 'DEFER') {
+      // Someone who has just written to us is awake: quiet hours do not hold the answer.
+      if (decision.kind === 'DEFER' && !(inChat && decision.reason === Outcome.QUIET_HOURS)) {
         // The step stays where it is. A delay moves when a step is sent; it never
         // moves when the next one is due.
         await log(runId, run.stepIndex, 'DEFERRED', decision.reason, { until: decision.until });
@@ -633,6 +652,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         phone: phone!, phones: to.phones, template: step.template, language: step.language ?? 'en',
         values: filled.values,
         contextId: run.subjectId,
+        inChat: inChat ? {} : undefined,
       });
 
       if (out.failed) {
@@ -661,7 +681,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       if (couponId) await activateCoupon(couponId);
       await log(
         runId, run.stepIndex, 'SEND',
-        out.alreadySent ? Outcome.ALREADY_SENT : Outcome.SENT,
+        out.alreadySent ? Outcome.ALREADY_SENT : inChat ? Outcome.SENT_IN_CHAT : Outcome.SENT,
         { template: step.template, couponCode }, out.messageLogId,
       );
       await advance(ctx.now);
@@ -735,6 +755,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
     case 'ASK': {
       const to = await resolveRecipients(undefined, run, { kind: 'RUN_PATIENT' });
       const phone = to.phones[0] ?? null;
+      const inChat = opts.inChat || (!!to.patientId && (await chatWindowOpen(runId, phone, ctx.now)));
 
       // Coming BACK to this step means the window closed with no answer — the reply
       // path moves stepIndex itself, so we only ever return here unanswered.
@@ -743,9 +764,13 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         : null;
       const asked = await prisma.automationStepLog.findFirst({
         where: { runId, stepIndex: run.stepIndex, outcome: Outcome.ASKED },
-        select: { id: true },
+        orderBy: { at: 'asc' }, select: { id: true, at: true },
       });
-      if (asked) {
+      // Back here because Meta held the question back and its next try is due: ask again,
+      // with the answer window it was first given — a later try never buys more time.
+      const windowEnds = asked ? new Date(asked.at.getTime() + (step.waitHours ?? 24) * 3600_000) : null;
+      const askAgain = !!asked && windowEnds! > ctx.now && (await retryPending(runId, run.stepIndex));
+      if (asked && !askAgain) {
         if (slot?.automationRunId === runId) {
           await prisma.awaitingReply.delete({ where: { phone: phoneKey(phone!) } }).catch(() => {});
         }
@@ -801,7 +826,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         await finish(runId, 'DONE', Outcome.MISSED_WINDOW, run.stepIndex);
         return;
       }
-      if (decision.kind === 'DEFER') {
+      if (decision.kind === 'DEFER' && !(inChat && decision.reason === Outcome.QUIET_HOURS)) {
         await log(runId, run.stepIndex, 'DEFERRED', decision.reason, { until: decision.until });
         await prisma.automationRun.update({
           where: { id: runId }, data: { state: 'PENDING', nextActionAt: decision.until },
@@ -811,7 +836,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
       // Claim the line BEFORE asking. One automation may hold a phone; a second wanting
       // it waits rather than both talking over each other.
-      const waitHours = step.waitHours ?? 24;
+      const waitHours = askAgain ? (windowEnds!.getTime() - ctx.now.getTime()) / 3600_000 : step.waitHours ?? 24;
       const held = await holdLine(
         phone!, runId, to.patientId ?? '',
         {
@@ -848,6 +873,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
         phone: phone!, template: step.template, language: step.language ?? 'en',
         values: filledA.values,
         contextId: run.subjectId,
+        inChat: inChat ? { buttons: step.buttons.map((b) => ({ id: b.payload, title: b.label })) } : undefined,
       });
 
       if (sent.failed) {
@@ -858,7 +884,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       }
 
       await log(runId, run.stepIndex, 'ASK', Outcome.ASKED,
-        { template: step.template, buttons: step.buttons.map((b) => b.label) }, sent.messageLogId);
+        { template: step.template, buttons: step.buttons.map((b) => b.label), ...(inChat ? { inChat: true } : {}) }, sent.messageLogId, ctx.now);
       // Meta's refusal arrives by webhook a few seconds after it accepted the send. If it
       // already has, notDelivered woke this run a moment ago — pushing the wake-up out
       // by the whole window here would undo that.
@@ -913,19 +939,93 @@ async function handToStaff(runId: string, stepIndex: number, phone: string | nul
   await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, stepIndex);
 }
 
-/** How long Meta's per-person marketing limit is given before the one resend. */
-const RESEND_AFTER_MS = 2 * DAY_MS;
+/**
+ * When a message Meta held back is tried again: days after the FIRST refusal. Meta: wait
+ * at least a day, then widen the gaps. WATI retries daily for 7 days, AiSensy three times;
+ * nobody publishes a recovery rate. Ours: about one in four got through on a later day.
+ */
+const RETRY_DAYS = [1, 3, 7];
+
+/**
+ * Is this step's message waiting for its next try? Counted, not read off the newest row:
+ * a send and Meta's refusal a second later can carry the same instant, and "the latest
+ * row" then answers either way. Every try that went out wrote SENT or ASKED; every
+ * refusal that earned another try wrote RETRY_SCHEDULED.
+ */
+async function retryPending(runId: string, stepIndex: number): Promise<boolean> {
+  const rows = await prisma.automationStepLog.groupBy({
+    by: ['outcome'], where: { runId, stepIndex, outcome: { in: [Outcome.RETRY_SCHEDULED, Outcome.SENT, Outcome.SENT_IN_CHAT, Outcome.ASKED] } },
+    _count: { _all: true },
+  });
+  const n = (o: string) => rows.find((r) => r.outcome === o)?._count._all ?? 0;
+  const retries = n(Outcome.RETRY_SCHEDULED);
+  return retries > 0 && retries >= n(Outcome.SENT) + n(Outcome.SENT_IN_CHAT) + n(Outcome.ASKED);
+}
+
+/**
+ * Has this patient written to us in the last day? Then the window WhatsApp opens on every
+ * inbound message is open, and anything we send goes as an ordinary chat message — no
+ * template, no marketing limit, no charge. A tap on this journey's own question counts:
+ * the code that follows "Get my code" was being sent as a template and held back.
+ * A margin of an hour, so a send never lands just after the window shut.
+ */
+async function chatWindowOpen(runId: string, phone: string | null, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - 23 * 3600_000);
+  const replied = await prisma.automationStepLog.count({ where: { runId, outcome: Outcome.REPLIED, at: { gte: since, lte: now } } });
+  if (replied > 0) return true;
+  if (!phone) return false;
+  const thread = await prisma.conversation.findUnique({ where: { phone: threadPhone(phone) }, select: { lastInboundAt: true } });
+  return !!thread?.lastInboundAt && thread.lastInboundAt >= since && thread.lastInboundAt <= now;
+}
+
+/** Words that tie a message to a day: a later try would make them untrue. */
+const NAMES_A_DAY = /\b(today|tonight|tomorrow)\b/i;
+
+/**
+ * The next time a held-back message may be tried, or null for "no more".
+ *
+ * A try only goes while the message still means what it says: before the journey's next
+ * scheduled point (its next message is the next try, and carries the same offer), inside
+ * a question's original answer window, while the code it carries is alive, and inside
+ * the journey's window. Never on a Sunday; quiet hours are the send's own business.
+ */
+async function nextRetryAt(
+  runId: string, stepIndex: number, step: Extract<Step, { kind: 'SEND' | 'ASK' }>,
+  run: { triggeredAt: Date }, def: AutomationDefinition, words: string | null, now: Date,
+): Promise<Date | null> {
+  if (step.retryHeldBack === false) return null;
+  if (step.retryHeldBack === undefined && NAMES_A_DAY.test(words ?? '')) return null;
+  const tries = await prisma.automationStepLog.findMany({
+    where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED }, orderBy: { at: 'asc' }, select: { at: true },
+  });
+  if (tries.length >= RETRY_DAYS.length) return null;
+  const first = tries[0]?.at ?? now;
+  let at = new Date(Math.max(first.getTime() + RETRY_DAYS[tries.length] * DAY_MS, now.getTime() + DAY_MS));
+  while (isSundayIST(at)) at = new Date(at.getTime() + DAY_MS);
+
+  const nextWait = def.steps.slice(stepIndex + 1).find((x): x is Extract<Step, { kind: 'WAIT' }> => x.kind === 'WAIT');
+  if (nextWait && waitUntil(nextWait, run.triggeredAt, now) <= at) return null;
+  if (step.kind === 'ASK') {
+    const asked = await prisma.automationStepLog.findFirst({
+      where: { runId, stepIndex, outcome: Outcome.ASKED }, orderBy: { at: 'asc' }, select: { at: true },
+    });
+    if (asked && asked.at.getTime() + (step.waitHours ?? 24) * 3600_000 <= at.getTime()) return null;
+  }
+  const code = await prisma.coupon.findFirst({ where: { automationRunId: runId }, select: { expiresAt: true } });
+  if (code && code.expiresAt <= at) return null;
+  if (lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, at)) return null;
+  return at;
+}
 
 /**
  * WhatsApp accepted a message and then refused to deliver it.
  *
- * Meta says yes when we send and no a few seconds later by webhook. What follows depends
- * on why:
+ * Meta says yes when we send and no a second later by webhook. What follows depends on why:
  *
- * - 131049, its per-person limit on marketing, refused a third of the recovery offers in
- *   their first week. Of the people refused once and messaged again 1-4 days later, about
- *   one in four got through — worth ONE more try, two days on, and no more. A question
- *   moves on instead: the journey's own reminder is its second try.
+ * - 131049 is Meta's per-person limit on marketing, across every business: the same
+ *   patients get our bills and reports, only the offer is held. It is tried again on the
+ *   RETRY_DAYS schedule while it still means something (nextRetryAt), and sent at once as
+ *   a chat message if the patient writes to us meanwhile (deliverHeldInChat).
  * - 131050 is the patient blocking our marketing from inside WhatsApp. That is a STOP.
  * - Anything else (not on WhatsApp, Meta's experiment hold-back) cannot succeed later.
  *
@@ -934,7 +1034,7 @@ const RESEND_AFTER_MS = 2 * DAY_MS;
 export async function notDelivered(waMessageId: string, errorCode: string | null, now: Date = new Date()): Promise<boolean> {
   const msg = await prisma.messageLog.findFirst({
     where: { waMessageId, automationRunId: { not: null } },
-    select: { automationRunId: true, automationStep: true, phone: true, patientId: true },
+    select: { automationRunId: true, automationStep: true, phone: true, patientId: true, templateBody: true, templateParams: true },
   });
   if (!msg?.automationRunId || msg.automationStep === null) return false;
   const runId = msg.automationRunId;
@@ -954,50 +1054,68 @@ export async function notDelivered(waMessageId: string, errorCode: string | null
   });
   const def = run?.definition as unknown as AutomationDefinition | undefined;
   const step = def?.steps[stepIndex];
-  if (!run || !step) return false;
+  if (!run || !def || !step || (step.kind !== 'SEND' && step.kind !== 'ASK')) return false;
+
+  const values = (msg.templateParams as string[] | null) ?? [];
+  const words = msg.templateBody?.replace(/\{\{(\d+)\}\}/g, (_, n: string) => values[Number(n) - 1] ?? '') ?? null;
+  const retryAt = errorCode === '131049' && msg.patientId
+    ? await nextRetryAt(runId, stepIndex, step, run, def, words, now)
+    : null;
 
   if (step.kind === 'ASK') {
     // Only a run still sitting on THAT question. One that has already moved on — answered,
     // stopped, or past it — is left alone.
     if (run.stepIndex !== stepIndex) return false;
-    const woke = await prisma.automationRun.updateMany({
+    const moved = await prisma.automationRun.updateMany({
       where: { id: runId, stepIndex, state: 'PENDING' },
-      data: { nextActionAt: now },
+      data: { nextActionAt: retryAt ?? now },
     });
-    if (woke.count !== 1) return false;
-    await log(runId, stepIndex, 'ASK', Outcome.NOT_DELIVERED, { errorCode });
+    if (moved.count !== 1) return false;
+    if (retryAt) {
+      // Nothing was delivered, so nothing holds the line for an answer meanwhile.
+      await releaseLine(runId);
+      await log(runId, stepIndex, 'ASK', Outcome.RETRY_SCHEDULED, { errorCode, retryAt }, undefined, now);
+    } else {
+      await log(runId, stepIndex, 'ASK', Outcome.NOT_DELIVERED, { errorCode }, undefined, now);
+    }
     return true;
   }
 
-  if (step.kind !== 'SEND' || !msg.patientId) return false;
-  let retryAt = new Date(now.getTime() + RESEND_AFTER_MS);
-  while (isSundayIST(retryAt)) retryAt = new Date(retryAt.getTime() + DAY_MS);
-  const retried = await prisma.automationStepLog.count({
-    where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED },
-  });
-  const code = await prisma.coupon.findFirst({ where: { automationRunId: runId }, select: { expiresAt: true } });
-  const nextWait = def!.steps.slice(stepIndex + 1).find((s): s is Extract<Step, { kind: 'WAIT' }> => s.kind === 'WAIT');
-  // Worth it only if the message still means something in two days: the journey does not
-  // speak again sooner by itself (that would be the second try), it has not ended for a
-  // reason — goal met, STOP, cancelled, handed to a person — and its code is still alive.
-  // Whatever the resend finds by then, the send's own checks run again first.
-  const worth = errorCode === '131049' && retried === 0
-    && (run.state === 'PENDING'
-      || (run.state === 'DONE' && run.stopReason !== Outcome.HANDED_TO_STAFF && run.stopReason !== Outcome.MISSED_WINDOW))
-    && (!nextWait || waitUntil(nextWait, run.triggeredAt, now) > retryAt)
-    && (!code || code.expiresAt > retryAt);
-  if (worth) {
+  if (retryAt && (run.state === 'PENDING'
+      || (run.state === 'DONE' && run.stopReason !== Outcome.HANDED_TO_STAFF && run.stopReason !== Outcome.MISSED_WINDOW))) {
     const moved = await prisma.automationRun.updateMany({
       where: { id: runId, state: run.state, stepIndex: run.stepIndex },
       data: { stepIndex, state: 'PENDING', stopReason: null, nextActionAt: retryAt },
     });
     if (moved.count === 1) {
-      await log(runId, stepIndex, 'SEND', Outcome.RETRY_SCHEDULED, { errorCode, retryAt });
+      await log(runId, stepIndex, 'SEND', Outcome.RETRY_SCHEDULED, { errorCode, retryAt }, undefined, now);
       return true;
     }
   }
-  await log(runId, stepIndex, 'SEND', Outcome.NOT_DELIVERED, { errorCode });
+  await log(runId, stepIndex, 'SEND', Outcome.NOT_DELIVERED, { errorCode }, undefined, now);
   return true;
+}
+
+/**
+ * The patient has just written to us, so for 24 hours anything can be sent as an ordinary
+ * chat message — which Meta does not hold back. Every message of theirs waiting for its
+ * next try goes now, in the chat, buttons and all.
+ */
+export async function deliverHeldInChat(from: string, now: Date = new Date()): Promise<number> {
+  const held = await prisma.messageLog.findMany({
+    // Either way a number may have been stored: ten digits, or twelve with 91.
+    where: { phone: { in: [phoneKey(from), threadPhone(from)] }, status: 'FAILED', errorCode: '131049', automationRunId: { not: null } },
+    select: { automationRunId: true, automationStep: true },
+  });
+  let sent = 0;
+  for (const h of held) {
+    const runId = h.automationRunId!;
+    const run = await prisma.automationRun.findUnique({ where: { id: runId }, select: { state: true, stepIndex: true } });
+    if (run?.state !== 'PENDING' || run.stepIndex !== h.automationStep) continue;
+    if (!(await retryPending(runId, h.automationStep!))) continue;
+    if (await runOne(runId, prismaContext(now), { inChat: true })) sent += 1;
+  }
+  return sent;
 }
 
 /**
@@ -1064,7 +1182,7 @@ export async function runDue(ctx: AutomationContext): Promise<number> {
   return done;
 }
 
-async function runOne(id: string, ctx: AutomationContext): Promise<boolean> {
+async function runOne(id: string, ctx: AutomationContext, opts: StepOptions = {}): Promise<boolean> {
   // Compare-and-set: only one worker can move a run out of PENDING.
   const claim = await prisma.automationRun.updateMany({
     where: { id, state: 'PENDING' },
@@ -1072,7 +1190,7 @@ async function runOne(id: string, ctx: AutomationContext): Promise<boolean> {
   });
   if (claim.count !== 1) return false;
   try {
-    await executeOneStep(id, ctx);
+    await executeOneStep(id, ctx, opts);
     return true;
   } catch (e) {
     logger.error(`[automations] step failed for run ${id}: ${(e as Error).message}`);

@@ -66,6 +66,8 @@ export type Step =
   | {
       kind: 'SEND'; to?: Recipients; template: string; language?: string;
       params: ParamBinding[]; intent: 'REACTIVE' | 'PROACTIVE';
+      /** Absent = try again after 1, 3 and 7 days, unless the words name a day. */
+      retryHeldBack?: boolean;
       issueOffer?: {
         campaignId: string;
         /** TRIGGER = claiming late means less time, not a fresh window. */
@@ -76,6 +78,7 @@ export type Step =
       /** A menu, not a conversation. Buttons carry the run id. */
       kind: 'ASK'; template: string; language?: string; params: ParamBinding[];
       intent: 'REACTIVE' | 'PROACTIVE';
+      retryHeldBack?: boolean;
       buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
       keywords?: { match: string; goTo: number | 'STOP'; stopReason?: string }[];
       /** They replied and nothing matched. */

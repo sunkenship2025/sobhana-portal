@@ -146,6 +146,12 @@ export type Step =
       params: ParamBinding[];
       intent: Intent;
       /**
+       * When Meta holds this back (131049): try again after 1, 3 and 7 days, while it still
+       * means something. Absent = yes, unless the words name a day ("expires tomorrow"),
+       * which a later try would make untrue.
+       */
+      retryHeldBack?: boolean;
+      /**
        * Issued with this message. ONE per run, not one per step: a patient who can claim
        * from either the first message or the reminder must still end up with a single
        * code, and both steps asking for one is the normal case rather than the edge.
@@ -209,6 +215,8 @@ export type Step =
       language?: string;
       params: ParamBinding[];
       intent: Intent;
+      /** As on SEND. A question asked again keeps its original answer window. */
+      retryHeldBack?: boolean;
       /** Payload -> where to go. The payload is what the button actually carries. */
       buttons: { payload: string; label: string; goTo: number | 'STOP'; stopReason?: string }[];
       /** Best-effort fallback for people who type instead of tapping. */
@@ -339,7 +347,11 @@ export const Outcome = {
   LINE_BUSY: 'LINE_BUSY',
   /** WhatsApp accepted the message, then refused to deliver it (e.g. 131049). */
   NOT_DELIVERED: 'NOT_DELIVERED',
-  /** Refused for Meta's per-person marketing limit; sent once more, later. */
+  /** Held back by Meta's per-person marketing limit; tried again later. */
   RETRY_SCHEDULED: 'RETRY_SCHEDULED',
+  /** A try of a held-back message that fell on a Sunday, moved to Monday. */
+  NOT_ON_SUNDAY: 'NOT_ON_SUNDAY',
+  /** A held-back message sent as a chat message, because the patient had just messaged us. */
+  SENT_IN_CHAT: 'SENT_IN_CHAT',
 } as const;
 export type OutcomeCode = (typeof Outcome)[keyof typeof Outcome];

@@ -218,7 +218,7 @@ export async function resolveInbound(
         ?? String(destination);
     // The line is already released, so a failed write must not also lose the tap.
     await prisma.automationStepLog.create({
-      data: { runId: slot.automationRunId, stepIndex: asking!.stepIndex, kind: 'ASK', outcome: Outcome.REPLIED, detail: { answer } },
+      data: { runId: slot.automationRunId, stepIndex: asking!.stepIndex, kind: 'ASK', outcome: Outcome.REPLIED, detail: { answer }, at: now },
     }).catch((e) => logger.warn(`[automations] reply not recorded for ${slot.automationRunId}: ${e.message}`));
   }
 

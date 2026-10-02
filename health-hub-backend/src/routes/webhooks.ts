@@ -376,6 +376,13 @@ router.post(
                 console.error(`[Webhook] automation routing failed for ${from}:`, e);
                 return null;
               });
+              // They have just written to us, which opens 24 hours in which nothing we send is
+              // held back by Meta's marketing limit: anything a journey is waiting to try again
+              // goes now, as a chat message. Not after a STOP.
+              if (auto && !auto.optedOut && !auto.stopped) {
+                const { deliverHeldInChat } = await import('../services/automations/engine');
+                await deliverHeldInChat(from, now).catch((e) => console.error(`[Webhook] held messages for ${from}:`, e));
+              }
               // A tap the journey answers ("Get my code") is not a conversation. Filed in the
               // inbox it sat there looking unanswered while the journey had already replied;
               // the journey's own Activity and Results are where it is recorded.

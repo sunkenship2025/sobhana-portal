@@ -707,6 +707,10 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                     {untilNextDay && ` The next step is on day ${untilNextDay.day}, ${untilNextDay.hours} hours after this one.`}
                   </p>
                 </div>
+
+                <HeldBackField value={current.retryHeldBack}
+                  words={templates.find((x) => x.name === current.template)?.bodyText}
+                  onChange={(retryHeldBack) => setLocal({ ...current, retryHeldBack })} />
               </div>
             )}
 
@@ -777,6 +781,10 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                     behind a more important journey.
                   </p>
                 </div>
+
+                <HeldBackField value={current.retryHeldBack}
+                  words={templates.find((x) => x.name === current.template)?.bodyText}
+                  onChange={(retryHeldBack) => setLocal({ ...current, retryHeldBack })} />
               </div>
             )}
 
@@ -979,6 +987,36 @@ function OfferFields({ issueOffer, onChange }: {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What happens when Meta holds this message back (its per-person marketing limit). Read
+ * the way the engine reads it: absent means try again, unless the words name a day.
+ */
+function HeldBackField({ value, words, onChange }: {
+  value?: boolean; words?: string | null; onChange: (v: boolean) => void;
+}) {
+  const namesADay = /\b(today|tonight|tomorrow)\b/i.test(words ?? '');
+  const retry = value ?? !namesADay;
+  return (
+    <div>
+      <Label className="text-xs">If Meta holds it back</Label>
+      <Select value={retry ? 'RETRY' : 'ONCE'} onValueChange={(v) => onChange(v === 'RETRY')}>
+        <SelectTrigger className="mt-1.5 h-9"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="RETRY">Try again after 1, 3 and 7 days</SelectItem>
+          <SelectItem value="ONCE">Send once only</SelectItem>
+        </SelectContent>
+      </Select>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {retry
+          ? 'Never at night or on a Sunday, and only while it still makes sense: before the journey\'s next message and before its code runs out. If they write to us meanwhile, it goes in the chat at once.'
+          : namesADay && value === undefined
+            ? 'The words name a day ("tomorrow"), so a later try would make them untrue.'
+            : 'Meta limits marketing messages per person across every business. Bills and reports are never held back.'}
+      </p>
     </div>
   );
 }

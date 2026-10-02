@@ -296,6 +296,15 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
       orderBy: { createdAt: 'asc' },
       take: MAX_THREAD_MESSAGES,
     });
+    // What journeys sent this number, so whoever replies sees the offer the patient was
+    // just sent — a held-back offer now goes out as a chat message the moment they write.
+    // Stored in either phone form; the words are the template's own, blanks filled.
+    const fromJourneys = await prisma.messageLog.findMany({
+      where: { automationRunId: { not: null }, phone: { in: [convo.phone, convo.phone.slice(-10)] }, status: { not: 'FAILED' } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, templateName: true, templateBody: true, templateParams: true, status: true, createdAt: true, sentAt: true },
+    });
 
     // Patient context rail (best-effort; the linked patient's recent activity).
     let patientContext: any = null;
@@ -401,17 +410,33 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
 
     res.json({
       conversation: mapConversation(convo),
-      messages: messages.map((m) => ({
-        id: m.id,
-        direction: m.direction,
-        body: m.body,
-        messageType: m.messageType,
-        status: m.status,
-        mediaUrl: m.mediaUrl,
-        isAutoReply: m.isAutoReply,
-        staffUserId: m.staffUserId,
-        createdAt: m.createdAt,
-      })),
+      messages: [
+        ...messages.map((m) => ({
+          id: m.id,
+          direction: m.direction,
+          body: m.body,
+          messageType: m.messageType,
+          status: m.status,
+          mediaUrl: m.mediaUrl,
+          isAutoReply: m.isAutoReply,
+          staffUserId: m.staffUserId,
+          createdAt: m.createdAt,
+        })),
+        ...fromJourneys.map((m) => {
+          const values = (m.templateParams as string[] | null) ?? [];
+          return {
+            id: `journey_${m.id}`,
+            direction: 'OUT' as const,
+            body: m.templateBody?.replace(/\{\{(\d+)\}\}/g, (_, n: string) => values[Number(n) - 1] ?? '') ?? `[${m.templateName}]`,
+            messageType: 'text',
+            status: m.status.toLowerCase(),
+            mediaUrl: null,
+            isAutoReply: true,
+            staffUserId: null,
+            createdAt: m.sentAt ?? m.createdAt,
+          };
+        }),
+      ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
       patientContext,
     });
   } catch (err) {

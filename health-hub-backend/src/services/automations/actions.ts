@@ -15,6 +15,8 @@ import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import {
   sendTemplate,
+  sendText,
+  sendButtons,
   formatPhoneForWhatsApp,
   listMessageTemplates,
   isWhatsAppEnabled,
@@ -36,6 +38,12 @@ export interface SendInput {
   /** Every blank, already filled — see fields.ts. Never a partial message. */
   values: string[];
   contextId: string;
+  /**
+   * The patient has just messaged us, so the 24h window is open: send the template's
+   * words as an ordinary chat message (with these reply buttons, for a question) — not a
+   * template, so Meta's per-person marketing limit does not apply.
+   */
+  inChat?: { buttons?: { id: string; title: string }[] };
 }
 
 export interface SendOutcome {
@@ -129,14 +137,20 @@ export async function sendForStep(input: SendInput): Promise<SendOutcome> {
   }
 
   const targets = input.phones && input.phones.length > 0 ? input.phones : [input.phone];
+  // The words exactly as the approved template reads them, blanks filled.
+  const words = bodyText?.replace(/\{\{(\d+)\}\}/g, (_, n: string) => values[Number(n) - 1] ?? '') ?? null;
   try {
+    if (input.inChat && !words) throw new Error(`template ${input.template} has no text to send in the chat`);
     let first: string | null = null;
     const failures: string[] = [];
     for (const target of targets) {
       try {
-        const r = await sendTemplate(
-          formatPhoneForWhatsApp(target), input.template, components, input.language,
-        );
+        const to = formatPhoneForWhatsApp(target);
+        const r = input.inChat
+          ? input.inChat.buttons?.length
+            ? await sendButtons(to, words!, input.inChat.buttons)
+            : await sendText(to, words!)
+          : await sendTemplate(to, input.template, components, input.language);
         if (!first) first = r.waMessageId;
       } catch (e) {
         // One unreachable number must not cost the others their message.
