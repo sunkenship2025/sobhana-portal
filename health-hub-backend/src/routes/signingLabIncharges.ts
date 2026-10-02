@@ -5,6 +5,7 @@ import fs from 'fs';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
+import { squeezeSignature } from '../lib/squeezeSignature';
 
 const router = Router();
 
@@ -271,7 +272,7 @@ router.post('/:id/upload-signature', uploadSignature.single('signature'), async 
     const relativePath = `/images/signatures/${req.file.filename}`;
     const ext = path.extname(req.file.filename).toLowerCase();
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-    const imageBase64 = `data:${mime};base64,${fileBytes.toString('base64')}`;
+    const imageBase64 = squeezeSignature(`data:${mime};base64,${fileBytes.toString('base64')}`);
 
     const updated = await prisma.signingLabIncharge.update({
       where: { id },

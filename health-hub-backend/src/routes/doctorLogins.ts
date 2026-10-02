@@ -28,6 +28,7 @@ import { logAction } from '../services/auditService';
 import { deriveLogin, generatePassword } from '../lib/portalCredentials';
 import { sendPortalInvite } from '../services/notificationService';
 import { randomUUID } from 'crypto';
+import { squeezeSignature } from '../lib/squeezeSignature';
 
 const router = Router();
 router.use(authMiddleware);
@@ -244,7 +245,7 @@ router.patch('/:id/signature', async (req: AuthRequest, res) => {
     }
     await prisma.clinicDoctor.update({
       where: { id: req.params.id },
-      data: { signatureImageBase64: value },
+      data: { signatureImageBase64: value === null ? null : squeezeSignature(value) },
     });
     await logAction({
       branchId: req.branchId!,

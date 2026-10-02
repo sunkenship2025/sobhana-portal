@@ -400,7 +400,7 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length);
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'private, no-cache'); // unchanged re-open → 304 (see reportDownload)
     return res.send(buffer);
   } catch (err) {
     logger.error({ err }, 'patient report pdf failed');
@@ -524,7 +524,7 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);
     res.setHeader('Content-Length', result.pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'private, no-cache'); // unchanged re-open → 304 (see reportDownload)
     return res.send(result.pdfBuffer);
   } catch (err) {
     logger.error({ err }, 'patient bill pdf failed');

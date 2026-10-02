@@ -491,10 +491,10 @@ function applyLabInchargeVisibility(
 
 /**
  * Refresh frozen lab incharge snapshots (top-level + per-department) from the
- * live SigningLabIncharge in a single query. Identity + signature image stay
- * FROZEN (medico-legal: the report shows who actually signed it); only the
- * showSignatureOnPrint / showNameOnPrint display flags are taken live, mirroring
- * the pre-feature behavior.
+ * live SigningLabIncharge in a single query. Identity stays FROZEN (medico-legal:
+ * the report shows who actually signed it). The signature IMAGE is not stored
+ * (saveReportSnapshot strips it, as it does for doctors) so it comes from the
+ * signer's current row, as do the showSignatureOnPrint / showNameOnPrint flags.
  * Returns the merged top-level; mutates each department's labIncharge in place.
  */
 async function rehydrateStoredLabIncharges(
@@ -2310,10 +2310,18 @@ export async function saveReportSnapshot(
     ? { ...snapshot.labIncharge, signatureImageBase64: undefined }
     : null;
 
+  // The per-department lab incharge rides inside panelsSnapshot. It had escaped
+  // the strip above, so 2,972 versions each carried their own copy of the image
+  // while the doctor's and top-level lab incharge's were hydrated live — the same
+  // report froze one signer's picture and not another's. Every picture is live now.
+  const slimDepartments = snapshot.departments.map((dept) =>
+    dept.labIncharge ? { ...dept, labIncharge: { ...dept.labIncharge, signatureImageBase64: undefined } } : dept,
+  );
+
   await prisma.reportVersion.update({
     where: { id: reportVersionId },
     data: {
-      panelsSnapshot: snapshot.departments as any,
+      panelsSnapshot: slimDepartments as any,
       signaturesSnapshot: slimSignatures as any,
       labInchargeSnapshot: slimLabIncharge as any,
       patientSnapshot: snapshot.patient as any,

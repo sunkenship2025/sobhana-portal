@@ -25,6 +25,7 @@ import { logAction } from '../services/auditService';
 import { emitBranchChange, emitWorklistOnMutation } from '../lib/displayEvents';
 import { listForPatient, currentMedications, signerCheck } from '../services/voiceRx/prescriptionService';
 import { requireDigitalRx } from '../lib/clinicModule';
+import { squeezeSignature } from '../lib/squeezeSignature';
 
 const router = Router();
 router.use(authMiddleware);
@@ -657,7 +658,7 @@ router.patch('/me', async (req: AuthRequest, res) => {
     if (body.dictationLanguage !== undefined) {
       data.dictationLanguage = ['te', 'hi', 'en'].includes(String(body.dictationLanguage)) ? String(body.dictationLanguage) : null;
     }
-    if (typeof body.signatureImageBase64 === 'string') data.signatureImageBase64 = body.signatureImageBase64;
+    if (typeof body.signatureImageBase64 === 'string') data.signatureImageBase64 = squeezeSignature(body.signatureImageBase64);
     if (body.signatureImageBase64 === null) data.signatureImageBase64 = null;
 
     const changed = Object.keys(data).filter((k) => (doctor as Record<string, unknown>)[k] !== data[k]);

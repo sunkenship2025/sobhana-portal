@@ -183,7 +183,10 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Report-${billNumber}.pdf"`);
     res.setHeader('Content-Length', result.pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-store');
+    // private, no-cache: the phone keeps its copy but checks with us on every open.
+    // Express tags the bytes (ETag) and answers an unchanged re-open with a bodyless
+    // 304, so a corrected report or a switched-off link still takes effect at once.
+    res.setHeader('Cache-Control', 'private, no-cache');
     return res.send(result.pdfBuffer);
   } catch (error) {
     console.error('Error generating report PDF:', error);
@@ -229,7 +232,7 @@ router.get('/:token/pdf', publicReportIpRateLimit, publicReportTokenRateLimit, a
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', result.pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'private, no-cache'); // see the inline report above
     return res.send(result.pdfBuffer);
   } catch (error) {
     console.error('Error generating report PDF:', error);
@@ -361,7 +364,7 @@ router.get('/:token/smart.pdf', publicReportIpRateLimit, publicReportTokenRateLi
   const pdf = await smartReportPdf(loaded.snapshot.reportVersionId, html);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="smart-health-report.pdf"`);
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'private, no-cache'); // see the report PDF above
   return res.send(pdf);
 });
 
