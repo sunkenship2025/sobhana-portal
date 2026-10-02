@@ -73,6 +73,12 @@ export interface InboundResolution {
   stopped: boolean;
   /** Nothing matched, and the question said to give the thread to a person. */
   handedOff: boolean;
+  /**
+   * The reply was one of the question's own answers — a button, or a word standing in for
+   * one — so the journey answers it and the inbox never needs to see it. Also true for
+   * the second of two quick taps, which loses the claim below to the first.
+   */
+  answered: boolean;
   optedOut: boolean;
   optedIn: boolean;
 }
@@ -92,7 +98,7 @@ export async function resolveInbound(
   const phone = phoneKey(from);
   const result: InboundResolution = {
     runId: null, patientId: null, stepIndex: null,
-    stopped: false, handedOff: false, optedOut: false, optedIn: false,
+    stopped: false, handedOff: false, optedOut: false, optedIn: false, answered: false,
   };
 
   // STOP wins over everything, including an automation holding the line.
@@ -183,6 +189,8 @@ export async function resolveInbound(
     }
   }
 
+  result.answered = destination !== null;
+
   // Claim before acting, the same way the day-sheet ticker claims a night: two rapid
   // replies must not drive the journey forward twice.
   const claimed = await prisma.awaitingReply.deleteMany({
@@ -198,7 +206,11 @@ export async function resolveInbound(
     where: { id: slot.automationRunId },
     select: { stepIndex: true, definition: true },
   });
-  const step = (asking?.definition as unknown as AutomationDefinition | null)?.steps[asking!.stepIndex];
+  const steps = (asking?.definition as unknown as AutomationDefinition | null)?.steps;
+  const step = steps?.[asking!.stepIndex];
+  // An answer that hands the thread to a person must reach the inbox — that is where the
+  // person is, and a first tap is what opens the thread there.
+  if (typeof destination === 'number' && steps?.[destination]?.kind === 'HANDOFF') result.answered = false;
   if (step?.kind === 'ASK') {
     const answer = destination === null ? null
       : step.buttons.find((b) => b.payload === buttonPayload)?.label

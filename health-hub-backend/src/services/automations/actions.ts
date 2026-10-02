@@ -53,9 +53,12 @@ export interface SendOutcome {
 export async function sendForStep(input: SendInput): Promise<SendOutcome> {
   const existing = await prisma.messageLog.findFirst({
     where: { automationRunId: input.runId, automationStep: input.stepIndex },
-    select: { id: true, waMessageId: true },
+    select: { id: true, waMessageId: true, status: true },
   });
-  if (existing) {
+  // A FAILED row is a message the patient never got, so the run being back on this step —
+  // a transient error's backoff, or the resend after Meta's marketing limit — sends it
+  // again on the same row. It used to answer "already sent", so neither retry ever sent.
+  if (existing && existing.status !== 'FAILED') {
     return { messageLogId: existing.id, waMessageId: existing.waMessageId, alreadySent: true };
   }
 
@@ -94,24 +97,28 @@ export async function sendForStep(input: SendInput): Promise<SendOutcome> {
   // Claim BEFORE the provider call. A crash between the two leaves a PENDING row that
   // the partial unique index blocks from being sent again — the wrong way to fail, but
   // the safe one.
-  const log = await prisma.messageLog.create({
-    data: {
-      patientId: input.patientId,
-      phone: input.phone,
-      channel: 'WHATSAPP',
-      templateName: input.template,
-      templateParams: values as unknown as object,
-      status: 'PENDING',
-      contextType: 'CAMPAIGN',
-      contextId: input.contextId,
-      branchId: input.branchId,
-      automationRunId: input.runId,
-      automationStep: input.stepIndex,
-      templateCategory: category,
-      templateBody: bodyText,
-    },
-    select: { id: true },
-  });
+  const row = {
+    patientId: input.patientId,
+    phone: input.phone,
+    channel: 'WHATSAPP' as const,
+    templateName: input.template,
+    templateParams: values as unknown as object,
+    status: 'PENDING' as const,
+    contextType: 'CAMPAIGN' as const,
+    contextId: input.contextId,
+    branchId: input.branchId,
+    automationRunId: input.runId,
+    automationStep: input.stepIndex,
+    templateCategory: category,
+    templateBody: bodyText,
+  };
+  const log = existing
+    ? await prisma.messageLog.update({
+      where: { id: existing.id },
+      data: { ...row, waMessageId: null, errorCode: null, failureReason: null, sentAt: null, deliveredAt: null, readAt: null },
+      select: { id: true },
+    })
+    : await prisma.messageLog.create({ data: row, select: { id: true } });
 
   if (!isWhatsAppEnabled()) {
     await prisma.messageLog.update({
@@ -182,6 +189,23 @@ function mintCode(prefix: string): string {
  */
 /** IST is UTC+5:30 with no DST, so a fixed offset is exact. */
 const IST_OFFSET_MIN = 330;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const isSundayIST = (d: Date) => new Date(d.getTime() + IST_OFFSET_MIN * 60_000).getUTCDay() === 0;
+
+/**
+ * `days` whole days on from `from`. With skipSundays only the days the centre is open
+ * count — two days after a Friday is Monday — so a wait and the code it sends end on the
+ * same day, and "expires tomorrow" in the reminder stays true.
+ */
+export function addDays(from: Date, days: number, skipSundays = false): Date {
+  let at = from;
+  for (let i = 0; i < days; i += 1) {
+    at = new Date(at.getTime() + DAY_MS);
+    while (skipSundays && isSundayIST(at)) at = new Date(at.getTime() + DAY_MS);
+  }
+  return at;
+}
 
 /**
  * When a coupon dies.
@@ -194,14 +218,14 @@ const IST_OFFSET_MIN = 330;
  * o'clock their consultation happened to finish.
  */
 export function couponExpiry(
-  opts: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean } | undefined,
+  opts: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean } | undefined,
   triggeredAt: Date,
   now: Date,
   fallbackDays: number,
 ): Date {
   const days = opts?.days ?? fallbackDays;
   const from = opts?.anchor === 'ISSUE' ? now : triggeredAt;
-  const raw = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+  const raw = addDays(from, days, opts?.skipSundays);
   if (!opts?.endOfDayIST) return raw;
 
   const ist = new Date(raw.getTime() + IST_OFFSET_MIN * 60_000);

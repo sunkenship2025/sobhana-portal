@@ -120,6 +120,8 @@ export type Step =
       anchor: 'TRIGGER' | 'PREVIOUS';
       days?: number;
       hours?: number;
+      /** Count only the days the centre is open: two days after a Friday is Monday. */
+      skipSundays?: boolean;
     }
   | {
       kind: 'CHECK';
@@ -160,6 +162,8 @@ export type Step =
           days: number;
           /** End of that day in IST, so "expires Day 6" means all of Day 6. */
           endOfDayIST?: boolean;
+          /** Days counted the way the journey's waits count them, so "expires tomorrow" stays true. */
+          skipSundays?: boolean;
         };
       };
     }
@@ -254,6 +258,15 @@ export interface AutomationDefinition {
      */
     stopScope?: 'GLOBAL' | 'THIS_JOURNEY';
   };
+  /**
+   * PAST subjects only, once: the trigger read from `from` to `to` (IST dates, both whole
+   * days) instead of from activation onwards. For reaching the people from before a
+   * journey existed. Each is enrolled as if it happened now — their own day 0 is the day
+   * they are reached, because the days counted from a visit three months ago are long gone.
+   */
+  past?: { from: string; to: string };
+  /** At most this many new journeys a day (IST). The rest wait for tomorrow, in order. */
+  dailyLimit?: number;
   reentry: {
     /** May they enrol again? */
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS';
@@ -322,7 +335,9 @@ export const Outcome = {
   REPLIED: 'REPLIED',
   HANDED_TO_STAFF: 'HANDED_TO_STAFF',
   LINE_BUSY: 'LINE_BUSY',
-  /** WhatsApp accepted the question, then refused to deliver it (e.g. 131049). */
+  /** WhatsApp accepted the message, then refused to deliver it (e.g. 131049). */
   NOT_DELIVERED: 'NOT_DELIVERED',
+  /** Refused for Meta's per-person marketing limit; sent once more, later. */
+  RETRY_SCHEDULED: 'RETRY_SCHEDULED',
 } as const;
 export type OutcomeCode = (typeof Outcome)[keyof typeof Outcome];

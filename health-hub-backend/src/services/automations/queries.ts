@@ -14,14 +14,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export async function listAutomations() {
   const rows = await prisma.automation.findMany({ orderBy: [{ group: 'asc' }, { name: 'asc' }] });
   const counts = await prisma.automationRun.groupBy({
-    by: ['automationId', 'state'],
+    by: ['automationId', 'state', 'stopReason'],
     _count: { _all: true },
   });
+  // Passed over by "how often" or "one at a time": considered, never started.
+  const passedOver = (r: string | null) => r === 'SUPPRESSED_REENTRY' || r === 'SUPPRESSED_ACTIVE_JOURNEY';
 
   return rows.map((a) => {
     const def = a.definition as unknown as AutomationDefinition;
     const mine = counts.filter((c) => c.automationId === a.id);
-    const total = mine.reduce((n, c) => n + c._count._all, 0);
+    const total = mine.filter((c) => !passedOver(c.stopReason)).reduce((n, c) => n + c._count._all, 0);
+    const live = mine.filter((c) => c.state === 'PENDING' || c.state === 'RUNNING').reduce((n, c) => n + c._count._all, 0);
     const days = def.steps
       .filter((s) => s.kind === 'WAIT' && s.anchor === 'TRIGGER')
       .map((s) => (s as { days?: number }).days ?? 0);
@@ -48,8 +51,11 @@ export async function listAutomations() {
         : null,
       days,
       runs: total,
-      live: mine.filter((c) => c.state === 'PENDING' || c.state === 'RUNNING')
-        .reduce((n, c) => n + c._count._all, 0),
+      live,
+      past: def.past ?? null,
+      dailyLimit: def.dailyLimit ?? null,
+      // A past window read to its end with nobody still on the way: nothing more will happen.
+      finished: !!def.past && !!(a.sweepState as { done?: boolean } | null)?.done && live === 0,
     };
   });
 }

@@ -9,7 +9,8 @@ import assert from 'assert';
 import { memoryContext, type VisitFacts } from './src/services/automations/context';
 import { evaluate, predicates, UnitMismatch, type Subject } from './src/services/automations/predicates';
 import { communicationPolicy } from './src/services/automations/policy';
-import { isHeldOut, lateForWindow, patientReentry } from './src/services/automations/engine';
+import { isHeldOut, lateForWindow, patientReentry, waitUntil } from './src/services/automations/engine';
+import { couponExpiry } from './src/services/automations/actions';
 import { TRIGGERS, listTriggers, describeTrigger } from './src/services/automations/triggers';
 import { TRIGGER_KINDS } from './src/services/automations/types';
 import { journeyFunnel, askAnswers, type FunnelRun, type RunMessages } from './src/services/automations/queries';
@@ -1535,6 +1536,55 @@ async function main() {
     assert.deepStrictEqual(await allowedProductsFor({ forTests: 'LISTED', testProductIds: ['prod_1'] }, { patientId: 'P1', visitId: 'V1' }), ['prod_1']);
     assert.strictEqual(await allowedProductsFor({ forTests: 'LISTED', testProductIds: [] }, { patientId: 'P1', visitId: 'V1' }), null);
     assert.strictEqual(await allowedProductsFor({ forTests: 'ABNORMAL_ON_VISIT', testProductIds: [] }, { patientId: 'P1', visitId: null }), null);
+  });
+
+  await check('"don\'t count Sundays": a wait and the code it sends end on the same open day', () => {
+    const ist = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 16).replace('T', ' ');
+    const fri = new Date('2026-10-02T14:00:00Z'); // Friday 19:30 IST, an OP visit
+    const wait = (days: number, skipSundays?: boolean): Step => ({ kind: 'WAIT', anchor: 'TRIGGER', days, skipSundays });
+    const at = (days: number, skip?: boolean, from = fri) =>
+      ist(waitUntil(wait(days, skip) as Extract<Step, { kind: 'WAIT' }>, from, from));
+    assert.strictEqual(at(2), '2026-10-04 19:30', 'counting every day, day 2 of a Friday visit is Sunday');
+    assert.strictEqual(at(2, true), '2026-10-05 19:30', 'not counting Sundays it is Monday');
+    assert.strictEqual(at(5, true), '2026-10-08 19:30', 'the day-5 reminder is Thursday');
+    const sat = new Date('2026-10-03T14:00:00Z');
+    assert.strictEqual(at(2, true, sat), '2026-10-06 19:30', 'two days after a Saturday is Tuesday');
+    const sun = new Date('2026-10-04T05:30:00Z'); // Sunday 11:00 IST
+    assert.strictEqual(at(0, true, sun), '2026-10-05 11:00', 'nothing lands on a Sunday, even day 0');
+    assert.strictEqual(at(2, false, sun), '2026-10-06 11:00');
+    // The code expires at the end of day 6 counted the same way: Friday the 9th, the day
+    // after Thursday's "expires tomorrow".
+    const exp = couponExpiry({ anchor: 'TRIGGER', days: 6, endOfDayIST: true, skipSundays: true }, fri, fri, 30);
+    assert.strictEqual(ist(exp), '2026-10-09 23:59');
+    const plain = couponExpiry({ anchor: 'TRIGGER', days: 6, endOfDayIST: true }, fri, fri, 30);
+    assert.strictEqual(ist(plain), '2026-10-08 23:59', 'without it, unchanged');
+  });
+
+  await check('"came back since this visit": No is "never came back"; the kind of visit narrows it', async () => {
+    const never = { fn: 'cameBackSinceThisVisit', op: 'eq' as const, value: false };
+    const later = (domain: 'CLINIC' | 'DIAGNOSTICS', status = 'COMPLETED') =>
+      visit({ id: `V-${domain}`, domain, status, createdAt: new Date(T0.getTime() + 3 * DAY) });
+    const ctx = (...more: VisitFacts[]) => memoryContext({ now: T0, visits: [visit(), ...more], patients: [patient()] });
+    assert.strictEqual(await evaluate(never, ctx(), subject), true, 'nothing since: never came back');
+    assert.strictEqual(await evaluate(never, ctx(later('DIAGNOSTICS')), subject), false, 'came for tests');
+    assert.strictEqual(await evaluate(never, ctx(later('CLINIC')), subject), false, 'a newer OP visit is coming back too');
+    assert.strictEqual(await evaluate(never, ctx(later('CLINIC', 'CANCELLED')), subject), true, 'a cancelled visit is not');
+    assert.strictEqual(await evaluate({ ...never, args: { domain: 'DIAGNOSTICS' } }, ctx(later('CLINIC')), subject), true,
+      'narrowed to tests, a newer OP visit does not count');
+  });
+
+  await check('past ones: a range of whole days already over, for something that happens; a daily limit of 1 or more', () => {
+    const base = { ...RECOVERY };
+    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+    const blocking = (d: object) => validateDefinition(d as never).filter((p) => p.blocking).map((p) => p.problem);
+    assert.deepStrictEqual(blocking({ ...base, past: { from: '2026-07-01', to: '2026-09-21' }, dailyLimit: 100 }), []);
+    assert.ok(blocking({ ...base, past: { from: '2026-07-01', to: '' } }).some((p) => /first and a last day/.test(p)));
+    assert.ok(blocking({ ...base, past: { from: '2026-09-21', to: '2026-07-01' } }).some((p) => /after the last/.test(p)));
+    assert.ok(blocking({ ...base, past: { from: '2026-07-01', to: today } }).some((p) => /before today/.test(p)));
+    assert.ok(blocking({ ...base, trigger: { kind: 'AUDIENCE_SWEEP', everyDays: 30 }, past: { from: '2026-07-01', to: '2026-07-02' } })
+      .some((p) => /already looks at everyone/.test(p)));
+    assert.ok(blocking({ ...base, dailyLimit: 0 }).some((p) => /whole number/.test(p)));
+    assert.ok(listTriggers().find((t) => t.kind === 'AUDIENCE_SWEEP')?.periodic, 'the builder is told which triggers are periodic');
   });
 
   // ─────────────────────────────────────────────────────────────────────────

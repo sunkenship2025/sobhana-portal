@@ -1,0 +1,33 @@
+{
+  "_readme": {
+    "purpose": "OP patients from before OP recovery started (1 Jul - 21 Sep 2026) who never came back for tests. The code goes in the first message — no 'Get my code' button.",
+    "category": "MARKETING — it carries a discount.",
+    "safety": "No test name, no finding. 'If your doctor suggested any tests' — the clinic visit is all we know.",
+    "blanks": "{{1}} first name · {{2}} the offer code · {{3}} the offer's expiry date. In the builder: First name, Offer code, Offer expiry date.",
+    "offer": "OPRECOVER50: 50% off tests, the patient it was sent to only, one use.",
+    "reminder": "The day-before-expiry reminder reuses the approved op_recovery_expiring_code_v1.",
+    "how_to_submit": "node scripts/submit-wa-templates.mjs whatsapp-op-winback-template.json"
+  },
+  "templates": [
+    {
+      "name": "op_winback_code_v1",
+      "language": "en",
+      "category": "MARKETING",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, thank you for visiting Sobhana.\n\nIf your doctor suggested any tests, here is a *50% discount* on your diagnostic tests.\n\nCode: *{{2}}*\nValid till: {{3}}\n\nJust show this code at the billing counter at any Sobhana branch. One-time use, for you only. T&C apply.",
+          "example": {
+            "body_text": [
+              [
+                "Ravi",
+                "OPRE-7K2Q9D",
+                "9 Oct 2026"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

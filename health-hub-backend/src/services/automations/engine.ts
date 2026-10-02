@@ -21,7 +21,7 @@ import { prismaContext, type AutomationContext } from './context';
 import { evaluate, UnitMismatch, type EvalTrace, type Subject } from './predicates';
 import { communicationPolicy } from './policy';
 import {
-  sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon, couponExpiry,
+  sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon, couponExpiry, addDays, isSundayIST,
 } from './actions';
 import { Outcome, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
@@ -155,15 +155,36 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
     const state = (a.sweepState ?? {}) as SweepState;
     const period = trigger.period ? trigger.period(config, ctx.now) : null;
     if (period && state.period === period && state.done) continue; // this period is read
+    // A past window is read once, first day to last, and never again.
+    const past = !period && def.past ? {
+      from: new Date(`${def.past.from}T00:00:00+05:30`), to: new Date(`${def.past.to}T23:59:59.999+05:30`),
+    } : null;
+    if (past && state.done) continue;
+    // Today's room under the daily limit: what this automation actually started today.
+    let room = Infinity;
+    if (def.dailyLimit) {
+      const started = await prisma.automationRun.count({
+        where: {
+          automationId: a.id, createdAt: { gte: new Date(`${istParts(ctx.now).date}T00:00:00+05:30`) },
+          OR: [{ stopReason: null }, { stopReason: { notIn: [Outcome.SUPPRESSED_REENTRY, 'SUPPRESSED_ACTIVE_JOURNEY'] } }],
+        },
+      });
+      room = def.dailyLimit - started;
+      if (room <= 0) continue;
+    }
+    const floor = past ? past.from : a.activatedAt!;
     let since = state.through
-      ? new Date(Math.max(a.activatedAt!.getTime(), new Date(state.through).getTime() - SWEEP_OVERLAP_MS))
-      : a.activatedAt!;
+      ? new Date(Math.max(floor.getTime(), new Date(state.through).getTime() - SWEEP_OVERLAP_MS))
+      : floor;
     let cursor: string | null = period && state.period === period ? state.cursor ?? null : null;
     let through = state.through ? new Date(state.through) : null;
     let done = false;
     let limit = BATCH;
+    // Stopped short — today's limit reached, or the past window's end — so the mark moves
+    // only as far as what was actually read, and tomorrow picks up from there.
+    let stop = false;
 
-    for (let page = 0; page < SWEEP_PAGES; page += 1) {
+    for (let page = 0; page < SWEEP_PAGES && !stop; page += 1) {
       let candidates: Awaited<ReturnType<typeof trigger.findSubjects>>;
       try {
         candidates = await trigger.findSubjects({
@@ -174,7 +195,13 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
         break;
       }
 
+      let lastSeen: (typeof candidates)[number] | undefined;
       for (const c of candidates) {
+        if (past && c.triggeredAt > past.to) { done = true; stop = true; break; }
+        if (room <= 0) { stop = true; break; }
+        lastSeen = c;
+        // A past subject starts its journey today: its own day 0 is the day it is reached.
+        const triggeredAt = past ? ctx.now : c.triggeredAt;
         const cycleKey = c.cycleKey ?? cycleKeyFor(def, c.subjectId, ctx.now);
         const already = await prisma.automationRun.findUnique({
           where: { automationId_subjectId_cycleKey: { automationId: a.id, subjectId: c.subjectId, cycleKey } },
@@ -208,7 +235,7 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
                   subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
                   patientId: c.patientId, branchId: c.branchId,
                   definition: a.definition as object,
-                  triggeredAt: c.triggeredAt,
+                  triggeredAt,
                   state: 'STOPPED', stopReason: Outcome.SUPPRESSED_REENTRY,
                   nextActionAt: null, holdout: false,
                 },
@@ -239,7 +266,7 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
                   subjectType: trigger.subjectType, subjectId: c.subjectId, cycleKey,
                   patientId: c.patientId, branchId: c.branchId,
                   definition: a.definition as object,
-                  triggeredAt: c.triggeredAt,
+                  triggeredAt,
                   state: 'STOPPED', stopReason: 'SUPPRESSED_ACTIVE_JOURNEY',
                   nextActionAt: null, holdout: false,
                 },
@@ -259,7 +286,7 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
           id: c.subjectId,
           patientId: c.patientId,
           branchId: c.branchId,
-          triggeredAt: c.triggeredAt,
+          triggeredAt,
         };
         const trace: EvalTrace[] = [];
         let qualifies = false;
@@ -282,7 +309,9 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
               patientId: c.patientId,
               branchId: c.branchId,
               definition: a.definition as object,
-              triggeredAt: c.triggeredAt,
+              triggeredAt,
+              // The engine's clock, so "started today" for the daily limit means its today.
+              createdAt: ctx.now,
               nextActionAt: ctx.now,
               holdout: c.patientId ? isHeldOut(a.id, c.patientId, a.holdoutPct) : false,
             },
@@ -290,17 +319,19 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
           });
           await log(run.id, 0, 'ENROLLED', Outcome.ENROLLED, { trace, holdout: run.holdout });
           created += 1;
+          room -= 1;
         } catch {
           // Unique violation: another tick got there first. The intended outcome.
         }
       }
 
-      // Advance. A short page is the end of what there is to read.
-      const last = candidates[candidates.length - 1];
-      if (last) {
-        if (period) cursor = last.subjectId;
-        else if (!through || last.triggeredAt > through) through = last.triggeredAt;
+      // Advance to what was read. A short page is the end of what there is to read.
+      if (lastSeen) {
+        if (period) cursor = lastSeen.subjectId;
+        else if (!through || lastSeen.triggeredAt > through) through = lastSeen.triggeredAt;
       }
+      if (stop) break;
+      const last = candidates[candidates.length - 1];
       if (candidates.length < limit) { done = true; break; }
       if (!period) {
         if (last.triggeredAt.getTime() <= since.getTime()) {
@@ -323,7 +354,7 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
 
     const next: SweepState = period
       ? { period, cursor: cursor ?? undefined, done }
-      : { through: through?.toISOString() };
+      : { through: through?.toISOString(), ...(past && done ? { done: true } : {}) };
     if (JSON.stringify(next) !== JSON.stringify(state)) {
       // Raw, so bookkeeping does not move the automation's own updatedAt.
       await prisma.$executeRaw`UPDATE "Automation" SET "sweepState" = ${JSON.stringify(next)}::jsonb WHERE "id" = ${a.id}`;
@@ -343,13 +374,12 @@ const SWEEP_INSTANT_MAX = 5000;
 
 // ── Step execution ──────────────────────────────────────────────────────────
 
-function nextActionFor(step: Extract<Step, { kind: 'WAIT' }>, triggeredAt: Date, now: Date): Date {
-  if (step.anchor === 'TRIGGER') {
-    const ms = (step.days ?? 0) * DAY_MS + (step.hours ?? 0) * 60 * 60 * 1000;
-    return new Date(triggeredAt.getTime() + ms);
-  }
-  const ms = (step.days ?? 0) * DAY_MS + (step.hours ?? 0) * 60 * 60 * 1000;
-  return new Date(now.getTime() + ms);
+/** When a WAIT ends, counted from the trigger or from now. The preview counts the same way. */
+export function waitUntil(step: Extract<Step, { kind: 'WAIT' }>, triggeredAt: Date, now: Date): Date {
+  const from = step.anchor === 'TRIGGER' ? triggeredAt : now;
+  let at = new Date(addDays(from, step.days ?? 0, step.skipSundays).getTime() + (step.hours ?? 0) * 60 * 60 * 1000);
+  while (step.skipSundays && isSundayIST(at)) at = new Date(at.getTime() + DAY_MS);
+  return at;
 }
 
 async function finish(runId: string, state: string, reason: string, stepIndex: number): Promise<void> {
@@ -434,7 +464,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
 
   switch (step.kind) {
     case 'WAIT': {
-      const at = nextActionFor(step, run.triggeredAt, ctx.now);
+      const at = waitUntil(step, run.triggeredAt, ctx.now);
       // A day already past runs now, inside the grace. Beyond it, a Day-10 nudge
       // delivered on Day 13 is worse than not sending it at all.
       if (at.getTime() + GRACE_MS < ctx.now.getTime()) {
@@ -605,15 +635,16 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       });
 
       if (out.failed) {
-        if (couponId) await voidPendingCoupon(couponId);
         const attempts = run.attempts + 1;
         const permanent = /WHATSAPP_DISABLED|expects \d+ values/.test(out.failed);
         if (permanent || attempts >= MAX_ATTEMPTS) {
+          if (couponId) await voidPendingCoupon(couponId);
           await log(runId, run.stepIndex, 'FAILED', Outcome.SEND_FAILED, { error: out.failed, attempts });
           await finish(runId, 'FAILED', Outcome.SEND_FAILED, run.stepIndex);
           return;
         }
-        // Transient: back off and try again rather than losing the message.
+        // Transient: back off and try again rather than losing the message. The code stays
+        // PENDING for the retry — voided here, the retry would have sent a dead one.
         await log(runId, run.stepIndex, 'FAILED', Outcome.SEND_FAILED, { error: out.failed, attempts });
         await prisma.automationRun.update({
           where: { id: runId },
@@ -828,7 +859,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext): Pro
       await log(runId, run.stepIndex, 'ASK', Outcome.ASKED,
         { template: step.template, buttons: step.buttons.map((b) => b.label) }, sent.messageLogId);
       // Meta's refusal arrives by webhook a few seconds after it accepted the send. If it
-      // already has, askNotDelivered woke this run a moment ago — pushing the wake-up out
+      // already has, notDelivered woke this run a moment ago — pushing the wake-up out
       // by the whole window here would undo that.
       const refusedAlready = sent.messageLogId
         ? (await prisma.messageLog.findUnique({ where: { id: sent.messageLogId }, select: { status: true } }))?.status === 'FAILED'
@@ -881,40 +912,89 @@ async function handToStaff(runId: string, stepIndex: number, phone: string | nul
   await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, stepIndex);
 }
 
+/** How long Meta's per-person marketing limit is given before the one resend. */
+const RESEND_AFTER_MS = 2 * DAY_MS;
+
 /**
- * WhatsApp accepted a question and then refused to deliver it.
+ * WhatsApp accepted a message and then refused to deliver it.
  *
- * Meta says yes when we send and no a few seconds later by webhook — 131049, its
- * per-person limit on marketing, did this to a third of the recovery offers in their
- * first week. The run did not know. It held the patient's line for four days, waiting
- * for an answer to a message that never arrived, and then sent the reminder.
+ * Meta says yes when we send and no a few seconds later by webhook. What follows depends
+ * on why:
  *
- * Nothing new is decided here. Waking the run is enough: the ASK step already treats
- * coming back to it as "the window closed unanswered" — it releases the line, records
- * NO_REPLY and follows onNoReply, which is the journey's own answer to silence.
+ * - 131049, its per-person limit on marketing, refused a third of the recovery offers in
+ *   their first week. Of the people refused once and messaged again 1-4 days later, about
+ *   one in four got through — worth ONE more try, two days on, and no more. A question
+ *   moves on instead: the journey's own reminder is its second try.
+ * - 131050 is the patient blocking our marketing from inside WhatsApp. That is a STOP.
+ * - Anything else (not on WhatsApp, Meta's experiment hold-back) cannot succeed later.
+ *
+ * Never allowed to break the webhook's ack — the caller catches.
  */
-export async function askNotDelivered(waMessageId: string, errorCode: string | null): Promise<boolean> {
+export async function notDelivered(waMessageId: string, errorCode: string | null, now: Date = new Date()): Promise<boolean> {
   const msg = await prisma.messageLog.findFirst({
     where: { waMessageId, automationRunId: { not: null } },
-    select: { automationRunId: true, automationStep: true },
+    select: { automationRunId: true, automationStep: true, phone: true, patientId: true },
   });
   if (!msg?.automationRunId || msg.automationStep === null) return false;
+  const runId = msg.automationRunId;
+  const stepIndex = msg.automationStep;
+
+  if (errorCode === '131050') {
+    await prisma.phoneOptOut.upsert({
+      where: { phone: phoneKey(msg.phone) },
+      create: { phone: phoneKey(msg.phone), source: 'WHATSAPP_BLOCKED_MARKETING' },
+      update: {},
+    });
+  }
 
   const run = await prisma.automationRun.findUnique({
-    where: { id: msg.automationRunId },
-    select: { stepIndex: true, state: true, definition: true },
+    where: { id: runId },
+    select: { stepIndex: true, state: true, stopReason: true, triggeredAt: true, definition: true },
   });
   const def = run?.definition as unknown as AutomationDefinition | undefined;
-  if (!run || run.stepIndex !== msg.automationStep || def?.steps[run.stepIndex]?.kind !== 'ASK') return false;
+  const step = def?.steps[stepIndex];
+  if (!run || !step) return false;
 
-  // Only a run still sitting on THAT question. One that has already moved on — answered,
-  // stopped, or past it — is left alone.
-  const woke = await prisma.automationRun.updateMany({
-    where: { id: msg.automationRunId, stepIndex: msg.automationStep, state: 'PENDING' },
-    data: { nextActionAt: new Date() },
+  if (step.kind === 'ASK') {
+    // Only a run still sitting on THAT question. One that has already moved on — answered,
+    // stopped, or past it — is left alone.
+    if (run.stepIndex !== stepIndex) return false;
+    const woke = await prisma.automationRun.updateMany({
+      where: { id: runId, stepIndex, state: 'PENDING' },
+      data: { nextActionAt: now },
+    });
+    if (woke.count !== 1) return false;
+    await log(runId, stepIndex, 'ASK', Outcome.NOT_DELIVERED, { errorCode });
+    return true;
+  }
+
+  if (step.kind !== 'SEND' || !msg.patientId) return false;
+  const retryAt = new Date(now.getTime() + RESEND_AFTER_MS);
+  const retried = await prisma.automationStepLog.count({
+    where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED },
   });
-  if (woke.count !== 1) return false;
-  await log(msg.automationRunId, msg.automationStep, 'ASK', Outcome.NOT_DELIVERED, { errorCode });
+  const code = await prisma.coupon.findFirst({ where: { automationRunId: runId }, select: { expiresAt: true } });
+  const nextWait = def!.steps.slice(stepIndex + 1).find((s): s is Extract<Step, { kind: 'WAIT' }> => s.kind === 'WAIT');
+  // Worth it only if the message still means something in two days: the journey does not
+  // speak again sooner by itself (that would be the second try), it has not ended for a
+  // reason — goal met, STOP, cancelled, handed to a person — and its code is still alive.
+  // Whatever the resend finds by then, the send's own checks run again first.
+  const worth = errorCode === '131049' && retried === 0
+    && (run.state === 'PENDING'
+      || (run.state === 'DONE' && run.stopReason !== Outcome.HANDED_TO_STAFF && run.stopReason !== Outcome.MISSED_WINDOW))
+    && (!nextWait || waitUntil(nextWait, run.triggeredAt, now) > retryAt)
+    && (!code || code.expiresAt > retryAt);
+  if (worth) {
+    const moved = await prisma.automationRun.updateMany({
+      where: { id: runId, state: run.state, stepIndex: run.stepIndex },
+      data: { stepIndex, state: 'PENDING', stopReason: null, nextActionAt: retryAt },
+    });
+    if (moved.count === 1) {
+      await log(runId, stepIndex, 'SEND', Outcome.RETRY_SCHEDULED, { errorCode, retryAt });
+      return true;
+    }
+  }
+  await log(runId, stepIndex, 'SEND', Outcome.NOT_DELIVERED, { errorCode });
   return true;
 }
 
@@ -978,25 +1058,37 @@ export async function runDue(ctx: AutomationContext): Promise<number> {
   });
 
   let done = 0;
-  for (const { id } of due) {
-    // Compare-and-set: only one worker can move a run out of PENDING.
-    const claim = await prisma.automationRun.updateMany({
-      where: { id, state: 'PENDING' },
-      data: { state: 'RUNNING' },
-    });
-    if (claim.count !== 1) continue;
-    try {
-      await executeOneStep(id, ctx);
-      done += 1;
-    } catch (e) {
-      logger.error(`[automations] step failed for run ${id}: ${(e as Error).message}`);
-      await prisma.automationRun.updateMany({
-        where: { id, state: 'RUNNING' },
-        data: { state: 'PENDING', nextActionAt: new Date(ctx.now.getTime() + 30 * 60 * 1000) },
-      });
-    }
-  }
+  for (const { id } of due) if (await runOne(id, ctx)) done += 1;
   return done;
+}
+
+async function runOne(id: string, ctx: AutomationContext): Promise<boolean> {
+  // Compare-and-set: only one worker can move a run out of PENDING.
+  const claim = await prisma.automationRun.updateMany({
+    where: { id, state: 'PENDING' },
+    data: { state: 'RUNNING' },
+  });
+  if (claim.count !== 1) return false;
+  try {
+    await executeOneStep(id, ctx);
+    return true;
+  } catch (e) {
+    logger.error(`[automations] step failed for run ${id}: ${(e as Error).message}`);
+    await prisma.automationRun.updateMany({
+      where: { id, state: 'RUNNING' },
+      data: { state: 'PENDING', nextActionAt: new Date(ctx.now.getTime() + 30 * 60 * 1000) },
+    });
+    return false;
+  }
+}
+
+/**
+ * Take a run's next step now rather than at the next tick. A patient who tapped "Get my
+ * code" is looking at the chat waiting for it; five minutes of nothing is when they tap
+ * again, or give up. The same claim as the ticker, so the two cannot both take the step.
+ */
+export async function runNow(runId: string, now: Date = new Date()): Promise<void> {
+  await runOne(runId, prismaContext(now));
 }
 
 /**

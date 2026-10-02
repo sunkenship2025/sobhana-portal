@@ -78,6 +78,8 @@ export function validateDefinition(def: {
   goal?: { windowDays?: number; condition?: Condition };
   audience?: Condition;
   reentry?: { mode?: string; days?: number; concurrency?: string };
+  past?: { from?: string; to?: string };
+  dailyLimit?: number;
 }, knownCampaignIds?: Set<string> | Map<string, number>): DefinitionProblem[] {
   const problems: DefinitionProblem[] = [];
   const steps = def.steps ?? [];
@@ -93,6 +95,23 @@ export function validateDefinition(def: {
   const kind = def.trigger?.kind;
   if (kind && kind !== 'SCHEDULE' && !TRIGGERS[kind]) {
     problems.push({ where: 'trigger', problem: `"${kind}" is not something the engine can start a journey from.`, blocking: true });
+  }
+
+  // Past ones: a range of whole days that has already ended, for something that happens.
+  if (def.past) {
+    const { from = '', to = '' } = def.past;
+    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const problem = kind === 'SCHEDULE' || (kind && TRIGGERS[kind]?.period)
+      ? 'Past ones can only be read for something that happens, like a visit — a regular check already looks at everyone.'
+      : !day.test(from) || !day.test(to) ? 'Past ones need a first and a last day.'
+        : from > to ? 'The first day is after the last day.'
+          : to >= today ? 'The last day has to be before today — anything from today on is a new one, not a past one.'
+            : null;
+    if (problem) problems.push({ where: 'Which ones', problem, blocking: true });
+  }
+  if (def.dailyLimit !== undefined && !(Number.isInteger(def.dailyLimit) && def.dailyLimit >= 1)) {
+    problems.push({ where: 'Start at most', problem: 'The daily limit has to be a whole number, 1 or more.', blocking: true });
   }
 
   steps.forEach((step, i) => {
@@ -220,6 +239,19 @@ export function validateDefinition(def: {
       });
     }
   });
+
+  // Waits and a day-counted code expiry that count Sundays differently end on different
+  // days, and the reminder that says "expires tomorrow" is then a day out.
+  const waitsSkip = steps.filter((st) => st.kind === 'WAIT' && st.anchor === 'TRIGGER').map((st) => !!st.skipSundays);
+  const expirySkip = steps.map((st) => (st as { issueOffer?: { expiry?: { anchor?: string; skipSundays?: boolean } } }).issueOffer?.expiry)
+    .filter((e) => e?.anchor === 'TRIGGER').map((e) => !!e!.skipSundays);
+  if (new Set([...waitsSkip, ...expirySkip]).size > 1) {
+    problems.push({
+      where: 'Sundays',
+      problem: 'Some days in this journey skip Sundays and some do not, so a message can land a day away from when the code really ends. Tick "Don\'t count Sundays" on every wait and on the code\'s expiry, or on none.',
+      blocking: false,
+    });
+  }
 
   // A journey whose last step is not terminal simply stops after it, which is fine —
   // but a journey that can never reach an end is worth pointing at.

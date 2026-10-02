@@ -475,6 +475,16 @@ function StepDrawer({ automation, index, templates, onClose, onChange }: {
                       </span>
                     </span>
                   </label>
+                  <label className="flex items-start gap-2.5 border-t pt-2 text-sm">
+                    <input type="checkbox" className="mt-1" checked={!!current.skipSundays}
+                      onChange={(e) => setLocal({ ...current, skipSundays: e.target.checked || undefined })} />
+                    <span>
+                      Don't count Sundays
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Two days after a Friday is Monday, and it never lands on a Sunday.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
             )}
@@ -857,7 +867,7 @@ function ConditionWords({ condition }: { condition: Condition }) {
  * is not an expiring offer at all.
  */
 function OfferFields({ issueOffer, onChange }: {
-  issueOffer?: { campaignId: string; expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean } };
+  issueOffer?: { campaignId: string; expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean } };
   onChange: (v: OfferValue | undefined) => void;
 }) {
   const { data } = useRQ({ queryKey: ['offers'], queryFn: listOffers });
@@ -879,6 +889,7 @@ function OfferFields({ issueOffer, onChange }: {
   // because a fixed "day 6 after the trigger" arrived already expired on a day-90 reminder.
   const expiry = issueOffer.expiry;
   const days = expiry?.days ?? chosen?.validityDays ?? 30;
+  const skipSundays = expiry?.skipSundays || undefined;
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
@@ -930,12 +941,12 @@ function OfferFields({ issueOffer, onChange }: {
           </label>
           <label className="flex items-start gap-2.5 text-sm">
             <input type="radio" className="mt-1" checked={expiry?.anchor === 'TRIGGER'}
-              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'TRIGGER', days, endOfDayIST: true } })} />
+              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'TRIGGER', days, endOfDayIST: true, skipSundays } })} />
             <span>
               End of day
               <Input type="number" className="mx-2 inline-block h-7 w-16" value={days}
                 onChange={(e) => onChange({
-                  ...issueOffer, expiry: { anchor: 'TRIGGER', days: Number(e.target.value), endOfDayIST: true },
+                  ...issueOffer, expiry: { anchor: 'TRIGGER', days: Number(e.target.value), endOfDayIST: true, skipSundays },
                 })} />
               after the trigger
               <span className="mt-1 block text-xs text-muted-foreground">
@@ -945,11 +956,11 @@ function OfferFields({ issueOffer, onChange }: {
           </label>
           <label className="flex items-start gap-2.5 text-sm">
             <input type="radio" className="mt-1" checked={expiry?.anchor === 'ISSUE'}
-              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'ISSUE', days, endOfDayIST: true } })} />
+              onChange={() => onChange({ ...issueOffer, expiry: { anchor: 'ISSUE', days, endOfDayIST: true, skipSundays } })} />
             <span>
               <Input type="number" className="mr-2 inline-block h-7 w-16" value={days}
                 onChange={(e) => onChange({
-                  ...issueOffer, expiry: { anchor: 'ISSUE', days: Number(e.target.value), endOfDayIST: true },
+                  ...issueOffer, expiry: { anchor: 'ISSUE', days: Number(e.target.value), endOfDayIST: true, skipSundays },
                 })} />
               days from when they get it
               <span className="mt-1 block text-xs text-muted-foreground">
@@ -957,6 +968,13 @@ function OfferFields({ issueOffer, onChange }: {
               </span>
             </span>
           </label>
+          {expiry && (
+            <label className="flex items-center gap-2.5 border-t pt-2 text-sm">
+              <input type="checkbox" checked={!!skipSundays}
+                onChange={(e) => onChange({ ...issueOffer, expiry: { ...expiry, skipSundays: e.target.checked || undefined } })} />
+              <span>Don't count Sundays</span>
+            </label>
+          )}
         </div>
       </div>
     </div>
@@ -982,7 +1000,7 @@ function JumpSelect({ value, steps, onChange }: {
 
 type OfferValue = {
   campaignId: string;
-  expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean };
+  expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean };
 };
 
 /**

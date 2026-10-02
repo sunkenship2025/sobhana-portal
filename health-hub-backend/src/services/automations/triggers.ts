@@ -422,6 +422,8 @@ export function listTriggers() {
   return Object.values(TRIGGERS).map((t) => ({
     kind: t.kind, label: t.label, group: t.group, subjectType: t.subjectType,
     help: t.help, fields: t.fields ?? [],
+    // A periodic check has no "past ones" to read: it already looks at everyone.
+    periodic: !!t.period,
   }));
 }
 

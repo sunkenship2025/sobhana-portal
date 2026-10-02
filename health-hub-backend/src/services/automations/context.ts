@@ -58,6 +58,8 @@ export interface AutomationContext {
    * costs one unsent message. That is the safe direction to be wrong in.
    */
   diagnosticsAfter(patientId: string, after: Date): Promise<VisitFacts[]>;
+  /** Any visit after `after`, of one kind or any, not cancelled. */
+  visitsAfter(patientId: string, after: Date, domain?: 'CLINIC' | 'DIAGNOSTICS'): Promise<VisitFacts[]>;
   /**
    * Diagnostics the front desk actually linked back to this consultation. STRICT — this
    * is the attribution question ("did we cause it?"), and only a captured link counts.
@@ -150,6 +152,12 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       };
     },
 
+    async visitsAfter(patientId, after, domain) {
+      return prisma.visit.findMany({
+        where: { patientId, ...(domain ? { domain } : {}), status: { not: 'CANCELLED' }, createdAt: { gt: after } },
+        select: visitSelect, take: 1,
+      }) as Promise<VisitFacts[]>;
+    },
     async diagnosticsAfter(patientId, after) {
       const rows = await prisma.visit.findMany({
         where: {
@@ -452,6 +460,10 @@ export function memoryContext(facts: FactSet): AutomationContext {
     now: facts.now,
     async visit(id) { return byId.get(id) ?? null; },
     async patient(id) { return patients.get(id) ?? null; },
+    async visitsAfter(patientId, after, domain) {
+      return visits.filter((v) => v.patientId === patientId && (!domain || v.domain === domain) &&
+        v.status !== 'CANCELLED' && v.createdAt > after);
+    },
     async diagnosticsAfter(patientId, after) {
       return visits.filter(
         (v) => v.patientId === patientId && v.domain === 'DIAGNOSTICS' &&

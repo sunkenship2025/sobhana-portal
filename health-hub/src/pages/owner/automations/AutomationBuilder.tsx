@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { listPredicates, type Automation, type AutomationDefinition, type Step, type TemplateSummary } from './api';
-import { describeCondition, describeJump, describeReentry } from './describe';
+import { describeCondition, describeJump, describeReentry, fmtDay } from './describe';
 
 /** Contiguous CHECK/SEND steps that follow a WAIT, shown as one dated block. */
 interface DayBlock {
@@ -34,9 +34,9 @@ function groupIntoDays(def: AutomationDefinition): { blocks: DayBlock[]; tail: {
       const label = step.anchor === 'TRIGGER'
         ? `Day ${step.days ?? 0}`
         : `${step.days ?? 0} day${(step.days ?? 0) === 1 ? '' : 's'} later`;
-      const sub = step.anchor === 'TRIGGER'
+      const sub = (step.anchor === 'TRIGGER'
         ? `due ${step.days ?? 0} days after the trigger`
-        : 'counted from the step before — this one can drift';
+        : 'counted from the step before — this one can drift') + (step.skipSundays ? ', Sundays not counted' : '');
       current = { label, sub, waitIndex: index, steps: [] };
       blocks.push(current);
       return;
@@ -161,9 +161,12 @@ export function AutomationBuilder({
               {automation.branchIds.length === 0 ? 'All branches' : `${automation.branchIds.length} branches`}
               {isScheduled
                 ? ' · one message each, every night'
-                : automation.activatedAt
-                  ? ` · visits from ${new Date(automation.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} onward`
-                  : ' · nothing enrolled until you activate'}
+                : def.past
+                  ? ` · past ones only, ${fmtDay(def.past.from)} to ${fmtDay(def.past.to)}, each reached as if today`
+                  : automation.activatedAt
+                    ? ` · visits from ${new Date(automation.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} onward`
+                    : ' · nothing enrolled until you activate'}
+              {!isScheduled && def.dailyLimit ? ` · at most ${def.dailyLimit} journeys a day` : ''}
             </span>
             {!isScheduled && (
               <span className="mt-0.5 block text-xs text-muted-foreground">{describeReentry(def.reentry)}</span>
@@ -239,7 +242,7 @@ export function AutomationBuilder({
                         <span className="mt-0.5 block text-xs text-muted-foreground">
                           Issues an offer, one per journey however many steps ask for it
                           {step.issueOffer.expiry?.anchor === 'TRIGGER' &&
-                            ` · expires end of day ${step.issueOffer.expiry.days} after the trigger, so claiming late means less time`}
+                            ` · expires end of day ${step.issueOffer.expiry.days} after the trigger${step.issueOffer.expiry.skipSundays ? ', Sundays not counted' : ''}, so claiming late means less time`}
                         </span>
                       )}
                     </>

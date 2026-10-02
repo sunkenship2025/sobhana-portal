@@ -15,7 +15,7 @@ import { prismaContext, memoryContext, type VisitFacts, type FactSet } from './c
 import { evaluate, type EvalTrace, type Subject } from './predicates';
 import { communicationPolicy } from './policy';
 import { TRIGGERS } from './triggers';
-import { isHeldOut } from './engine';
+import { isHeldOut, waitUntil } from './engine';
 import type { AutomationDefinition, Step } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -233,9 +233,7 @@ export async function simulate(
     const day = Math.round((clock.getTime() - seed.triggeredAt.getTime()) / DAY_MS);
 
     if (step.kind === 'WAIT') {
-      clock = step.anchor === 'TRIGGER'
-        ? new Date(seed.triggeredAt.getTime() + (step.days ?? 0) * DAY_MS + (step.hours ?? 0) * 3600_000)
-        : new Date(clock.getTime() + (step.days ?? 0) * DAY_MS + (step.hours ?? 0) * 3600_000);
+      clock = waitUntil(step, seed.triggeredAt, clock);
       out.push({ day, at: clock, kind: 'WAIT', outcome: 'WAITING' });
       stepIndex += 1;
       continue;

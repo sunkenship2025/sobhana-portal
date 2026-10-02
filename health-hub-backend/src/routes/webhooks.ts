@@ -316,12 +316,13 @@ router.post(
               console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
             }
 
-            // A journey's question that WhatsApp refused must not sit waiting four days for
-            // an answer to a message the patient never got. Never allowed to break the ack.
+            // A journey's message that WhatsApp refused: a question must not sit waiting four
+            // days for an answer to a message never received, and an offer refused for Meta's
+            // marketing limit gets its one resend. Never allowed to break the ack.
             if (statusValue === 'failed' && updated.count > 0) {
               try {
-                const { askNotDelivered } = await import('../services/automations/engine');
-                await askNotDelivered(waMessageId, updateData.errorCode ?? null);
+                const { notDelivered } = await import('../services/automations/engine');
+                await notDelivered(waMessageId, updateData.errorCode ?? null);
               } catch (e: any) {
                 console.error(`[Webhook] automation wake failed for ${waMessageId}: ${e?.message}`);
               }
@@ -366,6 +367,25 @@ router.post(
               const { body: inboundBody, messageType, buttonPayload } = extractInbound(msg);
               const preview = inboundBody.slice(0, 200);
               const now = new Date();
+
+              // Automations first: STOP is honoured before anything else can reply, and a
+              // reply that belongs to a waiting journey resumes THAT run — with the patient
+              // pinned when the question was asked, not guessed from the newest outbound.
+              // A failure here must not lose the message: it falls through to the inbox.
+              const auto = await resolveInbound(from, inboundBody, buttonPayload, now).catch((e) => {
+                console.error(`[Webhook] automation routing failed for ${from}:`, e);
+                return null;
+              });
+              // A tap the journey answers ("Get my code") is not a conversation. Filed in the
+              // inbox it sat there looking unanswered while the journey had already replied;
+              // the journey's own Activity and Results are where it is recorded.
+              if (auto?.answered) {
+                if (auto.runId && auto.stepIndex !== null) {
+                  const { runNow } = await import('../services/automations/engine');
+                  await runNow(auto.runId).catch((e) => console.error(`[Webhook] run ${auto.runId} failed:`, e));
+                }
+                continue;
+              }
 
               // Derive patient + branch from the most recent message we sent here.
               const lastOutbound = await prisma.messageLog.findFirst({
@@ -420,11 +440,7 @@ router.post(
               // "BOOK" → auto-send the 50% retest coupon (any hour). Otherwise the
               // generic "we got your message" reply, but ONLY outside work hours
               // (staff answer live during hours) and at most once per 24h.
-              // Automations first: STOP is honoured before anything else can reply, and a
-              // reply that belongs to a waiting journey resumes THAT run — with the patient
-              // pinned when the question was asked, not guessed from the newest outbound.
-              const auto = await resolveInbound(from, inboundBody, buttonPayload, now);
-              if (auto.optedOut || auto.optedIn || auto.stepIndex !== null) {
+              if (auto?.optedOut || auto?.optedIn) {
                 if (convo.branchId) emitCatalogChange(convo.branchId, 'inbox');
                 continue;
               }

@@ -44,6 +44,7 @@ export function describeCondition(c: Condition, catalog: PredicateMeta[]): strin
   const scoped = (meta?.scope ? `${label} (${meta.scope})` : label).toLowerCase() + argWords(c.args, meta);
 
   if (c.op === undefined) return scoped;
+  if (meta?.returns === 'BOOLEAN' && c.op === 'eq' && c.value === false) return `${scoped}: no`;
   return `${scoped} ${OP_WORDS[c.op] ?? c.op} ${valueWords(c.value, meta)}`;
 }
 
@@ -70,9 +71,9 @@ export function describeJump(j: Jump | undefined, fallback = 'carry on'): string
 export function describeStep(step: Step, catalog: PredicateMeta[]): string {
   switch (step.kind) {
     case 'WAIT':
-      return step.anchor === 'TRIGGER'
+      return (step.anchor === 'TRIGGER'
         ? `Wait until day ${step.days ?? 0}`
-        : `Wait ${step.days ?? 0} day${(step.days ?? 0) === 1 ? '' : 's'}`;
+        : `Wait ${step.days ?? 0} day${(step.days ?? 0) === 1 ? '' : 's'}`) + (step.skipSundays ? ', not counting Sundays' : '');
     case 'CHECK':
       return `Check whether ${describeCondition(step.condition, catalog)}`;
     case 'SEND':
@@ -113,6 +114,9 @@ export function dayOf(steps: Step[], index: number): string {
   }
   return 'Straight away';
 }
+
+/** '2026-07-01' → '1 Jul 2026'. Noon IST, so no timezone moves it a day. */
+export const fmtDay = (d: string) => (d ? new Date(`${d}T12:00:00+05:30`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '…');
 
 /** How often one patient can start this, in words. */
 export function describeReentry(r: AutomationDefinition['reentry']): string {

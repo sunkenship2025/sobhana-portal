@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
 import { listAutomations, type AutomationRow } from './api';
+import { fmtDay } from './describe';
 
 const GROUP_ORDER = ['Patient journeys', 'Reports to your team'];
 
@@ -37,11 +38,12 @@ function cadence(a: AutomationRow): string {
     return `Every day${at} · ${a.messageCount} ${plural}, one per branch`;
   }
 
-  if (a.messageCount === 0) return 'No messages yet';
   const days = a.days.filter((d) => d > 0);
-  return days.length
-    ? `${a.messageCount} ${plural} · ${days.map((d) => `Day ${d}`).join(' / ')}`
-    : `${a.messageCount} ${plural}`;
+  const once = a.past ? ` · past ones only, ${fmtDay(a.past.from)} to ${fmtDay(a.past.to)}` : '';
+  const pace = a.dailyLimit ? ` · at most ${a.dailyLimit} a day` : '';
+  return (a.messageCount === 0 ? 'No messages yet'
+    : days.length ? `${a.messageCount} ${plural} · ${days.map((d) => `Day ${d}`).join(' / ')}`
+      : `${a.messageCount} ${plural}`) + once + pace;
 }
 
 export function AutomationsList({ onOpen, onCreate }: {
@@ -107,11 +109,7 @@ export function AutomationsList({ onOpen, onCreate }: {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold">Automations</h2>
-          <p className="text-sm text-muted-foreground">What goes out on its own.</p>
-        </div>
+      <div className="flex justify-end">
         <Button onClick={onCreate}>Create automation</Button>
       </div>
 
@@ -166,14 +164,14 @@ export function AutomationsList({ onOpen, onCreate }: {
                 onClick={() => onOpen(a.id)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50"
               >
-                <StatusDot status={a.status} />
+                <StatusDot status={a.finished ? 'DRAFT' : a.status} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium">{a.name}</span>
                   <span className="block text-xs text-muted-foreground">
                     {cadence(a)}
                     {a.runs > 0 && (a.kind === 'SCHEDULE'
                       ? ` · ${a.runs.toLocaleString('en-IN')} sent`
-                      : ` · ${a.runs.toLocaleString('en-IN')} runs`)}
+                      : ` · ${a.runs.toLocaleString('en-IN')} ${a.runs === 1 ? 'journey' : 'journeys'} started`)}
                     {a.kind !== 'SCHEDULE' && a.live > 0 &&
                       ` · ${a.live.toLocaleString('en-IN')} running now`}
                   </span>
@@ -182,7 +180,7 @@ export function AutomationsList({ onOpen, onCreate }: {
                   <span className="shrink-0 text-xs text-muted-foreground">Never activated</span>
                 )}
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {a.status === 'ACTIVE' ? 'Active' : a.status === 'PAUSED' ? 'Paused' : 'Draft'}
+                  {a.finished ? 'Finished' : a.status === 'ACTIVE' ? 'Active' : a.status === 'PAUSED' ? 'Paused' : 'Draft'}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </button>

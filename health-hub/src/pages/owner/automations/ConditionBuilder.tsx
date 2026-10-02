@@ -230,6 +230,17 @@ function Row({ which, leaf, i, meta, update, remove }: {
         <ArgControl key={arg.key} arg={arg} args={leaf.args ?? {}}
           onChange={(patch) => update(which, i, { args: clean({ ...(leaf.args ?? {}), ...patch }) })} />
       ))}
+      {meta?.returns === 'BOOLEAN' && (
+        // "No" is the half of a yes/no that "who never came back" needs.
+        <Select value={leaf.op === 'eq' && leaf.value === false ? 'NO' : 'YES'}
+          onValueChange={(v) => update(which, i, v === 'NO' ? { op: 'eq', value: false } : { op: undefined, value: undefined })}>
+          <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="YES">Yes</SelectItem>
+            <SelectItem value="NO">No</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
       {meta && meta.returns !== 'BOOLEAN' && (
         <>
           <Select value={leaf.op ?? (meta.returns === 'TEXT' ? 'eq' : 'gte')}

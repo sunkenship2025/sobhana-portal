@@ -205,16 +205,29 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
   open: boolean;
   definition: AutomationDefinition;
   onClose: () => void;
-  onSave: (patch: Pick<AutomationDefinition, 'trigger' | 'reentry'>) => void;
+  onSave: (patch: Pick<AutomationDefinition, 'trigger' | 'reentry' | 'past' | 'dailyLimit'>) => void;
 }) {
   const { data } = useQuery({ queryKey: ['triggers'], queryFn: listTriggers, enabled: open });
   const triggers = data?.triggers ?? [];
   const [trigger, setTrigger] = useState<Record<string, unknown>>(definition.trigger as Record<string, unknown>);
   const [reentry, setReentry] = useState(definition.reentry);
+  const [past, setPast] = useState(definition.past);
+  const [dailyLimit, setDailyLimit] = useState(definition.dailyLimit);
   const [seen, setSeen] = useState('');
   // Reopening shows what is saved, not what was abandoned last time.
-  const key = JSON.stringify([definition.trigger, definition.reentry]);
-  if (open && seen !== key) { setSeen(key); setTrigger(definition.trigger as Record<string, unknown>); setReentry(definition.reentry); }
+  const key = JSON.stringify([definition.trigger, definition.reentry, definition.past, definition.dailyLimit]);
+  if (open && seen !== key) {
+    setSeen(key); setTrigger(definition.trigger as Record<string, unknown>); setReentry(definition.reentry);
+    setPast(definition.past); setDailyLimit(definition.dailyLimit);
+  }
+  // The last day a past window may end on: anything from today is a new one.
+  const yesterday = new Date(Date.now() + 330 * 60_000 - 86_400_000).toISOString().slice(0, 10);
+  // The server's own words, said here before Done rather than at Activate.
+  const pastProblem = !past ? null
+    : !past.from || !past.to ? 'Choose the first and the last day.'
+      : past.from > past.to ? 'The first day is after the last day.'
+        : past.to > yesterday ? 'The last day has to be before today.'
+          : null;
 
   const picked = triggers.find((t) => t.kind === trigger.kind);
   const choose = (t: TriggerMeta) => {
@@ -274,6 +287,39 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
             </div>
           )}
 
+          {picked && !picked.periodic && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Which ones</p>
+              <div className="space-y-2 rounded-lg border p-3 text-sm">
+                <label className="flex items-center gap-2.5">
+                  <input type="radio" checked={!past} onChange={() => setPast(undefined)} />
+                  <span>New ones, from when it is switched on</span>
+                </label>
+                <label className="flex items-start gap-2.5">
+                  <input type="radio" className="mt-1" checked={!!past} onChange={() => setPast(past ?? { from: '', to: '' })} />
+                  <span className="min-w-0 flex-1">
+                    Past ones only, once
+                    <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <Input type="date" className="h-7 w-36" max={past?.to || yesterday} value={past?.from ?? ''} disabled={!past}
+                        onChange={(e) => setPast({ from: e.target.value, to: past?.to ?? '' })} />
+                      <span>to</span>
+                      <Input type="date" className="h-7 w-36" min={past?.from || undefined} max={yesterday} value={past?.to ?? ''} disabled={!past}
+                        onChange={(e) => setPast({ from: past?.from ?? '', to: e.target.value })} />
+                    </span>
+                    {pastProblem
+                      ? <span className="mt-1 block text-xs text-destructive">{pastProblem}</span>
+                      : (
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          Each one is reached as if it happened today, so day 0 is the day they hear from you.
+                          Nothing new is picked up.
+                        </span>
+                      )}
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
           <div>
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">How often</p>
             <div className="space-y-2 rounded-lg border p-3 text-sm">
@@ -296,13 +342,23 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
                   onChange={(e) => setReentry({ ...reentry, concurrency: e.target.checked ? 'ONE_ACTIVE_PER_PATIENT' : 'ALLOW_PARALLEL' })} />
                 <span>Only one running per patient at a time</span>
               </label>
+              <label className="flex items-center gap-2.5">
+                <input type="checkbox" checked={!!dailyLimit} onChange={(e) => setDailyLimit(e.target.checked ? 100 : undefined)} />
+                <span>Start at most</span>
+                <Input className="h-7 w-16" value={dailyLimit ?? 100} disabled={!dailyLimit}
+                  onChange={(e) => setDailyLimit(Number(e.target.value) || 1)} />
+                <span>journeys a day — the rest start the next day</span>
+              </label>
             </div>
           </div>
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" disabled={!picked}
-              onClick={() => onSave({ trigger: trigger as AutomationDefinition['trigger'], reentry })}>Done</Button>
+            <Button size="sm" disabled={!picked || !!pastProblem}
+              onClick={() => onSave({
+                trigger: trigger as AutomationDefinition['trigger'], reentry,
+                past: picked?.periodic ? undefined : past, dailyLimit,
+              })}>Done</Button>
           </div>
         </div>
       </SheetContent>

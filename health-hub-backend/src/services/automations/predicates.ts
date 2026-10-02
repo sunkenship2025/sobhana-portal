@@ -77,6 +77,15 @@ export const predicates: Record<string, Predicate> = {
     return Math.floor((ctx.now.getTime() - latest.createdAt.getTime()) / DAY_MS);
   },
 
+  /** Any visit after this one — of one kind, or any. Set to No, it is "never came back". */
+  async cameBackSinceThisVisit(ctx, subject, args) {
+    if (subject.type !== 'VISIT' || !subject.patientId) return false;
+    const visit = await ctx.visit(subject.id);
+    if (!visit) return false;
+    const domain = args.domain as 'CLINIC' | 'DIAGNOSTICS' | undefined;
+    return (await ctx.visitsAfter(subject.patientId, visit.createdAt, domain || undefined)).length > 0;
+  },
+
   async daysSinceLastVisit(ctx, subject) {
     if (!subject.patientId) return null;
     return ctx.daysSinceLastVisit(subject.patientId);
@@ -530,6 +539,8 @@ export const PREDICATE_CATALOG: PredicateMeta[] = [
   { fn: 'reportOpened', label: 'Report was opened', group: 'Diagnostics', returns: 'BOOLEAN', scope: 'this visit' },
   { fn: 'visitValueInPaise', label: 'Visit value', group: 'Visit', returns: 'NUMBER', unit: 'RUPEES', scope: 'this visit' },
   { fn: 'daysSinceLastVisit', label: 'Days since their last visit', group: 'Visit', returns: 'NUMBER', unit: 'DAYS' },
+  { fn: 'cameBackSinceThisVisit', label: 'Came back since this visit', group: 'Visit', returns: 'BOOLEAN', scope: 'this visit',
+    help: 'Any visit after this one. Set to No for patients who never came back.', args: [VISIT_DOMAIN] },
   { fn: 'patientAgeYears', label: 'Age', group: 'Patient', returns: 'NUMBER', unit: 'YEARS' },
   { fn: 'patientGender', label: 'Gender', group: 'Patient', returns: 'TEXT',
     choices: [{ value: 'M', label: 'Male' }, { value: 'F', label: 'Female' }, { value: 'O', label: 'Other' }] },

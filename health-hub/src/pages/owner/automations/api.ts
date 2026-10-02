@@ -55,7 +55,7 @@ export type Recipients =
  * reports success on the exact steps that carry the branching.
  */
 export type Step =
-  | { kind: 'WAIT'; anchor: 'TRIGGER' | 'PREVIOUS'; days?: number; hours?: number }
+  | { kind: 'WAIT'; anchor: 'TRIGGER' | 'PREVIOUS'; days?: number; hours?: number; skipSundays?: boolean }
   | {
       kind: 'CHECK'; condition: Condition;
       /** 'STOP' ends it, 'CONTINUE' falls through, a number jumps to that step. */
@@ -69,7 +69,7 @@ export type Step =
       issueOffer?: {
         campaignId: string;
         /** TRIGGER = claiming late means less time, not a fresh window. */
-        expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean };
+        expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean };
       };
     }
   | {
@@ -119,6 +119,10 @@ export interface AutomationDefinition {
   policy?: { skipMarketingConsent?: boolean; stopScope?: 'GLOBAL' | 'THIS_JOURNEY' };
   /** Optional: a journey from scratch may just run its steps. See backend types.ts. */
   goal?: { condition: Condition; windowDays: number; stopReason?: string };
+  /** Past ones only, once — IST dates. Each is reached as if it happened today. See backend types.ts. */
+  past?: { from: string; to: string };
+  /** At most this many new journeys a day. */
+  dailyLimit?: number;
   steps: Step[];
 }
 
@@ -127,6 +131,8 @@ export interface AutomationRow {
   enabled: boolean; version: number; activatedAt: string | null;
   status: 'ACTIVE' | 'PAUSED' | 'DRAFT';
   messageCount: number; days: number[]; runs: number; live: number;
+  /** A one-time journey over past dates, its daily limit, and whether it has run its course. */
+  past: { from: string; to: string } | null; dailyLimit: number | null; finished: boolean;
   /** A scheduled report is a different kind of thing from a patient journey. */
   kind: 'SCHEDULE' | 'JOURNEY';
   everyDayAtMinutes: number | null;
@@ -510,6 +516,8 @@ export interface TriggerMeta {
   /** One plain sentence: what happens in the centre that starts this. */
   help: string;
   fields: BlueprintField[];
+  /** A regular check over everyone: there are no past ones to read. */
+  periodic?: boolean;
 }
 export const listTriggers = () => apiRequest<{ triggers: TriggerMeta[] }>(`${AUT}/triggers`);
 export const createFromScratch = (body: { name: string; trigger: Record<string, unknown> }) =>
