@@ -267,6 +267,8 @@ export interface AutomationDefinition {
   past?: { from: string; to: string };
   /** At most this many new journeys a day (IST). The rest wait for tomorrow, in order. */
   dailyLimit?: number;
+  /** No new journey starts on a Sunday; Monday picks up where Saturday stopped. */
+  skipSundays?: boolean;
   reentry: {
     /** May they enrol again? */
     mode: 'PER_EVENT' | 'ONCE' | 'EVERY_N_DAYS';

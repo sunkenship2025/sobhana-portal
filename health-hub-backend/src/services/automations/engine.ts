@@ -160,6 +160,7 @@ export async function sweepEnrolments(ctx: AutomationContext): Promise<number> {
       from: new Date(`${def.past.from}T00:00:00+05:30`), to: new Date(`${def.past.to}T23:59:59.999+05:30`),
     } : null;
     if (past && state.done) continue;
+    if (def.skipSundays && isSundayIST(ctx.now)) continue;
     // Today's room under the daily limit: what this automation actually started today.
     let room = Infinity;
     if (def.dailyLimit) {
@@ -969,7 +970,8 @@ export async function notDelivered(waMessageId: string, errorCode: string | null
   }
 
   if (step.kind !== 'SEND' || !msg.patientId) return false;
-  const retryAt = new Date(now.getTime() + RESEND_AFTER_MS);
+  let retryAt = new Date(now.getTime() + RESEND_AFTER_MS);
+  while (isSundayIST(retryAt)) retryAt = new Date(retryAt.getTime() + DAY_MS);
   const retried = await prisma.automationStepLog.count({
     where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED },
   });

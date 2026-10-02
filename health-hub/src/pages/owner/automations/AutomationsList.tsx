@@ -40,7 +40,7 @@ function cadence(a: AutomationRow): string {
 
   const days = a.days.filter((d) => d > 0);
   const once = a.past ? ` · past ones only, ${fmtDay(a.past.from)} to ${fmtDay(a.past.to)}` : '';
-  const pace = a.dailyLimit ? ` · at most ${a.dailyLimit} a day` : '';
+  const pace = a.dailyLimit ? ` · at most ${a.dailyLimit} a day${a.skipSundays ? ', not Sundays' : ''}` : '';
   return (a.messageCount === 0 ? 'No messages yet'
     : days.length ? `${a.messageCount} ${plural} · ${days.map((d) => `Day ${d}`).join(' / ')}`
       : `${a.messageCount} ${plural}`) + once + pace;

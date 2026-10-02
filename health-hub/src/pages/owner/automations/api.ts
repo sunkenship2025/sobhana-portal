@@ -123,6 +123,8 @@ export interface AutomationDefinition {
   past?: { from: string; to: string };
   /** At most this many new journeys a day. */
   dailyLimit?: number;
+  /** No new journey starts on a Sunday. */
+  skipSundays?: boolean;
   steps: Step[];
 }
 
@@ -132,7 +134,7 @@ export interface AutomationRow {
   status: 'ACTIVE' | 'PAUSED' | 'DRAFT';
   messageCount: number; days: number[]; runs: number; live: number;
   /** A one-time journey over past dates, its daily limit, and whether it has run its course. */
-  past: { from: string; to: string } | null; dailyLimit: number | null; finished: boolean;
+  past: { from: string; to: string } | null; dailyLimit: number | null; skipSundays: boolean; finished: boolean;
   /** A scheduled report is a different kind of thing from a patient journey. */
   kind: 'SCHEDULE' | 'JOURNEY';
   everyDayAtMinutes: number | null;

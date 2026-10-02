@@ -205,7 +205,7 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
   open: boolean;
   definition: AutomationDefinition;
   onClose: () => void;
-  onSave: (patch: Pick<AutomationDefinition, 'trigger' | 'reentry' | 'past' | 'dailyLimit'>) => void;
+  onSave: (patch: Pick<AutomationDefinition, 'trigger' | 'reentry' | 'past' | 'dailyLimit' | 'skipSundays'>) => void;
 }) {
   const { data } = useQuery({ queryKey: ['triggers'], queryFn: listTriggers, enabled: open });
   const triggers = data?.triggers ?? [];
@@ -213,12 +213,13 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
   const [reentry, setReentry] = useState(definition.reentry);
   const [past, setPast] = useState(definition.past);
   const [dailyLimit, setDailyLimit] = useState(definition.dailyLimit);
+  const [skipSundays, setSkipSundays] = useState(definition.skipSundays);
   const [seen, setSeen] = useState('');
   // Reopening shows what is saved, not what was abandoned last time.
-  const key = JSON.stringify([definition.trigger, definition.reentry, definition.past, definition.dailyLimit]);
+  const key = JSON.stringify([definition.trigger, definition.reentry, definition.past, definition.dailyLimit, definition.skipSundays]);
   if (open && seen !== key) {
     setSeen(key); setTrigger(definition.trigger as Record<string, unknown>); setReentry(definition.reentry);
-    setPast(definition.past); setDailyLimit(definition.dailyLimit);
+    setPast(definition.past); setDailyLimit(definition.dailyLimit); setSkipSundays(definition.skipSundays);
   }
   // The last day a past window may end on: anything from today is a new one.
   const yesterday = new Date(Date.now() + 330 * 60_000 - 86_400_000).toISOString().slice(0, 10);
@@ -349,6 +350,10 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
                   onChange={(e) => setDailyLimit(Number(e.target.value) || 1)} />
                 <span>journeys a day — the rest start the next day</span>
               </label>
+              <label className="flex items-center gap-2.5">
+                <input type="checkbox" checked={!!skipSundays} onChange={(e) => setSkipSundays(e.target.checked || undefined)} />
+                <span>Don't start any on Sundays — Monday carries on</span>
+              </label>
             </div>
           </div>
 
@@ -357,7 +362,7 @@ export function WhenDrawer({ open, definition, onClose, onSave }: {
             <Button size="sm" disabled={!picked || !!pastProblem}
               onClick={() => onSave({
                 trigger: trigger as AutomationDefinition['trigger'], reentry,
-                past: picked?.periodic ? undefined : past, dailyLimit,
+                past: picked?.periodic ? undefined : past, dailyLimit, skipSundays,
               })}>Done</Button>
           </div>
         </div>

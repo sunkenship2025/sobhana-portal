@@ -167,6 +167,7 @@ export function AutomationBuilder({
                     ? ` · visits from ${new Date(automation.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} onward`
                     : ' · nothing enrolled until you activate'}
               {!isScheduled && def.dailyLimit ? ` · at most ${def.dailyLimit} journeys a day` : ''}
+              {!isScheduled && def.skipSundays ? ' · none start on Sundays' : ''}
             </span>
             {!isScheduled && (
               <span className="mt-0.5 block text-xs text-muted-foreground">{describeReentry(def.reentry)}</span>

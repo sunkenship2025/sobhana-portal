@@ -54,6 +54,7 @@ export async function listAutomations() {
       live,
       past: def.past ?? null,
       dailyLimit: def.dailyLimit ?? null,
+      skipSundays: !!def.skipSundays,
       // A past window read to its end with nobody still on the way: nothing more will happen.
       finished: !!def.past && !!(a.sweepState as { done?: boolean } | null)?.done && live === 0,
     };
