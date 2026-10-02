@@ -39,7 +39,7 @@ import {
 } from './api';
 import { insertStep, deleteStep, moveStep, blankStep, fitBlanks } from './editSteps';
 import { BlanksEditor, RecipientsPicker, WhenDrawer, GoalDrawer } from './builderParts';
-import { describeCondition, describeJump, messagingSteps, dayOf } from './describe';
+import { describeCondition, describeJump, messagingSteps, dayOf, fmtDay } from './describe';
 
 export function AutomationDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const qc = useQueryClient();
@@ -85,7 +85,9 @@ export function AutomationDetail({ id, onBack }: { id: string; onBack: () => voi
   const activate = useMutation({
     mutationFn: () => activateAutomation(id),
     onSuccess: () => {
-      toast.success('Active. Only visits from now on will enrol.');
+      toast.success(automation?.definition.past
+        ? 'Active. The past ones start at the next check, as many a day as you set.'
+        : 'Active. Only visits from now on will enrol.');
       setConfirmActivate(false); invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1147,7 +1149,11 @@ function ActivateDialog({ id, automation, open, onClose, onConfirm, pending }: {
           <div className="divide-y rounded-lg border text-sm">
             <div className="px-3 py-2.5">
               <b>Starts</b> — {automation.triggerText ?? 'when its trigger happens'} ·{' '}
-              <span className="text-muted-foreground">from today onward. Past visits never enrol.</span>
+              <span className="text-muted-foreground">
+                {def.past
+                  ? `past ones only, ${fmtDay(def.past.from)} to ${fmtDay(def.past.to)}, each reached as if today${def.dailyLimit ? `, at most ${def.dailyLimit} a day` : ''}. Nothing new enrols.`
+                  : 'from today onward. Past visits never enrol.'}
+              </span>
             </div>
             {messages.map(({ step, index }) => (
               <div key={index} className="px-3 py-2.5">
