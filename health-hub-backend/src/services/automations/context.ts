@@ -60,6 +60,8 @@ export interface AutomationContext {
   diagnosticsAfter(patientId: string, after: Date): Promise<VisitFacts[]>;
   /** Any visit after `after`, of one kind or any, not cancelled. */
   visitsAfter(patientId: string, after: Date, domain?: 'CLINIC' | 'DIAGNOSTICS'): Promise<VisitFacts[]>;
+  /** Did any journey message reach this patient after `after` — accepted by WhatsApp, not held back? */
+  reachedByJourneySince(patientId: string, after: Date): Promise<boolean>;
   /**
    * Diagnostics the front desk actually linked back to this consultation. STRICT — this
    * is the attribution question ("did we cause it?"), and only a captured link counts.
@@ -152,6 +154,11 @@ export function prismaContext(now: Date = new Date()): AutomationContext {
       };
     },
 
+    async reachedByJourneySince(patientId, after) {
+      return (await prisma.messageLog.count({
+        where: { patientId, automationRunId: { not: null }, status: { in: ['SENT', 'DELIVERED', 'READ'] }, createdAt: { gt: after } },
+      })) > 0;
+    },
     async visitsAfter(patientId, after, domain) {
       return prisma.visit.findMany({
         where: { patientId, ...(domain ? { domain } : {}), status: { not: 'CANCELLED' }, createdAt: { gt: after } },
@@ -429,6 +436,8 @@ export interface FactSet {
   lastProactiveByPatient?: Record<string, Date>;
   /** Per-message form, so a check can say which run sent what. */
   proactiveMessages?: { patientId: string; runId: string | null; at: Date }[];
+  /** Journey messages that reached the patient (not held back). */
+  reachedMessages?: { patientId: string; at: Date }[];
   optedOutPhones?: string[];
   humanHeldPhones?: string[];
   linesHeldByRun?: Record<string, string>;
@@ -460,6 +469,9 @@ export function memoryContext(facts: FactSet): AutomationContext {
     now: facts.now,
     async visit(id) { return byId.get(id) ?? null; },
     async patient(id) { return patients.get(id) ?? null; },
+    async reachedByJourneySince(patientId, after) {
+      return (facts.reachedMessages ?? []).some((m) => m.patientId === patientId && m.at > after);
+    },
     async visitsAfter(patientId, after, domain) {
       return visits.filter((v) => v.patientId === patientId && (!domain || v.domain === domain) &&
         v.status !== 'CANCELLED' && v.createdAt > after);

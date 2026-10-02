@@ -86,6 +86,14 @@ export const predicates: Record<string, Predicate> = {
     return (await ctx.visitsAfter(subject.patientId, visit.createdAt, domain || undefined)).length > 0;
   },
 
+  /** Did anything we sent reach them after this visit? Set to No: the ones we never reached. */
+  async reachedSinceThisVisit(ctx, subject) {
+    if (subject.type !== 'VISIT' || !subject.patientId) return false;
+    const visit = await ctx.visit(subject.id);
+    if (!visit) return false;
+    return ctx.reachedByJourneySince(subject.patientId, visit.createdAt);
+  },
+
   async daysSinceLastVisit(ctx, subject) {
     if (!subject.patientId) return null;
     return ctx.daysSinceLastVisit(subject.patientId);
@@ -541,6 +549,8 @@ export const PREDICATE_CATALOG: PredicateMeta[] = [
   { fn: 'daysSinceLastVisit', label: 'Days since their last visit', group: 'Visit', returns: 'NUMBER', unit: 'DAYS' },
   { fn: 'cameBackSinceThisVisit', label: 'Came back since this visit', group: 'Visit', returns: 'BOOLEAN', scope: 'this visit',
     help: 'Any visit after this one. Set to No for patients who never came back.', args: [VISIT_DOMAIN] },
+  { fn: 'reachedSinceThisVisit', label: 'Received a message from us since this visit', group: 'Visit', returns: 'BOOLEAN', scope: 'this visit',
+    help: 'Any journey message WhatsApp delivered after this visit — not one Meta held back. Set to No for the ones we never reached.' },
   { fn: 'patientAgeYears', label: 'Age', group: 'Patient', returns: 'NUMBER', unit: 'YEARS' },
   { fn: 'patientGender', label: 'Gender', group: 'Patient', returns: 'TEXT',
     choices: [{ value: 'M', label: 'Male' }, { value: 'F', label: 'Female' }, { value: 'O', label: 'Other' }] },

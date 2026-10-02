@@ -1573,6 +1573,15 @@ async function main() {
       'narrowed to tests, a newer OP visit does not count');
   });
 
+  await check('"received a message from us since this visit": only what reached them, only after this visit', async () => {
+    const never = { fn: 'reachedSinceThisVisit', op: 'eq' as const, value: false };
+    const ctx = (msgs: { patientId: string; at: Date }[]) => memoryContext({ now: T0, visits: [visit()], patients: [patient()], reachedMessages: msgs });
+    assert.strictEqual(await evaluate(never, ctx([]), subject), true, 'nothing reached them');
+    assert.strictEqual(await evaluate(never, ctx([{ patientId: 'P1', at: new Date(T0.getTime() + DAY) }]), subject), false, 'a message after the visit');
+    assert.strictEqual(await evaluate(never, ctx([{ patientId: 'P1', at: new Date(T0.getTime() - DAY) }]), subject), true, 'one from before the visit does not count');
+    assert.strictEqual(await evaluate(never, ctx([{ patientId: 'P2', at: new Date(T0.getTime() + DAY) }]), subject), true, 'another patient on the phone does not count');
+  });
+
   await check('past ones: a range of whole days already over, for something that happens; a daily limit of 1 or more', () => {
     const base = { ...RECOVERY };
     const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
