@@ -295,7 +295,8 @@ export interface BarRow {
 /**
  * A ranked list of parts that add up to a total: each row's bar, amount, share
  * and change against the period before, then the total — so a reader can see
- * the parts reconcile with the headline. Bars run against the largest row.
+ * the parts reconcile with the headline. A bar is the row's share of the total,
+ * so its length and the Share column always agree.
  */
 export function BarList({
   rows,
@@ -313,7 +314,6 @@ export function BarList({
   }
   const total = rows.reduce((s, r) => s + r.value, 0);
   const priorTotal = rows.reduce((s, r) => s + r.prior, 0);
-  const max = Math.max(1, ...rows.map((r) => r.value));
   const delta = (now: number, before: number) => {
     if (before <= 0) return <span style={{ color: TOKENS.textTertiary }}>{now > 0 ? 'new' : ''}</span>;
     const c = Math.round(((now - before) / before) * 100);
@@ -341,7 +341,7 @@ export function BarList({
               {r.note && <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.note}</span>}
             </div>
             <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
-              <div style={{ width: `${(Math.max(0, r.value) / max) * 100}%`, height: '100%', borderRadius: 3, background: SERIES[0] }} />
+              <div style={{ width: `${total > 0 ? Math.min(100, (Math.max(0, r.value) / total) * 100) : 0}%`, height: '100%', borderRadius: 3, background: SERIES[0] }} />
             </div>
           </div>
           <span className="text-right">{format(r.value)}</span>
