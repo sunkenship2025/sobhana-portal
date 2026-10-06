@@ -78,6 +78,7 @@ import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
 import { useConfirm } from "@/hooks/use-confirm";
 import { goToStep, goToNext, goToPrev, hasNextStep, handleFlowKey } from "@/lib/focusFlow";
+import { DISCOUNT_REASONS, NOTE_PLACEHOLDER, composeDiscountReason, reasonNeedsNote, type DiscountReason } from "@/lib/discountReasons";
 import { useVisitDefaults } from "@/store/visitDefaultsStore";
 
 type DiscountMode = "NONE" | BillDiscountType;
@@ -130,7 +131,15 @@ const DiagnosticsNewVisit = () => {
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
   const [discountValue, setDiscountValue] = useState("");
-  const [discountReason, setDiscountReason] = useState("");
+  // Reason = one pick from the fixed list + an optional note ("Other" needs one).
+  const [reasonPick, setReasonPick] = useState("");
+  const [reasonNote, setReasonNote] = useState("");
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const discountReason = composeDiscountReason(reasonPick, reasonNote);
+  const setDiscountReason = (v: string) => {
+    setReasonPick(v);
+    setReasonNote("");
+  };
   const [couponCode, setCouponCode] = useState("");
   const [couponInfo, setCouponInfo] = useState<{
     code: string; discountPercentage: number; scope: string; campaignName: string;
@@ -871,6 +880,10 @@ const DiagnosticsNewVisit = () => {
       toast.error("A reason must be provided when applying a discount");
       return false;
     }
+    if (!couponWins && discountMode !== "NONE" && reasonNeedsNote(reasonPick) && !reasonNote.trim()) {
+      toast.error("Say why in the note — \"Other\" needs a few words");
+      return false;
+    }
     return true;
   };
 
@@ -945,6 +958,10 @@ const DiagnosticsNewVisit = () => {
       discountReason.trim() === ""
     ) {
       toast.error("A reason must be provided when applying a discount");
+      return false;
+    }
+    if (discountMode !== "NONE" && safeDiscountNumeric > 0 && reasonNeedsNote(reasonPick) && !reasonNote.trim()) {
+      toast.error("Say why in the note — \"Other\" needs a few words");
       return false;
     }
     if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
@@ -1579,7 +1596,6 @@ const DiagnosticsNewVisit = () => {
                       setSelectedProducts([]);
                       setDiscountMode("NONE");
                       setDiscountValue("");
-                      setDiscountReason("");
                       setDiscountReason("");
                       setPaidAmount("");
                       setShowNewPatientForm(false);
@@ -2579,14 +2595,48 @@ const DiagnosticsNewVisit = () => {
                       >
                         Reason
                       </Label>
-                      <Input
-                        id="diagnostic-discount-reason"
-                        placeholder="Reason for discount (Required)"
-                        value={discountReason}
-                        onChange={(e) => setDiscountReason(e.target.value)}
-                        onKeyDown={flowGuard(guardDiscountReason)}
-                        data-focus-step={80}
-                      />
+                      <div className="grid gap-2 sm:grid-cols-[220px_minmax(0,1fr)]">
+                        <Select
+                          value={reasonPick}
+                          open={reasonOpen}
+                          onOpenChange={setReasonOpen}
+                          onValueChange={(value) => {
+                            setReasonPick(value);
+                            setReasonOpen(false);
+                            goToNext(80);
+                          }}
+                        >
+                          <SelectTrigger
+                            id="diagnostic-discount-reason"
+                            aria-label="Discount reason"
+                            data-focus-step={80}
+                            onKeyDown={(e) => {
+                              // Enter on an empty reason opens the list; once picked it moves on.
+                              if (e.key === "Enter" && !reasonPick) {
+                                e.preventDefault();
+                                setReasonOpen(true);
+                                return;
+                              }
+                              handleFlowKey(e);
+                            }}
+                          >
+                            <SelectValue placeholder="Pick a reason (required)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DISCOUNT_REASONS.map((r) => (
+                              <SelectItem key={r} value={r}>{r}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          aria-label="Discount note"
+                          placeholder={reasonPick ? NOTE_PLACEHOLDER[reasonPick as DiscountReason] : "Note (optional)"}
+                          value={reasonNote}
+                          onChange={(e) => setReasonNote(e.target.value)}
+                          onKeyDown={flowGuard(guardDiscountReason)}
+                          data-focus-step={85}
+                        />
+                      </div>
                     </>
                   )}
 

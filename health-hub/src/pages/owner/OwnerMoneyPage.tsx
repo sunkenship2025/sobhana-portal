@@ -19,6 +19,7 @@ import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { formatPatientName } from '@/lib/patientDisplay';
+import { discountReasonGroup } from '@/lib/discountReasons';
 import { DaySheetResponse } from './moneyDaySheet';
 import { MoneyBreakdown, type BreakdownData } from './MoneyBreakdown';
 import { KpiTile, ComparisonTrendChart, StatementLine, BarList, SplitBar, GroupLabel, TH, ROW, TOTAL_ROW, type BarRow } from './_shared/dashboardCharts';
@@ -653,13 +654,9 @@ function groupDiscounts(rows: MoneyResponse['discountLog'], keyOf: (d: MoneyResp
   }
   return out;
 }
-const reasonOf = (d: MoneyResponse['discountLog'][number]) => {
-  if (d.isCoupon && !d.grantedBy) return 'Offer code';
-  const r = (d.reason ?? '').replace(/\s+/g, ' ').trim();
-  if (!r) return 'No reason given';
-  if (/^coupon\b/i.test(r)) return 'Offer code';
-  return r.length > 28 ? `${r.slice(0, 27)}…` : r.toUpperCase();
-};
+// The reason list billing picks from; older typed reasons are read into it where clear.
+const reasonOf = (d: MoneyResponse['discountLog'][number]) =>
+  (d.isCoupon && !d.grantedBy) || /^coupon\b/i.test(d.reason ?? '') ? 'Offer code' : discountReasonGroup(d.reason);
 
 function DiscountsCard({ rows, periodLabel }: { rows: MoneyResponse['discountLog']; periodLabel: string }) {
   const [showAll, setShowAll] = useState(false);
@@ -682,7 +679,7 @@ function DiscountsCard({ rows, periodLabel }: { rows: MoneyResponse['discountLog
             </div>
             <div>
               <div className="mb-1 font-medium" style={{ fontSize: 13 }}>Why</div>
-              <BarList rows={groupDiscounts(rows, reasonOf, 8)} format={rupeesShort} totalLabel="All discounts" />
+              <BarList rows={groupDiscounts(rows, reasonOf, 10)} format={rupeesShort} totalLabel="All discounts" />
             </div>
           </div>
           <div className="mt-6 flex items-baseline justify-between">

@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DISCOUNT_REASONS, NOTE_PLACEHOLDER, composeDiscountReason, reasonNeedsNote, type DiscountReason } from "@/lib/discountReasons";
 import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -209,7 +210,13 @@ const DiagnosticsPendingResults = () => {
     "NONE" | "PERCENTAGE" | "FLAT_AMOUNT"
   >("NONE");
   const [collectDiscountValue, setCollectDiscountValue] = useState("");
-  const [collectDiscountReason, setCollectDiscountReason] = useState("");
+  const [collectReasonPick, setCollectReasonPick] = useState("");
+  const [collectReasonNote, setCollectReasonNote] = useState("");
+  const collectDiscountReason = composeDiscountReason(collectReasonPick, collectReasonNote);
+  const setCollectDiscountReason = (v: string) => {
+    setCollectReasonPick(v);
+    setCollectReasonNote("");
+  };
 
   const resetCollectDiscount = () => {
     setCollectDiscountMode("NONE");
@@ -452,6 +459,10 @@ const DiagnosticsPendingResults = () => {
       }
       if (!collectDiscountReason.trim()) {
         toast.error("A reason is required to apply a discount");
+        return;
+      }
+      if (reasonNeedsNote(collectReasonPick) && !collectReasonNote.trim()) {
+        toast.error("Say why in the note — \"Other\" needs a few words");
         return;
       }
       if (collectPreview?.tooLarge) {
@@ -914,11 +925,24 @@ const DiagnosticsPendingResults = () => {
                     />
                   </div>
                   {collectDiscountMode !== "NONE" && (
-                    <Input
-                      placeholder="Reason for discount (Required)"
-                      value={collectDiscountReason}
-                      onChange={(e) => setCollectDiscountReason(e.target.value)}
-                    />
+                    <div className="grid gap-2 sm:grid-cols-[200px_minmax(0,1fr)]">
+                      <Select value={collectReasonPick} onValueChange={setCollectReasonPick}>
+                        <SelectTrigger aria-label="Discount reason">
+                          <SelectValue placeholder="Pick a reason (required)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DISCOUNT_REASONS.map((r) => (
+                            <SelectItem key={r} value={r}>{r}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        aria-label="Discount note"
+                        placeholder={collectReasonPick ? NOTE_PLACEHOLDER[collectReasonPick as DiscountReason] : "Note (optional)"}
+                        value={collectReasonNote}
+                        onChange={(e) => setCollectReasonNote(e.target.value)}
+                      />
+                    </div>
                   )}
                   {collectPreview?.tooLarge && (
                     <p className="text-xs text-destructive">
