@@ -94,10 +94,12 @@ export function journeyFunnel(
   windowDays: number,
   /** Runs where WhatsApp accepted a message and then refused to deliver it. */
   refused: Set<string> = new Set(),
+  /** Of those, the runs waiting on another try — held back, not lost. */
+  retrying: Set<string> = new Set(),
 ) {
   const within = (r: FunnelRun) => convertedWithin(r, windowDays);
   const f = {
-    messaged: 0, delivered: 0, read: 0, waiting: 0, refused: 0,
+    messaged: 0, delivered: 0, read: 0, waiting: 0, refused: 0, retrying: 0,
     beforeMessage: 0, afterMessage: 0, treatedConverted: 0, heldConverted: 0,
   };
   for (const r of runs) {
@@ -117,7 +119,8 @@ export function journeyFunnel(
       else f.beforeMessage += 1;
     } else if (!m && refused.has(r.id)) {
       // Still live, but not "not due yet": the message went and was refused.
-      f.refused += 1;
+      if (retrying.has(r.id)) f.retrying += 1;
+      else f.refused += 1;
     } else if (!m && (r.state === 'PENDING' || r.state === 'RUNNING')) {
       f.waiting += 1;
     }
@@ -142,6 +145,8 @@ export function askAnswers(
   logs: AskLog[],
   /** `${runId}:${stepIndex}` of each question WhatsApp accepted and then refused. */
   refusedAt: Set<string> = new Set(),
+  /** `${runId}:${stepIndex}` of each refused question waiting on another try. */
+  retryingAt: Set<string> = new Set(),
 ) {
   return steps.flatMap((step, stepIndex) => {
     if (step.kind !== 'ASK') return [];
@@ -151,6 +156,7 @@ export function askAnswers(
     const refused = new Set(
       here.filter((l) => refusedAt.has(`${l.runId}:${stepIndex}`)).map((l) => l.runId),
     );
+    const retrying = new Set([...refused].filter((id) => retryingAt.has(`${id}:${stepIndex}`)));
     const mine = here.filter((l) => !refused.has(l.runId));
     const patients = (rows: AskLog[]) => new Set(rows.map((l) => l.runId)).size;
     const replies = mine.filter((l) => l.outcome === Outcome.REPLIED);
@@ -161,7 +167,8 @@ export function askAnswers(
       stepIndex,
       template: step.template,
       asked: patients(mine.filter((l) => l.outcome === Outcome.ASKED)),
-      refused: refused.size,
+      refused: refused.size - retrying.size,
+      retrying: retrying.size,
       answers: step.buttons.map((b) => ({ label: b.label, count: said(b.label) })),
       /** Replied, but matched no button and no keyword — handed to a person. */
       typed: said(null),
@@ -194,7 +201,7 @@ export async function automationResults(automationId: string) {
     select: {
       id: true, holdout: true, state: true, stopReason: true, patientId: true,
       convertedAt: true, convertedBranchId: true, convertedValueInPaise: true,
-      triggeredAt: true, branchId: true,
+      triggeredAt: true, branchId: true, stepIndex: true, nextActionAt: true,
     },
   });
 
@@ -207,7 +214,7 @@ export async function automationResults(automationId: string) {
   const held = journeys.filter((r) => r.holdout);
 
   const ids = runs.map((r) => r.id);
-  const [patientMessages, refusedMessages, suppressed, askLogs, coupons] = await Promise.all([
+  const [patientMessages, refusedMessages, suppressed, askLogs, coupons, retryLogs] = await Promise.all([
     prisma.messageLog.findMany({
       where: { automationRunId: { in: ids }, patientId: { not: null }, status: { not: 'FAILED' } },
       select: { automationRunId: true, createdAt: true, deliveredAt: true, readAt: true },
@@ -235,7 +242,17 @@ export async function automationResults(automationId: string) {
         redemptions: { select: { discountInPaise: true, reversedAt: true } },
       },
     }),
+    prisma.automationStepLog.findMany({
+      where: { runId: { in: ids }, outcome: Outcome.RETRY_SCHEDULED },
+      select: { runId: true, stepIndex: true },
+    }),
   ]);
+  // Held back by Meta and sitting on that same step until its next try. Once the try
+  // goes the run moves on, so this never outlives the retry.
+  const retryLogged = new Set(retryLogs.map((l) => `${l.runId}:${l.stepIndex}`));
+  const onRetry = runs.filter((r) => r.state === 'PENDING' && retryLogged.has(`${r.id}:${r.stepIndex}`));
+  const nextRetryAt = onRetry.reduce<Date | null>(
+    (min, r) => (r.nextActionAt && (!min || r.nextActionAt < min) ? r.nextActionAt : min), null);
 
   const messages = new Map<string, RunMessages>();
   for (const m of patientMessages) {
@@ -251,6 +268,7 @@ export async function automationResults(automationId: string) {
   const funnel = journeyFunnel(
     journeys, messages, windowDays,
     new Set(refusedMessages.map((m) => m.automationRunId!)),
+    new Set(onRetry.map((r) => r.id)),
   );
 
   const pT = treated.length ? funnel.treatedConverted / treated.length : 0;
@@ -293,6 +311,7 @@ export async function automationResults(automationId: string) {
     asks: askAnswers(
       def.steps, askLogs,
       new Set(refusedMessages.map((m) => `${m.automationRunId}:${m.automationStep}`)),
+      new Set(onRetry.map((r) => `${r.id}:${r.stepIndex}`)),
     ),
     /** Codes this journey actually put in someone's hand, and what became of them. */
     offer: {
@@ -318,8 +337,11 @@ export async function automationResults(automationId: string) {
       messaged: funnel.messaged, delivered: funnel.delivered, read: funnel.read,
       /** No message yet and still live — not due, rather than dropped. */
       waiting: funnel.waiting,
-      /** Every message to them was accepted by WhatsApp, then refused. */
+      /** Every message to them was accepted by WhatsApp, then refused — and no try is left. */
       refused: funnel.refused,
+      /** Held back by Meta, with another try booked. */
+      retrying: funnel.retrying,
+      nextRetryAt,
       live: runs.filter((r) => r.state === 'PENDING' || r.state === 'RUNNING').length,
       ended: runs.filter((r) => r.state === 'STOPPED' || r.state === 'DONE' || r.state === 'FAILED').length,
     },

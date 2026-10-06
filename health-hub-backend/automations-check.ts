@@ -1304,6 +1304,14 @@ async function main() {
     assert.strictEqual(g.refused, 1, 'a refused message is its own stage');
     assert.strictEqual(g.waiting, 1, 'refused must not inflate "waiting for a first message"');
     assert.strictEqual(g.messaged, 3, 'refused is not messaged');
+
+    // Held back with another try booked is not lost: it is counted apart from refused.
+    const h = journeyFunnel(
+      [...runs, run('refused', { state: 'PENDING' }), run('retry', { state: 'PENDING' })],
+      messages, 6, new Set(['refused', 'retry']), new Set(['retry']),
+    );
+    assert.strictEqual(h.retrying, 1, 'a booked retry is "trying again"');
+    assert.strictEqual(h.refused, 1, 'only the hopeless one is not delivered');
   });
 
   // Taps were never written down — the reply moved the run and left no row — so nobody
@@ -1339,6 +1347,10 @@ async function main() {
     assert.strictEqual(r.asked, 1, 'only the question that arrived counts as asked');
     assert.strictEqual(r.refused, 2);
     assert.strictEqual(r.noReply, 0, 'a refused question cannot go unanswered');
+
+    const [t] = askAnswers(steps, [log('x', 'ASKED'), log('y', 'ASKED')], new Set(['x:1', 'y:1']), new Set(['y:1']));
+    assert.strictEqual(t.retrying, 1, 'a question with a try booked is trying again');
+    assert.strictEqual(t.refused, 1);
   });
 
   // ── Who may use a code, and what a refund gives back ─────────────────────

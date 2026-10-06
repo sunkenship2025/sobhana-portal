@@ -224,8 +224,10 @@ export interface Results {
   /** One per ASK step: what came back, per button, in patients. */
   asks: {
     stepIndex: number; template: string; asked: number;
-    /** Accepted by WhatsApp, then refused — never reached the patient. */
+    /** Accepted by WhatsApp, then refused — never reached the patient, no try left. */
     refused: number;
+    /** Held back by Meta, another try booked. */
+    retrying: number;
     answers: { label: string; count: number }[]; typed: number; noReply: number;
   }[];
   offer: { sent: number; used: number; redemptions: number; refunded: number; expiredUnused: number; stillUsable: number };
@@ -234,6 +236,8 @@ export interface Results {
     /** Patients, not messages. */
     messaged: number; delivered: number; read: number;
     waiting: number; refused: number; live: number; ended: number;
+    /** Held back by Meta, another try booked — and when the soonest one is. */
+    retrying: number; nextRetryAt: string | null;
   };
   converted: { treated: number; held: number; beforeMessage: number; afterMessage: number };
   rates: {

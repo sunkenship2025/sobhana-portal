@@ -12,6 +12,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { Badge } from '@/components/ui/badge';
 import { getResults, listPredicates, reasonLabel, rupees, type ScheduledResults } from './api';
 import { describeCondition, describeStep, dayOf } from './describe';
+import { formatIstDate } from '../_shared/ownerUi';
 
 function Bar({ pct, muted }: { pct: number; muted?: boolean }) {
   return (
@@ -127,8 +128,13 @@ export function AutomationResults({ automationId }: { automationId: string }) {
             <Stage label="Waiting for a first message" sub="not due yet"
               n={counts.waiting} pct={pct(counts.waiting)} muted />
           )}
+          {counts.retrying > 0 && (
+            <Stage label="Trying again"
+              sub={`Meta held it back · next try ${counts.nextRetryAt ? formatIstDate(counts.nextRetryAt) : 'soon'}`}
+              n={counts.retrying} pct={pct(counts.retrying)} muted />
+          )}
           {counts.refused > 0 && (
-            <Stage label="Not delivered" sub="WhatsApp refused every message"
+            <Stage label="Not delivered" sub="WhatsApp refused it, and no try is left"
               n={counts.refused} pct={pct(counts.refused)} muted />
           )}
           <Stage label="Messaged" n={counts.messaged} pct={pct(counts.messaged)} />
@@ -159,6 +165,10 @@ export function AutomationResults({ automationId }: { automationId: string }) {
             </p>
             <div className="rounded-lg border bg-card">
               <Stage label="Asked" sub={describeStep(steps[q.stepIndex], catalog)} n={q.asked} pct={q.asked ? 100 : 0} />
+              {q.retrying > 0 && (
+                <Stage label="Trying again" sub="Meta held it back, another try is booked"
+                  n={q.retrying} pct={of(q.retrying)} muted />
+              )}
               {q.refused > 0 && (
                 <Stage label="Not delivered" sub="WhatsApp refused it, so it can't be answered"
                   n={q.refused} pct={of(q.refused)} muted />
