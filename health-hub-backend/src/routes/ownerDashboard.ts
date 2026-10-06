@@ -155,9 +155,15 @@ router.post('/audit/backfill', async (req: AuthRequest, res) => {
   return res.status(202).json({ started: true, days });
 });
 
+const dashboardDomain = (domain: unknown, legacyClinic: unknown): 'DIAGNOSTICS' | 'CLINIC' | null =>
+  domain === 'clinic' ? 'CLINIC'
+    : domain === 'all' || (domain === undefined && legacyClinic === '1') ? null
+    : 'DIAGNOSTICS';
+
 // GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
 //   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive).
-//   &clinic=1 adds clinic consultations to the money figures (diagnostics only otherwise).
+//   &domain=diagnostics (default) | clinic | all scopes every money figure, as on the
+//   Money page. Legacy &clinic=1 (bundles cached before ?domain=) still means all.
 // The period slicer scopes the money summary, revenue trend/mix and branch table;
 // the action queue, receivables, unsettled payouts and ops pulse stay live.
 // branch=all (or omitted) returns cross-branch totals.
@@ -168,7 +174,7 @@ router.get('/dashboard-v2', async (req: AuthRequest, res) => {
       branchId,
       period as DashboardV2Period,
       range,
-      req.query.clinic === '1',
+      dashboardDomain(req.query.domain, req.query.clinic),
     );
     return res.json(data);
   } catch (err: any) {

@@ -15,10 +15,10 @@
  *   - dataAge           days since first visit, used by the UI to suppress
  *                       comparison deltas during the first 30 days
  *
- * Clinic scoping: money figures cover diagnostics only unless `includeClinic`
- * — clinic consultation bills, payments, fees and commission are left out of the
- * waterfall, collections, trend, mix, receivables and branch table. Ops pulse
- * and the payout ledger are unaffected.
+ * Register scoping (`domain`, like the Money page): DIAGNOSTICS, CLINIC, or null
+ * for both. It scopes every money figure — bills, payments, test orders, clinic
+ * fees and commission — in the waterfall, collections, trend, mix, receivables
+ * and branch table. Ops pulse and the payout ledger always cover both.
  *
  * Branch scoping: if `branchId` is null, all branches are aggregated. The
  * owner dashboard defaults to "all branches" per the brief.
@@ -33,16 +33,16 @@
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, VisitDomain } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
   branchId: string | null,
   period: PeriodKey,
   range: CustomRange | null,
-  includeClinic: boolean,
+  domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v4:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${includeClinic ? 'clinic' : 'diag'}`;
+  `owner-dashboard-v2:v5:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -99,6 +99,10 @@ export interface MoneyToday {
   // Net vs the prior equal-length window. Null when the prior window had no
   // net revenue to compare against (so the UI suppresses the delta).
   deltaPercent: number | null;
+  // The headline: cash + online collected less refunds paid out, and the same
+  // against the prior equal-length window (null when that had nothing).
+  netCollectedInPaise: number;
+  collectedDeltaPercent: number | null;
 }
 
 export interface PayoutLiability {
@@ -305,12 +309,12 @@ export async function getOwnerDashboardV2(
   branchId: string | null,
   period: PeriodKey = '30d',
   range: CustomRange | null = null,
-  includeClinic = false,
+  domain: VisitDomain | null = 'DIAGNOSTICS',
 ): Promise<DashboardV2Response> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(branchId, period, range, includeClinic));
+      const hit = await redis.get(cacheKey(branchId, period, range, domain));
       if (hit) return JSON.parse(hit) as DashboardV2Response;
     } catch (err) {
       logger.warn({ err, branchId }, 'dashboard-v2: cache read failed');
@@ -341,13 +345,15 @@ export async function getOwnerDashboardV2(
   // ----- branch resolution & data age ------------------------------------
   const branchScopeWhere: Prisma.VisitWhereInput = branchId ? { branchId } : {};
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
-  // Money surfaces: same branch scope, minus clinic bills unless asked for.
-  const moneyBillWhere: Prisma.BillWhereInput = includeClinic
-    ? billBranchWhere
-    : { ...billBranchWhere, visit: { domain: 'DIAGNOSTICS' } };
+  // Money surfaces: same branch scope, narrowed to the selected register.
+  const moneyBillWhere: Prisma.BillWhereInput = domain
+    ? { ...billBranchWhere, visit: { domain } }
+    : billBranchWhere;
   // Prisma queries are lazy — an unawaited one never hits the database.
   const clinicMoney = <T>(q: Promise<T>, empty: T): Promise<T> =>
-    includeClinic ? q : Promise.resolve(empty);
+    domain === 'DIAGNOSTICS' ? Promise.resolve(empty) : q;
+  const diagMoney = <T>(q: Promise<T>, empty: T): Promise<T> =>
+    domain === 'CLINIC' ? Promise.resolve(empty) : q;
 
   const [scopedBranch, firstVisit] = await Promise.all([
     branchId
@@ -384,6 +390,7 @@ export async function getOwnerDashboardV2(
     todayClinicVisits,
     todayPaymentsByType,
     todayOutstandingAgg,
+    priorPaymentsByType,
     trendPayments,
 
     // 28-day baseline window of net revenue (used for trend + dow delta)
@@ -487,24 +494,27 @@ export async function getOwnerDashboardV2(
       },
       _count: true,
     }),
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        // Cancelled / swapped-out orders accrue no commission (payoutService
-        // skips them) and were never revenue — keep them out of both.
-        cancelledAt: null,
-        ...(branchId ? { branchId } : {}),
-      },
-      select: {
-        priceInPaise: true,
-        referralCommissionType: true,
-        referralCommissionPercentage: true,
-        referralCommissionAmountInPaise: true,
-        partnerCutInPaise: true,
-        workflowMode: true,
-        uploadInsteadAt: true,
-      },
-    }),
+    diagMoney(
+      prisma.testOrder.findMany({
+        where: {
+          createdAt: { gte: win.start, lt: win.end },
+          // Cancelled / swapped-out orders accrue no commission (payoutService
+          // skips them) and were never revenue — keep them out of both.
+          cancelledAt: null,
+          ...(branchId ? { branchId } : {}),
+        },
+        select: {
+          priceInPaise: true,
+          referralCommissionType: true,
+          referralCommissionPercentage: true,
+          referralCommissionAmountInPaise: true,
+          partnerCutInPaise: true,
+          workflowMode: true,
+          uploadInsteadAt: true,
+        },
+      }),
+      [],
+    ),
     clinicMoney(
       prisma.clinicVisit.findMany({
         where: {
@@ -539,6 +549,14 @@ export async function getOwnerDashboardV2(
       },
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
     }),
+    prisma.paymentTransaction.groupBy({
+      by: ['paymentType', 'transactionType'],
+      where: {
+        transactionDate: { gte: priorWin.start, lt: priorWin.end },
+        bill: moneyBillWhere,
+      },
+      _sum: { amountInPaise: true },
+    }),
     // revenue trend — collections in the trend span, bucketed by IST day below
     prisma.paymentTransaction.findMany({
       where: {
@@ -560,24 +578,27 @@ export async function getOwnerDashboardV2(
         branchId: true,
       },
     }),
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        // Cancelled / swapped-out orders accrue no commission (payoutService
-        // skips them) and were never revenue — keep them out of both.
-        cancelledAt: null,
-        ...(branchId ? { branchId } : {}),
-      },
-      select: {
-        createdAt: true,
-        branchId: true,
-        priceInPaise: true,
-        referralCommissionType: true,
-        referralCommissionPercentage: true,
-        referralCommissionAmountInPaise: true,
-        partnerCutInPaise: true,
-      },
-    }),
+    diagMoney(
+      prisma.testOrder.findMany({
+        where: {
+          createdAt: { gte: win.start, lt: win.end },
+          // Cancelled / swapped-out orders accrue no commission (payoutService
+          // skips them) and were never revenue — keep them out of both.
+          cancelledAt: null,
+          ...(branchId ? { branchId } : {}),
+        },
+        select: {
+          createdAt: true,
+          branchId: true,
+          priceInPaise: true,
+          referralCommissionType: true,
+          referralCommissionPercentage: true,
+          referralCommissionAmountInPaise: true,
+          partnerCutInPaise: true,
+        },
+      }),
+      [],
+    ),
     clinicMoney(
       prisma.clinicVisit.findMany({
         where: {
@@ -725,7 +746,7 @@ export async function getOwnerDashboardV2(
       by: ['branchId'],
       where: {
         createdAt: { gte: win.start, lt: win.end },
-        ...(includeClinic ? {} : { domain: 'DIAGNOSTICS' }),
+        ...(domain ? { domain } : {}),
       },
       _count: true,
     }),
@@ -756,21 +777,24 @@ export async function getOwnerDashboardV2(
         branchId: true,
       },
     }),
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: priorWin.start, lt: priorWin.end },
-        cancelledAt: null,
-        ...(branchId ? { branchId } : {}),
-      },
-      select: {
-        branchId: true,
-        priceInPaise: true,
-        referralCommissionType: true,
-        referralCommissionPercentage: true,
-        referralCommissionAmountInPaise: true,
-        partnerCutInPaise: true,
-      },
-    }),
+    diagMoney(
+      prisma.testOrder.findMany({
+        where: {
+          createdAt: { gte: priorWin.start, lt: priorWin.end },
+          cancelledAt: null,
+          ...(branchId ? { branchId } : {}),
+        },
+        select: {
+          branchId: true,
+          priceInPaise: true,
+          referralCommissionType: true,
+          referralCommissionPercentage: true,
+          referralCommissionAmountInPaise: true,
+          partnerCutInPaise: true,
+        },
+      }),
+      [],
+    ),
     clinicMoney(
       prisma.clinicVisit.findMany({
         where: {
@@ -889,6 +913,15 @@ export async function getOwnerDashboardV2(
     accruedCommissionInPaise(todayTestOrders) + clinicCommissionInPaise(todayClinicVisits);
   const netToday = grossToday - discountToday - reversedToday - commissionToday;
 
+  // Net collected = cash + online in, every refund out (cheques sit outside both).
+  const netCollectedOf = (rows: typeof todayPaymentsByType) =>
+    rows.reduce((s, row) => {
+      const amt = row._sum.amountInPaise ?? 0;
+      if (row.transactionType === 'REFUND') return s - amt;
+      return row.paymentType === 'CASH' || row.paymentType === 'ONLINE' ? s + amt : s;
+    }, 0);
+  const priorCollected = netCollectedOf(priorPaymentsByType);
+
   // Split payments by direction: PAYMENT rows are collections (cash/online),
   // REFUND rows are money returned. Bucketing by transactionType stops refunds
   // from inflating collected cash/online.
@@ -958,6 +991,11 @@ export async function getOwnerDashboardV2(
     refundInPaise: refundToday,
     outstandingInPaise: outstandingTotal,
     deltaPercent,
+    netCollectedInPaise: cashToday + onlineToday - refundToday,
+    collectedDeltaPercent:
+      priorCollected > 0
+        ? Math.round(((cashToday + onlineToday - refundToday - priorCollected) / priorCollected) * 100)
+        : null,
   };
 
   // ----- payout liability -------------------------------------------------
@@ -1183,7 +1221,7 @@ export async function getOwnerDashboardV2(
 
   if (redis) {
     redis
-      .set(cacheKey(branchId, period, range, includeClinic), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(branchId, period, range, domain), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err, branchId }, 'dashboard-v2: cache write failed'));
   }
 

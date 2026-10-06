@@ -14,8 +14,9 @@
  *   - Diagnostics / clinic / comms 3-tile pulse (live/today)
  *   - Net collected trend + revenue mix (period)
  *
- * Money figures are diagnostics-only unless "Include clinic OP" is ticked
- * (?clinic=1); ops pulse and the payout ledger always cover both.
+ * Money figures follow the All / Diagnostic / OP switch (?domain=, Diagnostic by
+ * default, same control as the Money page); ops pulse and the payout ledger
+ * always cover both.
  *   - Branch performance table (period, Δ vs prior window)
  */
 import { useMemo, useState } from 'react';
@@ -44,6 +45,9 @@ import {
   DeltaPercent,
   severityForRatio,
   formatRupees,
+  DomainFilter,
+  DomainKey,
+  domainFromParam,
 } from './_shared/ownerUi';
 
 // ----- types ------------------------------------------------------------
@@ -84,6 +88,8 @@ interface DashboardV2 {
     refundInPaise: number;
     outstandingInPaise: number;
     deltaPercent: number | null;
+    netCollectedInPaise: number;
+    collectedDeltaPercent: number | null;
   };
   payoutLiability: {
     totalInPaise: number;
@@ -256,34 +262,64 @@ function MoneyTodayCard({
   // proportional widths against gross; if gross = 0, fall back to flat zero bars
   const widthFor = (v: number) => (gross > 0 ? Math.max(0, v / gross) : 0);
 
-  const showDelta = data.deltaPercent !== null;
-  const deltaColor =
-    data.deltaPercent !== null && data.deltaPercent >= 0
-      ? TOKENS.healthy
-      : TOKENS.critical;
+  const delta = data.collectedDeltaPercent;
+  const deltaColor = delta !== null && delta >= 0 ? TOKENS.healthy : TOKENS.critical;
 
   return (
     <SectionCard
       label={`Money · ${periodLabel}`}
-      description="Net revenue · take-home after discounts & commission"
+      description="Net collected · cash + online received, less refunds paid out"
     >
       <div className="flex items-baseline gap-3">
-        <DisplayNumber>{formatRupees(data.netInPaise)}</DisplayNumber>
-        {showDelta && (
+        <DisplayNumber>{formatRupees(data.netCollectedInPaise)}</DisplayNumber>
+        {delta !== null ? (
           <span style={{ color: deltaColor, fontSize: 13 }}>
-            {data.deltaPercent! >= 0 ? '+' : ''}
-            {data.deltaPercent}% vs prior period
+            {delta >= 0 ? '+' : ''}
+            {delta}% vs prior period
           </span>
-        )}
-        {!showDelta && (
+        ) : (
           <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-            no prior-period revenue to compare
+            nothing collected in the prior period to compare
           </span>
         )}
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3 grid grid-cols-3 gap-2" style={{ fontSize: 12 }}>
+        <Link
+          to="/money/cash?date=today"
+          style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
+        >
+          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Cash</div>
+          <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
+            {formatRupees(data.cashInPaise)}
+          </div>
+        </Link>
+        <Link
+          to="/money/cash?date=today&type=online"
+          style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
+        >
+          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Online</div>
+          <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
+            {formatRupees(data.onlineInPaise)}
+          </div>
+        </Link>
+        <div>
+          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Refunds paid out</div>
+          <div
+            className="font-medium"
+            style={{ color: data.refundInPaise > 0 ? TOKENS.discount : TOKENS.textPrimary }}
+          >
+            {data.refundInPaise > 0 ? '−' : ''}
+            {formatRupees(data.refundInPaise)}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 border-t pt-3" style={{ borderColor: TOKENS.border }}>
         <SectionLabel>Billed ({periodLabel}, accrual)</SectionLabel>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 11 }} className="mt-0.5">
+          Billed differs from collected — patients pay across days.
+        </div>
         <div className="mt-2 space-y-2">
           <WaterfallRow
             label="Gross billed"
@@ -320,54 +356,13 @@ function MoneyTodayCard({
             ratio={widthFor(data.netInPaise)}
             color={TOKENS.net}
             emphasize
+            note={
+              data.deltaPercent !== null
+                ? `(${data.deltaPercent >= 0 ? '+' : ''}${data.deltaPercent}% vs prior)`
+                : undefined
+            }
           />
         </div>
-      </div>
-
-      <div className="mt-4 border-t pt-3" style={{ borderColor: TOKENS.border }}>
-        <SectionLabel>Collected ({periodLabel})</SectionLabel>
-        <div style={{ color: TOKENS.textTertiary, fontSize: 11 }} className="mt-0.5">
-          Collected may differ from billed — patients pay across days.
-        </div>
-        <div className="mt-2 grid grid-cols-3 gap-2" style={{ fontSize: 12 }}>
-          <Link
-            to="/money/cash?date=today"
-            style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
-          >
-            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Cash</div>
-            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-              {formatRupees(data.cashInPaise)}
-            </div>
-          </Link>
-          <Link
-            to="/money/cash?date=today&type=online"
-            style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
-          >
-            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Online</div>
-            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-              {formatRupees(data.onlineInPaise)}
-            </div>
-          </Link>
-          <div>
-            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-              {data.refundInPaise > 0 ? 'Net collected' : 'Total collected'}
-            </div>
-            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-              {formatRupees(data.collectedTotalInPaise - data.refundInPaise)}
-            </div>
-          </div>
-        </div>
-        {data.refundInPaise > 0 && (
-          <div
-            className="mt-1.5 flex items-baseline justify-between"
-            style={{ fontSize: 12 }}
-          >
-            <span style={{ color: TOKENS.textSecondary }}>Refunds paid out</span>
-            <span style={{ color: TOKENS.discount }}>
-              −{formatRupees(data.refundInPaise)}
-            </span>
-          </div>
-        )}
       </div>
     </SectionCard>
   );
@@ -981,7 +976,7 @@ export default function OwnerDashboardV2() {
   const customEnd = searchParams.get('end') || '';
   const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
   const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
-  const includeClinic = searchParams.get('clinic') === '1';
+  const domain = domainFromParam(searchParams.get('domain'));
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
@@ -990,10 +985,11 @@ export default function OwnerDashboardV2() {
     });
   };
 
-  const setIncludeClinic = (on: boolean) => {
+  const setDomain = (next: DomainKey) => {
     setSearchParams(prev => {
-      if (on) prev.set('clinic', '1');
-      else prev.delete('clinic');
+      prev.delete('clinic'); // pre-?domain= links
+      if (next === 'diagnostics') prev.delete('domain');
+      else prev.set('domain', next);
       return prev;
     });
   };
@@ -1024,10 +1020,10 @@ export default function OwnerDashboardV2() {
   const dashParams =
     (period === 'custom'
       ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
-      : `period=${period}&branch=${encodeURIComponent(branchValue)}`) + (includeClinic ? '&clinic=1' : '');
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`) + `&domain=${domain}`;
 
   const query = useQuery<DashboardV2>({
-    queryKey: ['owner-dashboard-v2', period, branchValue, customStart, customEnd, includeClinic],
+    queryKey: ['owner-dashboard-v2', period, branchValue, customStart, customEnd, domain],
     queryFn: () => apiRequest<DashboardV2>(`${API_BASE}/owner/dashboard-v2?${dashParams}`),
     enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
@@ -1075,22 +1071,7 @@ export default function OwnerDashboardV2() {
               onCustomRangeChange={setCustomRange}
             />
             <BranchFilter value={branchValue} onChange={setBranchValue} />
-            <label
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5"
-              style={{
-                fontSize: 12,
-                borderColor: TOKENS.border,
-                background: TOKENS.surface,
-                color: TOKENS.textPrimary,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={includeClinic}
-                onChange={(e) => setIncludeClinic(e.target.checked)}
-              />
-              Include clinic OP
-            </label>
+            <DomainFilter value={domain} onChange={setDomain} />
             <RefreshButton
               isFetching={query.isFetching}
               onClick={() => query.refetch()}

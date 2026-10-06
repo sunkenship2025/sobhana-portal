@@ -39,6 +39,9 @@ import {
   RefreshButton,
   ErrorCard,
   FullPageSkeleton,
+  DomainFilter,
+  DomainKey,
+  domainFromParam,
 } from './_shared/ownerUi';
 
 interface MoneyResponse {
@@ -690,11 +693,9 @@ export default function OwnerMoneyPage() {
   // Register slicer: 'all' | 'diagnostics' | 'clinic'. Drives the whole page
   // (and the day sheet), like a PowerBI slicer. URL-backed so it's shareable.
   const rawDomain = searchParams.get('domain');
-  // Defaults to diagnostics; clinic OP is opt-in.
-  const domain: 'all' | 'diagnostics' | 'clinic' =
-    rawDomain === 'all' || rawDomain === 'clinic' ? rawDomain : 'diagnostics';
+  const domain = domainFromParam(rawDomain);
 
-  const setDomain = (next: 'all' | 'diagnostics' | 'clinic') => {
+  const setDomain = (next: DomainKey) => {
     setSearchParams(prev => {
       if (next === 'diagnostics') prev.delete('domain');
       else prev.set('domain', next);
@@ -837,30 +838,7 @@ export default function OwnerMoneyPage() {
                 onCustomRangeChange={setCustomRange}
               />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
-              <div
-                className="inline-flex overflow-hidden rounded-md border"
-                style={{ borderColor: TOKENS.border, fontSize: 12 }}
-                title="Filter the whole page by register"
-              >
-                {([
-                  ['all', 'All'],
-                  ['diagnostics', 'Diagnostic'],
-                  ['clinic', 'OP'],
-                ] as const).map(([k, label], i) => (
-                  <button
-                    key={k}
-                    onClick={() => setDomain(k)}
-                    className="px-2.5 py-1.5"
-                    style={{
-                      background: k === domain ? TOKENS.info : 'white',
-                      color: k === domain ? 'white' : TOKENS.textSecondary,
-                      borderLeft: i === 0 ? 'none' : `0.5px solid ${TOKENS.border}`,
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <DomainFilter value={domain} onChange={setDomain} />
               <button
                 onClick={printDaySheet}
                 disabled={daySheetBusy !== null}
