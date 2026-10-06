@@ -139,9 +139,6 @@ const DiagnosticsNewVisit = () => {
   const [couponError, setCouponError] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
-  const [referralOverrides, setReferralOverrides] = useState<
-    Record<string, ReferralPayoutDraft>
-  >({});
   const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<
     Record<string, ReferralPayoutDraft>
   >({});
@@ -438,11 +435,6 @@ const DiagnosticsNewVisit = () => {
         const doctor = await res.json();
         setReferralDoctors((prev) => [...prev, doctor]);
         setSelectedDoctorId(doctor.id);
-        setReferralOverrides(
-          buildOverridesForProducts(selectedProducts, (productId) =>
-            getEffectiveDoctorPayout(doctor, productId),
-          ),
-        );
         setShowAddDoctorDialog(false);
         setNewDoctorName("");
         setNewDoctorPhone("");
@@ -546,17 +538,6 @@ const DiagnosticsNewVisit = () => {
       const product = normalizeSelectableProduct(await res.json());
       setProducts((prev) => [...prev, product]);
       setSelectedProducts((prev) => [...prev, product.id]);
-      setReferralOverrides((prev) => {
-        if (!selectedDoctor) {
-          return prev;
-        }
-
-        return buildOverridesForProducts(
-          [...selectedProducts, product.id],
-          (productId) => getEffectiveDoctorPayout(selectedDoctor, productId),
-          prev,
-        );
-      });
       setDiagnosticCenterOverrides((prev) => {
         if (!selectedCenter) {
           return prev;
@@ -1191,29 +1172,6 @@ const DiagnosticsNewVisit = () => {
           referralDoctorId: selectedDoctorId || null,
           partnerId: selectedCenterId || null,
           partnerArrangement: partnerArrangement || null,
-          referralOverrides: selectedDoctorId
-            ? Object.fromEntries(
-                selectedProducts
-                  .map((productId) => {
-                    const draft =
-                      referralOverrides[productId] ??
-                      toReferralPayoutDraft(
-                        getEffectiveDoctorPayout(selectedDoctor, productId),
-                      );
-                    const savedPayout = getEffectiveDoctorPayout(
-                      selectedDoctor,
-                      productId,
-                    );
-                    return {
-                      productId,
-                      payload: toReferralPayoutPayload(draft),
-                      hasChanged: !areReferralPayoutsEqual(draft, savedPayout),
-                    };
-                  })
-                  .filter((item) => item.hasChanged)
-                  .map((item) => [item.productId, item.payload]),
-              )
-            : undefined,
           partnerOverrides: selectedCenterId
             ? Object.fromEntries(
                 selectedProducts
@@ -1318,7 +1276,6 @@ const DiagnosticsNewVisit = () => {
         (prodId, index) => {
           const product = products.find((p) => p.id === prodId)!;
           const payoutDraft =
-            referralOverrides[prodId] ??
             toReferralPayoutDraft(
               getEffectiveDoctorPayout(selectedDoctor, prodId),
             );
@@ -1357,7 +1314,6 @@ const DiagnosticsNewVisit = () => {
         selectedProducts.map((prodId, index) => {
           const product = products.find((p) => p.id === prodId)!;
           const payoutDraft =
-            referralOverrides[prodId] ??
             toReferralPayoutDraft(
               getEffectiveDoctorPayout(selectedDoctor, prodId),
             );
@@ -1628,7 +1584,6 @@ const DiagnosticsNewVisit = () => {
                       setPaidAmount("");
                       setShowNewPatientForm(false);
                       setSelectedDoctorId("");
-                      setReferralOverrides({});
                       setDiagnosticCenterOverrides({});
                       setSelectedCenterId("");
                       setPaymentMode(
@@ -2211,14 +2166,8 @@ const DiagnosticsNewVisit = () => {
                         setDiagnosticCenterOverrides({});
                         setSelectedDoctorId(id);
                         const doctor = referralDoctors.find((d) => d.id === id);
-                        setReferralOverrides(
-                          buildOverridesForProducts(selectedProducts, (productId) =>
-                            getEffectiveDoctorPayout(doctor, productId),
-                          ),
-                        );
                       } else {
                         setSelectedDoctorId("");
-                        setReferralOverrides({});
                         setSelectedCenterId(id);
                         setPartnerArrangement(deal);
                         const center = diagnosticCenters.find((c) => c.id === id);
@@ -2278,7 +2227,6 @@ const DiagnosticsNewVisit = () => {
                         setSelectedDoctorId("");
                         setSelectedCenterId("");
                         setPartnerArrangement("");
-                        setReferralOverrides({});
                         setDiagnosticCenterOverrides({});
                       }}
                     >
@@ -2327,21 +2275,6 @@ const DiagnosticsNewVisit = () => {
                 onQuickAddBillOnly={openQuickAddProductDialog}
                 onSelectionChange={(productIds) => {
                   setSelectedProducts(productIds);
-                  setReferralOverrides((prev) => {
-                    if (!selectedDoctor) {
-                      return Object.fromEntries(
-                        Object.entries(prev).filter(([productId]) =>
-                          productIds.includes(productId),
-                        ),
-                      );
-                    }
-                    return buildOverridesForProducts(
-                      productIds,
-                      (productId) =>
-                        getEffectiveDoctorPayout(selectedDoctor, productId),
-                      prev,
-                    );
-                  });
                   setDiagnosticCenterOverrides((prev) => {
                     if (!selectedCenter) {
                       return Object.fromEntries(
@@ -2428,154 +2361,6 @@ const DiagnosticsNewVisit = () => {
                   </p>
                 </div>
               )}
-              {selectedDoctorId && selectedProducts.length > 0 && (
-                <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-1">
-                      <Label className="text-base">
-                        Doctor payout by product
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        Saved defaults come from Config Center. Any changes here
-                        will be applied to this bill and saved for future bills.
-                      </p>
-                    </div>
-                    {selectedDoctor && (
-                      <div className="rounded-lg border bg-background px-3 py-2 text-sm">
-                        <p className="text-muted-foreground">Doctor default</p>
-                        <p className="font-semibold">
-                          {formatReferralPayout(selectedDoctor)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid gap-3">
-                    {selectedProducts.map((productId) => {
-                      const product = products.find((p) => p.id === productId);
-                      if (!product) return null;
-                      const savedPayout = getEffectiveDoctorPayout(
-                        selectedDoctor,
-                        productId,
-                      );
-                      const draft =
-                        referralOverrides[productId] ??
-                        toReferralPayoutDraft(savedPayout);
-                      return (
-                        <div
-                          key={productId}
-                          className="rounded-lg border bg-background p-4"
-                        >
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-start">
-                            <div className="space-y-1">
-                              <p className="font-medium">{product.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {product.code} · Config Center:{" "}
-                                {formatReferralPayout(savedPayout ?? undefined)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                Payout now:{" "}
-                                {formatReferralPayout({
-                                  commissionType: draft.commissionType,
-                                  commissionPercent:
-                                    draft.commissionType === "PERCENTAGE"
-                                      ? Number(draft.commissionPercent || 0)
-                                      : null,
-                                  commissionAmountInPaise:
-                                    draft.commissionType === "FIXED_AMOUNT"
-                                      ? Math.round(
-                                          Number(draft.commissionAmount || 0) *
-                                            100,
-                                        )
-                                      : null,
-                                })}
-                              </p>
-                            </div>
-
-                            <Select
-                              value={draft.commissionType}
-                              onValueChange={(value) => {
-                                setReferralOverrides((prev) => ({
-                                  ...prev,
-                                  [productId]: {
-                                    ...(prev[productId] ?? draft),
-                                    commissionType:
-                                      value as ReferralPayoutDraft["commissionType"],
-                                  },
-                                }));
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="PERCENTAGE">
-                                  Percentage
-                                </SelectItem>
-                                <SelectItem value="FIXED_AMOUNT">
-                                  Amount
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-
-                            <div className="space-y-2">
-                              <Input
-                                type="number"
-                                min={0}
-                                max={
-                                  draft.commissionType === "PERCENTAGE"
-                                    ? 100
-                                    : undefined
-                                }
-                                step={
-                                  draft.commissionType === "PERCENTAGE"
-                                    ? "0.01"
-                                    : "1"
-                                }
-                                placeholder={
-                                  draft.commissionType === "PERCENTAGE"
-                                    ? "Enter %"
-                                    : "Enter amount"
-                                }
-                                value={
-                                  draft.commissionType === "PERCENTAGE"
-                                    ? draft.commissionPercent
-                                    : draft.commissionAmount
-                                }
-                                onChange={(e) => {
-                                  const next = e.target.value;
-                                  setReferralOverrides((prev) => ({
-                                    ...prev,
-                                    [productId]: {
-                                      ...(prev[productId] ?? draft),
-                                      commissionPercent:
-                                        draft.commissionType === "PERCENTAGE"
-                                          ? next
-                                          : (prev[productId] ?? draft)
-                                              .commissionPercent,
-                                      commissionAmount:
-                                        draft.commissionType === "FIXED_AMOUNT"
-                                          ? next
-                                          : (prev[productId] ?? draft)
-                                              .commissionAmount,
-                                    },
-                                  }));
-                                }}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                {draft.commissionType === "PERCENTAGE"
-                                  ? "Enter the doctor share as a percentage of this product."
-                                  : "Enter the exact rupee amount the doctor should get for this product."}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {selectedCenterId && selectedProducts.length > 0 && (
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
