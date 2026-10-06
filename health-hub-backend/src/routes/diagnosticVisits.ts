@@ -2350,6 +2350,10 @@ router.post("/", async (req: AuthRequest, res) => {
         message: "A reason must be provided when applying a discount",
       });
     }
+    // "Other" from the reason list means nothing without the note beside it.
+    if (discountType && discountType !== "NONE" && discountValue > 0 && discountReason?.trim() === "Other") {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: 'Say why — "Other" needs a few words' });
+    }
 
     // Get branch code for bill number
     const branch = await prisma.branch.findUnique({
@@ -3650,6 +3654,9 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
           error: "VALIDATION_ERROR",
           message: "A reason must be provided when applying a discount",
         });
+      }
+      if (discountReason.trim() === "Other") {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: 'Say why — "Other" needs a few words' });
       }
       let incrementPaise = 0;
       if (discountType === "PERCENTAGE") {

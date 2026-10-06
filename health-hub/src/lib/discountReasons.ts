@@ -1,8 +1,8 @@
 /**
  * Discount reasons: one fixed list, picked at billing and at Collect Due, so the
  * owner's "why were discounts given" adds up. The bill still stores a string —
- * "<reason>" or "<reason> · <note>" — so old bills, receipts and the backend
- * are unchanged; `discountReasonGroup` reads either form back into the list.
+ * "<reason>" or "<reason> · <note>" — so receipts and the backend are
+ * unchanged. The server refuses a bare "Other".
  */
 export const DISCOUNT_REASONS = [
   'Doctor asked',
@@ -37,27 +37,14 @@ export function composeDiscountReason(reason: string, note: string): string {
   return reason ? (n ? `${reason} · ${n}` : reason) : '';
 }
 
-/** Reasons typed before the list existed that can't be read into it. */
-export const LEGACY_REASON_GROUP = 'Typed before the list';
-
-// Old free text that clearly means one of the reasons. Names of people are left
-// alone — "C/O VARUN" could be marketing or a friend.
-const LEGACY: [RegExp, DiscountReason][] = [
-  [/MD\s*SIR|M\.D\.?\s*SIR/i, 'MD approved'],
-  [/NO\s*REF|REF[AE]R+AL\s*CUT|TO\s*REF[AE]R+AL/i, 'No referring doctor'],
-  [/^(C\/O\s+)?(DOCTOR|DR)\b/i, 'Doctor asked'],
-  [/^(PATIENT|PT)\s*REQ|^REQ(UEST)?$/i, 'Patient asked'],
-  [/STAFF/i, 'Staff or staff family'],
-  [/\bCARD\b|^REGULAR$|OLD\s*CUSTO?MER|OLD\s*COSTEMER/i, 'Regular or card holder'],
-  [/\bRE\s*-?BILL\b|REPLACE BILL|PREVIOUS BILL/i, 'Billing correction'],
-];
-
-/** The list entry a stored reason belongs to (for grouping). */
+/**
+ * The list entry a stored reason belongs to (for grouping). Every bill typed
+ * before the list was sorted into it on Oct 7 2026 ("<reason> · <typed>"), so
+ * anything off the list is a stray and counts as "Other".
+ */
 export function discountReasonGroup(stored: string | null | undefined): string {
   const s = (stored ?? '').trim();
   if (!s) return 'No reason given';
   const head = s.split(' · ')[0];
-  if ((DISCOUNT_REASONS as readonly string[]).includes(head)) return head;
-  for (const [re, reason] of LEGACY) if (re.test(s)) return reason;
-  return LEGACY_REASON_GROUP;
+  return (DISCOUNT_REASONS as readonly string[]).includes(head) ? head : 'Other';
 }
