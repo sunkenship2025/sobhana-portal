@@ -1,4 +1,4 @@
-import { DiagnosticWorkflowMode, PayoutDoctorType, PaymentType, Prisma, ReportStatus } from '@prisma/client';
+import { DiagnosticWorkflowMode, PayoutDoctorType, PaymentType, Prisma, ReferralPayoutType, ReportStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { computeCommissionInPaise, computeLabCostInPaise, computeReferralPayoutInPaise } from './referralPayoutService';
@@ -199,6 +199,35 @@ function groupDiagnosticLineItemsByBillableProduct(lineItems: PayoutLineItem[]) 
 // ===========================================================================
 
 /**
+ * What one referred order pays the doctor, as the statement shows it. Commission
+ * rule (owner, Aug 2026): the FULL bill discount is borne by the referrer, so a
+ * percentage commission is (percentage of the GROSS price) minus the whole
+ * discount allocated to this order, floored at 0 — ₹1000 @ 50% with a ₹100
+ * discount → ₹400. Fixed-amount commissions are flat and unaffected.
+ */
+export function referralOrderCommissionInPaise(
+  order: {
+    priceInPaise: number;
+    referralCommissionType: ReferralPayoutType | null;
+    referralCommissionPercentage: number | null;
+    referralCommissionAmountInPaise: number | null;
+  },
+  discountShareInPaise: number,
+): number {
+  return order.referralCommissionType === 'PERCENTAGE'
+    ? Math.max(
+        0,
+        computeCommissionInPaise({
+          priceInPaise: order.priceInPaise,
+          commissionType: 'PERCENTAGE',
+          commissionPercentage: order.referralCommissionPercentage,
+          commissionAmountInPaise: order.referralCommissionAmountInPaise,
+        }) - discountShareInPaise,
+      )
+    : computeReferralPayoutInPaise(order);
+}
+
+/**
  * Derive payout for a referral doctor.
  * Formula:
  *   - percentage rules: discounted test-order share × referralCommissionPercentage / 100
@@ -304,23 +333,7 @@ async function deriveReferralPayout(
         0,
         testOrder.priceInPaise - discountShareInPaise
       );
-      // Commission rule (owner, Aug 2026): the FULL bill discount is borne by
-      // the referrer. Percentage commission = (percentage of the GROSS price)
-      // minus the whole discount allocated to this order, floored at 0.
-      // e.g. ₹1000 @ 50% with a ₹100 discount → 500 − 100 = ₹400.
-      // Fixed-amount commissions are flat and unaffected by any discount.
-      const commissionInPaise =
-        testOrder.referralCommissionType === 'PERCENTAGE'
-          ? Math.max(
-              0,
-              computeCommissionInPaise({
-                priceInPaise: testOrder.priceInPaise,
-                commissionType: 'PERCENTAGE',
-                commissionPercentage: testOrder.referralCommissionPercentage,
-                commissionAmountInPaise: testOrder.referralCommissionAmountInPaise,
-              }) - discountShareInPaise
-            )
-          : computeReferralPayoutInPaise(testOrder);
+      const commissionInPaise = referralOrderCommissionInPaise(testOrder, discountShareInPaise);
       totalDerivedInPaise += commissionInPaise;
 
       lineItems.push({

@@ -23,7 +23,7 @@ import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
-  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon, IndianRupee, Search,
+  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon, IndianRupee, Search, RefreshCw,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -45,6 +45,7 @@ import {
   type ReferralPayoutDraft,
 } from '@/lib/referralPayouts';
 import { ReferralCategoryRateCard } from '@/components/owner/ReferralCategoryRateCard';
+import { ReapplyReferralRatesDialog } from '@/components/owner/ReapplyReferralRatesDialog';
 import { useReferralCategories } from '@/lib/payoutCategories';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -103,7 +104,10 @@ const EMPTY_REFERRAL_FORM = {
 // ─── main component ──────────────────────────────────────────────────────────
 
 export default function ManageDoctorsAndReferrals() {
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  const isOwner = user?.role === 'owner';
+  // Re-pricing past bills changes what a doctor is owed — owner only.
+  const [reapplyDoctor, setReapplyDoctor] = useState<{ id: string; name: string } | null>(null);
   const {
     lookupDoctorByPhone,
     getClinicDoctors,
@@ -440,7 +444,12 @@ export default function ManageDoctorsAndReferrals() {
           body: JSON.stringify(payload),
         });
         if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
-        toast.success('Doctor updated');
+        const saved = { id: refEditingId, name: refForm.name };
+        toast.success('Doctor updated', isOwner ? {
+          description: 'New rates apply to new bills. Past bills keep the rate they were billed at.',
+          action: { label: 'Apply to past bills', onClick: () => setReapplyDoctor(saved) },
+          duration: 15000,
+        } : undefined);
       } else {
         const res = await fetch(`${API_BASE}/referral-doctors`, {
           method: 'POST',
@@ -1203,6 +1212,17 @@ export default function ManageDoctorsAndReferrals() {
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
+                      {isOwner && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setReapplyDoctor({ id: doc.id, name: doc.name })}
+                          title="Apply current rates to past bills"
+                          aria-label="Apply current rates to past bills"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)} aria-label="Edit doctor"><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)} aria-label="Delete doctor"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
@@ -1233,6 +1253,8 @@ export default function ManageDoctorsAndReferrals() {
             </div>
           )}
         </div>
+
+        <ReapplyReferralRatesDialog doctor={reapplyDoctor} onClose={() => setReapplyDoctor(null)} />
 
         <AlertDialog open={!!refDeleteId} onOpenChange={() => setRefDeleteId(null)}>
           <AlertDialogContent>

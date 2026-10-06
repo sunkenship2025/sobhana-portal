@@ -4,6 +4,12 @@ import { branchContextMiddleware } from '../middleware/branch';
 import * as doctorService from '../services/doctorService';
 import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
 import { emitCatalogChange } from '../lib/displayEvents';
+import { requireRole } from '../middleware/rbac';
+import {
+  applyReferralReprice,
+  previewReferralReprice,
+  RepriceInputError,
+} from '../services/referralRepriceService';
 
 const router = Router();
 
@@ -316,6 +322,61 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       error: 'INTERNAL_ERROR',
       message: 'Failed to deactivate referral doctor'
     });
+  }
+});
+
+// ==================== RE-APPLY CURRENT RATES TO PAST BILLS ====================
+// Owner only: this changes what doctors are owed on bills already made.
+// branch = 'all' (default) or a branch id; from/to are IST calendar days.
+
+const repriceScope = (q: any) => ({
+  from: String(q.from ?? ''),
+  to: String(q.to ?? ''),
+  branchId: !q.branch || q.branch === 'all' ? null : String(q.branch),
+});
+
+// GET /api/referral-doctors/:id/reprice?from=YYYY-MM-DD&to=YYYY-MM-DD&branch=all
+router.get('/:id/reprice', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const { from, to, branchId } = repriceScope(req.query);
+    return res.json(await previewReferralReprice(req.params.id, from, to, branchId));
+  } catch (err: any) {
+    if (err instanceof RepriceInputError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: err.message });
+    }
+    req.log.error({ err }, 'referral reprice preview failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to preview' });
+  }
+});
+
+// POST /api/referral-doctors/:id/reprice { from, to, branch, excludedOrderIds[], expectedCount }
+router.post('/:id/reprice', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const { from, to, branchId } = repriceScope(req.body ?? {});
+    const excluded = Array.isArray(req.body?.excludedOrderIds)
+      ? req.body.excludedOrderIds.filter((x: unknown): x is string => typeof x === 'string')
+      : [];
+    const expectedCount = Number(req.body?.expectedCount);
+    if (!Number.isInteger(expectedCount) || expectedCount < 1) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'expectedCount is required' });
+    }
+    const result = await applyReferralReprice(
+      req.params.id,
+      from,
+      to,
+      branchId,
+      excluded,
+      expectedCount,
+      req.user!.id,
+      req.branchId!,
+    );
+    return res.json(result);
+  } catch (err: any) {
+    if (err instanceof RepriceInputError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: err.message });
+    }
+    req.log.error({ err }, 'referral reprice apply failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to apply the new rates' });
   }
 });
 

@@ -65,6 +65,8 @@ function classifyAudit(
         return { category: "report", severity: "high", event: "Report changed after finalize" };
       if (et === "bill")
         return { category: "money", severity: "medium", event: "Bill updated" };
+      if (et === "referralratereapplied")
+        return { category: "money", severity: "high", event: "Referral rates re-applied to past bills" };
       if (et === "testdefinition")
         return { category: "report", severity: "low", event: "Clinical definition edited" };
       if (et === "clinicalpanel")
@@ -348,15 +350,20 @@ export async function projectWindow(
     const patientEditDetail = (et === "patient" && r.actionType === AuditActionType.UPDATE)
       ? (() => { const ov = parseJson(r.oldValues); const f = ov?.changedFields; return Array.isArray(f) && f.length ? f.join(", ") : null; })()
       : null;
+    // A re-price says whose payout moved, over which bills, and by how much.
+    const reprice = et === "referralratereapplied" ? parseJson(r.newValues) : null;
+    const repriceDetail = reprice
+      ? `${reprice.doctorName} · bills ${reprice.from} to ${reprice.to} · ${reprice.orderCount} test${reprice.orderCount === 1 ? "" : "s"} · ₹${Math.round(reprice.oldPayoutInPaise / 100).toLocaleString("en-IN")} → ₹${Math.round(reprice.newPayoutInPaise / 100).toLocaleString("en-IN")}`
+      : null;
     return {
       id: `al:${r.id}`, dedupeKey: `al:${r.id}`, branchId: r.branchId,
       occurredAt: r.createdAt, severity: c.severity, category: c.category,
       score: c.severity === "high" ? 4 : c.severity === "medium" ? 2 : 1,
       event: isResultEdit ? "Report values edited" : c.event,
-      detail: editDetail ?? patientEditDetail ?? catalogName ?? patientName ?? "",
+      detail: repriceDetail ?? editDetail ?? patientEditDetail ?? catalogName ?? patientName ?? "",
       actorUserId: r.userId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
       entityType: r.entityType, entityId: r.entityId, patientName,
-      amountInPaise: null, reason: null,
+      amountInPaise: reprice ? Math.abs(reprice.newPayoutInPaise - reprice.oldPayoutInPaise) : null, reason: null,
       drillTo: isDraft ? `/diagnostics/results/${r.entityId}` : null,
       sourceKind: "audit", sourceId: r.id,
     };
