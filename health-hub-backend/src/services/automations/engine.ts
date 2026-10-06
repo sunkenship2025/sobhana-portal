@@ -22,8 +22,9 @@ import { evaluate, UnitMismatch, type EvalTrace, type Subject } from './predicat
 import { communicationPolicy } from './policy';
 import {
   sendForStep, issueCouponForStep, activateCoupon, voidPendingCoupon, couponExpiry, addDays, isSundayIST,
+  restartHeldCode, windowEnds,
 } from './actions';
-import { Outcome, type AutomationDefinition, type Step } from './types';
+import { Outcome, RETRY_DAYS, startsWhenReceived, type AutomationDefinition, type Step } from './types';
 import { resolveRecipients } from './recipients';
 import { TRIGGERS } from './triggers';
 import { holdLine, releaseLine } from './inbound';
@@ -416,6 +417,16 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
     return;
   }
 
+  // A held-back code that starts when they get it gets its full days again on this try —
+  // before the window it keeps open is read below.
+  if (step.kind === 'SEND') await restartHeldCode(runId, run.stepIndex, step, ctx.now);
+  const speaks = step.kind === 'SEND' || step.kind === 'ASK' || step.kind === 'HANDOFF';
+  const codeEndsAt = def.goal && speaks
+    ? (await prisma.coupon.findFirst({
+        where: { automationRunId: runId }, orderBy: { createdAt: 'asc' }, select: { expiresAt: true },
+      }))?.expiresAt ?? null
+    : null;
+
   // The visit that started this journey has since been cancelled. Everything the journey
   // says rests on that visit having happened — a thank-you, an offer for the family, a
   // nudge about tests the doctor advised — so it ends before its next action. A journey
@@ -447,8 +458,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
   // "When it stops", checked before every action — as the builder and Setup both say.
   // It was only ever read to count Results, so a journey that relied on it (rather than a
   // CHECK step of its own) went on reminding people who had already come in.
-  if (def.goal && (step.kind === 'SEND' || step.kind === 'ASK' || step.kind === 'HANDOFF')
-      && ctx.now.getTime() - run.triggeredAt.getTime() <= def.goal.windowDays * DAY_MS) {
+  if (def.goal && speaks && !lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, ctx.now, codeEndsAt)) {
     let met = false;
     try {
       met = await evaluate(def.goal.condition, ctx, subject);
@@ -585,7 +595,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
       // held by the cap or quiet hours past the last day, it ends here instead. The four
       // Day-5 reminders held last night would otherwise have woken on Day 9 asking
       // patients to claim an offer that expired on Day 6.
-      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now)) {
+      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now, codeEndsAt)) {
         await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.MISSED_WINDOW, {
           wouldSendAt: decision.kind === 'DEFER' ? decision.until : ctx.now,
         });
@@ -820,7 +830,7 @@ export async function executeOneStep(runId: string, ctx: AutomationContext, opts
       // held by the cap or quiet hours past the last day, it ends here instead. The four
       // Day-5 reminders held last night would otherwise have woken on Day 9 asking
       // patients to claim an offer that expired on Day 6.
-      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now)) {
+      if (step.intent === 'PROACTIVE' && to.patientId && lateForWindow(run.triggeredAt, def, decision, ctx.now, codeEndsAt)) {
         await log(runId, run.stepIndex, 'SUPPRESSED', Outcome.MISSED_WINDOW, {
           wouldSendAt: decision.kind === 'DEFER' ? decision.until : ctx.now,
         });
@@ -941,15 +951,6 @@ async function handToStaff(runId: string, stepIndex: number, phone: string | nul
   await finish(runId, 'DONE', Outcome.HANDED_TO_STAFF, stepIndex);
 }
 
-/**
- * When a message Meta held back is tried again: days after the FIRST refusal. Meta: wait
- * at least a day, then widen the gaps. WATI retries daily for 7 days, AiSensy three times;
- * nobody publishes a recovery rate. Ours: about one in four got through on a later day.
- * Every journey gets as many of these as its message's useful life allows (nextRetryAt) —
- * a short window gets tight daily tries, a long one spread-out ones.
- */
-const RETRY_DAYS = [1, 2, 4, 7];
-
 /** A try must leave the patient at least this long to use the code it carries. */
 const USEFUL_FOR_MS = 8 * 3600_000;
 
@@ -1042,9 +1043,14 @@ async function nextRetryAt(
     });
     if (asked && asked.at.getTime() + (step.waitHours ?? 24) * 3600_000 <= at.getTime()) return null;
   }
-  const code = await prisma.coupon.findFirst({ where: { automationRunId: runId }, select: { expiresAt: true } });
+  const code = await prisma.coupon.findFirst({
+    where: { automationRunId: runId }, orderBy: { createdAt: 'asc' }, select: { expiresAt: true, automationStep: true },
+  });
+  // A code that starts when they get it is given its full days again by the try that
+  // lands, so neither its age nor the window it keeps open is a reason to stop trying.
+  if (startsWhenReceived(step) && code?.automationStep === stepIndex) return at;
   if (code && code.expiresAt.getTime() - USEFUL_FOR_MS <= at.getTime()) return null;
-  if (lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, at)) return null;
+  if (lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, at, code?.expiresAt ?? null)) return null;
   return at;
 }
 
@@ -1161,20 +1167,11 @@ export function lateForWindow(
   def: AutomationDefinition,
   decision: { kind: string; until?: Date },
   now: Date,
+  /** The run's own code, which keeps the window open while it lives (windowEnds). */
+  codeEndsAt: Date | null = null,
 ): boolean {
-  const days = def.goal?.windowDays;
-  if (!days || days <= 0) return false;
-  let end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
-  // While the journey's own offer is still alive the journey is still open: an offer that
-  // skips Sundays outlives a window counted in plain days, and "expires today" on the
-  // code's last day is not late.
-  for (const st of def.steps ?? []) {
-    const e = (st as { issueOffer?: { expiry?: { anchor: 'TRIGGER' | 'ISSUE'; days: number; endOfDayIST?: boolean; skipSundays?: boolean } } }).issueOffer?.expiry;
-    if (e?.anchor === 'TRIGGER') {
-      const offerEnds = couponExpiry(e, triggeredAt, now, e.days);
-      if (offerEnds > end) end = offerEnds;
-    }
-  }
+  const end = windowEnds(triggeredAt, def, now, codeEndsAt);
+  if (!end) return false;
   const at = decision.kind === 'DEFER' && decision.until ? decision.until : now;
   return at > end;
 }
@@ -1289,12 +1286,19 @@ export async function reconcileConversions(
     },
   });
 
+  // Each run's own code keeps its window open — the same end the sends obey.
+  const codes = await prisma.coupon.findMany({
+    where: { automationRunId: { in: runs.map((r) => r.id) } },
+    select: { automationRunId: true, expiresAt: true },
+  });
+  const codeEnds = new Map(codes.map((c) => [c.automationRunId!, c.expiresAt]));
+
   let converted = 0;
   let reversed = 0;
   for (const run of runs) {
     const def = run.definition as unknown as AutomationDefinition;
     if (def.trigger.kind === 'SCHEDULE' || !def.goal) continue;
-    const windowOpen = ctx.now.getTime() - run.triggeredAt.getTime() <= def.goal.windowDays * DAY_MS;
+    const windowOpen = !lateForWindow(run.triggeredAt, def, { kind: 'SEND' }, ctx.now, codeEnds.get(run.id) ?? null);
     if (!run.convertedAt && !windowOpen) continue;
 
     const subject: Subject = {

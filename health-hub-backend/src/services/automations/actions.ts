@@ -24,6 +24,7 @@ import {
 } from '../whatsappCloudService';
 import { randomBytes, createHash } from 'crypto';
 import { allowedProductsFor } from '../couponService';
+import { Outcome, startsWhenReceived, type AutomationDefinition } from './types';
 
 export interface SendInput {
   runId: string;
@@ -247,6 +248,55 @@ export function couponExpiry(
     ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999,
   );
   return new Date(endOfDayIst - IST_OFFSET_MIN * 60_000);
+}
+
+/**
+ * Meta held back the message that carried this step's code, and this is another try: a
+ * code that starts when they get it starts again now, so the "valid till" it goes out
+ * with is a full one. A code someone has used, or one an earlier step handed out (so the
+ * patient may already hold it), keeps its date.
+ */
+export async function restartHeldCode(runId: string, stepIndex: number, step: object, now: Date): Promise<void> {
+  if (!startsWhenReceived(step)) return;
+  const held = await prisma.automationStepLog.count({ where: { runId, stepIndex, outcome: Outcome.RETRY_SCHEDULED } });
+  if (held === 0) return;
+  const code = await prisma.coupon.findFirst({
+    where: { automationRunId: runId, automationStep: stepIndex, status: { in: ['PENDING', 'ISSUED'] }, redemptions: { none: {} } },
+    select: { id: true, campaign: { select: { validityDays: true } } },
+  });
+  if (!code) return;
+  const expiry = (step as { issueOffer?: { expiry?: Parameters<typeof couponExpiry>[0] } }).issueOffer?.expiry;
+  const expiresAt = expiry
+    ? couponExpiry(expiry, now, now, code.campaign.validityDays)
+    : new Date(now.getTime() + code.campaign.validityDays * DAY_MS);
+  await prisma.coupon.update({ where: { id: code.id }, data: { expiresAt } });
+}
+
+/**
+ * When a journey's window closes: the goal's days from the trigger, to the end of that
+ * day in IST — and never while the journey's own code is still alive. A fixed "end of day
+ * N after the trigger" that skips Sundays outlives plain days, and a code that starts when
+ * they get it can run well past them. Sending, stopping on the goal and counting a
+ * conversion all read this one end. Null without a goal: there is no window.
+ */
+export function windowEnds(
+  triggeredAt: Date,
+  def: Pick<AutomationDefinition, 'goal' | 'steps'>,
+  now: Date,
+  codeEndsAt: Date | null = null,
+): Date | null {
+  const days = def.goal?.windowDays;
+  if (!days || days <= 0) return null;
+  let end = couponExpiry({ anchor: 'TRIGGER', days, endOfDayIST: true }, triggeredAt, now, days);
+  for (const st of def.steps ?? []) {
+    const e = (st as { issueOffer?: { expiry?: Parameters<typeof couponExpiry>[0] } }).issueOffer?.expiry;
+    if (e?.anchor === 'TRIGGER') {
+      const offerEnds = couponExpiry(e, triggeredAt, now, e.days);
+      if (offerEnds > end) end = offerEnds;
+    }
+  }
+  if (codeEndsAt && codeEndsAt > end) end = codeEndsAt;
+  return end;
 }
 
 export async function issueCouponForStep(

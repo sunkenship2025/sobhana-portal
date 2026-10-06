@@ -165,9 +165,10 @@ export type Step =
       issueOffer?: {
         campaignId: string;
         /**
-         * When it dies. Anchored to the TRIGGER by default, so claiming late means less
-         * time rather than a fresh window — an offer that resets every time someone taps
-         * it is not an expiring offer.
+         * When it dies. TRIGGER is a fixed deadline: claiming late, or Meta holding the
+         * message back, means less time rather than a fresh window. ISSUE — and no expiry
+         * at all, the offer's own validity — counts from the message that reaches them,
+         * so a try Meta held back starts the days again (startsWhenReceived).
          */
         expiry?: {
           anchor: 'TRIGGER' | 'ISSUE';
@@ -305,6 +306,25 @@ export interface AutomationDefinition {
    */
   goal?: { condition: Condition; windowDays: number; stopReason?: string };
   steps: Step[];
+}
+
+/**
+ * When a message Meta held back is tried again: days after the FIRST refusal. Meta: wait
+ * at least a day, then widen the gaps. WATI retries daily for 7 days, AiSensy three times;
+ * nobody publishes a recovery rate. Ours: about one in four got through on a later day.
+ * Every journey gets as many of these as its message's useful life allows (nextRetryAt) —
+ * a short window gets tight daily tries, a long one spread-out ones.
+ */
+export const RETRY_DAYS = [1, 2, 4, 7];
+
+/**
+ * Does the code this step hands out count its days from the message that reaches them?
+ * Everything but "end of day N after the trigger" does — so when Meta holds the message
+ * back, the try that gets through gives the code its full days again.
+ */
+export function startsWhenReceived(step: object): boolean {
+  const offer = (step as { issueOffer?: { expiry?: { anchor?: string } } }).issueOffer;
+  return !!offer && offer.expiry?.anchor !== 'TRIGGER';
 }
 
 /** Reason codes. Every decision writes one; an empty outcome is a bug, never a default. */

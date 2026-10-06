@@ -8,6 +8,7 @@
  */
 import prisma from '../../lib/prisma';
 import { Outcome, type AutomationDefinition, type Step } from './types';
+import { windowEnds } from './actions';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,6 +68,8 @@ export interface FunnelRun {
   state: string;
   triggeredAt: Date;
   convertedAt: Date | null;
+  /** When this run's window closes (windowEnds); without it, the goal's plain days. */
+  windowEndsAt?: Date | null;
 }
 
 /** Messages that reached for the run's own patient. Staff alerts carry no patientId. */
@@ -85,8 +88,10 @@ export interface RunMessages {
  * people who never received one. That split is a timeline question, so it holds for any
  * goal on any journey.
  */
-const convertedWithin = (r: Pick<FunnelRun, 'convertedAt' | 'triggeredAt'>, windowDays: number) =>
-  !!r.convertedAt && r.convertedAt.getTime() - r.triggeredAt.getTime() <= windowDays * DAY_MS;
+const convertedWithin = (r: Pick<FunnelRun, 'convertedAt' | 'triggeredAt' | 'windowEndsAt'>, windowDays: number) =>
+  !!r.convertedAt && (r.windowEndsAt
+    ? r.convertedAt <= r.windowEndsAt
+    : r.convertedAt.getTime() - r.triggeredAt.getTime() <= windowDays * DAY_MS);
 
 export function journeyFunnel(
   runs: FunnelRun[],
@@ -237,7 +242,7 @@ export async function automationResults(automationId: string) {
     prisma.coupon.findMany({
       where: { automationRunId: { in: ids } },
       select: {
-        id: true, status: true, expiresAt: true, useCount: true, maxUses: true,
+        id: true, status: true, expiresAt: true, useCount: true, maxUses: true, automationRunId: true,
         // Every use, reversed ones included — the only source of "used" and "given".
         redemptions: { select: { discountInPaise: true, reversedAt: true } },
       },
@@ -265,8 +270,14 @@ export async function automationResults(automationId: string) {
   }
   // A journey built from scratch may have no goal: nothing is counted as converted.
   const windowDays = def.goal?.windowDays ?? 0;
+  // Each run's window as the engine closes it — open while the run's own code lives.
+  const now = new Date();
+  const codeEnds = new Map(coupons.map((c) => [c.automationRunId, c.expiresAt]));
+  const windowed = journeys.map((r) => ({
+    ...r, windowEndsAt: windowEnds(r.triggeredAt, def, now, codeEnds.get(r.id) ?? null),
+  }));
   const funnel = journeyFunnel(
-    journeys, messages, windowDays,
+    windowed, messages, windowDays,
     new Set(refusedMessages.map((m) => m.automationRunId!)),
     new Set(onRetry.map((r) => r.id)),
   );
@@ -284,7 +295,6 @@ export async function automationResults(automationId: string) {
 
   // A PENDING code was never confirmed sent and a VOID one died with its send; neither
   // reached the patient.
-  const now = new Date();
   const codes = coupons.filter((c) => c.status !== 'PENDING' && c.status !== 'VOID');
   // Counted from CouponRedemption, not Coupon.status: a family code used by two of its
   // three relatives is still ISSUED, and read by status it looked unused, with its
@@ -299,7 +309,7 @@ export async function automationResults(automationId: string) {
   // Without a held-back group there is nothing to subtract, and pH = 0 would present
   // every walk-in as caused. No number is the honest answer.
   const controlled = held.length > 0;
-  const converted = journeys.filter((r) => r.convertedBranchId && convertedWithin(r, windowDays));
+  const converted = windowed.filter((r) => r.convertedBranchId && convertedWithin(r, windowDays));
 
   return {
     version: a.version,

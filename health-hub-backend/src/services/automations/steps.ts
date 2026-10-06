@@ -14,7 +14,7 @@
 import { FIELD_CATALOG } from './fields';
 import { TRIGGERS } from './triggers';
 import { missingArgs } from './predicates';
-import type { Condition } from './types';
+import { RETRY_DAYS, startsWhenReceived, type Condition } from './types';
 
 export interface StepMeta {
   kind: string;
@@ -179,9 +179,26 @@ export function validateDefinition(def: {
         // codes, six uses, where one was meant. The gap is "How often", or the journey's
         // own length when only one can run per patient at a time.
         const validity = typeof id === 'string' && knownCampaignIds instanceof Map ? knownCampaignIds.get(id) : undefined;
+        // A code that starts when they get it starts as late as the last try Meta held back.
+        const retries = (step as { retryHeldBack?: boolean }).retryHeldBack !== false;
+        const arrives = sendDay + (retries ? RETRY_DAYS[RETRY_DAYS.length - 1] : 0);
         const lastDay = expiry?.anchor === 'TRIGGER' && typeof expiry.days === 'number' ? expiry.days
-          : expiry?.anchor === 'ISSUE' && typeof expiry.days === 'number' ? sendDay + expiry.days
-          : validity !== undefined ? sendDay + validity : null;
+          : expiry?.anchor === 'ISSUE' && typeof expiry.days === 'number' ? arrives + expiry.days
+          : validity !== undefined ? arrives + validity : null;
+
+        // Its days follow the message, while a later step's day is counted from the
+        // trigger — so a later message that shows the code cannot know how long it has left.
+        if (startsWhenReceived(step) && retries) {
+          const later = steps.findIndex((st, k) => k > i
+            && ((st.params as { from?: string }[] | undefined) ?? []).some((b) => b.from === 'COUPON_CODE' || b.from === 'COUPON_EXPIRY'));
+          if (later > i) {
+            problems.push({
+              where: `step ${i + 1}`,
+              problem: `This code's days start when the message reaches them, so if Meta holds it back they start later — and step ${later + 1}, which shows the code, can no longer be sure how long it has left. For a countdown, end the code on a fixed day after the trigger.`,
+              blocking: false,
+            });
+          }
+        }
         const r = def.reentry;
         if (lastDay !== null && r && r.mode !== 'ONCE') {
           const gap = Math.max(

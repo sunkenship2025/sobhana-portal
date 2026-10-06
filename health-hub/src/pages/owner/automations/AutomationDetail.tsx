@@ -943,7 +943,7 @@ function OfferFields({ issueOffer, onChange }: {
             <span>
               The offer's own validity
               <span className="mt-1 block text-xs text-muted-foreground">
-                {chosen ? `${chosen.validityDays} days` : 'The days set on the offer'}, counted from when the code is sent.
+                {chosen ? `${chosen.validityDays} days` : 'The days set on the offer'}, counted from the message that reaches them.
               </span>
             </span>
           </label>
@@ -958,7 +958,7 @@ function OfferFields({ issueOffer, onChange }: {
                 })} />
               after the trigger
               <span className="mt-1 block text-xs text-muted-foreground">
-                Claiming late means less time, not a fresh window.
+                A fixed last day: claiming late, or Meta holding the message back, leaves less time.
               </span>
             </span>
           </label>
@@ -972,7 +972,7 @@ function OfferFields({ issueOffer, onChange }: {
                 })} />
               days from when they get it
               <span className="mt-1 block text-xs text-muted-foreground">
-                Counted from sending, or from the tap when they claim it — so every claim starts a fresh window.
+                Counted from the message that reaches them — if Meta holds it back, from the try that gets through; claimed by a tap, from the tap.
               </span>
             </span>
           </label>
@@ -995,7 +995,7 @@ function OfferFields({ issueOffer, onChange }: {
  * unless the words name a day — then only a next-day version, if one is chosen, goes.
  */
 function HeldBackField({ step, templates, onChange }: {
-  step: { template: string; retryHeldBack?: boolean; nextDayTemplate?: string };
+  step: { template: string; retryHeldBack?: boolean; nextDayTemplate?: string; issueOffer?: { expiry?: { anchor: string } } };
   templates: TemplateSummary[];
   onChange: (patch: { retryHeldBack?: boolean; nextDayTemplate?: string }) => void;
 }) {
@@ -1024,6 +1024,8 @@ function HeldBackField({ step, templates, onChange }: {
     );
   }
   const retry = step.retryHeldBack ?? true;
+  // The engine's startsWhenReceived: every expiry but a fixed day after the trigger.
+  const restarts = !!step.issueOffer && step.issueOffer.expiry?.anchor !== 'TRIGGER';
   return (
     <div>
       <Label className="text-xs">If Meta holds it back</Label>
@@ -1036,7 +1038,9 @@ function HeldBackField({ step, templates, onChange }: {
       </Select>
       <p className="mt-1.5 text-xs text-muted-foreground">
         {retry
-          ? 'After 1, 2, 4 and 7 days — but only before the journey\'s next message, with a day of its code still left, never at night or on a Sunday. If they write to us meanwhile, it goes in the chat at once.'
+          ? restarts
+            ? 'After 1, 2, 4 and 7 days — but only before the journey\'s next message, never at night or on a Sunday — and the code\'s days start again on the try that gets through. If they write to us meanwhile, it goes in the chat at once.'
+            : 'After 1, 2, 4 and 7 days — but only before the journey\'s next message, with a day of its code still left, never at night or on a Sunday. If they write to us meanwhile, it goes in the chat at once.'
           : 'Meta limits marketing messages per person across every business. Bills and reports are never held back.'}
       </p>
     </div>

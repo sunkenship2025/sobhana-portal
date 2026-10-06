@@ -324,6 +324,56 @@ async function main() {
     assert.strictEqual(lateForWindow(trig, def, { kind: 'DEFER', until: day7 }, day6At9pm), true, 'held to the next morning, past the last day');
   });
 
+  // "N days from when they get it" meant the first try. Meta held 40 Balanagar family
+  // offers back; one that got through on its Day-7 try had 3 of its 10 days left.
+  await check('a code that starts when they get it keeps its journey open while it lives', () => {
+    const { startsWhenReceived } = require('./src/services/automations/types');
+    const { windowEnds } = require('./src/services/automations/actions');
+    const offer = (expiry?: object) => ({ kind: 'SEND', issueOffer: { campaignId: 'c', ...(expiry ? { expiry } : {}) } });
+    assert.strictEqual(startsWhenReceived(offer({ anchor: 'ISSUE', days: 10 })), true, 'days from when they get it');
+    assert.strictEqual(startsWhenReceived(offer()), true, "the offer's own validity counts from the message too");
+    assert.strictEqual(startsWhenReceived(offer({ anchor: 'TRIGGER', days: 10 })), false, 'a fixed day after the trigger is a deadline');
+    assert.strictEqual(startsWhenReceived({ kind: 'SEND' }), false, 'no offer, nothing to restart');
+
+    const def = { goal: { condition: { fn: 'always' }, windowDays: 10 }, steps: [offer({ anchor: 'ISSUE', days: 10 })] } as never;
+    const trig = new Date('2026-10-05T10:00:00Z');
+    const day10End = windowEnds(trig, def, trig);
+    const reachedDay7 = new Date('2026-10-22T18:29:59Z');               // a code restarted on Day 7, to 22 Oct
+    assert.strictEqual(windowEnds(trig, def, trig, reachedDay7)!.getTime(), reachedDay7.getTime(), 'the code holds the window open');
+    assert.strictEqual(windowEnds(trig, def, trig, new Date('2026-10-07T00:00:00Z'))!.getTime(), day10End!.getTime(), 'an earlier code never shortens it');
+    assert.strictEqual(windowEnds(trig, { steps: [] } as never, trig), null, 'no goal, no window');
+    const day15 = new Date('2026-10-20T06:00:00Z');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'SEND' }, day15), true, 'past the goal days on its own');
+    assert.strictEqual(lateForWindow(trig, def, { kind: 'SEND' }, day15, reachedDay7), false, 'inside while the code lives');
+
+    // Results count a Day-15 use against the same end.
+    const run = { id: 'r', holdout: false, state: 'DONE', triggeredAt: trig, convertedAt: day15 };
+    const msg = new Map([['r', { firstAt: trig, delivered: true, read: false }]]);
+    assert.strictEqual(journeyFunnel([run], msg, 10).afterMessage, 0, 'plain days drop it');
+    assert.strictEqual(journeyFunnel([{ ...run, windowEndsAt: reachedDay7 }], msg, 10).afterMessage, 1, 'the code keeps it in');
+  });
+
+  await check('the builder says when a code that starts on arrival meets a countdown', () => {
+    const wait = { kind: 'WAIT', anchor: 'TRIGGER', days: 6 };
+    const code = (expiry: object) => ({ kind: 'SEND', template: 't', intent: 'PROACTIVE',
+      params: [{ from: 'COUPON_CODE' }], issueOffer: { campaignId: 'c', expiry } });
+    const reminder = { kind: 'SEND', template: 'r', intent: 'PROACTIVE', params: [{ from: 'COUPON_CODE' }] };
+    const base = { trigger: { kind: 'VISIT_COMPLETED' }, audience: { fn: 'always' }, reentry: { mode: 'ONCE', concurrency: 'ONE_ACTIVE_PER_PATIENT' } };
+    const warns = (steps: object[]) => validateDefinition({ ...base, steps } as never, new Set(['c']))
+      .filter((p) => /can no longer be sure/.test(p.problem));
+    assert.strictEqual(warns([code({ anchor: 'ISSUE', days: 7 }), wait, reminder]).length, 1, 'countdown after a code that moves');
+    assert.strictEqual(warns([code({ anchor: 'TRIGGER', days: 7 }), wait, reminder]).length, 0, 'a fixed last day can be counted down to');
+    assert.strictEqual(warns([code({ anchor: 'ISSUE', days: 10 })]).length, 0, 'nothing later shows the code');
+    assert.strictEqual(warns([{ ...code({ anchor: 'ISSUE', days: 7 }), retryHeldBack: false }, wait, reminder]).length, 0, 'sent once, it never moves');
+
+    // A code that can start on the last try lasts that much longer: the two-codes guard counts it.
+    const every = { ...base, reentry: { mode: 'EVERY_N_DAYS', days: 12, concurrency: 'ONE_ACTIVE_PER_PATIENT' } };
+    const overlap = (steps: object[]) => validateDefinition({ ...every, steps } as never, new Set(['c']))
+      .some((p) => /hold two codes/.test(p.problem));
+    assert.strictEqual(overlap([code({ anchor: 'ISSUE', days: 10 })]), true, '10 days from a Day-7 try outlasts a 12-day gap');
+    assert.strictEqual(overlap([{ ...code({ anchor: 'ISSUE', days: 10 }), retryHeldBack: false }]), false, 'sent once it ends by day 10');
+  });
+
   await check('a phone that replied STOP silences marketing for every patient on it', async () => {
     const ctx = gate({}, { optedOutPhones: ['919876543210'] });
     const d = await communicationPolicy(ctx, {
