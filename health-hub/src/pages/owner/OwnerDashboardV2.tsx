@@ -613,6 +613,11 @@ function KpiRow({
 }) {
   const cur = totalsPoint(data.kpis.current);
   const prior = totalsPoint(data.kpis.prior);
+  // A single day is compared with the same weekday a week earlier.
+  const oneDay = Date.parse(data.period.endIso) - Date.parse(data.period.startIso) === 86_400_000;
+  const vs = oneDay
+    ? `vs last ${new Date(data.period.startIso).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })}`
+    : 'vs prior';
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {METRIC_ORDER.map((k) => {
@@ -632,6 +637,7 @@ function KpiRow({
             value={now == null ? '—' : m.format(now)}
             delta={delta}
             deltaGoodWhenUp={m.goodWhenUp}
+            vs={vs}
             footnote="no prior period to compare"
             spark={metricSeries(m, data.trend, adjacent).average}
             selected={metric === k}

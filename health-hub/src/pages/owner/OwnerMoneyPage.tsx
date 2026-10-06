@@ -4,10 +4,12 @@
  * Net collected (cash + online − refunds) is the basis, as on the dashboard;
  * every list that splits money adds back up to it.
  *
- * Top to bottom: KPIs · each day's money (cash / online / refunds) beside how
- * it came in, by branch · the breakdown table · open dues (aging + oldest) ·
- * who collected it beside money given back · discounts: who gave them, why,
- * and the log.
+ * Top to bottom: what came in and what left it (KPIs, each outflow as a share
+ * of collected) · money over the period — by hour for a single day — beside
+ * how it came in · where it goes: commission and money given back ·
+ * discounts · who collected it beside open dues · the breakdown table.
+ *
+ * A single day is compared with the same weekday a week earlier.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -66,8 +68,12 @@ interface MoneyResponse {
     cashInPaise?: number;
     onlineInPaise?: number;
     refundsInPaise?: number;
-    prior?: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number };
+    cancelledInPaise?: number;
+    commissionSplit?: { referralInPaise: number; partnerInPaise: number; clinicInPaise: number };
+    prior?: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number; commission?: number; cancelled?: number };
   };
+  comparison?: { startIso: string; endIso: string; sameWeekday: boolean };
+  byHour?: { hour: number; cash: number; online: number; refunds: number; prior: { cash: number; online: number; refunds: number } }[] | null;
   revenueTrend: {
     date: string;
     netInPaise: number;
@@ -183,15 +189,27 @@ function avg7(values: number[], seed: number[] = []): (number | null)[] {
 
 // ----- KPIs ---------------------------------------------------------------
 
+/** "vs last Tue" for a single day, else "vs prior period". */
+function vsLabel(data: MoneyResponse): string {
+  if (!data.comparison?.sameWeekday) return 'vs prior period';
+  const day = new Date(data.comparison.startIso).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' });
+  return `vs last ${day}`;
+}
+
 function MoneyKpis({ data }: { data: MoneyResponse }) {
   const k = data.kpis;
   const t = data.revenueTrend;
   const p = k.prior;
+  const vs = vsLabel(data);
   type Day = NonNullable<MoneyResponse['revenueTrend'][number]['prior']>;
   // 7-day average of one series, seeded from the period before.
-  const spark = (key: keyof Day) => avg7(t.map((d) => (key === 'collected' ? d.collectedInPaise ?? d.netInPaise : key === 'net' ? d.netInPaise : d[key] ?? 0)), t.map((d) => d.prior?.[key] ?? 0));
+  const spark = (key: keyof Day) =>
+    t.length < 2
+      ? undefined
+      : avg7(t.map((d) => (key === 'collected' ? d.collectedInPaise ?? d.netInPaise : key === 'net' ? d.netInPaise : d[key] ?? 0)), t.map((d) => d.prior?.[key] ?? 0));
   const collected = k.netCollectedInPaise ?? 0;
-  const cashShare = collected > 0 ? Math.round(((k.cashInPaise ?? 0) / ((k.cashInPaise ?? 0) + (k.onlineInPaise ?? 0) || 1)) * 100) : 0;
+  const share = (v: number) => (collected > 0 ? ` · ${((v / collected) * 100).toFixed(1)}% of collected` : '');
+  const givenBack = (k.refundsInPaise ?? 0) + (k.cancelledInPaise ?? 0);
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <KpiTile
@@ -199,6 +217,7 @@ function MoneyKpis({ data }: { data: MoneyResponse }) {
         hint="Cash + online − refunds"
         value={rupees(collected)}
         delta={deltaOf(collected, p?.netCollected)}
+        vs={vs}
         spark={spark('collected')}
       />
       <KpiTile
@@ -206,37 +225,43 @@ function MoneyKpis({ data }: { data: MoneyResponse }) {
         hint="Net collected − commission"
         value={rupees(k.netInPaise)}
         delta={deltaOf(k.netInPaise, p?.net)}
+        vs={vs}
         spark={spark('net')}
       />
       <KpiTile
-        label="Cash"
-        hint="Cash received (before refunds)"
-        value={rupees(k.cashInPaise ?? 0)}
-        delta={deltaOf(k.cashInPaise ?? 0, p?.cash)}
-        spark={spark('cash')}
-      />
-      <KpiTile
-        label="Online"
-        hint="UPI / card / bank received (before refunds)"
-        value={rupees(k.onlineInPaise ?? 0)}
-        delta={deltaOf(k.onlineInPaise ?? 0, p?.online)}
-        spark={spark('online')}
-        footnote={`${100 - cashShare}% of money in`}
+        label="Commission"
+        hint={`Earned by referring doctors and partners${share(k.commissionInPaise)}`}
+        value={rupees(k.commissionInPaise)}
+        delta={deltaOf(k.commissionInPaise, p?.commission)}
+        deltaGoodWhenUp={false}
+        vs={vs}
+        footnote={share(k.commissionInPaise).slice(3)}
       />
       <KpiTile
         label="Discounts given"
-        hint={`${k.discountBillCount} bills${k.couponInPaise ? ` · ${rupeesShort(k.couponInPaise)} by offer code` : ''}`}
+        hint={`${k.discountBillCount} bills${k.couponInPaise ? ` · ${rupeesShort(k.couponInPaise)} by offer code` : ''}${share(k.discountInPaise)}`}
         value={rupees(k.discountInPaise)}
         delta={deltaOf(k.discountInPaise, p?.discount)}
         deltaGoodWhenUp={false}
+        vs={vs}
         spark={spark('discount')}
+      />
+      <KpiTile
+        label="Refunds + cancellations"
+        hint={`Refunds paid out ${rupees(k.refundsInPaise ?? 0)} · charges cancelled ${rupees(k.cancelledInPaise ?? 0)}`}
+        value={rupees(givenBack)}
+        delta={p?.cancelled != null ? deltaOf(givenBack, p.refunds + p.cancelled) : null}
+        deltaGoodWhenUp={false}
+        vs={vs}
+        spark={spark('refunds')}
       />
       <Link to="/money/bills?aging=open" className="block h-full" style={{ textDecoration: 'none' }}>
         <KpiTile
           label="Open dues"
+          hint="Still to collect, on all bills"
           value={rupees(k.outstandingInPaise)}
           delta={null}
-          footnote={`${k.outstandingAgedBillCount} bill${k.outstandingAgedBillCount === 1 ? '' : 's'} over 30 days · open ↗`}
+          footnote={`${k.outstandingAgedBillCount} bill${k.outstandingAgedBillCount === 1 ? '' : 's'} over 30 days ↗`}
         />
       </Link>
     </div>
@@ -310,6 +335,54 @@ function DailyMoneyCard({
   );
 }
 
+const hourLabel = (h: number) => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+
+/** A single day: money by hour, against the same hours a week earlier. */
+function HourlyMoneyCard({ data, periodLabel }: { data: MoneyResponse; periodLabel: string }) {
+  const hours = data.byHour ?? [];
+  const net = (h: { cash: number; online: number; refunds: number }) => h.cash + h.online - h.refunds;
+  const busy = hours.filter((h) => net(h) !== 0 || net(h.prior) !== 0).map((h) => h.hour);
+  const from = Math.min(7, ...busy);
+  const to = Math.max(21, ...busy);
+  const shown = hours.filter((h) => h.hour >= from && h.hour <= to);
+  const last = vsLabel(data).replace(/^vs /, '');
+  const swatch = (color: string, label: string, dashed?: boolean) => (
+    <span className="inline-flex items-center gap-1.5">
+      {dashed ? (
+        <span style={{ width: 14, display: 'inline-block', borderTop: `2px dashed ${color}` }} />
+      ) : (
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
+      )}
+      {label}
+    </span>
+  );
+  return (
+    <SectionCard label={`Money by hour · ${periodLabel}`} description={`When it came in, against the same hours ${last}`} className="h-full">
+      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        {swatch(ONLINE, 'Online')}
+        {swatch(CASH, 'Cash')}
+        {swatch(REFUND, 'Refunds')}
+        {swatch(TOKENS.textTertiary, `Same hour ${last}`, true)}
+      </div>
+      <ComparisonTrendChart
+        days={shown.map((h) => ({ date: String(h.hour), value: net(h), prior: net(h.prior) }))}
+        average={shown.map(() => null)}
+        priorAverage={shown.map((h) => net(h.prior))}
+        format={rupeesAxis}
+        height={300}
+        valueLabel="Net collected"
+        axisLabel={(k) => hourLabel(Number(k))}
+        titleLabel={(k) => `${hourLabel(Number(k))} – ${hourLabel(Number(k) + 1)}`}
+        parts={[
+          { label: 'Online', color: ONLINE, values: shown.map((h) => h.online) },
+          { label: 'Cash', color: CASH, values: shown.map((h) => h.cash) },
+          { label: 'Refunds', color: REFUND, values: shown.map((h) => -h.refunds) },
+        ]}
+      />
+    </SectionCard>
+  );
+}
+
 function HowItCameInCard({ data, periodLabel }: { data: MoneyResponse; periodLabel: string }) {
   const k = data.kpis;
   const branches = data.cashByBranch.filter((b) => b.totalInPaise !== 0);
@@ -338,22 +411,24 @@ function HowItCameInCard({ data, periodLabel }: { data: MoneyResponse; periodLab
 
 type AgingKey = MoneyResponse['aging'][number]['key'];
 
-function AgingCard({
-  aging,
+function OpenDuesCard({
+  data,
   selectedKey,
   onSelect,
 }: {
-  aging: MoneyResponse['aging'];
+  data: MoneyResponse;
   selectedKey: AgingKey | null;
   onSelect: (key: AgingKey | null) => void;
 }) {
   // Older is worse: the same bar, warming from neutral to red.
   const colors = [SERIES_BLUE, TOKENS.cautionLight, TOKENS.caution, TOKENS.critical];
+  const { aging, kpis } = data;
   const total = aging.reduce((s, b) => s + b.amountInPaise, 0);
+  const rows = selectedKey ? data.oldestUnpaid.filter((r) => agingKeyForDays(r.daysOverdue) === selectedKey) : data.oldestUnpaid;
   return (
     <SectionCard
-      label="Open dues by age"
-      description="Days since billed · click one to filter the list beside it"
+      label="Open dues"
+      description={`Still to collect on all bills${kpis.dueInPaise > 0 ? ` · ${rupees(kpis.dueInPaise)} of it billed in this period` : ''} · click an age to filter`}
       className="h-full"
       rightSlot={
         selectedKey ? (
@@ -367,22 +442,44 @@ function AgingCard({
       }
     >
       {total === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No open dues.</div>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>Everything is paid.</div>
       ) : (
-        <BarList
-          keepOrder
-          rows={aging.map((b, i) => ({
-            key: b.key,
-            label: b.label,
-            value: b.amountInPaise,
-            note: `${b.billCount} bill${b.billCount === 1 ? '' : 's'}`,
-            color: colors[i],
-          }))}
-          format={rupees}
-          totalLabel="Open dues"
-          onPick={(k) => onSelect(selectedKey === k ? null : (k as AgingKey))}
-          selected={selectedKey}
-        />
+        <>
+          <BarList
+            keepOrder
+            rows={aging.map((b, i) => ({
+              key: b.key,
+              label: b.label,
+              value: b.amountInPaise,
+              note: `${b.billCount} bill${b.billCount === 1 ? '' : 's'}`,
+              color: colors[i],
+            }))}
+            format={rupees}
+            totalLabel="Open dues"
+            onPick={(k) => onSelect(selectedKey === k ? null : (k as AgingKey))}
+            selected={selectedKey}
+          />
+          <div className="mt-4 mb-1 font-medium" style={{ fontSize: 13 }}>Open longest</div>
+          {rows.length === 0 ? (
+            <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>None of the five oldest are in this age.</div>
+          ) : (
+            rows.map((r) => (
+              <div key={r.billId} className="flex items-baseline justify-between gap-3 py-1.5" style={{ ...ROW, fontSize: 13 }}>
+                <span className="min-w-0">
+                  <Link to={`/clinic/patient-360/${r.patientId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
+                    {formatPatientName(r.patientName, r.patientTitle)}
+                  </Link>
+                  <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.billNumber}</span>
+                </span>
+                <span className="whitespace-nowrap" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ color: r.daysOverdue > 30 ? TOKENS.critical : TOKENS.caution, fontSize: 12 }}>{r.daysOverdue} days</span>
+                  {'  '}
+                  {rupees(r.owedInPaise)}
+                </span>
+              </div>
+            ))
+          )}
+        </>
       )}
     </SectionCard>
   );
@@ -393,92 +490,6 @@ function agingKeyForDays(days: number): AgingKey {
   if (days <= 15) return '8_15';
   if (days <= 30) return '16_30';
   return '30_plus';
-}
-
-function OldestUnpaidCard({
-  rows,
-  filterKey,
-  filterLabel,
-  onClearFilter,
-}: {
-  rows: MoneyResponse['oldestUnpaid'];
-  filterKey: AgingKey | null;
-  filterLabel: string | null;
-  onClearFilter: () => void;
-}) {
-  const visibleRows = filterKey
-    ? rows.filter((r) => agingKeyForDays(r.daysOverdue) === filterKey)
-    : rows;
-  return (
-    <SectionCard
-      label="Oldest unpaid"
-      description="The five bills open longest"
-      className="h-full"
-      rightSlot={
-        filterKey ? (
-          <button
-            onClick={onClearFilter}
-            style={{
-              color: TOKENS.info,
-              background: 'transparent',
-              border: 0,
-              fontSize: 12,
-              padding: 0,
-              cursor: 'pointer',
-            }}
-          >
-            {filterLabel} ✕
-          </button>
-        ) : null
-      }
-    >
-      {rows.length === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>Everything is paid.</div>
-      ) : visibleRows.length === 0 ? (
-        <EmptyState label="No bills in this aging bucket" hint="Clear the filter to see all" />
-      ) : (
-        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-          <thead>
-            <tr style={{ textAlign: 'left' }}>
-              <th className="pb-2" style={TH}>Patient</th>
-              <th className="pb-2" style={TH}>Bill</th>
-              <th className="pb-2 text-right" style={TH}>Days open</th>
-              <th className="pb-2 text-right" style={TH}>Owed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows.map((r) => (
-              <tr key={r.billId} style={ROW}>
-                <td className="py-2">
-                  <Link
-                    to={`/clinic/patient-360/${r.patientId}`}
-                    style={{ color: TOKENS.info, textDecoration: 'none' }}
-                  >
-                    {formatPatientName(r.patientName, r.patientTitle)}
-                  </Link>
-                  <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.branchCode}</span>
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                  {r.billNumber}
-                </td>
-                <td
-                  className="py-2 text-right"
-                  style={{
-                    color: r.daysOverdue > 30 ? TOKENS.critical : TOKENS.caution,
-                  }}
-                >
-                  {r.daysOverdue} days
-                </td>
-                <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                  {rupees(r.owedInPaise)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </SectionCard>
-  );
 }
 
 // ----- cash by branch / user -------------------------------------------
@@ -570,6 +581,38 @@ function StaffCard({
           </tfoot>
         </table>
       )}
+    </SectionCard>
+  );
+}
+
+/** Who earns the commission — the biggest thing between collected and kept. */
+function CommissionCard({ data, periodLabel }: { data: MoneyResponse; periodLabel: string }) {
+  const k = data.kpis;
+  const referrers = [...(data.breakdown?.referrers ?? [])].filter((r) => r.commission > 0).sort((a, b) => b.commission - a.commission);
+  const top = referrers.slice(0, 8);
+  const rest = referrers.slice(8);
+  const split = k.commissionSplit;
+  const rows: BarRow[] = top.map((r) => ({ key: r.referralDoctorId, label: r.name.replace(/\s{2,}.*$/, ''), value: r.commission, note: `${r.visits} visits` }));
+  if (rest.length) rows.push({ key: '__rest', label: `${rest.length} other doctors`, value: rest.reduce((s, r) => s + r.commission, 0) });
+  // Doctors' rows add up to the referral part; partners and clinic doctors make up the rest.
+  const doctorsTotal = referrers.reduce((s, r) => s + r.commission, 0);
+  const unassigned = (split?.referralInPaise ?? doctorsTotal) - doctorsTotal;
+  if (Math.abs(unassigned) >= 100) rows.push({ key: '__none', label: 'Tests with no doctor named', value: unassigned });
+  if (split?.partnerInPaise) rows.push({ key: '__partner', label: 'Partners', value: split.partnerInPaise });
+  if (split?.clinicInPaise) rows.push({ key: '__clinic', label: 'Clinic doctors', value: split.clinicInPaise });
+  const collected = k.netCollectedInPaise ?? 0;
+  return (
+    <SectionCard
+      label={`Commission · ${periodLabel}`}
+      description={`${collected > 0 ? `${((k.commissionInPaise / collected) * 100).toFixed(1)}% of collected · ` : ''}by who earns it`}
+      className="h-full"
+      rightSlot={
+        <Link to="/owner/payouts" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
+          Payouts ↗
+        </Link>
+      }
+    >
+      <BarList rows={rows} keepOrder format={rupeesShort} totalLabel="Commission" />
     </SectionCard>
   );
 }
@@ -890,7 +933,6 @@ export default function OwnerMoneyPage() {
 
   const data = query.data;
   const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
-  const agingLabelByKey = new Map((data?.aging ?? []).map((b) => [b.key, b.label]));
 
   return (
     <AppLayout context="owner" hideContextBanner>
@@ -953,10 +995,37 @@ export default function OwnerMoneyPage() {
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
               <div className="lg:col-span-8">
-                <DailyMoneyCard trend={data.revenueTrend} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
+                {data.byHour ? (
+                  <HourlyMoneyCard data={data} periodLabel={periodLabel} />
+                ) : (
+                  <DailyMoneyCard trend={data.revenueTrend} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
+                )}
               </div>
               <div className="lg:col-span-4">
                 <HowItCameInCard data={data} periodLabel={periodLabel} />
+              </div>
+            </div>
+
+            <div>
+              <GroupLabel>Where it goes</GroupLabel>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                <div className="lg:col-span-7">
+                  <CommissionCard data={data} periodLabel={periodLabel} />
+                </div>
+                <div className="lg:col-span-5">
+                  <GivenBackCard data={data} />
+                </div>
+              </div>
+            </div>
+
+            <DiscountsCard rows={data.discountLog} periodLabel={periodLabel} />
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-7">
+                <StaffCard rows={data.cashByUser} total={data.kpis.netCollectedInPaise ?? 0} />
+              </div>
+              <div className="lg:col-span-5">
+                <OpenDuesCard data={data} selectedKey={agingFilter} onSelect={setAgingFilter} />
               </div>
             </div>
 
@@ -964,6 +1033,7 @@ export default function OwnerMoneyPage() {
               <MoneyBreakdown
                 data={data.breakdown}
                 periodLabel={periodLabel}
+                initialBy={data.revenueTrend.length <= 1 ? 'branch' : 'day'}
                 onPickDay={(d) => setCustomRange({ start: d, end: d })}
                 onPickBranch={setBranchValue}
                 referrerHref={(id) => {
@@ -975,37 +1045,6 @@ export default function OwnerMoneyPage() {
                 }}
               />
             )}
-
-            <div>
-              <GroupLabel>
-                Open dues · {rupees(data.kpis.outstandingInPaise)} on all bills
-                {data.kpis.dueInPaise > 0 && ` · ${rupees(data.kpis.dueInPaise)} of it billed in this period`}
-              </GroupLabel>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-                <div className="lg:col-span-5">
-                  <AgingCard aging={data.aging} selectedKey={agingFilter} onSelect={setAgingFilter} />
-                </div>
-                <div className="lg:col-span-7">
-                  <OldestUnpaidCard
-                    rows={data.oldestUnpaid}
-                    filterKey={agingFilter}
-                    filterLabel={agingFilter ? agingLabelByKey.get(agingFilter) ?? null : null}
-                    onClearFilter={() => setAgingFilter(null)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              <div className="lg:col-span-7">
-                <StaffCard rows={data.cashByUser} total={data.kpis.netCollectedInPaise ?? 0} />
-              </div>
-              <div className="lg:col-span-5">
-                <GivenBackCard data={data} />
-              </div>
-            </div>
-
-            <DiscountsCard rows={data.discountLog} periodLabel={periodLabel} />
           </div>
         )}
       </div>

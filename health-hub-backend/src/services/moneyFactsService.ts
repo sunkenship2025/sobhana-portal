@@ -65,6 +65,18 @@ export interface CategoryFact {
   tests: number;
 }
 
+const DAY_MS = 86_400_000;
+/**
+ * The window a period is compared with. A single day is compared with the same
+ * weekday a week earlier — Tuesday against Monday says more about the weekday
+ * than the business. Longer windows use the equal stretch just before.
+ */
+export function comparisonWindow(win: { start: Date; end: Date }): { start: Date; end: Date } {
+  const span = win.end.getTime() - win.start.getTime();
+  const shift = Math.round(span / DAY_MS) === 1 ? 7 * DAY_MS : span;
+  return { start: new Date(win.start.getTime() - shift), end: new Date(win.end.getTime() - shift) };
+}
+
 const IST_DAY = (col: Prisma.Sql) =>
   Prisma.sql`to_char(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')`;
 
@@ -284,11 +296,12 @@ export interface ReferrerFact {
 }
 
 /**
- * Per referring doctor: this window vs the one before it (split at `splitAt`),
+ * Per referring doctor: this window (from `splitAt`) vs the comparison window
+ * (scope start to `priorEnd`),
  * by test date. Commission follows the statement, from the same `priced` rows
  * the engine sums.
  */
-export async function getReferrerFacts(scope: MoneyScope, splitAt: Date): Promise<ReferrerFact[]> {
+export async function getReferrerFacts(scope: MoneyScope, splitAt: Date, priorEnd: Date = splitAt): Promise<ReferrerFact[]> {
   if (scope.domain === 'CLINIC') return [];
   const rows = await prisma.$queryRaw<any[]>`
     ${liveOrderShares(scope)}
@@ -296,8 +309,8 @@ export async function getReferrerFacts(scope: MoneyScope, splitAt: Date): Promis
            count(DISTINCT p."visitId") FILTER (WHERE p."createdAt" >= ${splitAt}) AS visits,
            sum(p.price) FILTER (WHERE p."createdAt" >= ${splitAt}) AS billed,
            sum(p.commission) FILTER (WHERE p."createdAt" >= ${splitAt}) AS commission,
-           count(DISTINCT p."visitId") FILTER (WHERE p."createdAt" < ${splitAt}) AS "priorVisits",
-           sum(p.price) FILTER (WHERE p."createdAt" < ${splitAt}) AS "priorBilled"
+           count(DISTINCT p."visitId") FILTER (WHERE p."createdAt" < ${priorEnd}) AS "priorVisits",
+           sum(p.price) FILTER (WHERE p."createdAt" < ${priorEnd}) AS "priorBilled"
     FROM priced p JOIN "ReferralDoctor" rd ON rd.id = p."referralDoctorId"
     WHERE p."cancelledAt" IS NULL AND p."createdAt" >= ${scope.start} AND p."createdAt" < ${scope.end}
     GROUP BY 1, 2`;
@@ -325,7 +338,7 @@ export interface SourceFact {
  * Where billing came from, by bill date: a partner's patient (any test routed
  * through a partner), a doctor's referral, a walk-in, or a clinic consultation.
  */
-export async function getSourceFacts(scope: MoneyScope, splitAt: Date): Promise<SourceFact[]> {
+export async function getSourceFacts(scope: MoneyScope, splitAt: Date, priorEnd: Date = splitAt): Promise<SourceFact[]> {
   const { start, end, branchId, domain } = scope;
   const rows = await prisma.$queryRaw<any[]>`
     SELECT CASE
@@ -336,8 +349,8 @@ export async function getSourceFacts(scope: MoneyScope, splitAt: Date): Promise<
            END AS source,
            count(*) FILTER (WHERE b."billedAt" >= ${splitAt}) AS visits,
            sum(b."totalAmountInPaise") FILTER (WHERE b."billedAt" >= ${splitAt}) AS gross,
-           count(*) FILTER (WHERE b."billedAt" < ${splitAt}) AS "priorVisits",
-           sum(b."totalAmountInPaise") FILTER (WHERE b."billedAt" < ${splitAt}) AS "priorGross"
+           count(*) FILTER (WHERE b."billedAt" < ${priorEnd}) AS "priorVisits",
+           sum(b."totalAmountInPaise") FILTER (WHERE b."billedAt" < ${priorEnd}) AS "priorGross"
     FROM "Bill" b JOIN "Visit" v ON v.id = b."visitId"
     WHERE b."billedAt" >= ${start} AND b."billedAt" < ${end}
           ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
@@ -388,7 +401,7 @@ export interface CollectedSplit {
  * adds back up to the headline. A bill with no live test left (all cancelled)
  * keeps its money under "Cancelled bills"; a consultation under "OP consultation".
  */
-export async function getCollectedSplits(scope: MoneyScope, splitAt: Date): Promise<CollectedSplit[]> {
+export async function getCollectedSplits(scope: MoneyScope, splitAt: Date, priorEnd: Date = splitAt): Promise<CollectedSplit[]> {
   const { start, end, branchId, domain } = scope;
   const rows = await prisma.$queryRaw<any[]>`
     WITH pay AS (
@@ -398,7 +411,7 @@ export async function getCollectedSplits(scope: MoneyScope, splitAt: Date): Prom
                       FILTER (WHERE pt."transactionDate" >= ${splitAt}), 0)::numeric AS cur,
              coalesce(sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" IN ('CASH', 'ONLINE') THEN pt."amountInPaise"
                                WHEN pt."transactionType" = 'REFUND' THEN -pt."amountInPaise" ELSE 0 END)
-                      FILTER (WHERE pt."transactionDate" < ${splitAt}), 0)::numeric AS prior
+                      FILTER (WHERE pt."transactionDate" < ${priorEnd}), 0)::numeric AS prior
       FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id = pt."billId" JOIN "Visit" v ON v.id = b."visitId"
       WHERE pt."transactionDate" >= ${start} AND pt."transactionDate" < ${end}
             ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
@@ -460,4 +473,20 @@ export async function getCollectedByDay(
           ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
     GROUP BY 1`;
   return rows.map((r) => ({ date: r.date, collected: n(r.collected) }));
+}
+
+/** Net collected by IST hour within the scope — a single day's shape. */
+export async function getCollectedByHour(scope: MoneyScope): Promise<{ hour: number; cash: number; online: number; refunds: number }[]> {
+  const { start, end, branchId, domain } = scope;
+  const rows = await prisma.$queryRaw<any[]>`
+    SELECT extract(hour FROM pt."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+           sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" = 'CASH' THEN pt."amountInPaise" ELSE 0 END) AS cash,
+           sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" = 'ONLINE' THEN pt."amountInPaise" ELSE 0 END) AS online,
+           sum(CASE WHEN pt."transactionType" = 'REFUND' THEN pt."amountInPaise" ELSE 0 END) AS refunds
+    FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id = pt."billId" JOIN "Visit" v ON v.id = b."visitId"
+    WHERE pt."transactionDate" >= ${start} AND pt."transactionDate" < ${end}
+          ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
+          ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
+    GROUP BY 1`;
+  return rows.map((r) => ({ hour: n(r.hour), cash: n(r.cash), online: n(r.online), refunds: n(r.refunds) }));
 }

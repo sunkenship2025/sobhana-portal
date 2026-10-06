@@ -129,9 +129,12 @@ export function KpiTile({
   onSelect,
   footnote,
   hint,
+  vs = 'vs prior',
 }: {
   label: string;
   hint?: string;
+  /** What the change is against, e.g. "vs last Tue". */
+  vs?: string;
   value: string;
   /** Already formatted, e.g. "+13%" or "−0.4 pts"; null = nothing to compare. */
   delta: { text: string; up: boolean } | null;
@@ -142,6 +145,7 @@ export function KpiTile({
   footnote?: string;
 }) {
   const good = delta ? delta.up === deltaGoodWhenUp : true;
+  const flat = delta?.text === '0%'; // no change is neither good nor bad
   const Tag = onSelect ? 'button' : 'div';
   return (
     <Tag
@@ -161,8 +165,8 @@ export function KpiTile({
       <div className="font-medium" style={{ fontSize: 20, color: TOKENS.textPrimary, letterSpacing: '-0.01em' }}>
         {value}
       </div>
-      <div style={{ fontSize: 12, minHeight: 18, color: delta ? (good ? TOKENS.healthy : TOKENS.critical) : TOKENS.textTertiary }}>
-        {delta ? `${delta.up ? '▲' : '▼'} ${delta.text} vs prior` : footnote ?? ' '}
+      <div style={{ fontSize: 12, minHeight: 18, color: delta && !flat ? (good ? TOKENS.healthy : TOKENS.critical) : TOKENS.textTertiary }}>
+        {delta ? (flat ? `no change ${vs}` : `${delta.up ? '▲' : '▼'} ${delta.text} ${vs}`) : footnote ?? ' '}
       </div>
       {spark && (
         <div className="mt-1">
@@ -191,8 +195,13 @@ export function ComparisonTrendChart({
   height = 220,
   parts,
   valueLabel,
+  axisLabel,
+  titleLabel,
 }: {
   days: DayValue[];
+  /** Keys that are not dates (e.g. hours): how to print them on the axis and in the hover card. */
+  axisLabel?: (key: string) => string;
+  titleLabel?: (key: string) => string;
   parts?: { label: string; color: string; values: number[] }[];
   /** Names the value in the hover card, e.g. "Net collected". */
   valueLabel?: string;
@@ -206,6 +215,8 @@ export function ComparisonTrendChart({
   const [ref, W] = useWidth();
   const [active, setActive] = React.useState<number | null>(null);
   const n = days.length;
+  const axis = axisLabel ?? ((k: string) => fmtDay(k, { day: 'numeric', month: 'short' }));
+  const title = titleLabel ?? ((k: string) => fmtDay(k, { weekday: 'short', day: 'numeric', month: 'short' }));
   if (n === 0) {
     return (
       <div className="flex items-center justify-center" style={{ height, color: TOKENS.textTertiary, fontSize: 12 }}>
@@ -253,7 +264,7 @@ export function ComparisonTrendChart({
           width={W}
           height={height}
           role="img"
-          aria-label={`Daily figures from ${fmtDay(days[0].date, { day: 'numeric', month: 'short' })} to ${fmtDay(days[n - 1].date, { day: 'numeric', month: 'short' })}, with the prior period behind. Use arrow keys to step through days.`}
+          aria-label={`Figures from ${axis(days[0].date)} to ${axis(days[n - 1].date)}, with the comparison period behind. Use arrow keys to step through.`}
           tabIndex={0}
           style={{ display: 'block', outline: 'none', cursor: onPickDay ? 'pointer' : 'default', touchAction: 'none' }}
           onPointerMove={(e) => setActive(pick(e.clientX, e.currentTarget))}
@@ -330,7 +341,7 @@ export function ComparisonTrendChart({
           {days.map((d, i) =>
             i % labelEvery === 0 || i === n - 1 ? (
               <text key={d.date} x={x(i)} y={height - 6} fontSize={10} fill={TOKENS.textTertiary} textAnchor="middle">
-                {fmtDay(d.date, { day: 'numeric', month: 'short' })}
+                {axis(d.date)}
               </text>
             ) : null,
           )}
@@ -354,7 +365,7 @@ export function ComparisonTrendChart({
             color: TOKENS.textPrimary,
           }}
         >
-          <div className="font-medium">{fmtDay(a.date, { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+          <div className="font-medium">{title(a.date)}</div>
           {parts?.map((p) =>
             p.values[active] ? (
               <div key={p.label} className="flex justify-between gap-2">

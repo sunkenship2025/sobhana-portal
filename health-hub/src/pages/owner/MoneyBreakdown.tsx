@@ -82,15 +82,17 @@ export function MoneyBreakdown({
   onPickDay,
   onPickBranch,
   referrerHref,
+  initialBy = 'day',
 }: {
   data: BreakdownData;
+  initialBy?: By;
   periodLabel: string;
   onPickDay: (date: string) => void;
   onPickBranch: (branchId: string) => void;
   referrerHref: (doctorId: string) => string;
 }) {
   const navigate = useNavigate();
-  const [by, setBy] = useState<By>('day');
+  const [by, setBy] = useState<By>(initialBy);
   const [sortCol, setSortCol] = useState<number | null>(null); // null = natural order
   const [desc, setDesc] = useState(true);
 

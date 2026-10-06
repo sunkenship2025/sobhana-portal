@@ -19,7 +19,7 @@ import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
-import { getCollectedSplits, getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
+import { comparisonWindow, getCollectedByHour, getCollectedSplits, getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
@@ -28,7 +28,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: DaySheetDomain | null,
 ) =>
-  `owner-money:v8:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-money:v9:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,7 +67,9 @@ export interface MoneyKpi {
   onlineInPaise: number;
   refundsInPaise: number; // every refund paid out in the window
   /** The equal window before, for every tile's change. */
-  prior: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number };
+  prior: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number; commission: number; cancelled: number };
+  cancelledInPaise: number;
+  commissionSplit: { referralInPaise: number; partnerInPaise: number; clinicInPaise: number };
 }
 
 /** One day of the window, with the same day one window earlier. */
@@ -177,6 +179,10 @@ export interface MoneyResponse {
   branchScope: { branchId: string | null; branchName: string | null };
   kpis: MoneyKpi;
   revenueTrend: MoneyTrendDay[];
+  /** What "vs prior" means: the day a week earlier for a single day, else the stretch before. */
+  comparison: { startIso: string; endIso: string; sameWeekday: boolean };
+  /** Single-day windows only: money by IST hour, this day and the comparison day. */
+  byHour: { hour: number; cash: number; online: number; refunds: number; prior: { cash: number; online: number; refunds: number } }[] | null;
   aging: AgingBucket[];
   oldestUnpaid: OldestUnpaidRow[];
   cashByBranch: CashByBranchRow[];
@@ -265,10 +271,6 @@ function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } 
   return { start: new Date(ist.getTime() - IST_OFFSET_MS), end: tomorrowStart };
 }
 
-function priorWindow(window: { start: Date; end: Date }) {
-  const span = window.end.getTime() - window.start.getTime();
-  return { start: new Date(window.start.getTime() - span), end: window.start };
-}
 
 function toIstDateKey(d: Date): string {
   const ist = new Date(d.getTime() + IST_OFFSET_MS);
@@ -298,7 +300,9 @@ export async function getOwnerMoney(
 
   const now = new Date();
   const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
-  const prior = priorWindow(win);
+  const prior = comparisonWindow(win);
+  const priorShiftMs = win.start.getTime() - prior.start.getTime();
+  const oneDay = Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS) === 1;
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
   // Diagnostic/OP register filter. A bill's register lives on its visit
   // (visit.domain); payments reach it through bill.visit. Null ⇒ both registers (the "All" toggle).
@@ -310,7 +314,11 @@ export async function getOwnerMoney(
       : {};
 
   // Net collected by department and doctor — adds back up to the headline.
-  const splitsP = getCollectedSplits({ start: prior.start, end: win.end, branchId, domain }, win.start);
+  const splitsP = getCollectedSplits({ start: prior.start, end: win.end, branchId, domain }, win.start, prior.end);
+  // A single day is drawn by hour, beside the same day last week.
+  const hoursP = oneDay
+    ? Promise.all([getCollectedByHour({ start: win.start, end: win.end, branchId, domain }), getCollectedByHour({ ...prior, branchId, domain })])
+    : Promise.resolve(null);
   const [
     scopedBranch,
     billsInWindow,
@@ -350,7 +358,7 @@ export async function getOwnerMoney(
     // gross, discount, commission, net and the trend: the shared money engine,
     // over this window and the equal one before it.
     getMoneyFacts({ start: prior.start, end: win.end, branchId, domain }),
-    getReferrerFacts({ start: prior.start, end: win.end, branchId, domain }, win.start),
+    getReferrerFacts({ start: prior.start, end: win.end, branchId, domain }, win.start, prior.end),
     prisma.bill.findMany({
       where: { paymentStatus: { not: 'PAID' }, ...billBranchWhere, ...domainBillWhere },
       select: {
@@ -409,7 +417,10 @@ export async function getOwnerMoney(
   // ---- KPIs ----
   const winStartKey = toIstDateKey(win.start);
   const cur = totalsOf(facts.days.filter((f) => f.date >= winStartKey));
-  const prev = totalsOf(facts.days.filter((f) => f.date < winStartKey));
+  const priorEndKey = toIstDateKey(prior.end);
+  const inPrior = (date: string) => date < priorEndKey;
+  const curDayFacts = facts.days.filter((f) => f.date >= winStartKey);
+  const prev = totalsOf(facts.days.filter((f) => inPrior(f.date)));
   const grossInWindow = cur.gross;
   const discountInWindow = cur.discount;
   const commissionInWindow = cur.commission;
@@ -421,6 +432,14 @@ export async function getOwnerMoney(
   const collectedDeltaPercent =
     prev.netCollected > 0 ? Math.round(((cur.netCollected - prev.netCollected) / prev.netCollected) * 100) : null;
   const splits = await splitsP;
+  const hours = await hoursP;
+  const byHour = hours
+    ? Array.from({ length: 24 }, (_, h) => {
+        const c = hours[0].find((r) => r.hour === h) ?? { cash: 0, online: 0, refunds: 0 };
+        const p = hours[1].find((r) => r.hour === h) ?? { cash: 0, online: 0, refunds: 0 };
+        return { hour: h, cash: c.cash, online: c.online, refunds: c.refunds, prior: { cash: p.cash, online: p.online, refunds: p.refunds } };
+      })
+    : null;
 
   // outstanding (all-time, scoped)
   const outstandingTotal = openBills.reduce(
@@ -489,9 +508,18 @@ export async function getOwnerMoney(
     cashInPaise: cur.cash,
     onlineInPaise: cur.online,
     refundsInPaise: cur.refunds,
+    cancelledInPaise: cur.cancelled,
+    commissionSplit: curDayFacts.reduce(
+      (a, f) => ({
+        referralInPaise: a.referralInPaise + f.referralCommission,
+        partnerInPaise: a.partnerInPaise + f.partnerCut,
+        clinicInPaise: a.clinicInPaise + f.clinicCommission,
+      }),
+      { referralInPaise: 0, partnerInPaise: 0, clinicInPaise: 0 },
+    ),
     prior: {
       netCollected: prev.netCollected, net: prev.net, cash: prev.cash, online: prev.online,
-      refunds: prev.refunds, discount: prev.discount,
+      refunds: prev.refunds, discount: prev.discount, commission: prev.commission, cancelled: prev.cancelled,
     },
   };
 
@@ -508,7 +536,7 @@ export async function getOwnerMoney(
     return { collected: t.netCollected, net: t.net, cash: t.cash, online: t.online, refunds: t.refunds, discount: t.discount };
   };
   const priorKeyOf = (key: string) =>
-    toIstDateKey(new Date(Date.parse(`${key}T00:00:00+05:30`) - dayCount * DAY_MS));
+    toIstDateKey(new Date(Date.parse(`${key}T00:00:00+05:30`) - priorShiftMs));
   const revenueTrend: MoneyTrendDay[] = dayKeys.map((d) => {
     const t = dayTotals(d);
     return {
@@ -773,7 +801,7 @@ export async function getOwnerMoney(
     };
   };
   const curDays = facts.days.filter((f) => f.date >= winStartKey);
-  const priorDays = facts.days.filter((f) => f.date < winStartKey);
+  const priorDays = facts.days.filter((f) => inPrior(f.date));
   const group = (rows: DayFact[], by: (f: DayFact) => string) => {
     const m = new Map<string, DayFact[]>();
     for (const f of rows) m.set(by(f), [...(m.get(by(f)) ?? []), f]);
@@ -793,7 +821,7 @@ export async function getOwnerMoney(
   for (const c of facts.categories) {
     const row = catRow(c.category);
     if (c.date >= winStartKey) { row.billedInPaise += c.price; row.tests += c.tests; }
-    else { row.priorBilledInPaise += c.price; row.priorTests += c.tests; }
+    else if (inPrior(c.date)) { row.priorBilledInPaise += c.price; row.priorTests += c.tests; }
   }
   const byDoctor = new Map<string, { collected: number; priorCollected: number }>();
   for (const r of splits) {
@@ -822,6 +850,8 @@ export async function getOwnerMoney(
     branchScope: { branchId: branchId ?? null, branchName: scopedBranch?.name ?? null },
     kpis,
     revenueTrend,
+    comparison: { startIso: prior.start.toISOString(), endIso: prior.end.toISOString(), sameWeekday: oneDay },
+    byHour,
     aging,
     oldestUnpaid,
     cashByBranch,

@@ -40,6 +40,7 @@
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import {
+  comparisonWindow,
   getBusyHours,
   getCollectedByDay,
   getCollectedSplits,
@@ -64,7 +65,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v11:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v12:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -375,7 +376,8 @@ export async function getOwnerDashboardV2(
   const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
   const winSpanMs = win.end.getTime() - win.start.getTime();
   const winDays = Math.max(1, Math.round(winSpanMs / DAY_MS));
-  const priorWin = { start: new Date(win.start.getTime() - winSpanMs), end: win.start };
+  const priorWin = comparisonWindow(win);
+  const priorShiftMs = win.start.getTime() - priorWin.start.getTime();
   // Cap the number of daily points so long windows (YTD) stay readable; the
   // trend then shows the most recent MAX_TREND_DAYS of the selected window.
   const trendDays = Math.min(winDays, MAX_TREND_DAYS);
@@ -505,8 +507,8 @@ export async function getOwnerDashboardV2(
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
     }),
     getMoneyFacts({ start: priorWin.start, end: win.end, branchId, domain }),
-    getSourceFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
-    getReferrerFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
+    getSourceFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start, priorWin.end),
+    getReferrerFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start, priorWin.end),
     getBusyHours({ start: win.start, end: win.end, branchId, domain }),
     // payout liability
     prisma.doctorPayoutLedger.groupBy({
@@ -639,7 +641,7 @@ export async function getOwnerDashboardV2(
     prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'DRAFT', ...branchScopeWhere } }),
     prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'WAITING', ...branchScopeWhere } }),
 
-    getCollectedSplits({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
+    getCollectedSplits({ start: priorWin.start, end: win.end, branchId, domain }, win.start, priorWin.end),
     getCollectedByDay({ start: priorMonthStart, end: tomorrowStart, branchId, domain }),
   ]);
 
@@ -727,7 +729,9 @@ export async function getOwnerDashboardV2(
   // prior window too, split here by IST day.
   const winStartKey = toIstDateKey(win.start);
   const curFacts = facts.days.filter((f) => f.date >= winStartKey);
-  const priorFacts = facts.days.filter((f) => f.date < winStartKey);
+  const priorEndKey = toIstDateKey(priorWin.end);
+  const inPrior = (date: string) => date < priorEndKey;
+  const priorFacts = facts.days.filter((f) => inPrior(f.date));
   const cur = totalsOf(curFacts);
   const prior = totalsOf(priorFacts);
   const pct = (now: number, before: number) =>
@@ -774,7 +778,7 @@ export async function getOwnerDashboardV2(
   for (let i = 0; i < trendDays; i += 1) {
     trendKeys.push(toIstDateKey(new Date(trendStart.getTime() + i * DAY_MS)));
   }
-  const priorKeyOf = (key: string) => toIstDateKey(new Date(istDateKeyToStart(key).getTime() - winSpanMs));
+  const priorKeyOf = (key: string) => toIstDateKey(new Date(istDateKeyToStart(key).getTime() - priorShiftMs));
   const byDay = (rows: DayFact[]) => {
     const m = new Map<string, DayFact[]>();
     for (const f of rows) m.set(f.date, [...(m.get(f.date) ?? []), f]);
@@ -895,7 +899,7 @@ export async function getOwnerDashboardV2(
   for (const c of facts.categories) {
     const m = cat(c.category);
     if (c.date >= winStartKey) m.tests += c.tests;
-    else m.priorTests += c.tests;
+    else if (inPrior(c.date)) m.priorTests += c.tests;
   }
   const bySource = new Map<BusinessSource, { collected: number; priorCollected: number }>();
   const byDoctor = new Map<string, { collected: number; priorCollected: number }>();
