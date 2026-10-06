@@ -40,10 +40,12 @@
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import {
+  getBusyHours,
   getMoneyFacts,
   getReferrerFacts,
   getSourceFacts,
   totalsOf,
+  type BusyHourFact,
   type DayFact,
   type MoneyTotals,
   type ReferrerFact,
@@ -59,7 +61,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v7:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v8:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -244,6 +246,7 @@ export interface DashboardV2Response {
   categoryMoves: CategoryMove[];
   sources: SourceFact[];
   referrers: ReferrerFact[];
+  busyHours: BusyHourFact[];
   branchTable: BranchRow[];
 }
 
@@ -392,6 +395,7 @@ export async function getOwnerDashboardV2(
     facts,
     sources,
     referrerFacts,
+    busyHours,
 
     // payout liability
     payoutLiabilityRows,
@@ -475,6 +479,7 @@ export async function getOwnerDashboardV2(
     getMoneyFacts({ start: priorWin.start, end: win.end, branchId, domain }),
     getSourceFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
     getReferrerFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
+    getBusyHours({ start: win.start, end: win.end, branchId, domain }),
     // payout liability
     prisma.doctorPayoutLedger.groupBy({
       by: ['doctorType'],
@@ -932,6 +937,7 @@ export async function getOwnerDashboardV2(
     categoryMoves,
     sources,
     referrers,
+    busyHours,
     branchTable,
   };
 

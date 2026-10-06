@@ -403,3 +403,79 @@ export function ShareBar({
     </div>
   );
 }
+
+// Sequential blue ramp (validated light steps), lightest = fewest.
+const HEAT = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'];
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const hourLabel = (h: number) => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+
+/** Visits by weekday × hour. Darker = busier; every cell answers on hover/focus. */
+export function BusyHoursHeatmap({ cells }: { cells: { dow: number; hour: number; visits: number }[] }) {
+  const [active, setActive] = React.useState<{ dow: number; hour: number } | null>(null);
+  if (cells.length === 0) {
+    return <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No visits in this window.</div>;
+  }
+  const at = new Map(cells.map((c) => [`${c.dow}-${c.hour}`, c.visits]));
+  const max = Math.max(...cells.map((c) => c.visits));
+  const total = cells.reduce((s, c) => s + c.visits, 0);
+  // Only the hours anyone came in, so the grid stays wide enough to read.
+  const lo = Math.min(...cells.map((c) => c.hour));
+  const hi = Math.max(...cells.map((c) => c.hour));
+  const hours = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  const busiest = [...cells].sort((a, b) => b.visits - a.visits)[0];
+  const shade = (n: number) => (n === 0 ? '#F1F0EC' : HEAT[Math.min(HEAT.length - 1, Math.floor((n / max) * HEAT.length - 1e-9))]);
+  const a = active ? at.get(`${active.dow}-${active.hour}`) ?? 0 : null;
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: TOKENS.textSecondary, minHeight: 18 }} role="status">
+        {active
+          ? `${DAYS[active.dow - 1]} ${hourLabel(active.hour)}–${hourLabel(active.hour + 1)} · ${a} visit${a === 1 ? '' : 's'} (${total ? ((a! / total) * 100).toFixed(1) : 0}% of the window)`
+          : `Busiest: ${DAYS[busiest.dow - 1]} ${hourLabel(busiest.hour)}–${hourLabel(busiest.hour + 1)} · ${busiest.visits} visits`}
+      </div>
+      <div
+        className="mt-2 grid"
+        style={{ gridTemplateColumns: `34px repeat(${hours.length}, minmax(0, 1fr))`, gap: 2 }}
+        onMouseLeave={() => setActive(null)}
+      >
+        {DAYS.map((d, di) => (
+          <React.Fragment key={d}>
+            <div style={{ fontSize: 11, color: TOKENS.textTertiary, alignSelf: 'center' }}>{d}</div>
+            {hours.map((h) => {
+              const n = at.get(`${di + 1}-${h}`) ?? 0;
+              const on = active?.dow === di + 1 && active?.hour === h;
+              return (
+                <div
+                  key={h}
+                  tabIndex={0}
+                  aria-label={`${d} ${hourLabel(h)}: ${n} visits`}
+                  onMouseEnter={() => setActive({ dow: di + 1, hour: h })}
+                  onFocus={() => setActive({ dow: di + 1, hour: h })}
+                  className="focus-visible:ring-2 focus-visible:ring-blue-300"
+                  style={{
+                    height: 22,
+                    borderRadius: 3,
+                    background: shade(n),
+                    outline: on ? `1.5px solid ${TOKENS.textPrimary}` : 'none',
+                    outlineOffset: -1,
+                  }}
+                />
+              );
+            })}
+          </React.Fragment>
+        ))}
+        <div />
+        {hours.map((h, i) => (
+          <div key={h} style={{ fontSize: 10, color: TOKENS.textTertiary, textAlign: 'center' }}>
+            {i % 2 === 0 ? hourLabel(h) : ''}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center gap-1.5" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+        Fewer
+        {HEAT.map((c) => <span key={c} style={{ width: 14, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />)}
+        More · {max} at most in one hour-slot
+      </div>
+    </div>
+  );
+}

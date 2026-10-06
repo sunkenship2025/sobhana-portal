@@ -343,3 +343,24 @@ export async function getSourceFacts(scope: MoneyScope, splitAt: Date): Promise<
     priorGross: n(r.priorGross),
   }));
 }
+
+export interface BusyHourFact {
+  dow: number; // 1 = Monday … 7 = Sunday (IST)
+  hour: number; // 0–23 (IST)
+  visits: number;
+}
+
+/** Visits registered in the window by IST weekday × hour — for staffing. */
+export async function getBusyHours(scope: MoneyScope): Promise<BusyHourFact[]> {
+  const { start, end, branchId, domain } = scope;
+  const rows = await prisma.$queryRaw<any[]>`
+    SELECT extract(isodow FROM v."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::int AS dow,
+           extract(hour FROM v."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+           count(*) AS visits
+    FROM "Visit" v
+    WHERE v."createdAt" >= ${start} AND v."createdAt" < ${end}
+          ${branchId ? Prisma.sql`AND v."branchId" = ${branchId}` : Prisma.empty}
+          ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
+    GROUP BY 1, 2`;
+  return rows.map((r) => ({ dow: n(r.dow), hour: n(r.hour), visits: n(r.visits) }));
+}

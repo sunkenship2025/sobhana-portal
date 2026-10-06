@@ -19,7 +19,7 @@ import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
-import { getMoneyFacts, totalsOf } from './moneyFactsService';
+import { getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
@@ -28,7 +28,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: DaySheetDomain | null,
 ) =>
-  `owner-money:v4:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-money:v5:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -163,6 +163,36 @@ export interface MoneyResponse {
   discountLogTotalCount: number;
   refunds: RefundSummary;
   cancellations: CancellationSummary;
+  breakdown: Breakdown;
+}
+
+/** One row of the Breakdown table: the engine's totals for a day or a branch. */
+export interface BreakdownMoneyRow {
+  key: string;
+  label: string;
+  grossInPaise: number;
+  discountInPaise: number;
+  cancelledInPaise: number;
+  commissionInPaise: number;
+  netInPaise: number;
+  collectedInPaise: number;
+  visits: number;
+  priorNetInPaise: number | null; // branches only
+  priorCollectedInPaise: number | null;
+}
+export interface BreakdownCategoryRow {
+  category: string;
+  billedInPaise: number;
+  tests: number;
+  priorBilledInPaise: number;
+  priorTests: number;
+}
+/** The Money page's group-by table: same engine, sliced four ways. */
+export interface Breakdown {
+  days: BreakdownMoneyRow[];
+  branches: BreakdownMoneyRow[];
+  categories: BreakdownCategoryRow[];
+  referrers: ReferrerFact[];
 }
 
 // --- helpers ------------------------------------------------------------
@@ -258,6 +288,7 @@ export async function getOwnerMoney(
     scopedBranch,
     billsInWindow,
     facts,
+    referrerFacts,
     openBills,
     refundedBills,
     paymentsInWindow,
@@ -293,6 +324,7 @@ export async function getOwnerMoney(
     // gross, discount, commission, net and the trend: the shared money engine,
     // over this window and the equal one before it.
     getMoneyFacts({ start: prior.start, end: win.end, branchId, domain }),
+    getReferrerFacts({ start: prior.start, end: win.end, branchId, domain }, win.start),
     prisma.bill.findMany({
       where: { paymentStatus: { not: 'PAID' }, ...billBranchWhere, ...domainBillWhere },
       select: {
@@ -601,7 +633,8 @@ export async function getOwnerMoney(
         patientTitle: b.visit.patient.title,
         branchCode: branchById.get(b.branchId)?.code ?? '?',
         discountInPaise: amount,
-        discountPercent: manual && !coupon
+        // A flat-amount discount stores no percentage; show its share of the bill.
+        discountPercent: manual && !coupon && (b.discountPercentage ?? 0) > 0
           ? Math.round(b.discountPercentage ?? 0)
           : b.totalAmountInPaise > 0 ? Math.round((amount / b.totalAmountInPaise) * 100) : 0,
         reason: [manual ? b.discountReason : null, coupon].filter(Boolean).join(' + ') || null,
@@ -675,6 +708,43 @@ export async function getOwnerMoney(
     })),
   };
 
+  // ---- breakdown (group-by table) ----
+  const moneyRow = (key: string, label: string, rows: DayFact[], priorRows?: DayFact[]): BreakdownMoneyRow => {
+    const t = totalsOf(rows);
+    const p = priorRows ? totalsOf(priorRows) : null;
+    return {
+      key, label,
+      grossInPaise: t.gross, discountInPaise: t.discount, cancelledInPaise: t.cancelled,
+      commissionInPaise: t.commission, netInPaise: t.net, collectedInPaise: t.netCollected, visits: t.visits,
+      priorNetInPaise: p ? p.net : null, priorCollectedInPaise: p ? p.netCollected : null,
+    };
+  };
+  const curDays = facts.days.filter((f) => f.date >= winStartKey);
+  const priorDays = facts.days.filter((f) => f.date < winStartKey);
+  const group = (rows: DayFact[], by: (f: DayFact) => string) => {
+    const m = new Map<string, DayFact[]>();
+    for (const f of rows) m.set(by(f), [...(m.get(by(f)) ?? []), f]);
+    return m;
+  };
+  const byDate = group(curDays, (f) => f.date);
+  const curByBranch = group(curDays, (f) => f.branchId);
+  const priorByBranch = group(priorDays, (f) => f.branchId);
+  const catMap = new Map<string, BreakdownCategoryRow>();
+  for (const c of facts.categories) {
+    const row = catMap.get(c.category) ?? { category: c.category, billedInPaise: 0, tests: 0, priorBilledInPaise: 0, priorTests: 0 };
+    if (c.date >= winStartKey) { row.billedInPaise += c.price; row.tests += c.tests; }
+    else { row.priorBilledInPaise += c.price; row.priorTests += c.tests; }
+    catMap.set(c.category, row);
+  }
+  const breakdown: Breakdown = {
+    days: dayKeys.map((d) => moneyRow(d, d, byDate.get(d) ?? [])),
+    branches: (branchId ? branches.filter((b) => b.id === branchId) : branches)
+      .map((b) => moneyRow(b.id, `${b.name} (${b.code})`, curByBranch.get(b.id) ?? [], priorByBranch.get(b.id) ?? []))
+      .filter((r) => r.grossInPaise || r.collectedInPaise || r.priorNetInPaise),
+    categories: [...catMap.values()].filter((c) => c.billedInPaise || c.priorBilledInPaise),
+    referrers: referrerFacts,
+  };
+
   const response: MoneyResponse = {
     generatedAt: now.toISOString(),
     period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
@@ -690,6 +760,7 @@ export async function getOwnerMoney(
     discountLogTotalCount,
     refunds,
     cancellations,
+    breakdown,
   };
 
   if (redis) {

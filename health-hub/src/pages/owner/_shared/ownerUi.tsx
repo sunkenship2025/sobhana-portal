@@ -350,27 +350,30 @@ export type DomainKey = 'all' | 'diagnostics' | 'clinic';
 export const domainFromParam = (raw: string | null): DomainKey =>
   raw === 'all' || raw === 'clinic' ? raw : 'diagnostics';
 
-export function DomainFilter({
+/** A row of joined buttons, one active — the shape every owner page slicer uses. */
+export function SegmentedFilter<T extends string>({
   value,
   onChange,
+  options,
+  title,
 }: {
-  value: DomainKey;
-  onChange: (v: DomainKey) => void;
+  value: T;
+  onChange: (v: T) => void;
+  options: readonly (readonly [T, string])[];
+  title?: string;
 }) {
   return (
     <div
       className="inline-flex overflow-hidden rounded-md border"
       style={{ borderColor: TOKENS.border, fontSize: 12 }}
-      title="Filter the whole page by register"
+      title={title}
+      role="group"
     >
-      {([
-        ['all', 'All'],
-        ['diagnostics', 'Diagnostic'],
-        ['clinic', 'OP'],
-      ] as const).map(([k, label], i) => (
+      {options.map(([k, label], i) => (
         <button
           key={k}
           onClick={() => onChange(k)}
+          aria-pressed={k === value}
           className="px-2.5 py-1.5"
           style={{
             background: k === value ? TOKENS.info : 'white',
@@ -382,6 +385,27 @@ export function DomainFilter({
         </button>
       ))}
     </div>
+  );
+}
+
+export function DomainFilter({
+  value,
+  onChange,
+}: {
+  value: DomainKey;
+  onChange: (v: DomainKey) => void;
+}) {
+  return (
+    <SegmentedFilter
+      value={value}
+      onChange={onChange}
+      title="Filter the whole page by register"
+      options={[
+        ['all', 'All'],
+        ['diagnostics', 'Diagnostic'],
+        ['clinic', 'OP'],
+      ] as const}
+    />
   );
 }
 

@@ -21,6 +21,7 @@ import { apiRequest } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { formatPatientName } from '@/lib/patientDisplay';
 import { DaySheetResponse } from './moneyDaySheet';
+import { MoneyBreakdown, type BreakdownData } from './MoneyBreakdown';
 import {
   TOKENS,
   formatRupees,
@@ -42,6 +43,7 @@ import {
   DomainFilter,
   DomainKey,
   domainFromParam,
+  PERIOD_LABEL,
 } from './_shared/ownerUi';
 
 interface MoneyResponse {
@@ -142,6 +144,8 @@ interface MoneyResponse {
       cancelledAt: string;
     }>;
   };
+  /** Absent on a backend older than this bundle (deploy skew). */
+  breakdown?: BreakdownData;
 }
 
 // ----- revenue trend ----------------------------------------------------
@@ -913,6 +917,22 @@ export default function OwnerMoneyPage() {
             </div>
 
             <RevenueTrendSection trend={data.revenueTrend} />
+
+            {data.breakdown && (
+              <MoneyBreakdown
+                data={data.breakdown}
+                periodLabel={period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period]}
+                onPickDay={(d) => setCustomRange({ start: d, end: d })}
+                onPickBranch={setBranchValue}
+                referrerHref={(id) => {
+                  // The window in IST calendar days; endIso is exclusive.
+                  const day = (iso: string) => new Date(Date.parse(iso) + 5.5 * 3600e3).toISOString().slice(0, 10);
+                  const from = day(data.period.startIso);
+                  const to = day(new Date(Date.parse(data.period.endIso) - 1).toISOString());
+                  return `/owner/payouts/REFERRAL.${id}?from=${from}&to=${to}`;
+                }}
+              />
+            )}
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
               <div className="lg:col-span-2">

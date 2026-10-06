@@ -27,7 +27,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
-import { KpiTile, ComparisonTrendChart, Sparkline, VarianceBridge, ShareBar, SERIES } from './_shared/dashboardCharts';
+import { KpiTile, ComparisonTrendChart, Sparkline, VarianceBridge, ShareBar, SERIES, BusyHoursHeatmap } from './_shared/dashboardCharts';
 import {
   TOKENS,
   SectionCard,
@@ -132,6 +132,7 @@ interface DashboardV2 {
   categoryMoves: { category: string; current: number; prior: number; tests: number; priorTests: number }[];
   sources: { source: 'referred' | 'walkin' | 'partner' | 'clinic'; visits: number; gross: number; priorVisits: number; priorGross: number }[];
   referrers: { referralDoctorId: string; name: string; visits: number; billed: number; commission: number; priorVisits: number; priorBilled: number }[];
+  busyHours?: { dow: number; hour: number; visits: number }[];
   revenueMix: {
     reportableInPaise: number;
     clinicInPaise: number;
@@ -833,167 +834,15 @@ function TrendCard({
   );
 }
 
-// ----- revenue mix today ------------------------------------------------
+// ----- busy hours -------------------------------------------------------
 
-function RevenueMixCard({
-  mix,
-  periodLabel,
-}: {
-  mix: DashboardV2['revenueMix'];
-  periodLabel: string;
-}) {
-  const total = Math.max(1, mix.totalInPaise);
-  const segs = [
-    { label: 'Reportable diagnostics', value: mix.reportableInPaise, color: TOKENS.reportable },
-    { label: 'Clinic consultations', value: mix.clinicInPaise, color: TOKENS.clinic },
-    { label: 'Bill-only / external', value: mix.billOnlyInPaise, color: TOKENS.billOnly },
-  ];
-  // Hovering a segment or its legend row highlights the other — a thin segment
-  // (clinic is often ~8%) is hard to aim at, so the row is a hit target too.
-  const [activeSeg, setActiveSeg] = useState<string | null>(null);
-
+function BusyHoursCard({ cells, periodLabel }: { cells: NonNullable<DashboardV2['busyHours']>; periodLabel: string }) {
   return (
     <SectionCard
-      label={`Revenue mix · ${periodLabel}`}
-      description="Category split of gross for the selected window — before discounts"
-      rightSlot={
-        <span
-          style={{
-            background: `${TOKENS.gross}33`,
-            color: TOKENS.textSecondary,
-            fontSize: 10,
-            padding: '2px 6px',
-            borderRadius: 3,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-          }}
-        >
-          gross · pre-discount
-        </span>
-      }
+      label={`When patients come · ${periodLabel}`}
+      description="Registrations by weekday and hour — for staffing, and for timing offers into quiet slots"
     >
-      {mix.totalInPaise === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No bills in this window.</div>
-      ) : (
-        <>
-          <div
-            className="mb-3 flex items-baseline justify-between border-b pb-3"
-            style={{ borderColor: TOKENS.border }}
-          >
-            <span style={{ color: TOKENS.textSecondary, fontSize: 12 }}>
-              Total gross · {periodLabel}
-            </span>
-            <DisplayNumber size={18}>{formatRupees(mix.totalInPaise)}</DisplayNumber>
-          </div>
-          <div className="relative">
-            <div
-              className="flex w-full overflow-hidden"
-              style={{ height: 18, borderRadius: 3 }}
-              onMouseLeave={() => setActiveSeg(null)}
-            >
-              {segs.map((s) => {
-                const isActive = activeSeg === s.label;
-                const dimmed = activeSeg != null && !isActive;
-                return (
-                  <div
-                    key={s.label}
-                    tabIndex={0}
-                    aria-label={`${s.label}: ${formatRupees(s.value)}, ${Math.round(
-                      (s.value / total) * 100
-                    )} percent of gross`}
-                    onMouseEnter={() => setActiveSeg(s.label)}
-                    onFocus={() => setActiveSeg(s.label)}
-                    onBlur={() => setActiveSeg(null)}
-                    style={{
-                      width: `${(s.value / total) * 100}%`,
-                      background: s.color,
-                      opacity: dimmed ? 0.45 : 1,
-                      transition: 'opacity 120ms ease',
-                      cursor: 'default',
-                      outline: 'none',
-                    }}
-                  />
-                );
-              })}
-            </div>
-            {(() => {
-              if (!activeSeg) return null;
-              const i = segs.findIndex((x) => x.label === activeSeg);
-              const s = segs[i];
-              // centre the readout over the hovered segment, clamped so it can't
-              // run off either end of the card
-              const before = segs.slice(0, i).reduce((a, x) => a + x.value, 0);
-              const centerPct = ((before + s.value / 2) / total) * 100;
-              return (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  style={{
-                    position: 'absolute',
-                    // above the bar: the legend below is the thing being
-                    // cross-highlighted, so keep the box off it
-                    top: -32,
-                    left: `${Math.min(85, Math.max(15, centerPct))}%`,
-                    transform: 'translateX(-50%)',
-                    pointerEvents: 'none',
-                    zIndex: 1,
-                    background: TOKENS.surface,
-                    border: `1px solid ${TOKENS.border}`,
-                    borderRadius: 4,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
-                    padding: '4px 8px',
-                    fontSize: 12,
-                    color: TOKENS.textPrimary,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {`${formatRupees(s.value)} · ${Math.round((s.value / total) * 100)}% — ${s.label}`}
-                </div>
-              );
-            })()}
-          </div>
-          <div className="mt-3 space-y-1.5">
-            {segs.map((s) => {
-              const pct = Math.round((s.value / total) * 100);
-              return (
-                <div
-                  key={s.label}
-                  className="flex items-baseline justify-between"
-                  style={{
-                    fontSize: 12,
-                    // negative margin keeps the row flush while giving the wash
-                    // some breathing room, so nothing shifts on hover
-                    margin: '0 -6px',
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    background: activeSeg === s.label ? TOKENS.page : 'transparent',
-                    opacity: activeSeg != null && activeSeg !== s.label ? 0.55 : 1,
-                    transition: 'background 120ms ease, opacity 120ms ease',
-                  }}
-                  onMouseEnter={() => setActiveSeg(s.label)}
-                  onMouseLeave={() => setActiveSeg(null)}
-                >
-                  <span className="flex items-center gap-2">
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 2,
-                        background: s.color,
-                        display: 'inline-block',
-                      }}
-                    />
-                    <span style={{ color: TOKENS.textSecondary }}>{s.label}</span>
-                  </span>
-                  <span style={{ color: TOKENS.textPrimary }}>
-                    {formatRupees(s.value)} · {pct}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+      <BusyHoursHeatmap cells={cells} />
     </SectionCard>
   );
 }
@@ -1483,7 +1332,7 @@ export default function OwnerDashboardV2() {
             <OpsPulseRow data={data.opsPulse} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <RevenueMixCard mix={data.revenueMix} periodLabel={periodLabel} />
+              {data.busyHours && <BusyHoursCard cells={data.busyHours} periodLabel={periodLabel} />}
               <PayoutsCard
                 data={data.payoutLiability}
                 money={data.moneyToday}
