@@ -305,7 +305,8 @@ async function deriveReferralPayout(
               id: order.id,
               priceInPaise: order.priceInPaise,
             })),
-          billFinancials.discountAmountInPaise
+          // Counter discount AND offer code: the referrer bears the whole discount.
+          billFinancials.discountAmountInPaise + (billFinancials.couponDiscountInPaise ?? 0)
         )
       : new Map<string, number>();
 

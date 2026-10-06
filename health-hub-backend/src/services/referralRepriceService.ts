@@ -175,7 +175,7 @@ async function computeReprice(
     const shares = fin
       ? allocateBillDiscountAcrossOrders(
           v.testOrders.filter((o) => !o.replacedAt).map((o) => ({ id: o.id, priceInPaise: o.priceInPaise })),
-          fin.discountAmountInPaise,
+          fin.discountAmountInPaise + (fin.couponDiscountInPaise ?? 0), // counter + offer code, as the statement
         )
       : new Map<string, number>();
     const finalized = Boolean(v.report?.versions[0]?.finalizedAt);

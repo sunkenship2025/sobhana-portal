@@ -14,7 +14,7 @@
  *   cancelled    Bill.reversedChargeInPaise (charges voided after billing)
  *   commission   what each live test owes its referrer, exactly as the payout
  *                statement computes it (percentage of price minus the test's
- *                share of the bill's counter discount, floored at 0; fixed
+ *                share of the bill's discount — counter and offer code — floored at 0; fixed
  *                as frozen) + the partner's cut + clinic doctors' fees, by
  *                test/visit createdAt
  *   net to you   gross − discount − cancelled − commission
@@ -70,7 +70,7 @@ const n = (v: unknown) => Number(v ?? 0);
 
 /**
  * `priced`: every test of every visit touched in the window, with its share of the bill's
- * counter discount exactly as the payout statement allocates it (largest
+ * discount (counter + offer code) exactly as the payout statement allocates it (largest
  * remainder over non-replaced tests, by price), the commission it owes, and its active referrer. A test
  * added on another day still takes its part of the discount.
  */
@@ -88,7 +88,11 @@ function liveOrderShares(scope: MoneyScope): Prisma.Sql {
                greatest(round(t."priceInPaise"), 0)::bigint AS p, t."priceInPaise" AS price,
                t."referralCommissionType"::text AS ty, t."referralCommissionPercentage" AS pct,
                t."referralCommissionAmountInPaise" AS amt, coalesce(t."partnerCutInPaise", 0) AS cut,
-               least(greatest(coalesce(b."discountAmountInPaise", 0), 0), greatest(coalesce(b."totalAmountInPaise", 0), 0))::bigint AS disc,
+               -- counter discount + offer code, each capped as computeBillFinancialsFromPersisted caps them
+               (least(greatest(coalesce(b."discountAmountInPaise", 0), 0), greatest(coalesce(b."totalAmountInPaise", 0), 0))
+                + least(greatest(coalesce(b."couponDiscountInPaise", 0), 0),
+                        greatest(greatest(coalesce(b."totalAmountInPaise", 0), 0)
+                                 - least(greatest(coalesce(b."discountAmountInPaise", 0), 0), greatest(coalesce(b."totalAmountInPaise", 0), 0)), 0)))::bigint AS disc,
                ref."referralDoctorId"
         FROM "TestOrder" t
         JOIN touched USING ("visitId")
