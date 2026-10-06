@@ -10,6 +10,8 @@ export function formatRupees(
   // Defensive: a missing/NaN field (e.g. a stale API response that predates a
   // new column) must never render "₹NaN" — show an em dash instead.
   if (!Number.isFinite(paise)) return "—";
+  // Sign before the symbol: "−₹41,410", never "₹-41,410".
+  if (paise < 0) return `\u2212${formatRupees(-paise, options)}`;
   const rupees = paise / 100;
 
   if (options?.short) {

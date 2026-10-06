@@ -27,7 +27,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
-import { KpiTile, ComparisonTrendChart, Sparkline } from './_shared/dashboardCharts';
+import { KpiTile, ComparisonTrendChart, Sparkline, VarianceBridge, ShareBar, SERIES } from './_shared/dashboardCharts';
 import {
   TOKENS,
   SectionCard,
@@ -129,6 +129,9 @@ interface DashboardV2 {
   revenueTrend: { date: string; collectedInPaise: number }[];
   trend: TrendDay[];
   kpis: { current: Totals & { outstanding: number }; prior: Totals };
+  categoryMoves: { category: string; current: number; prior: number; tests: number; priorTests: number }[];
+  sources: { source: 'referred' | 'walkin' | 'partner' | 'clinic'; visits: number; gross: number; priorVisits: number; priorGross: number }[];
+  referrers: { referralDoctorId: string; name: string; visits: number; billed: number; commission: number; priorVisits: number; priorBilled: number }[];
   revenueMix: {
     reportableInPaise: number;
     clinicInPaise: number;
@@ -143,6 +146,7 @@ interface DashboardV2 {
     visitCount: number;
     avgTicketInPaise: number | null;
     tatP50Minutes: number | null;
+    tatSampleCount?: number;
     deltaPercent: number | null;
     daysDormant: number;
     collectedInPaise: number;
@@ -215,7 +219,7 @@ const METRICS: Record<MetricKey, Metric> = {
     goodWhenUp: true,
   },
   avgBill: {
-    label: 'Avg bill',
+    label: 'Avg bill (gross)',
     title: 'Average bill per day (gross ÷ bills)',
     num: (p) => p.gross,
     den: (p) => p.bills,
@@ -407,7 +411,7 @@ function MoneyTodayCard({
         >
           <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Cash</div>
           <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-            {formatRupees(data.cashInPaise)}
+            {rupeesWhole(data.cashInPaise)}
           </div>
         </Link>
         <Link
@@ -416,7 +420,7 @@ function MoneyTodayCard({
         >
           <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Online</div>
           <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-            {formatRupees(data.onlineInPaise)}
+            {rupeesWhole(data.onlineInPaise)}
           </div>
         </Link>
         <div>
@@ -426,7 +430,7 @@ function MoneyTodayCard({
             style={{ color: data.refundInPaise > 0 ? TOKENS.discount : TOKENS.textPrimary }}
           >
             {data.refundInPaise > 0 ? '−' : ''}
-            {formatRupees(data.refundInPaise)}
+            {rupeesWhole(data.refundInPaise)}
           </div>
         </div>
       </div>
@@ -449,8 +453,8 @@ function MoneyTodayCard({
             value={-data.discountInPaise}
             ratio={widthFor(data.discountInPaise)}
             color={TOKENS.discount}
-            note={Number.isFinite(data.discountRatePct) ? `(${data.discountRatePct}% of gross)` : undefined}
-            noteCaution={Number.isFinite(data.discountRatePct) && data.discountRatePct > 15}
+            note={data.grossInPaise > 0 ? `(${((data.discountInPaise / data.grossInPaise) * 100).toFixed(1)}% of gross)` : undefined}
+            noteCaution={data.grossInPaise > 0 && data.discountInPaise / data.grossInPaise > 0.15}
           />
           {data.reversedInPaise > 0 && (
             <WaterfallRow
@@ -524,6 +528,7 @@ function WaterfallRow({
       onMouseLeave={leave}
       onFocus={enter}
       onBlur={leave}
+      className="rounded focus-visible:ring-2 focus-visible:ring-blue-300"
       style={{ outline: 'none', cursor: 'default' }}
     >
       <div
@@ -546,7 +551,7 @@ function WaterfallRow({
           style={{ color: TOKENS.textPrimary }}
         >
           {value < 0 ? '−' : ''}
-          {formatRupees(Math.abs(value))}
+          {rupeesWhole(Math.abs(value))}
         </span>
       </div>
       <MiniBar fillRatio={ratio} color={color} highlight={hovered} />
@@ -686,7 +691,7 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
       </SectionCard>
 
       <SectionCard
-        label="Patient comms"
+        label="Patient comms · today"
         rightSlot={
           <Link
             to="/ops/audit?tab=comms"
@@ -756,6 +761,7 @@ function KpiRow({
           <KpiTile
             key={k}
             label={m.label}
+            hint={m.title}
             value={now == null ? '—' : m.format(now)}
             delta={delta}
             deltaGoodWhenUp={m.goodWhenUp}
@@ -800,7 +806,7 @@ function TrendCard({
   return (
     <SectionCard
       label={`${m.title} · ${periodLabel}`}
-      description={capped ? `Last ${data.trend.length} days of the window` : 'Pick a tile above to chart it'}
+      description={capped ? `Last ${data.trend.length} days of the window · click any tile above to chart it` : 'Click any tile above to chart it'}
     >
       <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
         <span className="inline-flex items-center gap-1.5">
@@ -992,9 +998,119 @@ function RevenueMixCard({
   );
 }
 
+// ----- what moved + where the business comes from -----------------------
+
+function WhatMovedCard({ moves, periodLabel }: { moves: DashboardV2['categoryMoves']; periodLabel: string }) {
+  const priorTotal = moves.reduce((s, m) => s + m.prior, 0);
+  // Fold categories too small to read into one "Other" bar.
+  const small = (m: (typeof moves)[number]) =>
+    Math.abs(m.current - m.prior) < priorTotal * 0.01 && m.current < priorTotal * 0.03;
+  const rows = moves.filter((m) => !small(m)).map((m) => ({ key: m.category, prior: m.prior, current: m.current, m }));
+  const rest = moves.filter(small);
+  if (rest.length) {
+    rows.push({
+      key: 'Other',
+      prior: rest.reduce((s, m) => s + m.prior, 0),
+      current: rest.reduce((s, m) => s + m.current, 0),
+      m: { category: 'Other', current: 0, prior: 0, tests: rest.reduce((s, m) => s + m.tests, 0), priorTests: rest.reduce((s, m) => s + m.priorTests, 0) },
+    });
+  }
+  return (
+    <SectionCard
+      label={`What moved · ${periodLabel}`}
+      description="Billed by test category, against the prior period · biggest gain first"
+    >
+      {moves.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No tests billed in this window.</div>
+      ) : (
+        <VarianceBridge
+          rows={rows}
+          priorLabel="Prior period"
+          currentLabel="This period"
+          format={(v) => formatRupees(v, { short: true })}
+          detail={(r) => {
+            const m = rows.find((x) => x.key === r.key)?.m;
+            return m ? `${m.tests.toLocaleString('en-IN')} tests now · ${m.priorTests.toLocaleString('en-IN')} before` : '';
+          }}
+        />
+      )}
+    </SectionCard>
+  );
+}
+
+const SOURCE_META: Record<DashboardV2['sources'][number]['source'], { label: string; color: string }> = {
+  referred: { label: 'Referred by a doctor', color: SERIES[0] },
+  walkin: { label: 'Walk-in', color: SERIES[1] },
+  partner: { label: 'Through a partner', color: SERIES[2] },
+  clinic: { label: 'OP consultation', color: SERIES[3] },
+};
+const changeText = (now: number, before: number) =>
+  before > 0 ? `${now >= before ? '▲' : '▼'} ${Math.abs(Math.round(((now - before) / before) * 100))}%` : 'new';
+
+function SourcesCard({ data, periodLabel }: { data: DashboardV2; periodLabel: string }) {
+  const order: DashboardV2['sources'][number]['source'][] = ['referred', 'walkin', 'partner', 'clinic'];
+  const parts = order
+    .map((k) => data.sources.find((s) => s.source === k))
+    .filter((s): s is DashboardV2['sources'][number] => Boolean(s))
+    .map((s) => ({
+      key: s.source,
+      label: SOURCE_META[s.source].label,
+      color: SOURCE_META[s.source].color,
+      value: s.gross,
+      note: `${formatRupees(s.gross, { short: true })} · ${s.visits.toLocaleString('en-IN')} bills · ${changeText(s.gross, s.priorGross)}`,
+    }));
+  return (
+    <SectionCard
+      label={`Where the business comes from · ${periodLabel}`}
+      description="Share of gross billed, and the doctors who send the most"
+    >
+      {parts.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No bills in this window.</div>
+      ) : (
+        <ShareBar parts={parts} />
+      )}
+      {data.referrers.length > 0 && (
+        <table className="mt-4 w-full" style={{ fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: TOKENS.textTertiary }}>
+              <th className="py-1.5 text-left" style={{ fontWeight: 400 }}>Top referrers</th>
+              <th className="py-1.5 text-right" style={{ fontWeight: 400 }}>Billed</th>
+              <th className="py-1.5 text-right" style={{ fontWeight: 400 }}>vs prior</th>
+              <th className="py-1.5 text-right" style={{ fontWeight: 400 }} title="Commission ÷ billed: what the relationship costs">Commission</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.referrers.map((r) => {
+              const falling = r.priorBilled > 0 && r.billed < r.priorBilled * 0.8;
+              return (
+                <tr key={r.referralDoctorId} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                  <td className="py-2" style={{ color: TOKENS.textPrimary }}>
+                    {r.name.replace(/\s{2,}.*$/, '')}
+                    <span style={{ color: TOKENS.textTertiary }}> · {r.visits} visits</span>
+                  </td>
+                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>{formatRupees(r.billed, { short: true })}</td>
+                  <td className="py-2 text-right" style={{ color: falling ? TOKENS.critical : r.billed >= r.priorBilled ? TOKENS.healthy : TOKENS.textSecondary }}>
+                    {changeText(r.billed, r.priorBilled)}
+                  </td>
+                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
+                    {formatRupees(r.commission, { short: true })}
+                    <span style={{ color: TOKENS.textTertiary }}> · {r.billed > 0 ? Math.round((r.commission / r.billed) * 100) : 0}%</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </SectionCard>
+  );
+}
+
 // ----- branch table -----------------------------------------------------
 
 type BranchSort = 'collected' | 'delta' | 'visits' | 'avg' | 'net' | 'tat';
+// Same floor the diagnostics tile uses before it shows a TAT at all.
+const TAT_MIN_SAMPLES = 4;
 
 function BranchTableCard({
   rows,
@@ -1006,21 +1122,33 @@ function BranchTableCard({
   onPickBranch: (branchId: string) => void;
 }) {
   const [sort, setSort] = useState<BranchSort>('collected');
+  // Largest first, except TAT where fastest first is the natural read.
+  const [desc, setDesc] = useState(true);
+  const pickSort = (k: BranchSort) => {
+    if (k === sort) setDesc((d) => !d);
+    else { setSort(k); setDesc(k !== 'tat'); }
+  };
   const keyOf = (r: DashboardV2['branchTable'][number]): number => {
     switch (sort) {
       case 'delta': return r.deltaPercent ?? -Infinity;
       case 'visits': return r.visitCount;
       case 'avg': return r.avgTicketInPaise ?? -Infinity;
       case 'net': return r.netInPaise;
-      case 'tat': return -(r.tatP50Minutes ?? Infinity); // fastest first
+      case 'tat': return (r.tatSampleCount ?? 0) >= TAT_MIN_SAMPLES ? r.tatP50Minutes ?? -Infinity : -Infinity;
       default: return r.collectedInPaise;
     }
   };
-  const sorted = [...rows].sort((a, b) => keyOf(b) - keyOf(a));
+  const sorted = [...rows].sort((a, b) => {
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    // Rows with nothing to compare stay at the bottom either way.
+    if (ka === -Infinity || kb === -Infinity) return ka === kb ? 0 : ka === -Infinity ? 1 : -1;
+    return desc ? kb - ka : ka - kb;
+  });
   const head = (k: BranchSort, label: string) => (
-    <th className="py-2 text-right" aria-sort={sort === k ? 'descending' : undefined}>
+    <th className="py-2 text-right" aria-sort={sort === k ? (desc ? 'descending' : 'ascending') : undefined}>
       <button
-        onClick={() => setSort(k)}
+        onClick={() => pickSort(k)}
         style={{
           color: sort === k ? TOKENS.textPrimary : TOKENS.textTertiary,
           fontWeight: sort === k ? 500 : 400,
@@ -1031,7 +1159,7 @@ function BranchTableCard({
         }}
       >
         {label}
-        {sort === k ? ' ↓' : ''}
+        {sort === k ? (desc ? ' ↓' : ' ↑') : ''}
       </button>
     </th>
   );
@@ -1105,7 +1233,11 @@ function BranchTableCard({
                         {formatRupees(r.netInPaise, { short: true })}
                       </td>
                       <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
-                        {r.tatP50Minutes !== null ? `${(r.tatP50Minutes / 60).toFixed(1)}h` : '—'}
+                        {r.tatP50Minutes !== null && (r.tatSampleCount ?? TAT_MIN_SAMPLES) >= TAT_MIN_SAMPLES ? (
+                          `${(r.tatP50Minutes / 60).toFixed(1)}h`
+                        ) : (
+                          <span title={`Fewer than ${TAT_MIN_SAMPLES} finalized reports in this window`} style={{ color: TOKENS.textTertiary }}>—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1337,6 +1469,14 @@ export default function OwnerDashboardV2() {
                 <MoneyTodayCard data={data.moneyToday} periodLabel={periodLabel} />
               </div>
             </div>
+
+            {/* sent since phase 2 — a bundle cached before it still renders */}
+            {data.categoryMoves && data.sources && (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <WhatMovedCard moves={data.categoryMoves} periodLabel={periodLabel} />
+                <SourcesCard data={data} periodLabel={periodLabel} />
+              </div>
+            )}
 
             <BranchTableCard rows={data.branchTable} periodLabel={periodLabel} onPickBranch={setBranchValue} />
 

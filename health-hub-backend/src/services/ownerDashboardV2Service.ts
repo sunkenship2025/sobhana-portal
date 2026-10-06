@@ -39,7 +39,16 @@
 
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
-import { getMoneyFacts, totalsOf, type DayFact, type MoneyTotals } from './moneyFactsService';
+import {
+  getMoneyFacts,
+  getReferrerFacts,
+  getSourceFacts,
+  totalsOf,
+  type DayFact,
+  type MoneyTotals,
+  type ReferrerFact,
+  type SourceFact,
+} from './moneyFactsService';
 import { logger } from '../lib/logger';
 import type { Prisma, VisitDomain } from '@prisma/client';
 
@@ -50,7 +59,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v6:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v7:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -180,6 +189,15 @@ export interface TrendDay extends DayPoint {
   prior: DayPoint;
 }
 
+/** Billed (test price) in one payout category: this window and the prior one. */
+export interface CategoryMove {
+  category: string;
+  current: number;
+  prior: number;
+  tests: number;
+  priorTests: number;
+}
+
 export interface RevenueMix {
   reportableInPaise: number;
   clinicInPaise: number;
@@ -195,6 +213,7 @@ export interface BranchRow {
   visitCount: number;
   avgTicketInPaise: number | null;
   tatP50Minutes: number | null;
+  tatSampleCount: number;
   deltaPercent: number | null;
   daysDormant: number; // 0 if active in window
   collectedInPaise: number;
@@ -222,6 +241,9 @@ export interface DashboardV2Response {
   trend: TrendDay[];
   kpis: { current: MoneyTotals & { outstanding: number }; prior: MoneyTotals };
   revenueMix: RevenueMix;
+  categoryMoves: CategoryMove[];
+  sources: SourceFact[];
+  referrers: ReferrerFact[];
   branchTable: BranchRow[];
 }
 
@@ -368,6 +390,8 @@ export async function getOwnerDashboardV2(
     todayOutstandingAgg,
     // every period money figure: the window and the equal window before it
     facts,
+    sources,
+    referrerFacts,
 
     // payout liability
     payoutLiabilityRows,
@@ -449,6 +473,8 @@ export async function getOwnerDashboardV2(
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
     }),
     getMoneyFacts({ start: priorWin.start, end: win.end, branchId, domain }),
+    getSourceFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
+    getReferrerFacts({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
     // payout liability
     prisma.doctorPayoutLedger.groupBy({
       by: ['doctorType'],
@@ -604,7 +630,7 @@ export async function getOwnerDashboardV2(
     actionQueue.push({
       type: 'whatsapp_failed',
       severity: 'high',
-      label: `${waFailedCount} WhatsApp failure${waFailedCount === 1 ? '' : 's'}`,
+      label: `${waFailedCount} WhatsApp failure${waFailedCount === 1 ? '' : 's'} since yesterday`,
       count: waFailedCount,
       drillTo: '/ops/audit?tab=comms',
     });
@@ -804,6 +830,21 @@ export async function getOwnerDashboardV2(
     totalInPaise: reportableRev + clinicRev + billOnlyRev,
   };
 
+  // ----- what moved: billed by payout category, window vs prior ----------
+  const catAgg = new Map<string, CategoryMove>();
+  for (const c of facts.categories) {
+    const m = catAgg.get(c.category) ?? { category: c.category, current: 0, prior: 0, tests: 0, priorTests: 0 };
+    if (c.date >= winStartKey) { m.current += c.price; m.tests += c.tests; }
+    else { m.prior += c.price; m.priorTests += c.tests; }
+    catAgg.set(c.category, m);
+  }
+  const categoryMoves = [...catAgg.values()].sort((a, b) => (b.current - b.prior) - (a.current - a.prior));
+
+  // ----- top referrers: the eight who billed most this window -----------
+  const referrers = [...referrerFacts]
+    .sort((a, b) => b.billed - a.billed)
+    .slice(0, 8);
+
   // ----- branch table ----------------------------------------------------
   const curByBranch = new Map<string, DayFact[]>();
   const priorByBranch = new Map<string, DayFact[]>();
@@ -854,6 +895,7 @@ export async function getOwnerDashboardV2(
         visitCount: c.visits,
         avgTicketInPaise: c.visits > 0 ? Math.round(c.net / c.visits) : null,
         tatP50Minutes: percentile(tatList, 50),
+        tatSampleCount: tatList.length,
         // Δ follows the headline: net collected against the prior window.
         deltaPercent: pct(c.netCollected, p.netCollected),
         daysDormant: daysDormant >= DORMANT_DAYS ? daysDormant : 0,
@@ -887,6 +929,9 @@ export async function getOwnerDashboardV2(
       prior,
     },
     revenueMix,
+    categoryMoves,
+    sources,
+    referrers,
     branchTable,
   };
 

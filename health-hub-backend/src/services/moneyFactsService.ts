@@ -68,6 +68,66 @@ const IST_DAY = (col: Prisma.Sql) =>
 
 const n = (v: unknown) => Number(v ?? 0);
 
+/**
+ * `priced`: every test of every visit touched in the window, with its share of the bill's
+ * counter discount exactly as the payout statement allocates it (largest
+ * remainder over non-replaced tests, by price), the commission it owes, and its active referrer. A test
+ * added on another day still takes its part of the discount.
+ */
+function liveOrderShares(scope: MoneyScope): Prisma.Sql {
+  const { start, end, branchId, domain } = scope;
+  const branch = branchId ? Prisma.sql`AND t."branchId" = ${branchId}` : Prisma.empty;
+  const reg = domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty;
+  return Prisma.sql`
+      WITH touched AS (
+        SELECT DISTINCT t."visitId" FROM "TestOrder" t
+        WHERE t."createdAt" >= ${start} AND t."createdAt" < ${end} ${branch}
+      ),
+      o AS (
+        SELECT t.id, t."visitId", t."branchId", v.domain, t."createdAt", t."cancelledAt", t."replacedAt",
+               greatest(round(t."priceInPaise"), 0)::bigint AS p, t."priceInPaise" AS price,
+               t."referralCommissionType"::text AS ty, t."referralCommissionPercentage" AS pct,
+               t."referralCommissionAmountInPaise" AS amt, coalesce(t."partnerCutInPaise", 0) AS cut,
+               least(greatest(coalesce(b."discountAmountInPaise", 0), 0), greatest(coalesce(b."totalAmountInPaise", 0), 0))::bigint AS disc,
+               ref."referralDoctorId"
+        FROM "TestOrder" t
+        JOIN touched USING ("visitId")
+        JOIN "Visit" v ON v.id = t."visitId"
+        LEFT JOIN "Bill" b ON b."visitId" = t."visitId"
+        LEFT JOIN LATERAL (
+          SELECT rv."referralDoctorId" FROM "ReferralDoctor_Visit" rv
+          WHERE rv."visitId" = t."visitId" AND rv."deletedAt" IS NULL
+          ORDER BY rv."createdAt" LIMIT 1
+        ) ref ON TRUE
+        WHERE TRUE ${reg}
+      ),
+      live AS (
+        SELECT o.*, (sum(p) OVER w)::bigint AS total, least(disc, (sum(p) OVER w)::bigint) AS d
+        FROM o WHERE "replacedAt" IS NULL
+        WINDOW w AS (PARTITION BY "visitId")
+      ),
+      floored AS (
+        SELECT live.*, CASE WHEN total > 0 THEN (d * p) / total ELSE 0 END AS fl,
+               CASE WHEN total > 0 THEN (d * p) % total ELSE 0 END AS rem
+        FROM live
+      ),
+      shared AS (
+        SELECT floored.*,
+               fl + CASE WHEN total > 0 AND row_number() OVER (PARTITION BY "visitId" ORDER BY rem DESC, id)
+                              <= d - sum(fl) OVER (PARTITION BY "visitId") THEN 1 ELSE 0 END AS share
+        FROM floored
+      ),
+      priced AS (
+        SELECT shared.*,
+               CASE
+                 WHEN ty = 'FIXED_AMOUNT' THEN greatest(0, round(coalesce(amt, 0)))
+                 ELSE greatest(0, round((price * coalesce(pct, 0) / 100)::numeric) - share)
+               END AS commission
+        FROM shared
+      )`;
+}
+
+
 export async function getMoneyFacts(scope: MoneyScope): Promise<{ days: DayFact[]; categories: CategoryFact[] }> {
   const { start, end, branchId, domain } = scope;
   const branch = (col: Prisma.Sql) => (branchId ? Prisma.sql`AND ${col} = ${branchId}` : Prisma.empty);
@@ -86,53 +146,15 @@ export async function getMoneyFacts(scope: MoneyScope): Promise<{ days: DayFact[
       FROM "Visit" v
       WHERE v."createdAt" >= ${start} AND v."createdAt" < ${end} ${branch(Prisma.sql`v."branchId"`)} ${reg}
       GROUP BY 1, 2, 3`,
-    // Referral commission per live test, as the statement derives it: the
-    // bill's counter discount is shared across its non-replaced tests by price
-    // (largest remainder), and a percentage commission bears its whole share.
-    // Allocation runs over every test of a touched visit — a test added on
-    // another day still takes its part of the discount.
+    // Referral commission per live test, as the statement derives it.
     domain === 'CLINIC'
       ? Promise.resolve([])
       : prisma.$queryRaw<any[]>`
-      WITH touched AS (
-        SELECT DISTINCT t."visitId" FROM "TestOrder" t
-        WHERE t."createdAt" >= ${start} AND t."createdAt" < ${end} ${branch(Prisma.sql`t."branchId"`)}
-      ),
-      o AS (
-        SELECT t.id, t."visitId", t."branchId", v.domain, t."createdAt", t."cancelledAt", t."replacedAt",
-               greatest(round(t."priceInPaise"), 0)::bigint AS p, t."priceInPaise" AS price,
-               t."referralCommissionType"::text AS ty, t."referralCommissionPercentage" AS pct,
-               t."referralCommissionAmountInPaise" AS amt, coalesce(t."partnerCutInPaise", 0) AS cut,
-               least(greatest(coalesce(b."discountAmountInPaise", 0), 0), greatest(coalesce(b."totalAmountInPaise", 0), 0))::bigint AS disc
-        FROM "TestOrder" t
-        JOIN touched USING ("visitId")
-        JOIN "Visit" v ON v.id = t."visitId"
-        LEFT JOIN "Bill" b ON b."visitId" = t."visitId"
-        WHERE TRUE ${reg}
-      ),
-      live AS (
-        SELECT o.*, (sum(p) OVER w)::bigint AS total, least(disc, (sum(p) OVER w)::bigint) AS d
-        FROM o WHERE "replacedAt" IS NULL
-        WINDOW w AS (PARTITION BY "visitId")
-      ),
-      floored AS (
-        SELECT live.*, CASE WHEN total > 0 THEN (d * p) / total ELSE 0 END AS fl,
-               CASE WHEN total > 0 THEN (d * p) % total ELSE 0 END AS rem
-        FROM live
-      ),
-      shared AS (
-        SELECT floored.*,
-               fl + CASE WHEN total > 0 AND row_number() OVER (PARTITION BY "visitId" ORDER BY rem DESC, id)
-                              <= d - sum(fl) OVER (PARTITION BY "visitId") THEN 1 ELSE 0 END AS share
-        FROM floored
-      )
+      ${liveOrderShares(scope)}
       SELECT ${IST_DAY(Prisma.sql`"createdAt"`)} AS date, "branchId", domain::text AS domain,
-             sum(CASE
-                   WHEN ty = 'FIXED_AMOUNT' THEN greatest(0, round(coalesce(amt, 0)))
-                   ELSE greatest(0, round((price * coalesce(pct, 0) / 100)::numeric) - share)
-                 END) AS "referralCommission",
+             sum(commission) AS "referralCommission",
              sum(cut) AS "partnerCut"
-      FROM shared
+      FROM priced
       WHERE "cancelledAt" IS NULL AND "createdAt" >= ${start} AND "createdAt" < ${end}
       GROUP BY 1, 2, 3`,
     domain === 'DIAGNOSTICS'
@@ -241,4 +263,83 @@ export function totalsOf(facts: DayFact[]): MoneyTotals {
   t.net = t.gross - t.discount - t.cancelled - t.commission;
   t.netCollected = t.cash + t.online - t.refunds;
   return t;
+}
+
+export interface ReferrerFact {
+  referralDoctorId: string;
+  name: string;
+  visits: number;
+  billed: number; // live tests' price
+  commission: number; // as the statement computes it
+  priorVisits: number;
+  priorBilled: number;
+}
+
+/**
+ * Per referring doctor: this window vs the one before it (split at `splitAt`),
+ * by test date. Commission follows the statement, from the same `priced` rows
+ * the engine sums.
+ */
+export async function getReferrerFacts(scope: MoneyScope, splitAt: Date): Promise<ReferrerFact[]> {
+  if (scope.domain === 'CLINIC') return [];
+  const rows = await prisma.$queryRaw<any[]>`
+    ${liveOrderShares(scope)}
+    SELECT p."referralDoctorId", rd.name,
+           count(DISTINCT p."visitId") FILTER (WHERE p."createdAt" >= ${splitAt}) AS visits,
+           sum(p.price) FILTER (WHERE p."createdAt" >= ${splitAt}) AS billed,
+           sum(p.commission) FILTER (WHERE p."createdAt" >= ${splitAt}) AS commission,
+           count(DISTINCT p."visitId") FILTER (WHERE p."createdAt" < ${splitAt}) AS "priorVisits",
+           sum(p.price) FILTER (WHERE p."createdAt" < ${splitAt}) AS "priorBilled"
+    FROM priced p JOIN "ReferralDoctor" rd ON rd.id = p."referralDoctorId"
+    WHERE p."cancelledAt" IS NULL AND p."createdAt" >= ${scope.start} AND p."createdAt" < ${scope.end}
+    GROUP BY 1, 2`;
+  return rows.map((r) => ({
+    referralDoctorId: r.referralDoctorId,
+    name: r.name,
+    visits: n(r.visits),
+    billed: n(r.billed),
+    commission: n(r.commission),
+    priorVisits: n(r.priorVisits),
+    priorBilled: n(r.priorBilled),
+  }));
+}
+
+export type BusinessSource = 'referred' | 'walkin' | 'partner' | 'clinic';
+export interface SourceFact {
+  source: BusinessSource;
+  visits: number;
+  gross: number;
+  priorVisits: number;
+  priorGross: number;
+}
+
+/**
+ * Where billing came from, by bill date: a partner's patient (any test routed
+ * through a partner), a doctor's referral, a walk-in, or a clinic consultation.
+ */
+export async function getSourceFacts(scope: MoneyScope, splitAt: Date): Promise<SourceFact[]> {
+  const { start, end, branchId, domain } = scope;
+  const rows = await prisma.$queryRaw<any[]>`
+    SELECT CASE
+             WHEN v.domain = 'CLINIC' THEN 'clinic'
+             WHEN EXISTS (SELECT 1 FROM "TestOrder" t WHERE t."visitId" = v.id AND t."partnerId" IS NOT NULL) THEN 'partner'
+             WHEN EXISTS (SELECT 1 FROM "ReferralDoctor_Visit" rv WHERE rv."visitId" = v.id AND rv."deletedAt" IS NULL) THEN 'referred'
+             ELSE 'walkin'
+           END AS source,
+           count(*) FILTER (WHERE b."billedAt" >= ${splitAt}) AS visits,
+           sum(b."totalAmountInPaise") FILTER (WHERE b."billedAt" >= ${splitAt}) AS gross,
+           count(*) FILTER (WHERE b."billedAt" < ${splitAt}) AS "priorVisits",
+           sum(b."totalAmountInPaise") FILTER (WHERE b."billedAt" < ${splitAt}) AS "priorGross"
+    FROM "Bill" b JOIN "Visit" v ON v.id = b."visitId"
+    WHERE b."billedAt" >= ${start} AND b."billedAt" < ${end}
+          ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
+          ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
+    GROUP BY 1`;
+  return rows.map((r) => ({
+    source: r.source,
+    visits: n(r.visits),
+    gross: n(r.gross),
+    priorVisits: n(r.priorVisits),
+    priorGross: n(r.priorGross),
+  }));
 }
