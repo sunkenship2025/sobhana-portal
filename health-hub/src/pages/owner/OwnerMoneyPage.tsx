@@ -24,7 +24,7 @@ import { formatPatientName } from '@/lib/patientDisplay';
 import { discountReasonGroup } from '@/lib/discountReasons';
 import { DaySheetResponse } from './moneyDaySheet';
 import { MoneyBreakdown, type BreakdownData } from './MoneyBreakdown';
-import { KpiTile, ComparisonTrendChart, StatementLine, BarList, SplitBar, GroupLabel, TH, ROW, TOTAL_ROW, type BarRow } from './_shared/dashboardCharts';
+import { KpiTile, ComparisonTrendChart, StatementLine, BarList, SplitBar, GroupLabel, TH, ROW, TOTAL_ROW, HEAT, type BarRow } from './_shared/dashboardCharts';
 import {
   TOKENS,
   formatRupees,
@@ -674,29 +674,105 @@ function GivenBackCard({ data }: { data: MoneyResponse }) {
   );
 }
 
-/** Group discount rows into at most `top` named lines plus "Other". */
-function groupDiscounts(rows: MoneyResponse['discountLog'], keyOf: (d: MoneyResponse['discountLog'][number]) => string, top = 6): BarRow[] {
-  const m = new Map<string, { value: number; bills: number }>();
+const bills = (n: number) => `${n} bill${n === 1 ? '' : 's'}`;
+
+/**
+ * Who gave discounts × why, in one table: each cell is what that person gave
+ * for that reason, shaded by size; the edges are the totals, and both add up
+ * to all discounts. The five biggest reasons get a column, the rest share one.
+ */
+function DiscountMatrix({ rows }: { rows: MoneyResponse['discountLog'] }) {
+  const who = (d: MoneyResponse['discountLog'][number]) => d.grantedBy ?? (d.isCoupon ? 'Offer code' : 'Unknown');
+  const sumBy = (key: (d: MoneyResponse['discountLog'][number]) => string) => {
+    const m = new Map<string, number>();
+    for (const d of rows) m.set(key(d), (m.get(key(d)) ?? 0) + d.discountInPaise);
+    return [...m].sort((a, b) => b[1] - a[1]);
+  };
+  const reasons = sumBy(reasonOf);
+  const shownReasons = reasons.slice(0, 5).map(([r]) => r);
+  const restReasons = reasons.slice(5).map(([r]) => r);
+  const col = (d: MoneyResponse['discountLog'][number]) => (shownReasons.includes(reasonOf(d)) ? reasonOf(d) : 'Rest');
+  const cols = restReasons.length ? [...shownReasons, 'Rest'] : shownReasons;
+  const people = sumBy(who).map(([p]) => p);
+  const cell = new Map<string, { v: number; n: number }>();
   for (const d of rows) {
-    const k = keyOf(d);
-    const g = m.get(k) ?? { value: 0, bills: 0 };
-    g.value += d.discountInPaise;
-    g.bills += 1;
-    m.set(k, g);
+    const k = `${who(d)}|${col(d)}`;
+    const c = cell.get(k) ?? { v: 0, n: 0 };
+    c.v += d.discountInPaise;
+    c.n += 1;
+    cell.set(k, c);
   }
-  const sorted = [...m].sort((a, b) => b[1].value - a[1].value);
-  const out: BarRow[] = sorted.slice(0, top).map(([k, g]) => ({ key: k, label: k, value: g.value, note: `${g.bills} bills` }));
-  const rest = sorted.slice(top);
-  if (rest.length) {
-    out.push({
-      key: '__other',
-      label: `Other (${rest.length})`,
-      value: rest.reduce((s, [, g]) => s + g.value, 0),
-      note: `${rest.reduce((s, [, g]) => s + g.bills, 0)} bills`,
-    });
-  }
-  return out;
+  const max = Math.max(1, ...[...cell.values()].map((c) => c.v));
+  const total = rows.reduce((s, d) => s + d.discountInPaise, 0);
+  const rowTotal = (p: string) => rows.filter((d) => who(d) === p);
+  const colTotal = (c: string) => rows.filter((d) => col(d) === c).reduce((s, d) => s + d.discountInPaise, 0);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', borderCollapse: 'separate', borderSpacing: 2 }}>
+        <thead>
+          <tr>
+            <th className="pb-1 text-left align-bottom" style={TH}>Given by</th>
+            {cols.map((c) => (
+              <th key={c} className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 84 }} title={c === 'Rest' ? restReasons.join(', ') : undefined}>
+                {c === 'Rest' ? `${restReasons.length} other reasons` : c}
+              </th>
+            ))}
+            <th className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 96 }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {people.map((p) => {
+            const mine = rowTotal(p);
+            const sum = mine.reduce((s, d) => s + d.discountInPaise, 0);
+            return (
+              <tr key={p}>
+                <td className="py-1.5 pr-3 whitespace-nowrap">
+                  {p}
+                  <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {bills(mine.length)}</span>
+                </td>
+                {cols.map((c) => {
+                  const x = cell.get(`${p}|${c}`);
+                  const step = x ? Math.min(HEAT.length - 1, Math.floor((x.v / max) * HEAT.length)) : -1;
+                  return (
+                    <td
+                      key={c}
+                      className="px-2 py-1.5 text-right"
+                      title={x ? `${p} · ${c}: ${rupees(x.v)} · ${bills(x.n)}` : undefined}
+                      style={{
+                        borderRadius: 4,
+                        background: x ? HEAT[step] : 'transparent',
+                        color: !x ? TOKENS.textTertiary : step >= 3 ? 'white' : TOKENS.textPrimary,
+                      }}
+                    >
+                      {x ? rupeesShort(x.v) : '·'}
+                    </td>
+                  );
+                })}
+                <td className="px-2 py-1.5 text-right font-medium whitespace-nowrap">
+                  {rupeesShort(sum)}
+                  <span style={{ color: TOKENS.textTertiary, fontWeight: 400 }}> · {total > 0 ? Math.round((sum / total) * 100) : 0}%</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="font-medium" style={TOTAL_ROW}>
+            <td className="pt-2">All discounts</td>
+            {cols.map((c) => (
+              <td key={c} className="px-2 pt-2 text-right whitespace-nowrap">
+                {rupeesShort(colTotal(c))}
+                <div style={{ color: TOKENS.textTertiary, fontWeight: 400, fontSize: 11 }}>{total > 0 ? Math.round((colTotal(c) / total) * 100) : 0}%</div>
+              </td>
+            ))}
+            <td className="px-2 pt-2 text-right align-top">{rupeesShort(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
 }
+
 // The reason list billing picks from; older typed reasons are read into it where clear.
 const reasonOf = (d: MoneyResponse['discountLog'][number]) =>
   (d.isCoupon && !d.grantedBy) || /^coupon\b/i.test(d.reason ?? '') ? 'Offer code' : discountReasonGroup(d.reason);
@@ -709,28 +785,19 @@ function DiscountsCard({ rows, periodLabel }: { rows: MoneyResponse['discountLog
   return (
     <SectionCard
       label={`Discounts · ${periodLabel}`}
-      description="Who gave them, why, and the biggest ones · over 30% or over ₹1,000 is tinted"
+      description="Who gave them and why · darker is more · hover a cell for the bill count"
     >
       {rows.length === 0 ? (
         <EmptyState label="No discounts in this window" />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div>
-              <div className="mb-1 font-medium" style={{ fontSize: 13 }}>Who gave them</div>
-              <BarList rows={groupDiscounts(rows, (d) => d.grantedBy ?? (d.isCoupon ? 'Offer code' : 'Unknown'))} format={rupeesShort} totalLabel="All discounts" />
-            </div>
-            <div>
-              <div className="mb-1 font-medium" style={{ fontSize: 13 }}>Why</div>
-              <BarList rows={groupDiscounts(rows, reasonOf, 10)} format={rupeesShort} totalLabel="All discounts" />
-            </div>
-          </div>
+          <DiscountMatrix rows={rows} />
           <div className="mt-6 flex items-baseline justify-between">
             <div className="font-medium" style={{ fontSize: 13 }}>
               Biggest discounts
               {flagged > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1" style={{ color: TOKENS.critical, fontSize: 12, fontWeight: 400 }}>
-                  <AlertTriangle className="h-3.5 w-3.5" /> {flagged} over 30% or ₹1,000
+                  <AlertTriangle className="h-3.5 w-3.5" /> {flagged} over 30% or ₹1,000, tinted
                 </span>
               )}
             </div>
