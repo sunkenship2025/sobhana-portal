@@ -157,8 +157,10 @@ export function ComparisonTrendChart({
   const plotW = Math.max(1, W - padL - padR);
   const plotH = height - padT - padB;
   const all = [...days.map((d) => d.value), ...average, ...priorAverage].filter((v): v is number => v != null);
-  const hi = Math.max(1, ...all) * 1.05;
-  const lo = Math.min(0, ...all);
+  // Gridlines on round numbers (₹50k, ₹1L, ₹1.5L), about four of them.
+  const step = niceStep((Math.max(...all, 0) - Math.min(0, ...all)) / 4 || 1);
+  const lo = Math.floor(Math.min(0, ...all) / step) * step;
+  const hi = Math.max(step, Math.ceil(Math.max(...all, 0) / step) * step);
   const slot = plotW / n;
   const x = (i: number) => padL + (i + 0.5) * slot;
   const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
@@ -168,7 +170,7 @@ export function ComparisonTrendChart({
       .map((v, i) => (v == null ? null : `${x(i)},${y(v)}`))
       .filter(Boolean)
       .join(' ');
-  const grid = [0, 1, 2, 3].map((g) => lo + ((hi - lo) * g) / 3);
+  const grid = Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, g) => lo + g * step);
   const labelEvery = Math.max(1, Math.ceil(n / 6));
   const pick = (clientX: number, el: SVGSVGElement) => {
     const px = clientX - el.getBoundingClientRect().left - padL;
@@ -272,6 +274,13 @@ export function ComparisonTrendChart({
   );
 }
 
+/** 1, 2, 2.5 or 5 × a power of ten, at least `raw`. */
+function niceStep(raw: number): number {
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+
 // Validated categorical slots (light surface): blue, orange, aqua, yellow.
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'] as const;
 
@@ -322,12 +331,16 @@ export function VarianceBridge({
     <div ref={ref} style={{ width: '100%', position: 'relative' }}>
       {W > 0 && (
         <svg width={W} height={bars.length * rowH + 4} role="img" aria-label={`Change in billing by category, ${format(priorTotal)} to ${format(curTotal)}`}>
+          <line x1={sx(priorTotal)} x2={sx(priorTotal)} y1={2} y2={2 + bars.length * rowH} stroke={TOKENS.borderStrong} strokeDasharray="2 3" />
           {bars.map((b, i) => {
             const y = 2 + i * rowH;
             const delta = b.to - b.from;
             const fill = b.total ? '#C9C8C2' : delta >= 0 ? SERIES[0] : SERIES[1];
-            const x0 = b.total ? labelW : sx(Math.min(b.from, b.to));
-            const x1 = sx(Math.max(b.from, b.to));
+            // The axis starts near the smallest running total, so a total drawn
+            // as a bar from the axis would exaggerate the change. Totals are a
+            // marker at their position instead; only the changes have length.
+            const x0 = b.total ? sx(b.to) - 1.5 : sx(Math.min(b.from, b.to));
+            const x1 = b.total ? sx(b.to) + 1.5 : sx(Math.max(b.from, b.to));
             const isActive = active === b.key;
             return (
               <g
@@ -340,7 +353,7 @@ export function VarianceBridge({
                 <text x={labelW - 8} y={y + rowH / 2 + 4} fontSize={11} textAnchor="end" fill={b.total ? TOKENS.textPrimary : TOKENS.textSecondary}>
                   {b.key}
                 </text>
-                <rect x={x0} y={y + 5} width={Math.max(2, x1 - x0)} height={rowH - 10} rx={3} fill={fill} />
+                <rect x={x0} y={y + (b.total ? 2 : 5)} width={Math.max(2, x1 - x0)} height={rowH - (b.total ? 4 : 10)} rx={b.total ? 1 : 3} fill={b.total ? TOKENS.textSecondary : fill} />
                 <text x={x1 + 6} y={y + rowH / 2 + 4} fontSize={11} fill={TOKENS.textPrimary}>
                   {b.total ? format(b.to) : `${delta >= 0 ? '+' : '−'}${format(Math.abs(delta))}${b.row ? pct(b.row) : ''}`}
                 </text>

@@ -296,7 +296,7 @@ export default function PayoutsList() {
       const body = await res.json();
       if (!res.ok) toast.error(body.message ?? "Failed to delete");
       else {
-        toast.success(`Deleted ${body.data?.deletedCount ?? ids.length}`);
+        toast.success(`Deleted ${body.data?.deletedCount ?? payees.length}`);
         setDeleteOpen(false);
         setSelected(new Set());
         await fetchWorklist();

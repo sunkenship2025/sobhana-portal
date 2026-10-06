@@ -445,16 +445,16 @@ export function PeriodFilter({
     background: 'white',
   };
   return (
-    <div className="inline-flex flex-wrap items-center gap-2">
+    <div className="inline-flex max-w-full flex-wrap items-center gap-2">
       <div
-        className="inline-flex overflow-hidden rounded-md border"
+        className="inline-flex max-w-full overflow-x-auto rounded-md border"
         style={{ borderColor: TOKENS.border, fontSize: 12 }}
       >
         {options.map((k, i) => (
           <button
             key={k}
             onClick={() => onChange(k)}
-            className="px-2.5 py-1.5"
+            className="whitespace-nowrap px-2.5 py-1.5"
             style={{
               background: k === value ? TOKENS.info : 'white',
               color: k === value ? 'white' : TOKENS.textSecondary,

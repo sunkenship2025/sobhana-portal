@@ -61,7 +61,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v8:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v9:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -122,6 +122,8 @@ export interface MoneyToday {
   // against the prior equal-length window (null when that had nothing).
   netCollectedInPaise: number;
   collectedDeltaPercent: number | null;
+  /** The window's commission by who earns it; adds up to commissionInPaise. */
+  commissionSplit: { referralInPaise: number; partnerInPaise: number; clinicInPaise: number };
 }
 
 export interface PayoutLiability {
@@ -142,6 +144,11 @@ export interface OpsPulseDiagnostics {
   tatP95Minutes: number | null;
   tatBreachCount: number;
   tatSampleCount: number;
+  // In visits, not tests: ordersToday counts every leaf test (~8 a visit), so
+  // it never compared with finalizedToday, which counts reports.
+  visitsToday: number;
+  awaitingResults: number; // open, no result entered yet (DRAFT)
+  partlyReported: number; // open, results being entered (WAITING)
 }
 
 export interface OpsPulseClinic {
@@ -214,6 +221,8 @@ export interface BranchRow {
   netInPaise: number;
   visitCount: number;
   avgTicketInPaise: number | null;
+  /** gross ÷ bills — the same definition as the KPI tile. */
+  avgBillInPaise: number | null;
   tatP50Minutes: number | null;
   tatSampleCount: number;
   deltaPercent: number | null;
@@ -416,6 +425,10 @@ export async function getOwnerDashboardV2(
 
     // branch table — TAT by branch (selected window)
     branchTatSamples,
+
+    diagVisitsToday,
+    diagAwaiting,
+    diagPartly,
   ] = await Promise.all([
     // Overdue result entry — count DIAGNOSTIC VISITS (one row per visit) still
     // in the entry queue and older than 24h, mirroring the Result Queue page.
@@ -524,15 +537,19 @@ export async function getOwnerDashboardV2(
     }),
 
     // ops pulse — clinic
+    // Today's queue only: a consultation never closed would otherwise read as
+    // waiting / in consultation forever.
     prisma.clinicVisit.count({
       where: {
         status: 'WAITING',
+        createdAt: { gte: todayStart, lt: tomorrowStart },
         ...(branchId ? { visit: { branchId } } : {}),
       },
     }),
     prisma.clinicVisit.count({
       where: {
         status: 'IN_PROGRESS',
+        createdAt: { gte: todayStart, lt: tomorrowStart },
         ...(branchId ? { visit: { branchId } } : {}),
       },
     }),
@@ -564,6 +581,7 @@ export async function getOwnerDashboardV2(
     prisma.clinicVisit.findFirst({
       where: {
         status: 'IN_PROGRESS',
+        createdAt: { gte: todayStart, lt: tomorrowStart },
         ...(branchId ? { visit: { branchId } } : {}),
       },
       orderBy: { startedAt: 'desc' },
@@ -597,6 +615,12 @@ export async function getOwnerDashboardV2(
       },
       take: 2000,
     }),
+
+    prisma.visit.count({
+      where: { domain: 'DIAGNOSTICS', status: { not: 'CANCELLED' }, createdAt: { gte: todayStart, lt: tomorrowStart }, ...branchScopeWhere },
+    }),
+    prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'DRAFT', ...branchScopeWhere } }),
+    prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'WAITING', ...branchScopeWhere } }),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -721,6 +745,14 @@ export async function getOwnerDashboardV2(
     deltaPercent: pct(cur.net, prior.net),
     netCollectedInPaise: cur.netCollected,
     collectedDeltaPercent: pct(cur.netCollected, prior.netCollected),
+    commissionSplit: curFacts.reduce(
+      (s, f) => ({
+        referralInPaise: s.referralInPaise + f.referralCommission,
+        partnerInPaise: s.partnerInPaise + f.partnerCut,
+        clinicInPaise: s.clinicInPaise + f.clinicCommission,
+      }),
+      { referralInPaise: 0, partnerInPaise: 0, clinicInPaise: 0 },
+    ),
   };
 
   // ----- daily series: window + the same day one window earlier ----------
@@ -801,6 +833,9 @@ export async function getOwnerDashboardV2(
       tatP95Minutes: percentile(tatDurations, 95),
       tatBreachCount: breachCount,
       tatSampleCount: tatDurations.length,
+      visitsToday: diagVisitsToday,
+      awaitingResults: diagAwaiting,
+      partlyReported: diagPartly,
     },
     clinic: {
       waiting: clinicWaiting,
@@ -899,6 +934,7 @@ export async function getOwnerDashboardV2(
         netInPaise: c.net,
         visitCount: c.visits,
         avgTicketInPaise: c.visits > 0 ? Math.round(c.net / c.visits) : null,
+        avgBillInPaise: c.bills > 0 ? Math.round(c.gross / c.bills) : null,
         tatP50Minutes: percentile(tatList, 50),
         tatSampleCount: tatList.length,
         // Δ follows the headline: net collected against the prior window.
