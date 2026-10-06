@@ -1,20 +1,19 @@
 /**
  * Owner Money page — GET /api/owner/money
  *
- * Answers: cash in / cash owed / cash out / where's the leakage / who handles it.
+ * Net collected (cash + online − refunds) is the basis, as on the dashboard;
+ * every list that splits money adds back up to it.
  *
- * Layout:
- *   - 4 KPI cards: gross / net / outstanding / discounts
- *   - 30d revenue trend (full width)
- *   - aging buckets (40%) + oldest unpaid bills (60%)
- *   - cash vs online by branch (50%) + collected by user (50%)
- *   - discount log (60%) + refunds summary (40%)
+ * Top to bottom: KPIs · each day's money (cash / online / refunds) beside how
+ * it came in, by branch · the breakdown table · open dues (aging + oldest) ·
+ * who collected it beside money given back · discounts: who gave them, why,
+ * and the log.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Printer, Download } from 'lucide-react';
+import { Printer, Download, AlertTriangle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
@@ -22,16 +21,13 @@ import { useAuthStore } from '@/store/authStore';
 import { formatPatientName } from '@/lib/patientDisplay';
 import { DaySheetResponse } from './moneyDaySheet';
 import { MoneyBreakdown, type BreakdownData } from './MoneyBreakdown';
+import { KpiTile, ComparisonTrendChart, StatementLine, BarList, SplitBar, GroupLabel, TH, ROW, TOTAL_ROW, type BarRow } from './_shared/dashboardCharts';
 import {
   TOKENS,
   formatRupees,
   formatIstDateTime,
   formatIstDate,
   SectionCard,
-  KpiCard,
-  AgingBar,
-  TrendChart,
-  TruncationFooter,
   EmptyState,
   BranchFilter,
   PeriodFilter,
@@ -66,8 +62,21 @@ interface MoneyResponse {
     netDeltaPercent: number | null;
     netCollectedInPaise?: number;
     collectedDeltaPercent?: number | null;
+    cashInPaise?: number;
+    onlineInPaise?: number;
+    refundsInPaise?: number;
+    prior?: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number };
   };
-  revenueTrend: { date: string; netInPaise: number; collectedInPaise?: number }[];
+  revenueTrend: {
+    date: string;
+    netInPaise: number;
+    collectedInPaise?: number;
+    cash?: number;
+    online?: number;
+    refunds?: number;
+    discount?: number;
+    prior?: { collected: number; net: number; cash: number; online: number; refunds: number; discount: number };
+  }[];
   aging: Array<{
     key: '0_7' | '8_15' | '16_30' | '30_plus';
     label: string;
@@ -144,6 +153,7 @@ interface MoneyResponse {
       patientName: string;
       patientTitle?: string | null;
       reversedInPaise: number;
+      tests?: number;
       reason: string | null;
       cancelledAt: string;
     }>;
@@ -152,22 +162,173 @@ interface MoneyResponse {
   breakdown?: BreakdownData;
 }
 
-// ----- revenue trend ----------------------------------------------------
+const rupees = (p: number) => formatRupees(Math.round(p / 100) * 100);
+const rupeesShort = (p: number) => formatRupees(p, { short: true });
+const rupeesAxis = (p: number) => formatRupees(p, { short: true }).replace('.0', '');
+const change = (now: number, before: number | undefined) =>
+  before && before > 0 ? Math.round(((now - before) / before) * 100) : null;
+const deltaOf = (now: number, before: number | undefined) => {
+  const c = change(now, before);
+  return c == null ? null : { text: `${Math.abs(c)}%`, up: c >= 0 };
+};
+/** Trailing 7-day mean at each day; the first six are seeded from `seed` (the days before). */
+function avg7(values: number[], seed: number[] = []): (number | null)[] {
+  const all = [...seed, ...values];
+  return values.map((_, i) => {
+    const end = seed.length + i + 1;
+    return end < 7 ? null : all.slice(end - 7, end).reduce((s, v) => s + v, 0) / 7;
+  });
+}
 
-function RevenueTrendSection({ trend }: { trend: MoneyResponse['revenueTrend'] }) {
-  if (trend.length === 0) {
-    return null;
-  }
-  const data = trend.map((p) => ({ date: p.date, value: p.collectedInPaise ?? p.netInPaise }));
+// ----- KPIs ---------------------------------------------------------------
+
+function MoneyKpis({ data }: { data: MoneyResponse }) {
+  const k = data.kpis;
+  const t = data.revenueTrend;
+  const p = k.prior;
+  type Day = NonNullable<MoneyResponse['revenueTrend'][number]['prior']>;
+  // 7-day average of one series, seeded from the period before.
+  const spark = (key: keyof Day) => avg7(t.map((d) => (key === 'collected' ? d.collectedInPaise ?? d.netInPaise : key === 'net' ? d.netInPaise : d[key] ?? 0)), t.map((d) => d.prior?.[key] ?? 0));
+  const collected = k.netCollectedInPaise ?? 0;
+  const cashShare = collected > 0 ? Math.round(((k.cashInPaise ?? 0) / ((k.cashInPaise ?? 0) + (k.onlineInPaise ?? 0) || 1)) * 100) : 0;
   return (
-    <SectionCard label="Net collected per day" description="Cash + online − refunds, each day of the period">
-      <TrendChart
-        data={data}
-        height={160}
-        valueFormat={(v) => formatRupees(v, { short: true })}
-        markLastAsToday
-        accent={TOKENS.net}
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <KpiTile
+        label="Net collected"
+        hint="Cash + online − refunds"
+        value={rupees(collected)}
+        delta={deltaOf(collected, p?.netCollected)}
+        spark={spark('collected')}
       />
+      <KpiTile
+        label="Net to you"
+        hint="Net collected − commission"
+        value={rupees(k.netInPaise)}
+        delta={deltaOf(k.netInPaise, p?.net)}
+        spark={spark('net')}
+      />
+      <KpiTile
+        label="Cash"
+        hint="Cash received (before refunds)"
+        value={rupees(k.cashInPaise ?? 0)}
+        delta={deltaOf(k.cashInPaise ?? 0, p?.cash)}
+        spark={spark('cash')}
+      />
+      <KpiTile
+        label="Online"
+        hint="UPI / card / bank received (before refunds)"
+        value={rupees(k.onlineInPaise ?? 0)}
+        delta={deltaOf(k.onlineInPaise ?? 0, p?.online)}
+        spark={spark('online')}
+        footnote={`${100 - cashShare}% of money in`}
+      />
+      <KpiTile
+        label="Discounts given"
+        hint={`${k.discountBillCount} bills${k.couponInPaise ? ` · ${rupeesShort(k.couponInPaise)} by offer code` : ''}`}
+        value={rupees(k.discountInPaise)}
+        delta={deltaOf(k.discountInPaise, p?.discount)}
+        deltaGoodWhenUp={false}
+        spark={spark('discount')}
+      />
+      <Link to="/money/bills?aging=open" className="block h-full" style={{ textDecoration: 'none' }}>
+        <KpiTile
+          label="Open dues"
+          value={rupees(k.outstandingInPaise)}
+          delta={null}
+          footnote={`${k.outstandingAgedBillCount} bill${k.outstandingAgedBillCount === 1 ? '' : 's'} over 30 days · open ↗`}
+        />
+      </Link>
+    </div>
+  );
+}
+
+// ----- each day's money + how it came in ----------------------------------
+
+const SERIES_BLUE = '#2a78d6';
+const CASH = TOKENS.cash;
+const ONLINE = TOKENS.online;
+const REFUND = TOKENS.commissionBar;
+
+function DailyMoneyCard({
+  trend,
+  periodLabel,
+  onPickDay,
+}: {
+  trend: MoneyResponse['revenueTrend'];
+  periodLabel: string;
+  onPickDay: (date: string) => void;
+}) {
+  const collected = (d: MoneyResponse['revenueTrend'][number]) => d.collectedInPaise ?? d.netInPaise;
+  const long = trend.length >= 14;
+  const hasParts = trend.some((d) => d.cash != null);
+  const days = trend.map((d) => ({ date: d.date, value: collected(d), prior: d.prior?.collected ?? null }));
+  const average = long ? avg7(trend.map(collected), trend.map((d) => d.prior?.collected ?? 0)) : days.map((d) => d.value);
+  const priorAverage = long ? avg7(trend.map((d) => d.prior?.collected ?? 0)) : days.map((d) => d.prior);
+  const swatch = (color: string, label: string, line?: 'solid' | 'dashed') => (
+    <span className="inline-flex items-center gap-1.5">
+      {line ? (
+        <span style={{ width: 14, display: 'inline-block', borderTop: `2px ${line} ${color}` }} />
+      ) : (
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
+      )}
+      {label}
+    </span>
+  );
+  return (
+    <SectionCard
+      label={`Net collected per day · ${periodLabel}`}
+      description="Click a day to see just that day"
+      className="h-full"
+    >
+      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        {hasParts && swatch(ONLINE, 'Online')}
+        {hasParts && swatch(CASH, 'Cash')}
+        {hasParts && swatch(REFUND, 'Refunds')}
+        {swatch(TOKENS.info, long ? '7-day average' : 'Net collected', 'solid')}
+        {swatch(TOKENS.textTertiary, long ? 'Prior period, 7-day average' : 'Prior period', 'dashed')}
+      </div>
+      <ComparisonTrendChart
+        days={days}
+        average={average}
+        priorAverage={priorAverage}
+        format={rupeesAxis}
+        onPickDay={onPickDay}
+        height={300}
+        valueLabel="Net collected"
+        parts={
+          hasParts
+            ? [
+                { label: 'Online', color: ONLINE, values: trend.map((d) => d.online ?? 0) },
+                { label: 'Cash', color: CASH, values: trend.map((d) => d.cash ?? 0) },
+                { label: 'Refunds', color: REFUND, values: trend.map((d) => -(d.refunds ?? 0)) },
+              ]
+            : undefined
+        }
+      />
+    </SectionCard>
+  );
+}
+
+function HowItCameInCard({ data, periodLabel }: { data: MoneyResponse; periodLabel: string }) {
+  const k = data.kpis;
+  const branches = data.cashByBranch.filter((b) => b.totalInPaise !== 0);
+  return (
+    <SectionCard label={`How it came in · ${periodLabel}`} className="h-full">
+      <StatementLine label="Cash" value={k.cashInPaise ?? 0} />
+      <StatementLine label="Online" value={k.onlineInPaise ?? 0} />
+      {(k.refundsInPaise ?? 0) > 0 && <StatementLine label="Refunds paid out" value={-(k.refundsInPaise ?? 0)} />}
+      <StatementLine label="Net collected" value={k.netCollectedInPaise ?? 0} total />
+      {branches.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 flex justify-between" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+            <span>By branch · cash share</span>
+            <span>more than 70% cash is tinted</span>
+          </div>
+          {branches.map((b) => (
+            <CashByBranchRow key={b.branchId} b={b} />
+          ))}
+        </div>
+      )}
     </SectionCard>
   );
 }
@@ -178,32 +339,26 @@ type AgingKey = MoneyResponse['aging'][number]['key'];
 
 function AgingCard({
   aging,
-  total,
   selectedKey,
   onSelect,
 }: {
   aging: MoneyResponse['aging'];
-  total: number;
   selectedKey: AgingKey | null;
   onSelect: (key: AgingKey | null) => void;
 }) {
-  const colors = [TOKENS.healthy, TOKENS.cautionLight, TOKENS.caution, TOKENS.critical];
+  // Older is worse: the same bar, warming from neutral to red.
+  const colors = [SERIES_BLUE, TOKENS.cautionLight, TOKENS.caution, TOKENS.critical];
+  const total = aging.reduce((s, b) => s + b.amountInPaise, 0);
   return (
     <SectionCard
-      label="Receivables aging"
-      description="By days since billed · click a bucket to filter"
+      label="Open dues by age"
+      description="Days since billed · click one to filter the list beside it"
+      className="h-full"
       rightSlot={
         selectedKey ? (
           <button
             onClick={() => onSelect(null)}
-            style={{
-              color: TOKENS.info,
-              background: 'transparent',
-              border: 0,
-              fontSize: 12,
-              padding: 0,
-              cursor: 'pointer',
-            }}
+            style={{ color: TOKENS.info, background: 'transparent', border: 0, fontSize: 12, padding: 0, cursor: 'pointer' }}
           >
             clear filter
           </button>
@@ -211,35 +366,22 @@ function AgingCard({
       }
     >
       {total === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No outstanding bills.</div>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No open dues.</div>
       ) : (
-        aging.map((b, i) => {
-          const isSelected = selectedKey === b.key;
-          return (
-            <div
-              key={b.key}
-              onClick={() => onSelect(isSelected ? null : b.key)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(isSelected ? null : b.key);
-                }
-              }}
-              style={{
-                cursor: 'pointer',
-                borderRadius: 4,
-                background: isSelected ? '#EEF4FF' : undefined,
-                opacity: selectedKey && !isSelected ? 0.5 : 1,
-                paddingLeft: 4,
-                paddingRight: 4,
-              }}
-            >
-              <AgingBar bucket={b} total={total} color={colors[i]} />
-            </div>
-          );
-        })
+        <BarList
+          keepOrder
+          rows={aging.map((b, i) => ({
+            key: b.key,
+            label: b.label,
+            value: b.amountInPaise,
+            note: `${b.billCount} bill${b.billCount === 1 ? '' : 's'}`,
+            color: colors[i],
+          }))}
+          format={rupees}
+          totalLabel="Open dues"
+          onPick={(k) => onSelect(selectedKey === k ? null : (k as AgingKey))}
+          selected={selectedKey}
+        />
       )}
     </SectionCard>
   );
@@ -269,7 +411,8 @@ function OldestUnpaidCard({
   return (
     <SectionCard
       label="Oldest unpaid"
-      description="Top 5 oldest open bills"
+      description="The five bills open longest"
+      className="h-full"
       rightSlot={
         filterKey ? (
           <button
@@ -293,24 +436,18 @@ function OldestUnpaidCard({
       ) : visibleRows.length === 0 ? (
         <EmptyState label="No bills in this aging bucket" hint="Clear the filter to see all" />
       ) : (
-        <table className="w-full" style={{ fontSize: 12 }}>
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
           <thead>
-            <tr
-              style={{
-                color: TOKENS.textTertiary,
-                textAlign: 'left',
-                fontWeight: 400,
-              }}
-            >
-              <th className="pb-2">Patient</th>
-              <th className="pb-2">Bill</th>
-              <th className="pb-2 text-right">Days</th>
-              <th className="pb-2 text-right">Owed</th>
+            <tr style={{ textAlign: 'left' }}>
+              <th className="pb-2" style={TH}>Patient</th>
+              <th className="pb-2" style={TH}>Bill</th>
+              <th className="pb-2 text-right" style={TH}>Days open</th>
+              <th className="pb-2 text-right" style={TH}>Owed</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((r) => (
-              <tr key={r.billId} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+              <tr key={r.billId} style={ROW}>
                 <td className="py-2">
                   <Link
                     to={`/clinic/patient-360/${r.patientId}`}
@@ -318,7 +455,7 @@ function OldestUnpaidCard({
                   >
                     {formatPatientName(r.patientName, r.patientTitle)}
                   </Link>
-                  <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{r.branchCode}</div>
+                  <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.branchCode}</span>
                 </td>
                 <td className="py-2" style={{ color: TOKENS.textPrimary }}>
                   {r.billNumber}
@@ -329,10 +466,10 @@ function OldestUnpaidCard({
                     color: r.daysOverdue > 30 ? TOKENS.critical : TOKENS.caution,
                   }}
                 >
-                  {r.daysOverdue}d
+                  {r.daysOverdue} days
                 </td>
                 <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                  {formatRupees(r.owedInPaise, { short: true })}
+                  {rupees(r.owedInPaise)}
                 </td>
               </tr>
             ))}
@@ -345,323 +482,260 @@ function OldestUnpaidCard({
 
 // ----- cash by branch / user -------------------------------------------
 
-// One branch's cash/online split. Both halves are their own hit target; hovering
-// one lights it, dims the other, and bolds the matching half of the caption
-// below — the caption already carries the values, so it doubles as the readout
-// and no floating tooltip is needed. Amounts are shortened (₹2.7L), so hover
-// swaps in the exact figures.
+/** One branch: what came in, split cash / online on the standard thin bar. */
 function CashByBranchRow({ b }: { b: MoneyResponse['cashByBranch'][number] }) {
-  const [side, setSide] = useState<'cash' | 'online' | null>(null);
-  const onlineSharePct = 100 - b.cashSharePct;
-  const amount = (v: number) => (side ? formatRupees(v) : formatRupees(v, { short: true }));
   return (
-    <div
-      className="py-2"
-      style={{
-        borderTop: `0.5px solid ${TOKENS.border}`,
-        background: b.flagHeavyCash ? '#FFF8E1' : undefined,
-        padding: 8,
-      }}
-      onMouseLeave={() => setSide(null)}
-    >
-      <div className="mb-1 flex items-baseline justify-between" style={{ fontSize: 13 }}>
-        <span style={{ color: TOKENS.textPrimary }}>
-          {b.branchName}{' '}
-          <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>({b.branchCode})</span>
+    <div className="py-2" style={{ ...ROW, background: b.flagHeavyCash ? '#FFF8E1' : undefined }}>
+      <div className="flex items-baseline justify-between gap-3" style={{ fontSize: 13 }}>
+        <span>
+          {b.branchName.replace(/^Sobhana - /, '')}
+          <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {b.branchCode}</span>
         </span>
-        <span style={{ color: TOKENS.textPrimary }}>
-          {amount(b.totalInPaise)}
-        </span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rupeesShort(b.totalInPaise)}</span>
       </div>
-      <div className="flex w-full overflow-hidden" style={{ height: 12, borderRadius: 3 }}>
-        {(['cash', 'online'] as const).map((k) => (
-          <div
-            key={k}
-            tabIndex={0}
-            aria-label={`${b.branchName} ${k}: ${formatRupees(
-              k === 'cash' ? b.cashInPaise : b.onlineInPaise
-            )}, ${k === 'cash' ? b.cashSharePct : onlineSharePct} percent`}
-            onMouseEnter={() => setSide(k)}
-            onFocus={() => setSide(k)}
-            onBlur={() => setSide(null)}
-            style={{
-              width: `${k === 'cash' ? b.cashSharePct : onlineSharePct}%`,
-              background: k === 'cash' ? TOKENS.cash : TOKENS.online,
-              opacity: side && side !== k ? 0.4 : 1,
-              transition: 'opacity 120ms ease',
-              outline: 'none',
-              cursor: 'default',
-            }}
-          />
-        ))}
+      <div className="mt-1">
+        <SplitBar
+          parts={[
+            { label: 'Cash', value: b.cashInPaise, color: CASH },
+            { label: 'Online', value: b.onlineInPaise, color: ONLINE },
+          ]}
+        />
       </div>
-      <div className="mt-1" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
-        <span
-          style={{
-            color: side === 'cash' ? TOKENS.textPrimary : undefined,
-            fontWeight: side === 'cash' ? 600 : undefined,
-          }}
-        >
-          cash {amount(b.cashInPaise)} ({b.cashSharePct}%)
-        </span>
-        {' · '}
-        <span
-          style={{
-            color: side === 'online' ? TOKENS.textPrimary : undefined,
-            fontWeight: side === 'online' ? 600 : undefined,
-          }}
-        >
-          online {amount(b.onlineInPaise)} ({onlineSharePct}%)
-        </span>
+      <div className="mt-1" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+        cash {b.cashSharePct}% · online {100 - b.cashSharePct}%
       </div>
     </div>
   );
 }
 
-function CashByBranchCard({ rows }: { rows: MoneyResponse['cashByBranch'] }) {
-  const visible = rows.filter((r) => r.totalInPaise > 0);
-  return (
-    <SectionCard
-      label="Cash vs online · by branch"
-      description="Heavy-cash branches (>70%) tinted amber"
-    >
-      {visible.length === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No payments in window.</div>
-      ) : (
-        visible.map((b) => <CashByBranchRow key={b.branchId} b={b} />)
-      )}
-    </SectionCard>
-  );
-}
-
-function CashByUserCard({
+function StaffCard({
   rows,
-  totalCount,
+  total,
 }: {
   rows: MoneyResponse['cashByUser'];
-  totalCount: number;
+  total: number;
 }) {
-  const visible = rows.slice(0, 10);
+  const th = TH;
+  const sum = (f: (u: MoneyResponse['cashByUser'][number]) => number) => rows.reduce((s, u) => s + f(u), 0);
   return (
     <SectionCard
-      label="Collected by user"
-      description="Solo-cash users (>80% cash) tinted amber"
+      label="Who collected it"
+      description="Net of refunds each person paid out · more than 80% cash is tinted"
+      className="h-full"
     >
       {rows.length === 0 ? (
-        <EmptyState label="No transactions in window" />
+        <EmptyState label="No payments in this window" />
+      ) : (
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          <thead>
+            <tr>
+              <th className="pb-2 text-left" style={th}>Staff</th>
+              <th className="pb-2 text-right" style={th}>Cash</th>
+              <th className="pb-2 text-right" style={th}>Online</th>
+              <th className="pb-2 text-right" style={th}>Total</th>
+              <th className="pb-2 text-right" style={th}>Share</th>
+              <th className="pb-2 text-right" style={th}>Payments</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((u) => (
+              <tr
+                key={u.userId}
+                style={{ ...ROW, background: u.flagSoloCash ? '#FFF8E1' : undefined }}
+              >
+                <td className="py-2">
+                  {u.userName}
+                  <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {u.branchName.replace(/^Sobhana - /, '')}</span>
+                </td>
+                <td className="py-2 text-right">{rupeesShort(u.cashInPaise)}</td>
+                <td className="py-2 text-right">{rupeesShort(u.onlineInPaise)}</td>
+                <td className="py-2 text-right font-medium">{rupeesShort(u.totalCollectedInPaise)}</td>
+                <td className="py-2 text-right" style={{ color: TOKENS.textSecondary }}>
+                  {total > 0 ? `${Math.round((u.totalCollectedInPaise / total) * 100)}%` : ''}
+                </td>
+                <td className="py-2 text-right" style={{ color: TOKENS.textSecondary }}>{u.transactionCount.toLocaleString('en-IN')}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-medium" style={TOTAL_ROW}>
+              <td className="pt-2">Net collected</td>
+              <td className="pt-2 text-right">{rupeesShort(sum((u) => u.cashInPaise))}</td>
+              <td className="pt-2 text-right">{rupeesShort(sum((u) => u.onlineInPaise))}</td>
+              <td className="pt-2 text-right">{rupeesShort(sum((u) => u.totalCollectedInPaise))}</td>
+              <td className="pt-2 text-right" style={{ color: TOKENS.textSecondary }}>100%</td>
+              <td className="pt-2 text-right" style={{ color: TOKENS.textSecondary }}>{sum((u) => u.transactionCount).toLocaleString('en-IN')}</td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Refunds (money handed back) and cancellations (charges voided before payment). */
+function GivenBackCard({ data }: { data: MoneyResponse }) {
+  const { refunds, cancellations } = data;
+  const head = (title: string, total: number, sub: string) => (
+    <div className="flex items-baseline justify-between">
+      <div>
+        <div className="font-medium" style={{ fontSize: 13 }}>{title}</div>
+        <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>{sub}</div>
+      </div>
+      <div className="font-medium" style={{ fontSize: 18 }}>{rupees(total)}</div>
+    </div>
+  );
+  const row = (key: string, who: string, bill: string, when: string, why: string | null, amount: number) => (
+    <div key={key} className="flex items-baseline justify-between gap-3 py-2" style={{ fontSize: 13, ...ROW }}>
+      <span className="min-w-0">
+        {who}
+        <span style={{ color: TOKENS.textTertiary }}> · {bill}</span>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{formatIstDate(when)} · {why ?? 'no reason given'}</div>
+      </span>
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rupees(amount)}</span>
+    </div>
+  );
+  return (
+    <SectionCard label="Money given back" className="h-full">
+      {head(
+        'Refunds',
+        refunds.totalInPaise,
+        `${refunds.count} refund${refunds.count === 1 ? '' : 's'} paid out${refunds.pctOfCollected != null ? ` · ${refunds.pctOfCollected}% of collected` : ''}`,
+      )}
+      <div className="mt-2">
+        {refunds.recent.slice(0, 3).map((r) =>
+          row(r.billId, formatPatientName(r.patientName, r.patientTitle), r.billNumber, r.refundedAt, r.reason, r.refundedInPaise),
+        )}
+      </div>
+      <div className="mt-4">
+        {head(
+          'Cancelled charges',
+          cancellations.totalInPaise,
+          `${cancellations.count} test${cancellations.count === 1 ? '' : 's'} taken off bills before payment`,
+        )}
+        <div className="mt-2">
+          {cancellations.recent.slice(0, 3).map((c, i) =>
+            row(
+              `${c.billNumber}-${i}`,
+              formatPatientName(c.patientName, c.patientTitle),
+              c.tests && c.tests > 1 ? `${c.billNumber} · ${c.tests} tests` : c.billNumber,
+              c.cancelledAt,
+              c.reason,
+              c.reversedInPaise,
+            ),
+          )}
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+/** Group discount rows into at most `top` named lines plus "Other". */
+function groupDiscounts(rows: MoneyResponse['discountLog'], keyOf: (d: MoneyResponse['discountLog'][number]) => string, top = 6): BarRow[] {
+  const m = new Map<string, { value: number; bills: number }>();
+  for (const d of rows) {
+    const k = keyOf(d);
+    const g = m.get(k) ?? { value: 0, bills: 0 };
+    g.value += d.discountInPaise;
+    g.bills += 1;
+    m.set(k, g);
+  }
+  const sorted = [...m].sort((a, b) => b[1].value - a[1].value);
+  const out: BarRow[] = sorted.slice(0, top).map(([k, g]) => ({ key: k, label: k, value: g.value, note: `${g.bills} bills` }));
+  const rest = sorted.slice(top);
+  if (rest.length) {
+    out.push({
+      key: '__other',
+      label: `Other (${rest.length})`,
+      value: rest.reduce((s, [, g]) => s + g.value, 0),
+      note: `${rest.reduce((s, [, g]) => s + g.bills, 0)} bills`,
+    });
+  }
+  return out;
+}
+const reasonOf = (d: MoneyResponse['discountLog'][number]) => {
+  if (d.isCoupon && !d.grantedBy) return 'Offer code';
+  const r = (d.reason ?? '').replace(/\s+/g, ' ').trim();
+  if (!r) return 'No reason given';
+  if (/^coupon\b/i.test(r)) return 'Offer code';
+  return r.length > 28 ? `${r.slice(0, 27)}…` : r.toUpperCase();
+};
+
+function DiscountsCard({ rows, periodLabel }: { rows: MoneyResponse['discountLog']; periodLabel: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const flagged = rows.filter((d) => d.flag).length;
+  const visible = showAll ? rows : rows.slice(0, 10);
+  const th = TH;
+  return (
+    <SectionCard
+      label={`Discounts · ${periodLabel}`}
+      description="Who gave them, why, and the biggest ones · over 30% or over ₹1,000 is tinted"
+    >
+      {rows.length === 0 ? (
+        <EmptyState label="No discounts in this window" />
       ) : (
         <>
-          <table className="w-full" style={{ fontSize: 12 }}>
-            <thead>
-              <tr
-                style={{
-                  color: TOKENS.textTertiary,
-                  textAlign: 'left',
-                  fontWeight: 400,
-                }}
-              >
-                <th className="pb-2">User</th>
-                <th className="pb-2 text-right">Cash</th>
-                <th className="pb-2 text-right">Online</th>
-                <th className="pb-2 text-right">Total</th>
-                <th className="pb-2 text-right">Txns</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((u) => (
-                <tr
-                  key={u.userId}
-                  style={{
-                    borderTop: `0.5px solid ${TOKENS.border}`,
-                    background: u.flagSoloCash ? '#FFF8E1' : undefined,
-                  }}
-                >
-                  <td className="py-2">
-                    <span style={{ color: TOKENS.textPrimary }}>{u.userName}</span>
-                    <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{u.branchName}</div>
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {formatRupees(u.cashInPaise, { short: true })}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {formatRupees(u.onlineInPaise, { short: true })}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {formatRupees(u.totalCollectedInPaise, { short: true })}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {u.transactionCount}
-                  </td>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div>
+              <div className="mb-1 font-medium" style={{ fontSize: 13 }}>Who gave them</div>
+              <BarList rows={groupDiscounts(rows, (d) => d.grantedBy ?? (d.isCoupon ? 'Offer code' : 'Unknown'))} format={rupeesShort} totalLabel="All discounts" />
+            </div>
+            <div>
+              <div className="mb-1 font-medium" style={{ fontSize: 13 }}>Why</div>
+              <BarList rows={groupDiscounts(rows, reasonOf, 8)} format={rupeesShort} totalLabel="All discounts" />
+            </div>
+          </div>
+          <div className="mt-6 flex items-baseline justify-between">
+            <div className="font-medium" style={{ fontSize: 13 }}>
+              Biggest discounts
+              {flagged > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1" style={{ color: TOKENS.critical, fontSize: 12, fontWeight: 400 }}>
+                  <AlertTriangle className="h-3.5 w-3.5" /> {flagged} over 30% or ₹1,000
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="mt-1 w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+              <thead>
+                <tr>
+                  <th className="py-1.5 text-left" style={th}>Bill</th>
+                  <th className="py-1.5 text-left" style={th}>Patient</th>
+                  <th className="py-1.5 text-right" style={th}>Off</th>
+                  <th className="py-1.5 text-right" style={th}>Of bill</th>
+                  <th className="py-1.5 pl-4 text-left" style={th}>Reason</th>
+                  <th className="py-1.5 text-left" style={th}>Given by</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <TruncationFooter shown={visible.length} total={totalCount} />
+              </thead>
+              <tbody>
+                {visible.map((d) => (
+                  <tr key={d.billId} style={{ ...ROW, background: d.flag ? '#FCEBEB40' : undefined }}>
+                    <td className="py-2 whitespace-nowrap">
+                      {d.billNumber}
+                      <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {d.branchCode}</span>
+                    </td>
+                    <td className="py-2">{formatPatientName(d.patientName, d.patientTitle)}</td>
+                    <td className="py-2 text-right">{rupees(d.discountInPaise)}</td>
+                    <td className="py-2 text-right" style={{ color: !d.isCoupon && d.discountPercent > 30 ? TOKENS.critical : TOKENS.textPrimary }}>
+                      {d.discountPercent}%
+                    </td>
+                    <td className="py-2 pl-4" style={{ color: TOKENS.textSecondary }}>{d.reason ?? '—'}</td>
+                    <td className="py-2" style={{ color: TOKENS.textSecondary }}>{d.grantedBy ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > 10 && (
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              className="mt-2"
+              style={{ color: TOKENS.info, background: 'transparent', border: 0, padding: 0, fontSize: 12, cursor: 'pointer' }}
+            >
+              {showAll ? 'Show the biggest 10' : `Show all ${rows.length}`}
+            </button>
+          )}
         </>
-      )}
-    </SectionCard>
-  );
-}
-
-// ----- discounts + refunds ---------------------------------------------
-
-function DiscountLogCard({
-  rows,
-  totalCount,
-}: {
-  rows: MoneyResponse['discountLog'];
-  totalCount: number;
-}) {
-  const visible = rows.slice(0, 20);
-  return (
-    <SectionCard
-      label="Discount log"
-      description="Discounts > 30% or > ₹1,000 tinted red"
-    >
-      {rows.length === 0 ? (
-        <EmptyState label="No discounts in window" />
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 12 }}>
-            <thead>
-              <tr
-                style={{
-                  color: TOKENS.textTertiary,
-                  textAlign: 'left',
-                  fontWeight: 400,
-                }}
-              >
-                <th className="pb-2">Bill</th>
-                <th className="pb-2">Patient</th>
-                <th className="pb-2 text-right">Off</th>
-                <th className="pb-2 text-right">%</th>
-                <th className="pb-2">Reason</th>
-                <th className="pb-2">Granted by</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((d) => (
-                <tr
-                  key={d.billId}
-                  style={{
-                    borderTop: `0.5px solid ${TOKENS.border}`,
-                    background: d.flag ? '#FCEBEB30' : undefined,
-                  }}
-                >
-                  <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                    {d.billNumber}{' '}
-                    <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>({d.branchCode})</span>
-                  </td>
-                  <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                    {formatPatientName(d.patientName, d.patientTitle)}
-                  </td>
-                <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                  {formatRupees(d.discountInPaise, { short: true })}
-                </td>
-                  <td
-                    className="py-2 text-right"
-                    style={{
-                      color: !d.isCoupon && d.discountPercent > 30 ? TOKENS.critical : TOKENS.textPrimary,
-                    }}
-                  >
-                    {d.discountPercent}%
-                  </td>
-                  <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                    {d.reason ?? '—'}
-                  </td>
-                  <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                    {d.grantedBy ?? '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <TruncationFooter shown={visible.length} total={totalCount} />
-        </div>
-      )}
-    </SectionCard>
-  );
-}
-
-function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
-  return (
-    <SectionCard label="Refunds">
-      <div className="font-medium" style={{ fontSize: 22, color: TOKENS.textPrimary }}>
-        {formatRupees(refunds.totalInPaise, { short: true })}
-      </div>
-      <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
-        {refunds.count} refund{refunds.count === 1 ? '' : 's'}
-        {refunds.pctOfCollected != null && ` · ${refunds.pctOfCollected}% of collected`}
-      </div>
-      {refunds.recent.length > 0 && (
-        <div
-          className="mt-3 space-y-2 border-t pt-2"
-          style={{ borderColor: TOKENS.border, fontSize: 12 }}
-        >
-          {refunds.recent.map((r) => (
-            <div key={r.billId} className="flex items-baseline justify-between">
-              <span>
-                <span style={{ color: TOKENS.textPrimary }}>
-                  {formatPatientName(r.patientName, r.patientTitle)}
-                </span>
-                <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                  {' '}
-                  · {r.billNumber}
-                </span>
-                <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                  {formatIstDate(r.refundedAt)} · {r.reason ?? '—'}
-                </div>
-              </span>
-              <span style={{ color: TOKENS.textPrimary }}>
-                {formatRupees(r.refundedInPaise, { short: true })}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
-  );
-}
-
-function CancellationsCard({
-  cancellations,
-}: {
-  cancellations: MoneyResponse['cancellations'];
-}) {
-  return (
-    <SectionCard label="Cancellations">
-      <div className="font-medium" style={{ fontSize: 22, color: TOKENS.textPrimary }}>
-        {formatRupees(cancellations.totalInPaise, { short: true })}
-      </div>
-      <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
-        {cancellations.count} cancellation{cancellations.count === 1 ? '' : 's'}
-        {cancellations.pctOfCollected != null && ` · ${cancellations.pctOfCollected}% of collected`}
-      </div>
-      {cancellations.recent.length > 0 && (
-        <div
-          className="mt-3 space-y-2 border-t pt-2"
-          style={{ borderColor: TOKENS.border, fontSize: 12 }}
-        >
-          {cancellations.recent.map((c, i) => (
-            <div key={`${c.billNumber}-${i}`} className="flex items-baseline justify-between">
-              <span>
-                <span style={{ color: TOKENS.textPrimary }}>
-                  {formatPatientName(c.patientName, c.patientTitle)}
-                </span>
-                <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                  {' '}
-                  · {c.billNumber}
-                </span>
-                <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                  {formatIstDate(c.cancelledAt)} · {c.reason ?? '—'}
-                </div>
-              </span>
-              <span style={{ color: TOKENS.textPrimary }}>
-                {formatRupees(c.reversedInPaise, { short: true })}
-              </span>
-            </div>
-          ))}
-        </div>
       )}
     </SectionCard>
   );
@@ -818,7 +892,7 @@ export default function OwnerMoneyPage() {
   };
 
   const data = query.data;
-  const totalAging = data?.aging.reduce((s, b) => s + b.amountInPaise, 0) ?? 0;
+  const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
   const agingLabelByKey = new Map((data?.aging ?? []).map((b) => [b.key, b.label]));
 
   return (
@@ -878,52 +952,21 @@ export default function OwnerMoneyPage() {
 
         {data && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-              <KpiCard
-                label="Net collected"
-                value={formatRupees(data.kpis.netCollectedInPaise ?? 0, { short: true })}
-                delta={{ percent: data.kpis.collectedDeltaPercent ?? null, baseline: 'vs prior period' }}
-                sub="cash + online − refunds"
-              />
-              <KpiCard
-                label="Net to you"
-                value={formatRupees(data.kpis.netInPaise, { short: true })}
-                delta={{ percent: data.kpis.netDeltaPercent, baseline: 'vs prior period' }}
-                sub={`collected − ${formatRupees(data.kpis.commissionInPaise, { short: true })} commission`}
-              />
-              <KpiCard
-                label="Due (this period)"
-                value={formatRupees(data.kpis.dueInPaise, { short: true })}
-                sub={
-                  Number.isFinite(data.kpis.collectionRatePct)
-                    ? `collected ${data.kpis.collectionRatePct}% of this period's bills`
-                    : 'uncollected on this period’s bills'
-                }
-              />
-              <KpiCard
-                label="Open receivables (all-time)"
-                value={formatRupees(data.kpis.outstandingInPaise, { short: true })}
-                sub={
-                  data.kpis.outstandingAgedBillCount > 0
-                    ? `${data.kpis.outstandingAgedBillCount} aged >30d`
-                    : '0 aged >30d'
-                }
-              />
-              <KpiCard
-                label="Discounts given"
-                value={formatRupees(data.kpis.discountInPaise, { short: true })}
-                sub={`${data.kpis.discountBillCount} bill${data.kpis.discountBillCount === 1 ? '' : 's'}${
-                  data.kpis.couponInPaise ? ` · ${formatRupees(data.kpis.couponInPaise, { short: true })} by coupon` : ''
-                }`}
-              />
-            </div>
+            <MoneyKpis data={data} />
 
-            <RevenueTrendSection trend={data.revenueTrend} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-8">
+                <DailyMoneyCard trend={data.revenueTrend} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
+              </div>
+              <div className="lg:col-span-4">
+                <HowItCameInCard data={data} periodLabel={periodLabel} />
+              </div>
+            </div>
 
             {data.breakdown && (
               <MoneyBreakdown
                 data={data.breakdown}
-                periodLabel={period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period]}
+                periodLabel={periodLabel}
                 onPickDay={(d) => setCustomRange({ start: d, end: d })}
                 onPickBranch={setBranchValue}
                 referrerHref={(id) => {
@@ -936,39 +979,36 @@ export default function OwnerMoneyPage() {
               />
             )}
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-              <div className="lg:col-span-2">
-                <AgingCard
-                  aging={data.aging}
-                  total={totalAging}
-                  selectedKey={agingFilter}
-                  onSelect={setAgingFilter}
-                />
-              </div>
-              <div className="lg:col-span-3">
-                <OldestUnpaidCard
-                  rows={data.oldestUnpaid}
-                  filterKey={agingFilter}
-                  filterLabel={agingFilter ? agingLabelByKey.get(agingFilter) ?? null : null}
-                  onClearFilter={() => setAgingFilter(null)}
-                />
+            <div>
+              <GroupLabel>
+                Open dues · {rupees(data.kpis.outstandingInPaise)} on all bills
+                {data.kpis.dueInPaise > 0 && ` · ${rupees(data.kpis.dueInPaise)} of it billed in this period`}
+              </GroupLabel>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                <div className="lg:col-span-5">
+                  <AgingCard aging={data.aging} selectedKey={agingFilter} onSelect={setAgingFilter} />
+                </div>
+                <div className="lg:col-span-7">
+                  <OldestUnpaidCard
+                    rows={data.oldestUnpaid}
+                    filterKey={agingFilter}
+                    filterLabel={agingFilter ? agingLabelByKey.get(agingFilter) ?? null : null}
+                    onClearFilter={() => setAgingFilter(null)}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <CashByBranchCard rows={data.cashByBranch} />
-              <CashByUserCard rows={data.cashByUser} totalCount={data.cashByUserTotalCount} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-7">
+                <StaffCard rows={data.cashByUser} total={data.kpis.netCollectedInPaise ?? 0} />
+              </div>
+              <div className="lg:col-span-5">
+                <GivenBackCard data={data} />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-              <div className="lg:col-span-3">
-                <DiscountLogCard rows={data.discountLog} totalCount={data.discountLogTotalCount} />
-              </div>
-              <div className="lg:col-span-2 space-y-4">
-                <RefundsCard refunds={data.refunds} />
-                <CancellationsCard cancellations={data.cancellations} />
-              </div>
-            </div>
+            <DiscountsCard rows={data.discountLog} periodLabel={periodLabel} />
           </div>
         )}
       </div>

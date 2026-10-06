@@ -4,7 +4,62 @@
  * are honest, nearest-x hover, arrow keys).
  */
 import React from 'react';
-import { TOKENS } from './ownerUi';
+import { Link } from 'react-router-dom';
+import { TOKENS, formatRupees } from './ownerUi';
+
+// ----- one look for every owner card ------------------------------------
+// Body and table text 13px; column heads 12px muted; a hairline above each
+// row; totals medium weight under a stronger rule; bars 6px on a light track;
+// changes as ▲/▼ n% in green/red. Every card on the dashboard and the Money
+// page uses these, so new and old cards read the same.
+
+/** Column head style for owner tables. */
+export const TH: React.CSSProperties = { fontWeight: 400, fontSize: 12, color: TOKENS.textTertiary };
+/** Hairline above a row. */
+export const ROW: React.CSSProperties = { borderTop: `0.5px solid ${TOKENS.border}` };
+/** The rule above a total row. */
+export const TOTAL_ROW: React.CSSProperties = { boxShadow: `inset 0 1px 0 ${TOKENS.borderStrong}` };
+const TRACK = '#F1F0EC';
+
+/** Change against the period before: ▲ 12% green / ▼ 12% red, "new" from nothing. */
+export function Delta({ now, before, pct }: { now?: number; before?: number; pct?: number | null }) {
+  const c = pct !== undefined ? pct : before != null && before > 0 && now != null ? Math.round(((now - before) / before) * 100) : null;
+  if (c == null) {
+    return <span style={{ color: TOKENS.textTertiary, fontSize: 12 }}>{now && now > 0 && pct === undefined ? 'new' : '—'}</span>;
+  }
+  return (
+    <span style={{ color: c >= 0 ? TOKENS.healthy : TOKENS.critical, fontSize: 12, whiteSpace: 'nowrap' }}>
+      {c >= 0 ? '▲' : '▼'} {Math.abs(c)}%
+    </span>
+  );
+}
+
+/** Small caps heading above a group of cards. */
+export function GroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-2" style={{ color: TOKENS.textTertiary, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+      {children}
+    </div>
+  );
+}
+
+/** A thin bar split into parts (e.g. cash / online), on the standard track. */
+export function SplitBar({ parts }: { parts: { value: number; color: string; label: string }[] }) {
+  const total = parts.reduce((s, p) => s + Math.max(0, p.value), 0);
+  return (
+    <div
+      className="flex overflow-hidden"
+      style={{ height: 6, borderRadius: 3, background: TRACK, gap: 2 }}
+      role="img"
+      aria-label={parts.map((p) => `${p.label} ${total > 0 ? Math.round((p.value / total) * 100) : 0}%`).join(', ')}
+    >
+      {total > 0 &&
+        parts.map((p) =>
+          p.value > 0 ? <div key={p.label} style={{ width: `${(p.value / total) * 100}%`, background: p.color }} /> : null,
+        )}
+    </div>
+  );
+}
 
 /** One day of the window beside the same day one window earlier. */
 export interface DayValue {
@@ -123,6 +178,9 @@ export function KpiTile({
  * average drawn behind (daily values instead when the window is under two
  * weeks, where an average says nothing). Hover any day for its numbers; click
  * opens it.
+ *
+ * With `parts`, each bar is stacked from its parts instead — positives up from
+ * zero, negatives (refunds) down — so a day's parts net to its value.
  */
 export function ComparisonTrendChart({
   days,
@@ -131,8 +189,13 @@ export function ComparisonTrendChart({
   format,
   onPickDay,
   height = 220,
+  parts,
+  valueLabel,
 }: {
   days: DayValue[];
+  parts?: { label: string; color: string; values: number[] }[];
+  /** Names the value in the hover card, e.g. "Net collected". */
+  valueLabel?: string;
   /** One per day, aligned with `days`; null where there is no line. */
   average: (number | null)[];
   priorAverage: (number | null)[];
@@ -156,10 +219,14 @@ export function ComparisonTrendChart({
   const padB = 22;
   const plotW = Math.max(1, W - padL - padR);
   const plotH = height - padT - padB;
-  const all = [...days.map((d) => d.value), ...average, ...priorAverage].filter((v): v is number => v != null);
+  const stackUp = days.map((_, i) => (parts ?? []).reduce((s, p) => s + Math.max(0, p.values[i] ?? 0), 0));
+  const stackDown = days.map((_, i) => (parts ?? []).reduce((s, p) => s + Math.min(0, p.values[i] ?? 0), 0));
+  const all = [...days.map((d) => d.value), ...average, ...priorAverage, ...stackUp, ...stackDown].filter((v): v is number => v != null);
   // Gridlines on round numbers (₹50k, ₹1L, ₹1.5L), about four of them.
   const step = niceStep((Math.max(...all, 0) - Math.min(0, ...all)) / 4 || 1);
-  const lo = Math.floor(Math.min(0, ...all) / step) * step;
+  // A small dip below zero (a day's refunds) gets just enough room, not a whole step.
+  const min = Math.min(0, ...all);
+  const lo = min < 0 && -min < step ? min * 1.25 : Math.floor(min / step) * step;
   const hi = Math.max(step, Math.ceil(Math.max(...all, 0) / step) * step);
   const slot = plotW / n;
   const x = (i: number) => padL + (i + 0.5) * slot;
@@ -170,7 +237,8 @@ export function ComparisonTrendChart({
       .map((v, i) => (v == null ? null : `${x(i)},${y(v)}`))
       .filter(Boolean)
       .join(' ');
-  const grid = Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, g) => lo + g * step);
+  const firstTick = Math.ceil(lo / step - 1e-9) * step;
+  const grid = Array.from({ length: Math.round((hi - firstTick) / step) + 1 }, (_, g) => firstTick + g * step);
   const labelEvery = Math.max(1, Math.ceil(n / 6));
   const pick = (clientX: number, el: SVGSVGElement) => {
     const px = clientX - el.getBoundingClientRect().left - padL;
@@ -213,20 +281,50 @@ export function ComparisonTrendChart({
           {active != null && (
             <rect x={x(active) - slot / 2} y={padT} width={slot} height={plotH} fill={TOKENS.page} />
           )}
-          {days.map((d, i) =>
-            d.value == null ? null : (
-              <rect
-                key={d.date}
-                x={x(i) - barW / 2}
-                y={Math.min(y(d.value), y(0))}
-                width={barW}
-                height={Math.max(0, Math.abs(y(0) - y(d.value)))}
-                rx={2}
-                fill={TOKENS.gross}
-                opacity={active == null || active === i ? 1 : 0.55}
-              />
-            ),
-          )}
+          {parts
+            ? days.map((d, i) => {
+                let up = 0;
+                let down = 0;
+                return (
+                  <g key={d.date} opacity={active == null || active === i ? 1 : 0.55}>
+                    {parts.map((p) => {
+                      const v = p.values[i] ?? 0;
+                      if (!v) return null;
+                      const from = v > 0 ? up : down;
+                      const to = from + v;
+                      if (v > 0) up = to;
+                      else down = to;
+                      return (
+                        <rect
+                          key={p.label}
+                          x={x(i) - barW / 2}
+                          y={Math.min(y(from), y(to))}
+                          width={barW}
+                          height={Math.max(0, Math.abs(y(to) - y(from)))}
+                          fill={p.color}
+                          stroke={TOKENS.surface}
+                          strokeWidth={1}
+                        />
+                      );
+                    })}
+                  </g>
+                );
+              })
+            : days.map((d, i) =>
+                d.value == null ? null : (
+                  <rect
+                    key={d.date}
+                    x={x(i) - barW / 2}
+                    y={Math.min(y(d.value), y(0))}
+                    width={barW}
+                    height={Math.max(0, Math.abs(y(0) - y(d.value)))}
+                    rx={2}
+                    fill={TOKENS.gross}
+                    opacity={active == null || active === i ? 1 : 0.55}
+                  />
+                ),
+              )}
+          {parts && <line x1={padL} x2={W - padR} y1={y(0)} y2={y(0)} stroke={TOKENS.borderStrong} />}
           <polyline points={line(priorAverage)} fill="none" stroke={TOKENS.textTertiary} strokeWidth={1.5} strokeDasharray="4 3" />
           <polyline points={line(average)} fill="none" stroke={TOKENS.info} strokeWidth={2} strokeLinejoin="round" />
           {days.map((d, i) =>
@@ -257,7 +355,21 @@ export function ComparisonTrendChart({
           }}
         >
           <div className="font-medium">{fmtDay(a.date, { weekday: 'short', day: 'numeric', month: 'short' })}</div>
-          <div>{a.value == null ? '—' : format(a.value)}</div>
+          {parts?.map((p) =>
+            p.values[active] ? (
+              <div key={p.label} className="flex justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5" style={{ color: TOKENS.textSecondary }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
+                  {p.label}
+                </span>
+                <span>{format(p.values[active])}</span>
+              </div>
+            ) : null,
+          )}
+          <div className={parts ? 'flex justify-between gap-2 font-medium' : undefined}>
+            {valueLabel && <span>{valueLabel}</span>}
+            <span>{a.value == null ? '—' : format(a.value)}</span>
+          </div>
           {average[active] != null && (
             <div style={{ color: TOKENS.info }}>7-day avg {format(average[active]!)}</div>
           )}
@@ -284,12 +396,41 @@ function niceStep(raw: number): number {
 // Validated categorical slots (light surface): blue, orange, aqua, yellow.
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'] as const;
 
+/** One line of a statement: label left, amount right; `total` lines are ruled and bold. */
+export function StatementLine({ label, value, total, note, to }: { label: string; value: number; total?: boolean; note?: string; to?: string }) {
+  const body = (
+    <div
+      className="flex items-baseline justify-between gap-3 py-1.5"
+      style={{
+        fontSize: total ? 14 : 13,
+        fontWeight: total ? 600 : 400,
+        borderTop: total ? `1px solid ${TOKENS.borderStrong}` : undefined,
+        color: TOKENS.textPrimary,
+      }}
+    >
+      <span style={{ color: total ? TOKENS.textPrimary : TOKENS.textSecondary }}>
+        {label}
+        {note && <span style={{ color: TOKENS.textTertiary, fontWeight: 400 }}> · {note}</span>}
+      </span>
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupees(Math.round(value / 100) * 100)}</span>
+    </div>
+  );
+  return to ? (
+    <Link to={to} className="block rounded hover:bg-slate-50" style={{ textDecoration: 'none' }}>
+      {body}
+    </Link>
+  ) : (
+    body
+  );
+}
+
 export interface BarRow {
   key: string;
   label: string;
   value: number;
-  prior: number;
+  prior?: number;
   note?: string;
+  color?: string; // defaults to the first series colour
 }
 
 /**
@@ -302,61 +443,73 @@ export function BarList({
   rows,
   format,
   totalLabel,
-  priorLabel,
+  priorLabel = 'the period before',
+  keepOrder,
+  onPick,
+  selected,
 }: {
   rows: BarRow[];
   format: (v: number) => string;
   totalLabel: string;
-  priorLabel: string;
+  priorLabel?: string;
+  keepOrder?: boolean; // rows in the order given (e.g. age buckets), not largest first
+  onPick?: (key: string) => void;
+  selected?: string | null;
 }) {
   if (rows.length === 0) {
     return <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>Nothing in this window.</div>;
   }
   const total = rows.reduce((s, r) => s + r.value, 0);
-  const priorTotal = rows.reduce((s, r) => s + r.prior, 0);
-  const delta = (now: number, before: number) => {
-    if (before <= 0) return <span style={{ color: TOKENS.textTertiary }}>{now > 0 ? 'new' : ''}</span>;
-    const c = Math.round(((now - before) / before) * 100);
-    return <span style={{ color: c >= 0 ? TOKENS.healthy : TOKENS.critical }}>{c >= 0 ? '▲' : '▼'} {Math.abs(c)}%</span>;
-  };
-  const cols = 'minmax(0, 1fr) 76px 40px 56px';
+  const priorTotal = rows.reduce((s, r) => s + (r.prior ?? 0), 0);
+  const compare = rows.some((r) => r.prior != null);
+  const cols = compare ? 'minmax(0, 1fr) 76px 40px 56px' : 'minmax(0, 1fr) 76px 40px';
   return (
     <div style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-      <div className="grid gap-x-3 pb-1" style={{ gridTemplateColumns: cols, fontSize: 11, color: TOKENS.textTertiary }}>
+      <div className="grid gap-x-3 pb-1" style={{ gridTemplateColumns: cols, ...TH }}>
         <span />
         <span className="text-right">Amount</span>
         <span className="text-right">Share</span>
-        <span className="text-right">vs before</span>
+        {compare && <span className="text-right">vs before</span>}
       </div>
-      {[...rows].sort((a, b) => b.value - a.value).map((r) => (
+      {(keepOrder ? rows : [...rows].sort((a, b) => b.value - a.value)).map((r) => (
         <div
           key={r.key}
-          className="grid items-center gap-x-3 py-1.5"
-          style={{ gridTemplateColumns: cols, borderTop: `0.5px solid ${TOKENS.border}` }}
-          title={`${r.label}: ${format(r.value)} now · ${format(r.prior)} ${priorLabel}${r.note ? ` · ${r.note}` : ''}`}
+          className={`grid items-center gap-x-3 py-1.5 ${onPick ? 'cursor-pointer rounded hover:bg-slate-50' : ''}`}
+          role={onPick ? 'button' : undefined}
+          tabIndex={onPick ? 0 : undefined}
+          onClick={onPick ? () => onPick(r.key) : undefined}
+          onKeyDown={onPick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(r.key); } } : undefined}
+          aria-pressed={onPick ? selected === r.key : undefined}
+          style={{
+            gridTemplateColumns: cols,
+            ...ROW,
+            background: selected === r.key ? '#EEF4FF' : undefined,
+            opacity: selected && selected !== r.key ? 0.55 : 1,
+          }}
+          title={`${r.label}: ${format(r.value)}${compare ? ` now · ${format(r.prior ?? 0)} ${priorLabel}` : ''}${r.note ? ` · ${r.note}` : ''}`}
         >
           <div className="min-w-0">
             <div style={{ color: TOKENS.textPrimary }}>
               {r.label}
               {r.note && <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.note}</span>}
             </div>
-            <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
-              <div style={{ width: `${total > 0 ? Math.min(100, (Math.max(0, r.value) / total) * 100) : 0}%`, height: '100%', borderRadius: 3, background: SERIES[0] }} />
+            <div className="mt-1" style={{ height: 6, borderRadius: 3, background: TRACK }}>
+              <div style={{ width: `${total > 0 ? Math.min(100, (Math.max(0, r.value) / total) * 100) : 0}%`, height: '100%', borderRadius: 3, background: r.color ?? SERIES[0] }} />
             </div>
           </div>
           <span className="text-right">{format(r.value)}</span>
           <span className="text-right" style={{ color: TOKENS.textSecondary }}>{total > 0 ? `${Math.round((r.value / total) * 100)}%` : ''}</span>
-          <span className="text-right" style={{ fontSize: 12 }}>{delta(r.value, r.prior)}</span>
+          {compare && <span className="text-right"><Delta now={r.value} before={r.prior ?? 0} /></span>}
         </div>
       ))}
       <div
         className="grid items-center gap-x-3 pt-2 font-medium"
-        style={{ gridTemplateColumns: cols, borderTop: `1px solid ${TOKENS.borderStrong}` }}
+        style={{ gridTemplateColumns: cols, ...TOTAL_ROW }}
       >
         <span>{totalLabel}</span>
         <span className="text-right">{format(total)}</span>
         <span className="text-right" style={{ color: TOKENS.textSecondary }}>100%</span>
-        <span className="text-right" style={{ fontSize: 12 }}>{delta(total, priorTotal)}</span>
+        {compare && <span className="text-right"><Delta now={total} before={priorTotal} /></span>}
       </div>
     </div>
   );

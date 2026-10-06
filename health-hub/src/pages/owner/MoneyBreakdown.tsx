@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { SectionCard, SegmentedFilter, TOKENS, formatRupees } from './_shared/ownerUi';
+import { Delta, TH, ROW, TOTAL_ROW } from './_shared/dashboardCharts';
 
 interface MoneyRow {
   key: string;
@@ -199,7 +200,7 @@ export function MoneyBreakdown({
       label={`Breakdown · ${periodLabel}`}
       description={table.hint}
       rightSlot={
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           <SegmentedFilter
             value={by}
             onChange={(v) => { setBy(v); setSortCol(null); }}
@@ -221,10 +222,10 @@ export function MoneyBreakdown({
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>Nothing in this window.</div>
       ) : (
         <div className="overflow-x-auto" style={{ maxHeight: 520, overflowY: 'auto' }}>
-          <table className="w-full" style={{ fontSize: 12 }}>
+          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             <thead className="sticky top-0" style={{ background: TOKENS.surface }}>
-              <tr style={{ color: TOKENS.textTertiary }}>
-                <th className="py-2 text-left" style={{ fontWeight: 400 }}>
+              <tr>
+                <th className="py-2 text-left" style={TH}>
                   {table.first}
                 </th>
                 {table.columns.map((c, i) => (
@@ -232,6 +233,7 @@ export function MoneyBreakdown({
                     <button
                       onClick={() => pickSort(i)}
                       style={{
+                        ...TH,
                         color: sortCol === i ? TOKENS.textPrimary : TOKENS.textTertiary,
                         fontWeight: sortCol === i ? 500 : 400,
                         background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
@@ -249,7 +251,7 @@ export function MoneyBreakdown({
                   key={r.key}
                   onClick={r.drill}
                   className={r.drill ? 'hover:bg-slate-50' : undefined}
-                  style={{ borderTop: `0.5px solid ${TOKENS.border}`, cursor: r.drill ? 'pointer' : 'default' }}
+                  style={{ ...ROW, cursor: r.drill ? 'pointer' : 'default' }}
                 >
                   <td className="py-2" style={{ color: r.drill ? TOKENS.info : TOKENS.textPrimary }}>
                     {r.drill ? (
@@ -263,10 +265,9 @@ export function MoneyBreakdown({
                   </td>
                   {r.values.map((v, i) => {
                     const kind = table.columns[i].kind;
-                    const color = kind === 'change' && v != null ? (v >= 0 ? TOKENS.healthy : TOKENS.critical) : TOKENS.textPrimary;
                     return (
-                      <td key={table.columns[i].label} className="py-2 text-right" style={{ color, fontVariantNumeric: 'tabular-nums' }}>
-                        {fmt(kind, v)}
+                      <td key={table.columns[i].label} className="py-2 text-right">
+                        {kind === 'change' ? <Delta pct={v} /> : fmt(kind, v)}
                       </td>
                     );
                   })}
@@ -274,10 +275,10 @@ export function MoneyBreakdown({
               ))}
             </tbody>
             <tfoot className="sticky bottom-0" style={{ background: TOKENS.surface }}>
-              <tr style={{ boxShadow: `inset 0 1px 0 ${TOKENS.borderStrong}` }}>
+              <tr style={TOTAL_ROW}>
                 <td className="py-2 font-medium">Total</td>
                 {table.columns.map((c, i) => (
-                  <td key={c.label} className="py-2 text-right font-medium" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  <td key={c.label} className="py-2 text-right font-medium">
                     {totals[i] == null ? '' : fmt(c.kind, totals[i])}
                   </td>
                 ))}

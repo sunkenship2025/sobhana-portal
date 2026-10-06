@@ -28,7 +28,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: DaySheetDomain | null,
 ) =>
-  `owner-money:v6:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-money:v8:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -63,6 +63,23 @@ export interface MoneyKpi {
   /** The headline: cash + online − refunds. Net to you is this − commission. */
   netCollectedInPaise: number;
   collectedDeltaPercent: number | null;
+  cashInPaise: number;
+  onlineInPaise: number;
+  refundsInPaise: number; // every refund paid out in the window
+  /** The equal window before, for every tile's change. */
+  prior: { netCollected: number; net: number; cash: number; online: number; refunds: number; discount: number };
+}
+
+/** One day of the window, with the same day one window earlier. */
+export interface MoneyTrendDay {
+  date: string;
+  netInPaise: number;
+  collectedInPaise: number;
+  cash: number;
+  online: number;
+  refunds: number;
+  discount: number;
+  prior: { collected: number; net: number; cash: number; online: number; refunds: number; discount: number };
 }
 
 export interface AgingBucket {
@@ -148,6 +165,7 @@ export interface CancellationSummary {
     patientName: string;
     patientTitle: string | null;
     reversedInPaise: number;
+    tests: number;
     reason: string | null;
     cancelledAt: string;
   }>;
@@ -158,7 +176,7 @@ export interface MoneyResponse {
   period: { key: PeriodKey; startIso: string; endIso: string };
   branchScope: { branchId: string | null; branchName: string | null };
   kpis: MoneyKpi;
-  revenueTrend: Array<{ date: string; netInPaise: number; collectedInPaise: number }>;
+  revenueTrend: MoneyTrendDay[];
   aging: AgingBucket[];
   oldestUnpaid: OldestUnpaidRow[];
   cashByBranch: CashByBranchRow[];
@@ -299,10 +317,9 @@ export async function getOwnerMoney(
     facts,
     referrerFacts,
     openBills,
-    refundedBills,
+    refundTxns,
     paymentsInWindow,
     branches,
-    refundedBillsRecent,
   ] = await Promise.all([
     branchId
       ? prisma.branch.findUnique({
@@ -349,13 +366,23 @@ export async function getOwnerMoney(
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
     }),
-    prisma.bill.aggregate({
-      where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] }, billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
-      // Money actually returned = refundedAmountInPaise (the running total of
-      // REFUND events on the bill). Includes partial refunds, unlike the old
-      // REFUNDED-only + paidAmountInPaise approach which under-counted.
-      _sum: { refundedAmountInPaise: true },
-      _count: true,
+    // Refunds = REFUND transactions paid out in the window — the same rows the
+    // engine subtracts from net collected, so the two always agree.
+    prisma.paymentTransaction.findMany({
+      where: { transactionType: 'REFUND', transactionDate: { gte: win.start, lt: win.end }, ...paymentBillScope },
+      orderBy: { transactionDate: 'desc' },
+      select: {
+        amountInPaise: true,
+        transactionDate: true,
+        bill: {
+          select: {
+            id: true,
+            billNumber: true,
+            refundReason: true,
+            visit: { select: { patient: { select: { name: true, title: true } } } },
+          },
+        },
+      },
     }),
     prisma.paymentTransaction.findMany({
       where: {
@@ -376,20 +403,6 @@ export async function getOwnerMoney(
     prisma.branch.findMany({
       where: { isActive: true },
       select: { id: true, name: true, code: true },
-    }),
-    prisma.bill.findMany({
-      where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] }, billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
-      orderBy: { updatedAt: 'desc' },
-      take: 5,
-      select: {
-        id: true,
-        billNumber: true,
-        refundedAmountInPaise: true,
-        refundReason: true,
-        refundedAt: true,
-        updatedAt: true,
-        visit: { select: { patient: { select: { name: true, title: true } } } },
-      },
     }),
   ]);
 
@@ -473,33 +486,42 @@ export async function getOwnerMoney(
     netDeltaPercent,
     netCollectedInPaise: cur.netCollected,
     collectedDeltaPercent,
+    cashInPaise: cur.cash,
+    onlineInPaise: cur.online,
+    refundsInPaise: cur.refunds,
+    prior: {
+      netCollected: prev.netCollected, net: prev.net, cash: prev.cash, online: prev.online,
+      refunds: prev.refunds, discount: prev.discount,
+    },
   };
 
-  // ---- revenue trend ----
-  const dayKeys: string[] = [];
-  const dayMap = new Map<string, number>();
-  const collectedByDay = new Map<string, number>();
-  // Build one bucket per calendar day in the window itself (not anchored to
-  // "now"), so windows that don't end today — yesterday, custom ranges — line
-  // up with the days their bills actually fall in.
+  // ---- revenue trend: each day, and the same day one window earlier ----
+  // Built per calendar day of the window itself (not anchored to "now"), so
+  // windows that don't end today line up with the days their money fell in.
   const dayCount = Math.max(1, Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS));
-  for (let i = 0; i < dayCount; i += 1) {
-    const k = toIstDateKey(new Date(win.start.getTime() + i * DAY_MS));
-    dayKeys.push(k);
-    dayMap.set(k, 0);
-  }
-  // Net to you per day, same definition as the KPI (cancellations included).
-  for (const f of facts.days) {
-    if (!dayMap.has(f.date)) continue;
-    const t = totalsOf([f]);
-    dayMap.set(f.date, (dayMap.get(f.date) ?? 0) + t.net);
-    collectedByDay.set(f.date, (collectedByDay.get(f.date) ?? 0) + t.netCollected);
-  }
-  const revenueTrend = dayKeys.map((d) => ({
-    date: d,
-    netInPaise: dayMap.get(d) ?? 0,
-    collectedInPaise: collectedByDay.get(d) ?? 0,
-  }));
+  const dayKeys: string[] = [];
+  for (let i = 0; i < dayCount; i += 1) dayKeys.push(toIstDateKey(new Date(win.start.getTime() + i * DAY_MS)));
+  const factsByDay = new Map<string, DayFact[]>();
+  for (const f of facts.days) factsByDay.set(f.date, [...(factsByDay.get(f.date) ?? []), f]);
+  const dayTotals = (key: string) => {
+    const t = totalsOf(factsByDay.get(key) ?? []);
+    return { collected: t.netCollected, net: t.net, cash: t.cash, online: t.online, refunds: t.refunds, discount: t.discount };
+  };
+  const priorKeyOf = (key: string) =>
+    toIstDateKey(new Date(Date.parse(`${key}T00:00:00+05:30`) - dayCount * DAY_MS));
+  const revenueTrend: MoneyTrendDay[] = dayKeys.map((d) => {
+    const t = dayTotals(d);
+    return {
+      date: d,
+      netInPaise: t.net,
+      collectedInPaise: t.collected,
+      cash: t.cash,
+      online: t.online,
+      refunds: t.refunds,
+      discount: t.discount,
+      prior: dayTotals(priorKeyOf(d)),
+    };
+  });
 
   // ---- aging ----
   const cutoff7 = startOfDaysAgoIst(now, 7);
@@ -672,24 +694,22 @@ export async function getOwnerMoney(
   const discountLogTotalCount = discountLog.length;
 
   // ---- refunds (money returned) ----
-  const refundedTotal = refundedBills._sum.refundedAmountInPaise ?? 0;
+  const refundedTotal = refundTxns.reduce((s, t) => s + t.amountInPaise, 0);
   const refunds: RefundSummary = {
     totalInPaise: refundedTotal,
-    count: refundedBills._count,
+    count: refundTxns.length,
     pctOfGross:
       grossInWindow > 0 ? Math.round((refundedTotal / grossInWindow) * 1000) / 10 : null,
     pctOfCollected:
       cur.netCollected > 0 ? Math.round((refundedTotal / cur.netCollected) * 1000) / 10 : null,
-    recent: refundedBillsRecent.map((b) => ({
-      billId: b.id,
-      billNumber: b.billNumber,
-      patientName: b.visit.patient.name,
-      patientTitle: b.visit.patient.title,
-      refundedInPaise: b.refundedAmountInPaise ?? 0,
-      reason: b.refundReason ?? null,
-      // Prefer the real refund timestamp; fall back to updatedAt for historical
-      // rows where the refund flow never wrote refundedAt.
-      refundedAt: (b.refundedAt ?? b.updatedAt).toISOString(),
+    recent: refundTxns.slice(0, 5).map((t, i) => ({
+      billId: `${t.bill.id}-${i}`,
+      billNumber: t.bill.billNumber,
+      patientName: t.bill.visit.patient.name,
+      patientTitle: t.bill.visit.patient.title,
+      refundedInPaise: t.amountInPaise,
+      reason: t.bill.refundReason ?? null,
+      refundedAt: t.transactionDate.toISOString(),
     })),
   };
 
@@ -704,7 +724,7 @@ export async function getOwnerMoney(
     prisma.orderRefund.findMany({
       where: { kind: 'CANCEL', createdAt: { gte: win.start, lt: win.end }, ...cancelScope },
       orderBy: { createdAt: 'desc' },
-      take: 5,
+      take: 40, // grouped by bill below, then cut to five
       select: {
         chargeReversedInPaise: true,
         reason: true,
@@ -722,14 +742,23 @@ export async function getOwnerMoney(
       grossInWindow > 0 ? Math.round((cancelledTotal / grossInWindow) * 1000) / 10 : null,
     pctOfCollected:
       cur.netCollected > 0 ? Math.round((cancelledTotal / cur.netCollected) * 1000) / 10 : null,
-    recent: cancelRecent.map((r) => ({
-      billNumber: r.bill?.billNumber ?? '—',
-      patientName: r.visit?.patient?.name ?? 'Unknown',
-      patientTitle: r.visit?.patient?.title ?? null,
-      reversedInPaise: r.chargeReversedInPaise,
-      reason: r.reason ?? null,
-      cancelledAt: r.createdAt.toISOString(),
-    })),
+    // One line per bill: a package cancelled test by test is one event, not four ₹23 rows.
+    recent: [...cancelRecent.reduce((m, r) => {
+      const key = r.bill?.billNumber ?? r.createdAt.toISOString();
+      const row = m.get(key) ?? {
+        billNumber: r.bill?.billNumber ?? '—',
+        patientName: r.visit?.patient?.name ?? 'Unknown',
+        patientTitle: r.visit?.patient?.title ?? null,
+        reversedInPaise: 0,
+        tests: 0,
+        reason: r.reason ?? null,
+        cancelledAt: r.createdAt.toISOString(),
+      };
+      row.reversedInPaise += r.chargeReversedInPaise;
+      row.tests += 1;
+      m.set(key, row);
+      return m;
+    }, new Map<string, CancellationSummary['recent'][number]>()).values()].slice(0, 5),
   };
 
   // ---- breakdown (group-by table) ----

@@ -13,7 +13,7 @@
  * Money follows the All / Diagnostic / OP switch (?domain=, Diagnostic by
  * default); live operations always cover both.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Clock, Info } from 'lucide-react';
@@ -21,7 +21,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
-import { KpiTile, ComparisonTrendChart, Sparkline, SERIES, BusyHoursHeatmap, BarList, type BarRow } from './_shared/dashboardCharts';
+import { KpiTile, ComparisonTrendChart, Sparkline, SERIES, BusyHoursHeatmap, BarList, StatementLine, Delta, GroupLabel, TH, ROW, TOTAL_ROW, type BarRow } from './_shared/dashboardCharts';
 import {
   TOKENS,
   SectionCard,
@@ -34,7 +34,6 @@ import {
   formatIstDateTime,
   ErrorCard,
   RefreshButton,
-  DeltaPercent,
   formatRupees,
   DomainFilter,
   DomainKey,
@@ -402,34 +401,6 @@ function ActionQueue({ chips }: { chips: ActionChip[] }) {
 
 // ----- where the money went + this month ---------------------------------
 
-/** One line of a statement: label left, amount right; `total` lines are ruled and bold. */
-function Line({ label, value, total, note, to }: { label: string; value: number; total?: boolean; note?: string; to?: string }) {
-  const body = (
-    <div
-      className="flex items-baseline justify-between gap-3 py-1.5"
-      style={{
-        fontSize: total ? 14 : 13,
-        fontWeight: total ? 600 : 400,
-        borderTop: total ? `1px solid ${TOKENS.borderStrong}` : undefined,
-        color: TOKENS.textPrimary,
-      }}
-    >
-      <span style={{ color: total ? TOKENS.textPrimary : TOKENS.textSecondary }}>
-        {label}
-        {note && <span style={{ color: TOKENS.textTertiary, fontWeight: 400 }}> · {note}</span>}
-      </span>
-      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rupeesWhole(value)}</span>
-    </div>
-  );
-  return to ? (
-    <Link to={to} className="block rounded hover:bg-slate-50" style={{ textDecoration: 'none' }}>
-      {body}
-    </Link>
-  ) : (
-    body
-  );
-}
-
 function MoneyCard({
   data,
   periodLabel,
@@ -452,17 +423,17 @@ function MoneyCard({
   const kept = m.netCollectedInPaise > 0 ? Math.max(0, Math.min(1, m.netInPaise / m.netCollectedInPaise)) : 0;
   return (
     <SectionCard label={`Where the money went · ${periodLabel}`} className="h-full">
-      <Line label="Cash" value={m.cashInPaise} to={moneyHref} />
-      <Line label="Online" value={m.onlineInPaise} to={moneyHref} />
-      {m.refundInPaise > 0 && <Line label="Refunds paid out" value={-m.refundInPaise} />}
-      <Line label="Net collected" value={m.netCollectedInPaise} total />
-      <Line
+      <StatementLine label="Cash" value={m.cashInPaise} to={moneyHref} />
+      <StatementLine label="Online" value={m.onlineInPaise} to={moneyHref} />
+      {m.refundInPaise > 0 && <StatementLine label="Refunds paid out" value={-m.refundInPaise} />}
+      <StatementLine label="Net collected" value={m.netCollectedInPaise} total />
+      <StatementLine
         label="Commission"
         note={payees.length > 1 ? payees.map(([k, v]) => `${k} ${rupeesShort(v)}`).join(', ') : `${pctOf(m.commissionInPaise, m.netCollectedInPaise)}% of collected`}
         value={-m.commissionInPaise}
         to="/owner/payouts"
       />
-      <Line label="Net to you" value={m.netInPaise} total />
+      <StatementLine label="Net to you" value={m.netInPaise} total />
       <div
         className="mt-1 flex overflow-hidden"
         style={{ height: 8, borderRadius: 4, gap: 2 }}
@@ -797,16 +768,6 @@ function SourcesCard({ data, periodLabel }: { data: DashboardV2; periodLabel: st
   );
 }
 
-function DeltaText({ now, before }: { now: number; before: number }) {
-  const c = change(now, before);
-  if (c == null) return <span style={{ color: TOKENS.textTertiary }}>{now > 0 ? 'new' : '—'}</span>;
-  return (
-    <span style={{ color: c >= 0 ? TOKENS.healthy : TOKENS.critical }}>
-      {c >= 0 ? '▲' : '▼'} {Math.abs(c)}%
-    </span>
-  );
-}
-
 function DoctorsCard({
   data,
   periodLabel,
@@ -825,7 +786,7 @@ function DoctorsCard({
       {name(n)}
     </button>
   );
-  const th = { fontWeight: 400, color: TOKENS.textTertiary } as const;
+  const th = TH;
   const slipping = data.slippingReferrers ?? [];
   return (
     <SectionCard
@@ -854,12 +815,12 @@ function DoctorsCard({
                   key={r.referralDoctorId}
                   onClick={() => onPickReferrer(r.referralDoctorId)}
                   className="hover:bg-slate-50"
-                  style={{ borderTop: `0.5px solid ${TOKENS.border}`, cursor: 'pointer' }}
+                  style={{ ...ROW, cursor: 'pointer' }}
                 >
                   <td className="py-2">{docButton(r.referralDoctorId, r.name)}</td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textSecondary }}>{r.visits}</td>
                   <td className="py-2 text-right font-medium">{rupeesShort(collected)}</td>
-                  <td className="py-2 text-right"><DeltaText now={collected} before={r.priorCollected ?? r.priorBilled} /></td>
+                  <td className="py-2 text-right"><Delta now={collected} before={r.priorCollected ?? r.priorBilled} /></td>
                   <td className="py-2 text-right">
                     {rupeesShort(r.commission)}
                     <span style={{ color: TOKENS.textTertiary }}> · {pctOf(r.commission, collected)}%</span>
@@ -880,7 +841,7 @@ function DoctorsCard({
               {docButton(r.referralDoctorId, r.name)}
               <span style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <span style={{ color: TOKENS.textTertiary }}>{rupeesShort(r.priorCollected)} → </span>
-                {rupeesShort(r.collected)} <DeltaText now={r.collected} before={r.priorCollected} />
+                {rupeesShort(r.collected)} <Delta now={r.collected} before={r.priorCollected} />
               </span>
             </div>
           ))}
@@ -940,6 +901,7 @@ function BranchTableCard({
       <button
         onClick={() => pickSort(k)}
         style={{
+          ...TH,
           color: sort === k ? TOKENS.textPrimary : TOKENS.textTertiary,
           fontWeight: sort === k ? 500 : 400,
           background: 'transparent',
@@ -965,12 +927,12 @@ function BranchTableCard({
           <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full" style={{ fontSize: 12 }}>
+            <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
               <thead>
-                <tr style={{ color: TOKENS.textTertiary, textAlign: 'left' }}>
-                  <th className="py-2" style={{ fontWeight: 400 }}>Branch</th>
+                <tr style={{ textAlign: 'left' }}>
+                  <th className="py-2" style={TH}>Branch</th>
                   {head('collected', 'Net collected')}
-                  <th className="py-2 text-right" style={{ fontWeight: 400 }}>Trend</th>
+                  <th className="py-2 text-right" style={TH}>Trend</th>
                   {head('delta', 'vs before')}
                   {head('visits', 'Visits')}
                   {head('avg', 'Per visit')}
@@ -985,13 +947,14 @@ function BranchTableCard({
                     <tr
                       key={r.branchId}
                       onClick={() => onPickBranch(r.branchId)}
+                      className="hover:bg-slate-50"
                       style={{
-                        borderTop: `0.5px solid ${TOKENS.border}`,
+                        ...ROW,
                         background: dormant ? '#FCEBEB30' : undefined,
                         cursor: 'pointer',
                       }}
                     >
-                      <td className="py-3">
+                      <td className="py-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); onPickBranch(r.branchId); }}
                           style={{ color: TOKENS.info, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
@@ -1003,27 +966,27 @@ function BranchTableCard({
                           <span style={{ color: TOKENS.caution, marginLeft: 6 }}>dormant {r.daysDormant}d</span>
                         )}
                       </td>
-                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                      <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                         {formatRupees(r.collectedInPaise, { short: true })}
                       </td>
-                      <td className="py-3">
+                      <td className="py-2">
                         <div className="flex justify-end">
                           <Sparkline values={r.collectedDaily} width={88} height={20} />
                         </div>
                       </td>
-                      <td className="py-3 text-right">
-                        <DeltaPercent value={r.deltaPercent} />
+                      <td className="py-2 text-right">
+                        <Delta pct={r.deltaPercent} />
                       </td>
-                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                      <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                         {r.visitCount.toLocaleString('en-IN')}
                       </td>
-                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                      <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                         {avgOf(r) != null ? rupeesWhole(avgOf(r)!) : '—'}
                       </td>
-                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                      <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                         {formatRupees(r.netInPaise, { short: true })}
                       </td>
-                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                      <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                         {r.tatP50Minutes !== null && (r.tatSampleCount ?? TAT_MIN_SAMPLES) >= TAT_MIN_SAMPLES ? (
                           duration(r.tatP50Minutes)
                         ) : (
@@ -1036,14 +999,14 @@ function BranchTableCard({
               </tbody>
               {rows.length > 1 && (
                 <tfoot>
-                  <tr className="font-medium" style={{ boxShadow: `inset 0 1px 0 ${TOKENS.borderStrong}`, color: TOKENS.textPrimary }}>
-                    <td className="py-3">Total</td>
-                    <td className="py-3 text-right">{formatRupees(sum((r) => r.collectedInPaise), { short: true })}</td>
+                  <tr className="font-medium" style={{ ...TOTAL_ROW, color: TOKENS.textPrimary }}>
+                    <td className="py-2">Total</td>
+                    <td className="py-2 text-right">{formatRupees(sum((r) => r.collectedInPaise), { short: true })}</td>
                     <td />
-                    <td className="py-3 text-right"><DeltaPercent value={collectedDelta} /></td>
-                    <td className="py-3 text-right">{sum((r) => r.visitCount).toLocaleString('en-IN')}</td>
-                    <td className="py-3 text-right">{perVisit != null ? rupeesWhole(perVisit) : '—'}</td>
-                    <td className="py-3 text-right">{formatRupees(sum((r) => r.netInPaise), { short: true })}</td>
+                    <td className="py-2 text-right"><Delta pct={collectedDelta} /></td>
+                    <td className="py-2 text-right">{sum((r) => r.visitCount).toLocaleString('en-IN')}</td>
+                    <td className="py-2 text-right">{perVisit != null ? rupeesWhole(perVisit) : '—'}</td>
+                    <td className="py-2 text-right">{formatRupees(sum((r) => r.netInPaise), { short: true })}</td>
                     <td />
                   </tr>
                 </tfoot>
@@ -1052,14 +1015,6 @@ function BranchTableCard({
           </div>
         )}
       </SectionCard>
-    </div>
-  );
-}
-
-function GroupLabel({ children }: { children: ReactNode }) {
-  return (
-    <div className="mb-2" style={{ color: TOKENS.textTertiary, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }}>
-      {children}
     </div>
   );
 }

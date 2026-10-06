@@ -119,7 +119,7 @@ export function SectionCard({
       }}
     >
       {(label || rightSlot) && (
-        <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             {label && <SectionLabel>{label}</SectionLabel>}
             {description && (
@@ -171,7 +171,7 @@ export function StatRow({
           ? TOKENS.healthy
           : TOKENS.textPrimary;
   return (
-    <div className="flex items-baseline justify-between py-1.5" style={{ fontSize: 13 }}>
+    <div className="flex items-baseline justify-between py-2" style={{ fontSize: 13, borderTop: `0.5px solid ${TOKENS.border}` }}>
       <span style={{ color: TOKENS.textSecondary }}>{label}</span>
       <span className="font-medium" style={{ color: valueColor }}>
         {value}
@@ -509,7 +509,7 @@ export function OwnerPageHeader({
           <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>{subtitle}</div>
         )}
       </div>
-      {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
+      {rightSlot && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{rightSlot}</div>}
     </div>
   );
 }
