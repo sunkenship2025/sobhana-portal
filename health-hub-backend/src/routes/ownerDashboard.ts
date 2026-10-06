@@ -157,13 +157,19 @@ router.post('/audit/backfill', async (req: AuthRequest, res) => {
 
 // GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
 //   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive).
+//   &clinic=1 adds clinic consultations to the money figures (diagnostics only otherwise).
 // The period slicer scopes the money summary, revenue trend/mix and branch table;
 // the action queue, receivables, unsettled payouts and ops pulse stay live.
 // branch=all (or omitted) returns cross-branch totals.
 router.get('/dashboard-v2', async (req: AuthRequest, res) => {
   try {
     const { period, branchId, range } = parseMoneyQuery(req);
-    const data = await getOwnerDashboardV2(branchId, period as DashboardV2Period, range);
+    const data = await getOwnerDashboardV2(
+      branchId,
+      period as DashboardV2Period,
+      range,
+      req.query.clinic === '1',
+    );
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner dashboard v2 load failed');

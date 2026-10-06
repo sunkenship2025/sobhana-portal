@@ -12,7 +12,10 @@
  *   - Action queue                 — live chips, conditional
  *   - Money (period) + Payouts (period headline, live unsettled)  (60/40 split)
  *   - Diagnostics / clinic / comms 3-tile pulse (live/today)
- *   - Net revenue trend + revenue mix (period)
+ *   - Net collected trend + revenue mix (period)
+ *
+ * Money figures are diagnostics-only unless "Include clinic OP" is ticked
+ * (?clinic=1); ops pulse and the payout ledger always cover both.
  *   - Branch performance table (period, Δ vs prior window)
  */
 import { useMemo, useState } from 'react';
@@ -118,7 +121,7 @@ interface DashboardV2 {
       optInPercent: number | null;
     };
   };
-  revenueTrend: { date: string; netInPaise: number }[];
+  revenueTrend: { date: string; collectedInPaise: number }[];
   revenueMix: {
     reportableInPaise: number;
     clinicInPaise: number;
@@ -641,11 +644,11 @@ function RevenueTrendCard({
   trend: DashboardV2['revenueTrend'];
   periodLabel: string;
 }) {
-  const chartData = trend.map((p) => ({ date: p.date, value: p.netInPaise }));
+  const chartData = trend.map((p) => ({ date: p.date, value: p.collectedInPaise }));
   return (
     <SectionCard
-      label={`Revenue trend · ${periodLabel}`}
-      description="Daily net revenue across the selected window"
+      label={`Net collected · ${periodLabel}`}
+      description="Cash + online collected each day, less refunds paid out"
     >
       <TrendChart
         data={chartData}
@@ -978,10 +981,19 @@ export default function OwnerDashboardV2() {
   const customEnd = searchParams.get('end') || '';
   const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
   const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
+  const includeClinic = searchParams.get('clinic') === '1';
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
       prev.set('branch', newBranch);
+      return prev;
+    });
+  };
+
+  const setIncludeClinic = (on: boolean) => {
+    setSearchParams(prev => {
+      if (on) prev.set('clinic', '1');
+      else prev.delete('clinic');
       return prev;
     });
   };
@@ -1010,12 +1022,12 @@ export default function OwnerDashboardV2() {
   };
 
   const dashParams =
-    period === 'custom'
+    (period === 'custom'
       ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
-      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`) + (includeClinic ? '&clinic=1' : '');
 
   const query = useQuery<DashboardV2>({
-    queryKey: ['owner-dashboard-v2', period, branchValue, customStart, customEnd],
+    queryKey: ['owner-dashboard-v2', period, branchValue, customStart, customEnd, includeClinic],
     queryFn: () => apiRequest<DashboardV2>(`${API_BASE}/owner/dashboard-v2?${dashParams}`),
     enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
@@ -1063,6 +1075,22 @@ export default function OwnerDashboardV2() {
               onCustomRangeChange={setCustomRange}
             />
             <BranchFilter value={branchValue} onChange={setBranchValue} />
+            <label
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5"
+              style={{
+                fontSize: 12,
+                borderColor: TOKENS.border,
+                background: TOKENS.surface,
+                color: TOKENS.textPrimary,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={includeClinic}
+                onChange={(e) => setIncludeClinic(e.target.checked)}
+              />
+              Include clinic OP
+            </label>
             <RefreshButton
               isFetching={query.isFetching}
               onClick={() => query.refetch()}

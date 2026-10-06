@@ -9,11 +9,16 @@
  *                       The dashboard's Payouts card leads with moneyToday.commissionInPaise
  *                       (period-scoped) and shows these underneath as the live stock.
  *   - opsPulse          diagnostics / clinic / comms 3-tile status
- *   - revenueTrend      30-day net revenue series (no expected band yet)
+ *   - revenueTrend      daily net collected (payments − refunds) for the window
  *   - revenueMix        today's net split: reportable / clinic / bill-only+external
  *   - branchTable       per-branch KPIs for the period
  *   - dataAge           days since first visit, used by the UI to suppress
  *                       comparison deltas during the first 30 days
+ *
+ * Clinic scoping: money figures cover diagnostics only unless `includeClinic`
+ * — clinic consultation bills, payments, fees and commission are left out of the
+ * waterfall, collections, trend, mix, receivables and branch table. Ops pulse
+ * and the payout ledger are unaffected.
  *
  * Branch scoping: if `branchId` is null, all branches are aggregated. The
  * owner dashboard defaults to "all branches" per the brief.
@@ -31,8 +36,13 @@ import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
-const cacheKey = (branchId: string | null, period: PeriodKey, range: CustomRange | null) =>
-  `owner-dashboard-v2:v3:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+const cacheKey = (
+  branchId: string | null,
+  period: PeriodKey,
+  range: CustomRange | null,
+  includeClinic: boolean,
+) =>
+  `owner-dashboard-v2:v4:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${includeClinic ? 'clinic' : 'diag'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -137,7 +147,9 @@ export interface OpsPulse {
 
 export interface TrendPoint {
   date: string; // YYYY-MM-DD in IST
-  netInPaise: number;
+  // Cash + online collected that day minus refunds paid out — the same basis
+  // as moneyToday's "Net collected", so the series sums to it.
+  collectedInPaise: number;
 }
 
 export interface RevenueMix {
@@ -293,11 +305,12 @@ export async function getOwnerDashboardV2(
   branchId: string | null,
   period: PeriodKey = '30d',
   range: CustomRange | null = null,
+  includeClinic = false,
 ): Promise<DashboardV2Response> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(branchId, period, range));
+      const hit = await redis.get(cacheKey(branchId, period, range, includeClinic));
       if (hit) return JSON.parse(hit) as DashboardV2Response;
     } catch (err) {
       logger.warn({ err, branchId }, 'dashboard-v2: cache read failed');
@@ -320,10 +333,21 @@ export async function getOwnerDashboardV2(
   const winSpanMs = win.end.getTime() - win.start.getTime();
   const winDays = Math.max(1, Math.round(winSpanMs / DAY_MS));
   const priorWin = { start: new Date(win.start.getTime() - winSpanMs), end: win.start };
+  // Cap the number of daily points so long windows (YTD) stay readable; the
+  // trend then shows the most recent MAX_TREND_DAYS of the selected window.
+  const trendDays = Math.min(winDays, MAX_TREND_DAYS);
+  const trendStart = new Date(win.end.getTime() - trendDays * DAY_MS);
 
   // ----- branch resolution & data age ------------------------------------
   const branchScopeWhere: Prisma.VisitWhereInput = branchId ? { branchId } : {};
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
+  // Money surfaces: same branch scope, minus clinic bills unless asked for.
+  const moneyBillWhere: Prisma.BillWhereInput = includeClinic
+    ? billBranchWhere
+    : { ...billBranchWhere, visit: { domain: 'DIAGNOSTICS' } };
+  // Prisma queries are lazy — an unawaited one never hits the database.
+  const clinicMoney = <T>(q: Promise<T>, empty: T): Promise<T> =>
+    includeClinic ? q : Promise.resolve(empty);
 
   const [scopedBranch, firstVisit] = await Promise.all([
     branchId
@@ -360,6 +384,7 @@ export async function getOwnerDashboardV2(
     todayClinicVisits,
     todayPaymentsByType,
     todayOutstandingAgg,
+    trendPayments,
 
     // 28-day baseline window of net revenue (used for trend + dow delta)
     baselineBills,
@@ -451,7 +476,7 @@ export async function getOwnerDashboardV2(
     prisma.bill.aggregate({
       where: {
         billedAt: { gte: win.start, lt: win.end },
-        ...billBranchWhere,
+        ...moneyBillWhere,
       },
       _sum: {
         totalAmountInPaise: true,
@@ -480,41 +505,52 @@ export async function getOwnerDashboardV2(
         uploadInsteadAt: true,
       },
     }),
-    prisma.clinicVisit.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      select: {
-        consultationFeeInPaise: true,
-        clinicDoctor: {
-          select: {
-            commissionType: true,
-            commissionPercent: true,
-            commissionAmountInPaise: true,
+    clinicMoney(
+      prisma.clinicVisit.findMany({
+        where: {
+          createdAt: { gte: win.start, lt: win.end },
+          ...(branchId ? { visit: { branchId } } : {}),
+        },
+        select: {
+          consultationFeeInPaise: true,
+          clinicDoctor: {
+            select: {
+              commissionType: true,
+              commissionPercent: true,
+              commissionAmountInPaise: true,
+            },
           },
         },
-      },
-    }),
+      }),
+      [],
+    ),
     prisma.paymentTransaction.groupBy({
       by: ['paymentType', 'transactionType'],
       where: {
         transactionDate: { gte: win.start, lt: win.end },
-        ...(branchId ? { bill: { branchId } } : {}),
+        bill: moneyBillWhere,
       },
       _sum: { amountInPaise: true },
     }),
     prisma.bill.aggregate({
       where: {
         paymentStatus: { not: 'PAID' },
-        ...billBranchWhere,
+        ...moneyBillWhere,
       },
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
+    }),
+    // revenue trend — collections in the trend span, bucketed by IST day below
+    prisma.paymentTransaction.findMany({
+      where: {
+        transactionDate: { gte: trendStart, lt: win.end },
+        bill: moneyBillWhere,
+      },
+      select: { transactionDate: true, amountInPaise: true, paymentType: true, transactionType: true },
     }),
 
     // window dataset (feeds revenue trend + branch table, scoped to the slicer)
     prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      where: { billedAt: { gte: win.start, lt: win.end }, ...moneyBillWhere },
       select: {
         billedAt: true,
         totalAmountInPaise: true,
@@ -542,24 +578,27 @@ export async function getOwnerDashboardV2(
         partnerCutInPaise: true,
       },
     }),
-    prisma.clinicVisit.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      select: {
-        createdAt: true,
-        consultationFeeInPaise: true,
-        visit: { select: { branchId: true } },
-        clinicDoctor: {
-          select: {
-            commissionType: true,
-            commissionPercent: true,
-            commissionAmountInPaise: true,
+    clinicMoney(
+      prisma.clinicVisit.findMany({
+        where: {
+          createdAt: { gte: win.start, lt: win.end },
+          ...(branchId ? { visit: { branchId } } : {}),
+        },
+        select: {
+          createdAt: true,
+          consultationFeeInPaise: true,
+          visit: { select: { branchId: true } },
+          clinicDoctor: {
+            select: {
+              commissionType: true,
+              commissionPercent: true,
+              commissionAmountInPaise: true,
+            },
           },
         },
-      },
-    }),
+      }),
+      [],
+    ),
 
     // payout liability
     prisma.doctorPayoutLedger.groupBy({
@@ -668,18 +707,26 @@ export async function getOwnerDashboardV2(
     }),
 
     // revenue mix — clinic visits in the window (for clinic slice)
-    prisma.clinicVisit.aggregate({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      _sum: { consultationFeeInPaise: true },
-    }),
+    clinicMoney(
+      prisma.clinicVisit
+        .aggregate({
+          where: {
+            createdAt: { gte: win.start, lt: win.end },
+            ...(branchId ? { visit: { branchId } } : {}),
+          },
+          _sum: { consultationFeeInPaise: true },
+        })
+        .then((a) => a._sum.consultationFeeInPaise ?? 0),
+      0,
+    ),
 
     // branch table — visit counts + tat by branch (selected window)
     prisma.visit.groupBy({
       by: ['branchId'],
-      where: { createdAt: { gte: win.start, lt: win.end } },
+      where: {
+        createdAt: { gte: win.start, lt: win.end },
+        ...(includeClinic ? {} : { domain: 'DIAGNOSTICS' }),
+      },
       _count: true,
     }),
     prisma.reportVersion.findMany({
@@ -699,7 +746,7 @@ export async function getOwnerDashboardV2(
     prisma.bill.findMany({
       where: {
         billedAt: { gte: priorWin.start, lt: priorWin.end },
-        ...billBranchWhere,
+        ...moneyBillWhere,
       },
       select: {
         totalAmountInPaise: true,
@@ -724,23 +771,26 @@ export async function getOwnerDashboardV2(
         partnerCutInPaise: true,
       },
     }),
-    prisma.clinicVisit.findMany({
-      where: {
-        createdAt: { gte: priorWin.start, lt: priorWin.end },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      select: {
-        consultationFeeInPaise: true,
-        visit: { select: { branchId: true } },
-        clinicDoctor: {
-          select: {
-            commissionType: true,
-            commissionPercent: true,
-            commissionAmountInPaise: true,
+    clinicMoney(
+      prisma.clinicVisit.findMany({
+        where: {
+          createdAt: { gte: priorWin.start, lt: priorWin.end },
+          ...(branchId ? { visit: { branchId } } : {}),
+        },
+        select: {
+          consultationFeeInPaise: true,
+          visit: { select: { branchId: true } },
+          clinicDoctor: {
+            select: {
+              commissionType: true,
+              commissionPercent: true,
+              commissionAmountInPaise: true,
+            },
           },
         },
-      },
-    }),
+      }),
+      [],
+    ),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -873,36 +923,26 @@ export async function getOwnerDashboardV2(
   const deltaPercent: number | null =
     priorNet > 0 ? Math.round(((netToday - priorNet) / priorNet) * 100) : null;
 
-  // ----- bucket the window by IST date for the revenue trend -------------
-  // Cap the number of daily points so long windows (YTD) stay readable; the
-  // trend then shows the most recent MAX_TREND_DAYS of the selected window.
-  const trendDays = Math.min(winDays, MAX_TREND_DAYS);
-  const trendStart = new Date(win.end.getTime() - trendDays * DAY_MS);
-  const dailyNetMap = new Map<string, number>();
+  // ----- bucket collections by IST date for the revenue trend ------------
+  // Same basis as "Net collected" on the money card: cash + online in, every
+  // refund out. Cheques are left out there, so they are left out here.
+  const dailyCollected = new Map<string, number>();
   const trendKeys: string[] = [];
   for (let i = 0; i < trendDays; i += 1) {
     const k = toIstDateKey(new Date(trendStart.getTime() + i * DAY_MS));
     trendKeys.push(k);
-    dailyNetMap.set(k, 0);
+    dailyCollected.set(k, 0);
   }
-  for (const b of baselineBills) {
-    const key = toIstDateKey(b.billedAt);
-    if (dailyNetMap.has(key)) {
-      const net = b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - b.reversedChargeInPaise;
-      dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) + net);
-    }
-  }
-  for (const o of baselineTestOrders) {
-    const key = toIstDateKey(o.createdAt);
-    if (!dailyNetMap.has(key)) continue;
-    const orderCommission = accruedCommissionInPaise([o]);
-    dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) - orderCommission);
-  }
-  for (const v of baselineClinicVisits) {
-    const key = toIstDateKey(v.createdAt);
-    if (!dailyNetMap.has(key)) continue;
-    const cc = clinicCommissionInPaise([{ ...v }]);
-    dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) - cc);
+  for (const t of trendPayments) {
+    const key = toIstDateKey(t.transactionDate);
+    if (!dailyCollected.has(key)) continue;
+    const signed =
+      t.transactionType === 'REFUND'
+        ? -t.amountInPaise
+        : t.paymentType === 'CASH' || t.paymentType === 'ONLINE'
+          ? t.amountInPaise
+          : 0;
+    dailyCollected.set(key, (dailyCollected.get(key) ?? 0) + signed);
   }
 
   const moneyToday: MoneyToday = {
@@ -992,11 +1032,11 @@ export async function getOwnerDashboardV2(
   };
 
   // ----- revenue trend (selected window) ---------------------------------
-  // trendKeys + dailyNetMap were built above, spanning the window (capped at
-  // MAX_TREND_DAYS days) so every point reflects real bills/orders.
+  // trendKeys + dailyCollected were built above, spanning the window (capped
+  // at MAX_TREND_DAYS days).
   const revenueTrend: TrendPoint[] = trendKeys.map((date) => ({
     date,
-    netInPaise: dailyNetMap.get(date) ?? 0,
+    collectedInPaise: dailyCollected.get(date) ?? 0,
   }));
 
   // ----- revenue mix (selected window) -----------------------------------
@@ -1010,7 +1050,7 @@ export async function getOwnerDashboardV2(
   const billOnlyRev = todayTestOrders
     .filter((o) => o.workflowMode !== 'REPORTABLE' && o.uploadInsteadAt == null)
     .reduce((s, o) => s + o.priceInPaise, 0);
-  const clinicRev = todayClinicForMix._sum.consultationFeeInPaise ?? 0;
+  const clinicRev = todayClinicForMix;
   const revenueMix: RevenueMix = {
     reportableInPaise: reportableRev,
     clinicInPaise: clinicRev,
@@ -1143,7 +1183,7 @@ export async function getOwnerDashboardV2(
 
   if (redis) {
     redis
-      .set(cacheKey(branchId, period, range), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(branchId, period, range, includeClinic), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err, branchId }, 'dashboard-v2: cache write failed'));
   }
 

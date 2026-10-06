@@ -690,12 +690,13 @@ export default function OwnerMoneyPage() {
   // Register slicer: 'all' | 'diagnostics' | 'clinic'. Drives the whole page
   // (and the day sheet), like a PowerBI slicer. URL-backed so it's shareable.
   const rawDomain = searchParams.get('domain');
+  // Defaults to diagnostics; clinic OP is opt-in.
   const domain: 'all' | 'diagnostics' | 'clinic' =
-    rawDomain === 'diagnostics' || rawDomain === 'clinic' ? rawDomain : 'all';
+    rawDomain === 'all' || rawDomain === 'clinic' ? rawDomain : 'diagnostics';
 
   const setDomain = (next: 'all' | 'diagnostics' | 'clinic') => {
     setSearchParams(prev => {
-      if (next === 'all') prev.delete('domain');
+      if (next === 'diagnostics') prev.delete('domain');
       else prev.set('domain', next);
       return prev;
     });
