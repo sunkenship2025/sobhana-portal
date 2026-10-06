@@ -17,9 +17,11 @@
  *                share of the bill's discount — counter and offer code — floored at 0; fixed
  *                as frozen) + the partner's cut + clinic doctors' fees, by
  *                test/visit createdAt
- *   net to you   gross − discount − cancelled − commission
  *   collected    cash + online in, every refund out, by transactionDate
- *                (cheques are reported apart, as before)
+ *                (cheques are reported apart, as before) — THE headline: every
+ *                split the owner sees (branch, department, source, doctor)
+ *                adds back up to it
+ *   net to you   collected − commission
  */
 import { Prisma, VisitDomain } from '@prisma/client';
 import prisma from '../lib/prisma';
@@ -264,8 +266,10 @@ export function totalsOf(facts: DayFact[]): MoneyTotals {
     },
     { gross: 0, discount: 0, coupon: 0, cancelled: 0, commission: 0, net: 0, bills: 0, visits: 0, cash: 0, online: 0, cheque: 0, refunds: 0, netCollected: 0, clinicFees: 0 },
   );
-  t.net = t.gross - t.discount - t.cancelled - t.commission;
   t.netCollected = t.cash + t.online - t.refunds;
+  // On the collected basis, like every figure beside it. Discounts and
+  // cancellations are already out of what patients paid.
+  t.net = t.netCollected - t.commission;
   return t;
 }
 
@@ -367,4 +371,93 @@ export async function getBusyHours(scope: MoneyScope): Promise<BusyHourFact[]> {
           ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
     GROUP BY 1, 2`;
   return rows.map((r) => ({ dow: n(r.dow), hour: n(r.hour), visits: n(r.visits) }));
+}
+
+export interface CollectedSplit {
+  category: string;
+  source: BusinessSource;
+  referralDoctorId: string | null;
+  collected: number;
+  priorCollected: number;
+}
+
+/**
+ * Net collected (cash + online − refunds, by transaction date) split by test
+ * department, source and referring doctor, this window vs the one before it.
+ * Each bill's money is shared across its live tests by price, so every split
+ * adds back up to the headline. A bill with no live test left (all cancelled)
+ * keeps its money under "Cancelled bills"; a consultation under "OP consultation".
+ */
+export async function getCollectedSplits(scope: MoneyScope, splitAt: Date): Promise<CollectedSplit[]> {
+  const { start, end, branchId, domain } = scope;
+  const rows = await prisma.$queryRaw<any[]>`
+    WITH pay AS (
+      SELECT b."visitId", v.domain,
+             coalesce(sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" IN ('CASH', 'ONLINE') THEN pt."amountInPaise"
+                               WHEN pt."transactionType" = 'REFUND' THEN -pt."amountInPaise" ELSE 0 END)
+                      FILTER (WHERE pt."transactionDate" >= ${splitAt}), 0)::numeric AS cur,
+             coalesce(sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" IN ('CASH', 'ONLINE') THEN pt."amountInPaise"
+                               WHEN pt."transactionType" = 'REFUND' THEN -pt."amountInPaise" ELSE 0 END)
+                      FILTER (WHERE pt."transactionDate" < ${splitAt}), 0)::numeric AS prior
+      FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id = pt."billId" JOIN "Visit" v ON v.id = b."visitId"
+      WHERE pt."transactionDate" >= ${start} AND pt."transactionDate" < ${end}
+            ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
+            ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
+      GROUP BY 1, 2
+    ),
+    lt AS (
+      SELECT t."visitId", coalesce(nullif(trim(t."payoutCategorySnapshot"), ''), 'Uncategorised') AS category,
+             greatest(t."priceInPaise", 0)::numeric AS p
+      FROM "TestOrder" t JOIN pay USING ("visitId")
+      WHERE t."replacedAt" IS NULL AND t."cancelledAt" IS NULL
+    ),
+    tot AS (SELECT "visitId", sum(p) AS total FROM lt GROUP BY 1),
+    alloc AS (
+      SELECT pay."visitId", pay.domain,
+             CASE WHEN lt."visitId" IS NOT NULL THEN lt.category
+                  WHEN pay.domain = 'CLINIC' THEN 'OP consultation'
+                  ELSE 'Cancelled bills' END AS category,
+             pay.cur * coalesce(lt.p / tot.total, 1) AS cur,
+             pay.prior * coalesce(lt.p / tot.total, 1) AS prior
+      FROM pay LEFT JOIN tot USING ("visitId")
+      LEFT JOIN lt ON lt."visitId" = pay."visitId" AND tot.total > 0
+    )
+    SELECT a.category,
+           CASE WHEN a.domain = 'CLINIC' THEN 'clinic'
+                WHEN EXISTS (SELECT 1 FROM "TestOrder" t WHERE t."visitId" = a."visitId" AND t."partnerId" IS NOT NULL) THEN 'partner'
+                WHEN ref.rid IS NOT NULL THEN 'referred'
+                ELSE 'walkin' END AS source,
+           ref.rid AS "referralDoctorId",
+           round(sum(a.cur)) AS collected, round(sum(a.prior)) AS "priorCollected"
+    FROM alloc a
+    LEFT JOIN LATERAL (
+      SELECT rv."referralDoctorId" AS rid FROM "ReferralDoctor_Visit" rv
+      WHERE rv."visitId" = a."visitId" AND rv."deletedAt" IS NULL
+      ORDER BY rv."createdAt" LIMIT 1
+    ) ref ON TRUE
+    GROUP BY 1, 2, 3`;
+  return rows.map((r) => ({
+    category: r.category,
+    source: r.source,
+    referralDoctorId: r.referralDoctorId ?? null,
+    collected: n(r.collected),
+    priorCollected: n(r.priorCollected),
+  }));
+}
+
+/** Net collected per IST day from `start` — a light read for month pace. */
+export async function getCollectedByDay(
+  scope: Omit<MoneyScope, 'end'> & { end: Date },
+): Promise<{ date: string; collected: number }[]> {
+  const { start, end, branchId, domain } = scope;
+  const rows = await prisma.$queryRaw<any[]>`
+    SELECT ${IST_DAY(Prisma.sql`pt."transactionDate"`)} AS date,
+           sum(CASE WHEN pt."transactionType" = 'PAYMENT' AND pt."paymentType" IN ('CASH', 'ONLINE') THEN pt."amountInPaise"
+                    WHEN pt."transactionType" = 'REFUND' THEN -pt."amountInPaise" ELSE 0 END) AS collected
+    FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id = pt."billId" JOIN "Visit" v ON v.id = b."visitId"
+    WHERE pt."transactionDate" >= ${start} AND pt."transactionDate" < ${end}
+          ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}
+          ${domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty}
+    GROUP BY 1`;
+  return rows.map((r) => ({ date: r.date, collected: n(r.collected) }));
 }

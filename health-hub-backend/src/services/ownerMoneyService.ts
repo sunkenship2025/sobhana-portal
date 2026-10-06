@@ -19,7 +19,7 @@ import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
-import { getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
+import { getCollectedSplits, getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
@@ -28,7 +28,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: DaySheetDomain | null,
 ) =>
-  `owner-money:v5:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-money:v6:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -60,6 +60,9 @@ export interface MoneyKpi {
   collectionRatePct: number | null; // % of this period's net-billable that has been collected
   grossDeltaPercent: number | null;
   netDeltaPercent: number | null;
+  /** The headline: cash + online − refunds. Net to you is this − commission. */
+  netCollectedInPaise: number;
+  collectedDeltaPercent: number | null;
 }
 
 export interface AgingBucket {
@@ -121,6 +124,7 @@ export interface RefundSummary {
   totalInPaise: number;
   count: number;
   pctOfGross: number | null;
+  pctOfCollected: number | null;
   recent: Array<{
     billId: string;
     billNumber: string;
@@ -138,6 +142,7 @@ export interface CancellationSummary {
   totalInPaise: number;
   count: number;
   pctOfGross: number | null;
+  pctOfCollected: number | null;
   recent: Array<{
     billNumber: string;
     patientName: string;
@@ -153,7 +158,7 @@ export interface MoneyResponse {
   period: { key: PeriodKey; startIso: string; endIso: string };
   branchScope: { branchId: string | null; branchName: string | null };
   kpis: MoneyKpi;
-  revenueTrend: Array<{ date: string; netInPaise: number }>;
+  revenueTrend: Array<{ date: string; netInPaise: number; collectedInPaise: number }>;
   aging: AgingBucket[];
   oldestUnpaid: OldestUnpaidRow[];
   cashByBranch: CashByBranchRow[];
@@ -186,13 +191,15 @@ export interface BreakdownCategoryRow {
   tests: number;
   priorBilledInPaise: number;
   priorTests: number;
+  collectedInPaise: number;
+  priorCollectedInPaise: number;
 }
 /** The Money page's group-by table: same engine, sliced four ways. */
 export interface Breakdown {
   days: BreakdownMoneyRow[];
   branches: BreakdownMoneyRow[];
   categories: BreakdownCategoryRow[];
-  referrers: ReferrerFact[];
+  referrers: (ReferrerFact & { collected: number; priorCollected: number })[];
 }
 
 // --- helpers ------------------------------------------------------------
@@ -284,6 +291,8 @@ export async function getOwnerMoney(
       ? { bill: { ...(branchId ? { branchId } : {}), ...(domain ? { visit: { domain } } : {}) } }
       : {};
 
+  // Net collected by department and doctor — adds back up to the headline.
+  const splitsP = getCollectedSplits({ start: prior.start, end: win.end, branchId, domain }, win.start);
   const [
     scopedBranch,
     billsInWindow,
@@ -395,7 +404,10 @@ export async function getOwnerMoney(
   const grossDeltaPercent =
     prev.bills > 0 && prev.gross > 0 ? Math.round(((cur.gross - prev.gross) / prev.gross) * 100) : null;
   const netDeltaPercent =
-    prev.bills > 0 && prev.net > 0 ? Math.round(((cur.net - prev.net) / prev.net) * 100) : null;
+    prev.net > 0 ? Math.round(((cur.net - prev.net) / prev.net) * 100) : null;
+  const collectedDeltaPercent =
+    prev.netCollected > 0 ? Math.round(((cur.netCollected - prev.netCollected) / prev.netCollected) * 100) : null;
+  const splits = await splitsP;
 
   // outstanding (all-time, scoped)
   const outstandingTotal = openBills.reduce(
@@ -459,11 +471,14 @@ export async function getOwnerMoney(
     collectionRatePct,
     grossDeltaPercent,
     netDeltaPercent,
+    netCollectedInPaise: cur.netCollected,
+    collectedDeltaPercent,
   };
 
   // ---- revenue trend ----
   const dayKeys: string[] = [];
   const dayMap = new Map<string, number>();
+  const collectedByDay = new Map<string, number>();
   // Build one bucket per calendar day in the window itself (not anchored to
   // "now"), so windows that don't end today — yesterday, custom ranges — line
   // up with the days their bills actually fall in.
@@ -478,8 +493,13 @@ export async function getOwnerMoney(
     if (!dayMap.has(f.date)) continue;
     const t = totalsOf([f]);
     dayMap.set(f.date, (dayMap.get(f.date) ?? 0) + t.net);
+    collectedByDay.set(f.date, (collectedByDay.get(f.date) ?? 0) + t.netCollected);
   }
-  const revenueTrend = dayKeys.map((d) => ({ date: d, netInPaise: dayMap.get(d) ?? 0 }));
+  const revenueTrend = dayKeys.map((d) => ({
+    date: d,
+    netInPaise: dayMap.get(d) ?? 0,
+    collectedInPaise: collectedByDay.get(d) ?? 0,
+  }));
 
   // ---- aging ----
   const cutoff7 = startOfDaysAgoIst(now, 7);
@@ -658,6 +678,8 @@ export async function getOwnerMoney(
     count: refundedBills._count,
     pctOfGross:
       grossInWindow > 0 ? Math.round((refundedTotal / grossInWindow) * 1000) / 10 : null,
+    pctOfCollected:
+      cur.netCollected > 0 ? Math.round((refundedTotal / cur.netCollected) * 1000) / 10 : null,
     recent: refundedBillsRecent.map((b) => ({
       billId: b.id,
       billNumber: b.billNumber,
@@ -698,6 +720,8 @@ export async function getOwnerMoney(
     count: cancelAgg._count,
     pctOfGross:
       grossInWindow > 0 ? Math.round((cancelledTotal / grossInWindow) * 1000) / 10 : null,
+    pctOfCollected:
+      cur.netCollected > 0 ? Math.round((cancelledTotal / cur.netCollected) * 1000) / 10 : null,
     recent: cancelRecent.map((r) => ({
       billNumber: r.bill?.billNumber ?? '—',
       patientName: r.visit?.patient?.name ?? 'Unknown',
@@ -730,19 +754,37 @@ export async function getOwnerMoney(
   const curByBranch = group(curDays, (f) => f.branchId);
   const priorByBranch = group(priorDays, (f) => f.branchId);
   const catMap = new Map<string, BreakdownCategoryRow>();
+  const catRow = (k: string) => {
+    const row = catMap.get(k) ?? {
+      category: k, billedInPaise: 0, tests: 0, priorBilledInPaise: 0, priorTests: 0, collectedInPaise: 0, priorCollectedInPaise: 0,
+    };
+    catMap.set(k, row);
+    return row;
+  };
   for (const c of facts.categories) {
-    const row = catMap.get(c.category) ?? { category: c.category, billedInPaise: 0, tests: 0, priorBilledInPaise: 0, priorTests: 0 };
+    const row = catRow(c.category);
     if (c.date >= winStartKey) { row.billedInPaise += c.price; row.tests += c.tests; }
     else { row.priorBilledInPaise += c.price; row.priorTests += c.tests; }
-    catMap.set(c.category, row);
+  }
+  const byDoctor = new Map<string, { collected: number; priorCollected: number }>();
+  for (const r of splits) {
+    const row = catRow(r.category);
+    row.collectedInPaise += r.collected;
+    row.priorCollectedInPaise += r.priorCollected;
+    if (r.referralDoctorId) {
+      const d = byDoctor.get(r.referralDoctorId) ?? { collected: 0, priorCollected: 0 };
+      d.collected += r.collected;
+      d.priorCollected += r.priorCollected;
+      byDoctor.set(r.referralDoctorId, d);
+    }
   }
   const breakdown: Breakdown = {
     days: dayKeys.map((d) => moneyRow(d, d, byDate.get(d) ?? [])),
     branches: (branchId ? branches.filter((b) => b.id === branchId) : branches)
       .map((b) => moneyRow(b.id, `${b.name} (${b.code})`, curByBranch.get(b.id) ?? [], priorByBranch.get(b.id) ?? []))
       .filter((r) => r.grossInPaise || r.collectedInPaise || r.priorNetInPaise),
-    categories: [...catMap.values()].filter((c) => c.billedInPaise || c.priorBilledInPaise),
-    referrers: referrerFacts,
+    categories: [...catMap.values()].filter((c) => c.collectedInPaise || c.priorCollectedInPaise || c.tests),
+    referrers: referrerFacts.map((r) => ({ ...r, ...(byDoctor.get(r.referralDoctorId) ?? { collected: 0, priorCollected: 0 }) })),
   };
 
   const response: MoneyResponse = {

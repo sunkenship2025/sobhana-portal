@@ -41,11 +41,14 @@ import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import {
   getBusyHours,
+  getCollectedByDay,
+  getCollectedSplits,
   getMoneyFacts,
   getReferrerFacts,
   getSourceFacts,
   totalsOf,
   type BusyHourFact,
+  type BusinessSource,
   type DayFact,
   type MoneyTotals,
   type ReferrerFact,
@@ -61,7 +64,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v9:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v10:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -201,8 +204,8 @@ export interface TrendDay extends DayPoint {
 /** Billed (test price) in one payout category: this window and the prior one. */
 export interface CategoryMove {
   category: string;
-  current: number;
-  prior: number;
+  current: number; // net collected, this window
+  prior: number; // net collected, the window before
   tests: number;
   priorTests: number;
 }
@@ -253,8 +256,22 @@ export interface DashboardV2Response {
   kpis: { current: MoneyTotals & { outstanding: number }; prior: MoneyTotals };
   revenueMix: RevenueMix;
   categoryMoves: CategoryMove[];
-  sources: SourceFact[];
-  referrers: ReferrerFact[];
+  sources: (SourceFact & { collected: number; priorCollected: number })[];
+  referrers: (ReferrerFact & { collected: number; priorCollected: number })[];
+  /** Doctors whose patients brought in far less than the window before. */
+  slippingReferrers: { referralDoctorId: string; name: string; collected: number; priorCollected: number }[];
+  /** This calendar month, whatever the date filter: so far, and where it is heading. */
+  monthPace: {
+    monthLabel: string;
+    priorMonthLabel: string;
+    soFar: number;
+    throughYesterday: number;
+    daysDone: number; // complete days so far this month
+    daysInMonth: number;
+    projected: number | null; // null until three complete days
+    priorMonthTotal: number;
+    priorMonthSameDays: number; // the prior month's first `daysDone` days
+  };
   busyHours: BusyHourFact[];
   branchTable: BranchRow[];
 }
@@ -348,6 +365,9 @@ export async function getOwnerDashboardV2(
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
   const yesterdayStart = startOfDaysAgoIst(now, 1);
   const sevenDaysAgo = startOfDaysAgoIst(now, 7);
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - IST_OFFSET_MS);
+  const priorMonthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() - 1, 1) - IST_OFFSET_MS);
 
   // The selected reporting window drives the period zone: money summary,
   // revenue trend, revenue mix and the branch table. `priorWin` is the equal-
@@ -402,7 +422,7 @@ export async function getOwnerDashboardV2(
     todayOutstandingAgg,
     // every period money figure: the window and the equal window before it
     facts,
-    sources,
+    sourceFacts,
     referrerFacts,
     busyHours,
 
@@ -429,6 +449,9 @@ export async function getOwnerDashboardV2(
     diagVisitsToday,
     diagAwaiting,
     diagPartly,
+
+    collectedSplits,
+    paceDays,
   ] = await Promise.all([
     // Overdue result entry — count DIAGNOSTIC VISITS (one row per visit) still
     // in the entry queue and older than 24h, mirroring the Result Queue page.
@@ -621,6 +644,9 @@ export async function getOwnerDashboardV2(
     }),
     prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'DRAFT', ...branchScopeWhere } }),
     prisma.visit.count({ where: { domain: 'DIAGNOSTICS', status: 'WAITING', ...branchScopeWhere } }),
+
+    getCollectedSplits({ start: priorWin.start, end: win.end, branchId, domain }, win.start),
+    getCollectedByDay({ start: priorMonthStart, end: tomorrowStart, branchId, domain }),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -870,20 +896,100 @@ export async function getOwnerDashboardV2(
     totalInPaise: reportableRev + clinicRev + billOnlyRev,
   };
 
-  // ----- what moved: billed by payout category, window vs prior ----------
+  // ----- splits of net collected: department, source, doctor ------------
+  // Every split comes from the same collected money, so each adds back up to
+  // the headline. Test counts stay by test date.
   const catAgg = new Map<string, CategoryMove>();
+  const cat = (k: string) => {
+    const m = catAgg.get(k) ?? { category: k, current: 0, prior: 0, tests: 0, priorTests: 0 };
+    catAgg.set(k, m);
+    return m;
+  };
   for (const c of facts.categories) {
-    const m = catAgg.get(c.category) ?? { category: c.category, current: 0, prior: 0, tests: 0, priorTests: 0 };
-    if (c.date >= winStartKey) { m.current += c.price; m.tests += c.tests; }
-    else { m.prior += c.price; m.priorTests += c.tests; }
-    catAgg.set(c.category, m);
+    const m = cat(c.category);
+    if (c.date >= winStartKey) m.tests += c.tests;
+    else m.priorTests += c.tests;
   }
-  const categoryMoves = [...catAgg.values()].sort((a, b) => (b.current - b.prior) - (a.current - a.prior));
+  const bySource = new Map<BusinessSource, { collected: number; priorCollected: number }>();
+  const byDoctor = new Map<string, { collected: number; priorCollected: number }>();
+  for (const r of collectedSplits) {
+    const m = cat(r.category);
+    m.current += r.collected;
+    m.prior += r.priorCollected;
+    const src = bySource.get(r.source) ?? { collected: 0, priorCollected: 0 };
+    src.collected += r.collected;
+    src.priorCollected += r.priorCollected;
+    bySource.set(r.source, src);
+    if (r.referralDoctorId) {
+      const d = byDoctor.get(r.referralDoctorId) ?? { collected: 0, priorCollected: 0 };
+      d.collected += r.collected;
+      d.priorCollected += r.priorCollected;
+      byDoctor.set(r.referralDoctorId, d);
+    }
+  }
+  const categoryMoves = [...catAgg.values()]
+    .filter((m) => m.current || m.prior)
+    .sort((a, b) => b.current - a.current);
+  const sources = (['referred', 'walkin', 'partner', 'clinic'] as BusinessSource[])
+    .map((k) => {
+      const f = sourceFacts.find((x) => x.source === k);
+      const c = bySource.get(k);
+      return {
+        source: k,
+        visits: f?.visits ?? 0,
+        gross: f?.gross ?? 0,
+        priorVisits: f?.priorVisits ?? 0,
+        priorGross: f?.priorGross ?? 0,
+        collected: c?.collected ?? 0,
+        priorCollected: c?.priorCollected ?? 0,
+      };
+    })
+    .filter((x) => x.collected || x.priorCollected || x.visits);
 
-  // ----- top referrers: the eight who billed most this window -----------
-  const referrers = [...referrerFacts]
-    .sort((a, b) => b.billed - a.billed)
+  // ----- doctors: the eight whose patients brought in most ---------------
+  const referrers = referrerFacts
+    .map((r) => ({ ...r, ...(byDoctor.get(r.referralDoctorId) ?? { collected: 0, priorCollected: 0 }) }))
+    .sort((a, b) => b.collected - a.collected)
     .slice(0, 8);
+  // Slipping: brought in ₹10k+ the window before, under 60% of it now.
+  const slippingIds = [...byDoctor]
+    .filter(([, d]) => d.priorCollected >= 10_000_00 && d.collected < d.priorCollected * 0.6)
+    .sort((a, b) => (b[1].priorCollected - b[1].collected) - (a[1].priorCollected - a[1].collected))
+    .slice(0, 5);
+  const doctorNames = new Map(
+    (await prisma.referralDoctor.findMany({
+      where: { id: { in: slippingIds.map(([id]) => id) } },
+      select: { id: true, name: true },
+    })).map((d) => [d.id, d.name]),
+  );
+  const slippingReferrers = slippingIds.map(([id, d]) => ({
+    referralDoctorId: id,
+    name: doctorNames.get(id) ?? 'Unknown doctor',
+    collected: d.collected,
+    priorCollected: d.priorCollected,
+  }));
+
+  // ----- this month's pace (ignores the date filter) ---------------------
+  // ponytail: straight-line pace from complete days; ignores weekday mix.
+  const monthKey = toIstDateKey(monthStart);
+  const todayKey = toIstDateKey(todayStart);
+  const daysDone = Math.round((todayStart.getTime() - monthStart.getTime()) / DAY_MS);
+  const daysInMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
+  const priorSameDaysEnd = toIstDateKey(new Date(priorMonthStart.getTime() + daysDone * DAY_MS));
+  const sumDays = (pred: (d: string) => boolean) => paceDays.filter((r) => pred(r.date)).reduce((s, r) => s + r.collected, 0);
+  const throughYesterday = sumDays((d) => d >= monthKey && d < todayKey);
+  const monthName = (d: Date) => new Date(d.getTime() + IST_OFFSET_MS).toLocaleString('en-IN', { month: 'long', timeZone: 'UTC' });
+  const monthPace = {
+    monthLabel: monthName(monthStart),
+    priorMonthLabel: monthName(priorMonthStart),
+    soFar: sumDays((d) => d >= monthKey),
+    throughYesterday,
+    daysDone,
+    daysInMonth,
+    projected: daysDone >= 3 ? Math.round((throughYesterday / daysDone) * daysInMonth) : null,
+    priorMonthTotal: sumDays((d) => d < monthKey),
+    priorMonthSameDays: sumDays((d) => d < monthKey && d < priorSameDaysEnd),
+  };
 
   // ----- branch table ----------------------------------------------------
   const curByBranch = new Map<string, DayFact[]>();
@@ -934,7 +1040,8 @@ export async function getOwnerDashboardV2(
         netInPaise: c.net,
         visitCount: c.visits,
         avgTicketInPaise: c.visits > 0 ? Math.round(c.net / c.visits) : null,
-        avgBillInPaise: c.bills > 0 ? Math.round(c.gross / c.bills) : null,
+        // Collected per visit — the same basis as every other money figure.
+        avgBillInPaise: c.visits > 0 ? Math.round(c.netCollected / c.visits) : null,
         tatP50Minutes: percentile(tatList, 50),
         tatSampleCount: tatList.length,
         // Δ follows the headline: net collected against the prior window.
@@ -973,6 +1080,8 @@ export async function getOwnerDashboardV2(
     categoryMoves,
     sources,
     referrers,
+    slippingReferrers,
+    monthPace,
     busyHours,
     branchTable,
   };

@@ -284,134 +284,79 @@ function niceStep(raw: number): number {
 // Validated categorical slots (light surface): blue, orange, aqua, yellow.
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'] as const;
 
-/**
- * "What moved": prior total → each category's change → current total, as a
- * horizontal bridge. Increases blue, decreases orange; every bar labelled, so
- * colour is never the only cue. Hover a bar for both totals.
- */
-export function VarianceBridge({
-  rows,
-  priorLabel,
-  currentLabel,
-  format,
-  detail,
-}: {
-  rows: { key: string; prior: number; current: number }[];
-  priorLabel: string;
-  currentLabel: string;
-  format: (v: number) => string;
-  detail?: (row: { key: string; prior: number; current: number }) => string;
-}) {
-  const [ref, W] = useWidth();
-  const [active, setActive] = React.useState<string | null>(null);
-  const priorTotal = rows.reduce((s, r) => s + r.prior, 0);
-  const curTotal = rows.reduce((s, r) => s + r.current, 0);
-  type Bar = { key: string; from: number; to: number; total?: boolean; row?: (typeof rows)[number] };
-  const bars: Bar[] = [{ key: priorLabel, from: 0, to: priorTotal, total: true }];
-  let run = priorTotal;
-  for (const r of rows) {
-    bars.push({ key: r.key, from: run, to: run + r.current - r.prior, row: r });
-    run += r.current - r.prior;
-  }
-  bars.push({ key: currentLabel, from: 0, to: curTotal, total: true });
-  const ends = bars.flatMap((b) => (b.total ? [b.to] : [b.from, b.to]));
-  // Start the axis near the smallest running total so the changes are visible;
-  // the two totals are labelled with their full values.
-  const lo = Math.max(0, Math.min(...ends) * 0.96);
-  const hi = Math.max(...ends) * 1.005;
-  const labelW = 120;
-  const valueW = 116;
-  const rowH = 24;
-  const plotW = Math.max(40, W - labelW - valueW);
-  const sx = (v: number) => labelW + ((Math.max(v, lo) - lo) / (hi - lo || 1)) * plotW;
-  const pct = (r: { prior: number; current: number }) =>
-    r.prior > 0 ? ` (${r.current >= r.prior ? '+' : '−'}${Math.abs(Math.round(((r.current - r.prior) / r.prior) * 100))}%)` : '';
-
-  return (
-    <div ref={ref} style={{ width: '100%', position: 'relative' }}>
-      {W > 0 && (
-        <svg width={W} height={bars.length * rowH + 4} role="img" aria-label={`Change in billing by category, ${format(priorTotal)} to ${format(curTotal)}`}>
-          <line x1={sx(priorTotal)} x2={sx(priorTotal)} y1={2} y2={2 + bars.length * rowH} stroke={TOKENS.borderStrong} strokeDasharray="2 3" />
-          {bars.map((b, i) => {
-            const y = 2 + i * rowH;
-            const delta = b.to - b.from;
-            const fill = b.total ? '#C9C8C2' : delta >= 0 ? SERIES[0] : SERIES[1];
-            // The axis starts near the smallest running total, so a total drawn
-            // as a bar from the axis would exaggerate the change. Totals are a
-            // marker at their position instead; only the changes have length.
-            const x0 = b.total ? sx(b.to) - 1.5 : sx(Math.min(b.from, b.to));
-            const x1 = b.total ? sx(b.to) + 1.5 : sx(Math.max(b.from, b.to));
-            const isActive = active === b.key;
-            return (
-              <g
-                key={b.key}
-                onMouseEnter={() => setActive(b.key)}
-                onMouseLeave={() => setActive(null)}
-                style={{ cursor: 'default' }}
-              >
-                <rect x={0} y={y} width={W} height={rowH} fill={isActive ? TOKENS.page : 'transparent'} />
-                <text x={labelW - 8} y={y + rowH / 2 + 4} fontSize={11} textAnchor="end" fill={b.total ? TOKENS.textPrimary : TOKENS.textSecondary}>
-                  {b.key}
-                </text>
-                <rect x={x0} y={y + (b.total ? 2 : 5)} width={Math.max(2, x1 - x0)} height={rowH - (b.total ? 4 : 10)} rx={b.total ? 1 : 3} fill={b.total ? TOKENS.textSecondary : fill} />
-                <text x={x1 + 6} y={y + rowH / 2 + 4} fontSize={11} fill={TOKENS.textPrimary}>
-                  {b.total ? format(b.to) : `${delta >= 0 ? '+' : '−'}${format(Math.abs(delta))}${b.row ? pct(b.row) : ''}`}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      )}
-      {active && (() => {
-        const r = rows.find((x) => x.key === active);
-        if (!r) return null;
-        return (
-          <div
-            role="status"
-            style={{
-              position: 'absolute', right: 0, top: -6, pointerEvents: 'none',
-              background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, borderRadius: 6,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.10)', padding: '6px 8px', fontSize: 12, color: TOKENS.textPrimary,
-            }}
-          >
-            <div className="font-medium">{r.key}</div>
-            <div>{format(r.current)} now · {format(r.prior)} before</div>
-            {detail && <div style={{ color: TOKENS.textTertiary }}>{detail(r)}</div>}
-          </div>
-        );
-      })()}
-    </div>
-  );
+export interface BarRow {
+  key: string;
+  label: string;
+  value: number;
+  prior: number;
+  note?: string;
 }
 
-/** Part-to-whole as one stacked bar with a labelled legend underneath. */
-export function ShareBar({
-  parts,
+/**
+ * A ranked list of parts that add up to a total: each row's bar, amount, share
+ * and change against the period before, then the total — so a reader can see
+ * the parts reconcile with the headline. Bars run against the largest row.
+ */
+export function BarList({
+  rows,
+  format,
+  totalLabel,
+  priorLabel,
 }: {
-  parts: { key: string; label: string; value: number; color: string; note?: string }[];
+  rows: BarRow[];
+  format: (v: number) => string;
+  totalLabel: string;
+  priorLabel: string;
 }) {
-  const total = parts.reduce((s, p) => s + p.value, 0) || 1;
-  const shown = parts.filter((p) => p.value > 0);
+  if (rows.length === 0) {
+    return <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>Nothing in this window.</div>;
+  }
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  const priorTotal = rows.reduce((s, r) => s + r.prior, 0);
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  const delta = (now: number, before: number) => {
+    if (before <= 0) return <span style={{ color: TOKENS.textTertiary }}>{now > 0 ? 'new' : ''}</span>;
+    const c = Math.round(((now - before) / before) * 100);
+    return <span style={{ color: c >= 0 ? TOKENS.healthy : TOKENS.critical }}>{c >= 0 ? '▲' : '▼'} {Math.abs(c)}%</span>;
+  };
+  const cols = 'minmax(0, 1fr) 76px 40px 56px';
   return (
-    <div>
-      <div className="flex w-full overflow-hidden" style={{ height: 14, borderRadius: 4, gap: 2 }} role="img"
-        aria-label={shown.map((p) => `${p.label} ${Math.round((p.value / total) * 100)}%`).join(', ')}>
-        {shown.map((p) => (
-          <div key={p.key} title={`${p.label}: ${Math.round((p.value / total) * 100)}%`} style={{ width: `${(p.value / total) * 100}%`, background: p.color }} />
-        ))}
+    <div style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+      <div className="grid gap-x-3 pb-1" style={{ gridTemplateColumns: cols, fontSize: 11, color: TOKENS.textTertiary }}>
+        <span />
+        <span className="text-right">Amount</span>
+        <span className="text-right">Share</span>
+        <span className="text-right">vs before</span>
       </div>
-      <div className="mt-2 grid gap-1" style={{ fontSize: 12 }}>
-        {shown.map((p) => (
-          <div key={p.key} className="flex items-baseline justify-between gap-3">
-            <span className="inline-flex items-center gap-2" style={{ color: TOKENS.textSecondary }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
-              {p.label}
-            </span>
-            <span style={{ color: TOKENS.textPrimary }}>
-              {Math.round((p.value / total) * 100)}%{p.note ? <span style={{ color: TOKENS.textTertiary }}> · {p.note}</span> : null}
-            </span>
+      {[...rows].sort((a, b) => b.value - a.value).map((r) => (
+        <div
+          key={r.key}
+          className="grid items-center gap-x-3 py-1.5"
+          style={{ gridTemplateColumns: cols, borderTop: `0.5px solid ${TOKENS.border}` }}
+          title={`${r.label}: ${format(r.value)} now · ${format(r.prior)} ${priorLabel}${r.note ? ` · ${r.note}` : ''}`}
+        >
+          <div className="min-w-0">
+            <div style={{ color: TOKENS.textPrimary }}>
+              {r.label}
+              {r.note && <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {r.note}</span>}
+            </div>
+            <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
+              <div style={{ width: `${(Math.max(0, r.value) / max) * 100}%`, height: '100%', borderRadius: 3, background: SERIES[0] }} />
+            </div>
           </div>
-        ))}
+          <span className="text-right">{format(r.value)}</span>
+          <span className="text-right" style={{ color: TOKENS.textSecondary }}>{total > 0 ? `${Math.round((r.value / total) * 100)}%` : ''}</span>
+          <span className="text-right" style={{ fontSize: 12 }}>{delta(r.value, r.prior)}</span>
+        </div>
+      ))}
+      <div
+        className="grid items-center gap-x-3 pt-2 font-medium"
+        style={{ gridTemplateColumns: cols, borderTop: `1px solid ${TOKENS.borderStrong}` }}
+      >
+        <span>{totalLabel}</span>
+        <span className="text-right">{format(total)}</span>
+        <span className="text-right" style={{ color: TOKENS.textSecondary }}>100%</span>
+        <span className="text-right" style={{ fontSize: 12 }}>{delta(total, priorTotal)}</span>
       </div>
     </div>
   );

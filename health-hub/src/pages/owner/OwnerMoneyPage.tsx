@@ -64,8 +64,10 @@ interface MoneyResponse {
     collectionRatePct: number | null;
     grossDeltaPercent: number | null;
     netDeltaPercent: number | null;
+    netCollectedInPaise?: number;
+    collectedDeltaPercent?: number | null;
   };
-  revenueTrend: { date: string; netInPaise: number }[];
+  revenueTrend: { date: string; netInPaise: number; collectedInPaise?: number }[];
   aging: Array<{
     key: '0_7' | '8_15' | '16_30' | '30_plus';
     label: string;
@@ -121,6 +123,7 @@ interface MoneyResponse {
     totalInPaise: number;
     count: number;
     pctOfGross: number | null;
+    pctOfCollected?: number | null;
      recent: Array<{
        billId: string;
        billNumber: string;
@@ -135,6 +138,7 @@ interface MoneyResponse {
     totalInPaise: number;
     count: number;
     pctOfGross: number | null;
+    pctOfCollected?: number | null;
     recent: Array<{
       billNumber: string;
       patientName: string;
@@ -154,9 +158,9 @@ function RevenueTrendSection({ trend }: { trend: MoneyResponse['revenueTrend'] }
   if (trend.length === 0) {
     return null;
   }
-  const data = trend.map((p) => ({ date: p.date, value: p.netInPaise }));
+  const data = trend.map((p) => ({ date: p.date, value: p.collectedInPaise ?? p.netInPaise }));
   return (
-    <SectionCard label="Revenue trend" description="Daily net revenue across the period">
+    <SectionCard label="Net collected per day" description="Cash + online − refunds, each day of the period">
       <TrendChart
         data={data}
         height={160}
@@ -587,7 +591,7 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
       </div>
       <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
         {refunds.count} refund{refunds.count === 1 ? '' : 's'}
-        {refunds.pctOfGross !== null && ` · ${refunds.pctOfGross}% of gross`}
+        {refunds.pctOfCollected != null && ` · ${refunds.pctOfCollected}% of collected`}
       </div>
       {refunds.recent.length > 0 && (
         <div
@@ -631,7 +635,7 @@ function CancellationsCard({
       </div>
       <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
         {cancellations.count} cancellation{cancellations.count === 1 ? '' : 's'}
-        {cancellations.pctOfGross !== null && ` · ${cancellations.pctOfGross}% of gross`}
+        {cancellations.pctOfCollected != null && ` · ${cancellations.pctOfCollected}% of collected`}
       </div>
       {cancellations.recent.length > 0 && (
         <div
@@ -876,18 +880,16 @@ export default function OwnerMoneyPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
               <KpiCard
-                label="Gross billed"
-                value={formatRupees(data.kpis.grossInPaise, { short: true })}
-                delta={{ percent: data.kpis.grossDeltaPercent, baseline: 'vs prior period' }}
+                label="Net collected"
+                value={formatRupees(data.kpis.netCollectedInPaise ?? 0, { short: true })}
+                delta={{ percent: data.kpis.collectedDeltaPercent ?? null, baseline: 'vs prior period' }}
+                sub="cash + online − refunds"
               />
               <KpiCard
                 label="Net to you"
                 value={formatRupees(data.kpis.netInPaise, { short: true })}
                 delta={{ percent: data.kpis.netDeltaPercent, baseline: 'vs prior period' }}
-                sub={`− ${formatRupees(data.kpis.discountInPaise, { short: true })} discounts · − ${formatRupees(
-                  data.kpis.commissionInPaise,
-                  { short: true },
-                )} commission`}
+                sub={`collected − ${formatRupees(data.kpis.commissionInPaise, { short: true })} commission`}
               />
               <KpiCard
                 label="Due (this period)"

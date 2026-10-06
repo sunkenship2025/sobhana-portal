@@ -1,6 +1,7 @@
 /**
- * Money page Breakdown: the money engine's figures grouped four ways — by
- * day, branch, test category or referring doctor. Sort any column, export what
+ * Money page Breakdown: net collected and what came off it, grouped four ways —
+ * by day, branch, department or referring doctor. Every grouping adds back up
+ * to the page's net collected. Sort any column, export what
  * you see, click a row to drill in (a day or branch filters the page; a
  * referrer opens their payout statement for the same dates).
  */
@@ -25,8 +26,8 @@ interface MoneyRow {
 export interface BreakdownData {
   days: MoneyRow[];
   branches: MoneyRow[];
-  categories: { category: string; billedInPaise: number; tests: number; priorBilledInPaise: number; priorTests: number }[];
-  referrers: { referralDoctorId: string; name: string; visits: number; billed: number; commission: number; priorVisits: number; priorBilled: number }[];
+  categories: { category: string; billedInPaise: number; tests: number; priorBilledInPaise: number; priorTests: number; collectedInPaise?: number; priorCollectedInPaise?: number }[];
+  referrers: { referralDoctorId: string; name: string; visits: number; billed: number; commission: number; priorVisits: number; priorBilled: number; collected?: number; priorCollected?: number }[];
 }
 
 type By = 'day' | 'branch' | 'category' | 'referrer';
@@ -65,14 +66,13 @@ function fmt(kind: Kind, v: Cell): string {
 
 const MONEY_COLUMNS: Column[] = [
   { label: 'Visits', kind: 'count', total: true },
-  { label: 'Gross', kind: 'money', total: true },
-  { label: 'Discount', kind: 'money', total: true },
+  { label: 'Net collected', kind: 'money', total: true },
   { label: 'Commission', kind: 'money', total: true },
   { label: 'Net to you', kind: 'money', total: true },
-  { label: 'Collected', kind: 'money', total: true },
+  { label: 'Discounts given', kind: 'money', total: true },
 ];
 const moneyValues = (r: MoneyRow): Cell[] => [
-  r.visits, r.grossInPaise, r.discountInPaise, r.commissionInPaise, r.netInPaise, r.collectedInPaise,
+  r.visits, r.collectedInPaise, r.commissionInPaise, r.netInPaise, r.discountInPaise,
 ];
 
 export function MoneyBreakdown({
@@ -108,7 +108,7 @@ export function MoneyBreakdown({
       return {
         first: 'Branch',
         hint: 'Click a branch to filter the page to it',
-        columns: [...MONEY_COLUMNS, { label: 'Collected vs prior', kind: 'change' }],
+        columns: [...MONEY_COLUMNS, { label: 'vs before', kind: 'change' }],
         rows: data.branches.map((r) => ({
           key: r.key, name: r.label, csvName: r.label,
           values: [...moneyValues(r), change(r.collectedInPaise, r.priorCollectedInPaise)],
@@ -117,21 +117,23 @@ export function MoneyBreakdown({
       };
     }
     if (by === 'category') {
-      const total = data.categories.reduce((s, c) => s + c.billedInPaise, 0);
+      const now = (c: BreakdownData['categories'][number]) => c.collectedInPaise ?? c.billedInPaise;
+      const before = (c: BreakdownData['categories'][number]) => c.priorCollectedInPaise ?? c.priorBilledInPaise;
+      const total = data.categories.reduce((s, c) => s + now(c), 0);
       return {
-        first: 'Category',
-        hint: "Billed is the tests' price, before the bill discount",
+        first: 'Department',
+        hint: "Each bill's money is shared across its tests by price",
         columns: [
           { label: 'Tests', kind: 'count', total: true },
-          { label: 'Billed', kind: 'money', total: true },
+          { label: 'Net collected', kind: 'money', total: true },
           { label: 'Share', kind: 'pct' },
-          { label: 'vs prior', kind: 'change' },
+          { label: 'vs before', kind: 'change' },
         ],
         rows: [...data.categories]
-          .sort((a, b) => b.billedInPaise - a.billedInPaise)
+          .sort((a, b) => now(b) - now(a))
           .map((c) => ({
             key: c.category, name: c.category, csvName: c.category,
-            values: [c.tests, c.billedInPaise, share(c.billedInPaise, total), change(c.billedInPaise, c.priorBilledInPaise)],
+            values: [c.tests, now(c), share(now(c), total), change(now(c), before(c))],
           })),
       };
     }
@@ -140,18 +142,19 @@ export function MoneyBreakdown({
       hint: 'Click a doctor to open their payout statement for these dates',
       columns: [
         { label: 'Visits', kind: 'count', total: true },
-        { label: 'Billed', kind: 'money', total: true },
-        { label: 'vs prior', kind: 'change' },
+        { label: 'Net collected', kind: 'money', total: true },
+        { label: 'vs before', kind: 'change' },
         { label: 'Commission', kind: 'money', total: true },
         { label: 'Commission share', kind: 'pct' },
       ],
       rows: [...data.referrers]
-        .sort((a, b) => b.billed - a.billed)
+        .sort((a, b) => (b.collected ?? b.billed) - (a.collected ?? a.billed))
         .map((r) => {
           const name = r.name.replace(/\s{2,}.*$/, '');
+          const now = r.collected ?? r.billed;
           return {
             key: r.referralDoctorId, name, csvName: name,
-            values: [r.visits, r.billed, change(r.billed, r.priorBilled), r.commission, share(r.commission, r.billed)],
+            values: [r.visits, now, change(now, r.priorCollected ?? r.priorBilled), r.commission, share(r.commission, now)],
             drill: () => navigate(referrerHref(r.referralDoctorId)),
           };
         }),
@@ -201,7 +204,7 @@ export function MoneyBreakdown({
             value={by}
             onChange={(v) => { setBy(v); setSortCol(null); }}
             title="Group the period's figures by"
-            options={[['day', 'Day'], ['branch', 'Branch'], ['category', 'Category'], ['referrer', 'Referrer']] as const}
+            options={[['day', 'Day'], ['branch', 'Branch'], ['category', 'Department'], ['referrer', 'Referrer']] as const}
           />
           <button
             onClick={exportCsv}
