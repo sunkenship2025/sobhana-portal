@@ -64,7 +64,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v10:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v11:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -412,7 +412,6 @@ export async function getOwnerDashboardV2(
     // action queue inputs
     lateDraftCount,
     unpaidAgedAgg,
-    waFailedCount,
     largeDiscountCount,
     identityChangeNoReasonCount,
     // branch dormancy needs all branches regardless of selected scope
@@ -477,13 +476,6 @@ export async function getOwnerDashboardV2(
       select: {
         totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true,
         couponDiscountInPaise: true, reversedChargeInPaise: true,
-      },
-    }),
-    prisma.messageLog.count({
-      where: {
-        status: 'FAILED',
-        updatedAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
       },
     }),
     prisma.bill.count({
@@ -610,9 +602,11 @@ export async function getOwnerDashboardV2(
       orderBy: { startedAt: 'desc' },
       select: { clinicDoctor: { select: { name: true } } },
     }),
+    // Patient messages only: campaign sends fail by design (Meta's marketing cap).
     prisma.messageLog.groupBy({
       by: ['status'],
       where: {
+        contextType: { not: 'CAMPAIGN' },
         createdAt: { gte: todayStart, lt: tomorrowStart },
         ...(branchId ? { branchId } : {}),
       },
@@ -681,15 +675,8 @@ export async function getOwnerDashboardV2(
     });
   }
 
-  if (waFailedCount > 0) {
-    actionQueue.push({
-      type: 'whatsapp_failed',
-      severity: 'high',
-      label: `${waFailedCount} WhatsApp failure${waFailedCount === 1 ? '' : 's'} since yesterday`,
-      count: waFailedCount,
-      drillTo: '/ops/audit?tab=comms',
-    });
-  }
+  // No WhatsApp-failure chip: campaign sends (Meta's marketing cap) make up
+  // nearly all failures, and those are expected, not something to act on.
 
   if (largeDiscountCount > 0) {
     actionQueue.push({
