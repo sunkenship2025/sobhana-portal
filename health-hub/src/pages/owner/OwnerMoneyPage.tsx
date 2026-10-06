@@ -54,6 +54,7 @@ interface MoneyResponse {
     dueInPaise: number;
     discountInPaise: number;
     discountBillCount: number;
+    couponInPaise?: number;
     commissionInPaise: number;
     collectionRatePct: number | null;
     grossDeltaPercent: number | null;
@@ -108,6 +109,7 @@ interface MoneyResponse {
     reason: string | null;
     grantedBy: string | null;
     flag: boolean;
+    isCoupon?: boolean;
   }>;
   discountLogTotalCount: number;
   refunds: {
@@ -548,7 +550,7 @@ function DiscountLogCard({
                   <td
                     className="py-2 text-right"
                     style={{
-                      color: d.discountPercent > 30 ? TOKENS.critical : TOKENS.textPrimary,
+                      color: !d.isCoupon && d.discountPercent > 30 ? TOKENS.critical : TOKENS.textPrimary,
                     }}
                   >
                     {d.discountPercent}%
@@ -925,7 +927,9 @@ export default function OwnerMoneyPage() {
               <KpiCard
                 label="Discounts given"
                 value={formatRupees(data.kpis.discountInPaise, { short: true })}
-                sub={`${data.kpis.discountBillCount} bill${data.kpis.discountBillCount === 1 ? '' : 's'}`}
+                sub={`${data.kpis.discountBillCount} bill${data.kpis.discountBillCount === 1 ? '' : 's'}${
+                  data.kpis.couponInPaise ? ` · ${formatRupees(data.kpis.couponInPaise, { short: true })} by coupon` : ''
+                }`}
               />
             </div>
 

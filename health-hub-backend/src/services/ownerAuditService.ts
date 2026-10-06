@@ -433,7 +433,7 @@ export async function getAuditEvents(
   const highlights = {
     deletions: categoryCounts.destructive,
     payoutsPaid: evc("Payout paid"),
-    billChanges: evc("Discount applied") + evc("Refund issued") + evc("Order cancelled") + evc("Bill updated"),
+    billChanges: evc("Discount applied") + evc("Coupon used") + evc("Refund issued") + evc("Order cancelled") + evc("Bill updated"),
     postFinalizeEdits: evc("Report changed after finalize"),
     finalized: evc("Report finalized"),
     drafts: categoryCounts.drafts,
@@ -578,7 +578,7 @@ export async function getAuditEventDetail(
     // Money rows have no field-level diff; show the amount + reason/method.
     diff = [
       { field: "amount", old: null, new: `₹${(e.amountInPaise / 100).toLocaleString("en-IN")}` },
-      { field: e.sourceKind === "payment" ? "method" : "reason", old: null, new: e.reason ?? "—" },
+      { field: e.sourceKind === "payment" ? "method" : e.sourceKind === "coupon" ? "offer" : "reason", old: null, new: e.reason ?? "—" },
     ];
   }
 

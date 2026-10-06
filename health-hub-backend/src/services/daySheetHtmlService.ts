@@ -82,7 +82,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
         <td>${esc(r.branchCode)}</td>
         <td class="tests">${esc(r.tests)}</td>
         <td class="amt">${r.dueFrom ? '—' : rupees(r.grossInPaise)}</td>
-        <td class="amt">${r.discountInPaise ? rupees(r.discountInPaise) : '—'}</td>
+        <td class="amt">${r.discountInPaise ? rupees(r.discountInPaise) : '—'}${r.couponCode ? `<div class="coupon">coupon ${esc(r.couponCode)}</div>` : ''}</td>
         <td class="amt">${r.reversedInPaise ? rupees(r.reversedInPaise) : '—'}</td>
         <td class="amt">${r.dueFrom ? '—' : rupees(r.netInPaise)}</td>
         <td class="amt">${r.cashInPaise ? rupees(r.cashInPaise) : '—'}</td>
@@ -117,6 +117,7 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
   td.tests { max-width: 260px; }
   td.due { color: #b91c1c; font-weight: 600; }
   td.carried { font-weight: 600; white-space: nowrap; }
+  .coupon { font-size: 9px; color: #666; }
   tfoot td { font-weight: 700; background: #fafafa; }
   .empty { text-align: center; color: #888; padding: 18px; }
   /* Totals repeated above the table: on a long sheet the tfoot is pages away,

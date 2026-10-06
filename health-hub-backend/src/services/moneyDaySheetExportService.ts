@@ -72,7 +72,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
   ws.getRow(1).alignment = { vertical: 'middle' };
 
   data.rows.forEach((r, i) => {
-    ws.addRow({
+    const row = ws.addRow({
       sno: i + 1,
       time: istDateTime(r.entryAtIso),
       billNumber: r.billNumber,
@@ -92,6 +92,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
       due: Math.round(r.dueInPaise) / 100,
       status: r.paymentStatus,
     });
+    if (r.couponCode) row.getCell('discount').note = `Includes coupon ${r.couponCode}`;
   });
 
   // Totals row

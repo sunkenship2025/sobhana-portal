@@ -136,6 +136,8 @@ export interface BillData {
     discountType?: string | null;
     discountPercentage?: number | null;
     discountAmountInPaise?: number;
+    couponDiscountInPaise?: number;
+    couponCode?: string | null;
     paidAmountInPaise?: number;
     netAmountInPaise?: number;
     dueAmountInPaise?: number;
@@ -351,10 +353,11 @@ export function renderBillHtml(
   const subtotalAmount = data.visit.totalAmount ?? 0;
   const discountAmountInPaise = (data.visit.discountAmountInPaise ?? 0);
   const discountAmount = discountAmountInPaise / 100;
+  const couponAmount = (data.visit.couponDiscountInPaise ?? 0) / 100;
   const netAmount =
     data.visit.netAmountInPaise !== undefined
       ? data.visit.netAmountInPaise / 100
-      : Math.max(0, subtotalAmount - discountAmount);
+      : Math.max(0, subtotalAmount - discountAmount - couponAmount);
   const paidAmount =
     data.visit.paidAmountInPaise !== undefined
       ? data.visit.paidAmountInPaise / 100
@@ -637,6 +640,11 @@ export function renderBillHtml(
                     })
                     .join('')
                 : `<div class="total-row"><span>${discountLabel}</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(discountAmount)}</span></div>`)
+            : ''
+        }
+        ${
+          couponAmount > 0
+            ? `<div class="total-row"><span>Coupon${data.visit.couponCode ? ` (${escapeHtml(data.visit.couponCode)})` : ''}</span><span style="font-variant-numeric:tabular-nums;">: ${fmt(couponAmount)}</span></div>`
             : ''
         }
         ${

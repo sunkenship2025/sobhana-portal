@@ -659,6 +659,9 @@ export interface MappedBillFinancials {
   discountPercentage: number | null;
   discountReason: string | null;
   discount: VisitDiscount;
+  /** Offer-code discount — a separate line from the counter discount above. */
+  couponDiscountInPaise: number;
+  couponCode: string | null;
   refundedAmountInPaise: number;
   reversedChargeInPaise: number;
   refundReason: string | null;
@@ -675,6 +678,8 @@ type BillForMapping = {
   discountPercentage: number | null;
   discountAmountInPaise: number;
   discountReason: string | null;
+  couponDiscountInPaise?: number | null;
+  couponCode?: string | null;
   paidAmountInPaise: number;
   refundedAmountInPaise?: number | null;
   reversedChargeInPaise?: number | null;
@@ -707,6 +712,8 @@ export function mapBillFinancials(
       discountPercentage: null,
       discountReason: null,
       discount: { amount: 0, type: null, reason: null },
+      couponDiscountInPaise: 0,
+      couponCode: null,
       refundedAmountInPaise: 0,
       reversedChargeInPaise: 0,
       refundReason: null,
@@ -722,6 +729,8 @@ export function mapBillFinancials(
     discountType: bill.discountType,
     discountPercentage: bill.discountPercentage,
     discountAmountInPaise: bill.discountAmountInPaise,
+    couponDiscountInPaise: bill.couponDiscountInPaise,
+    couponCode: bill.couponCode,
     paidAmountInPaise: bill.paidAmountInPaise,
     refundedAmountInPaise: bill.refundedAmountInPaise,
     reversedChargeInPaise: bill.reversedChargeInPaise,
@@ -761,6 +770,8 @@ export function mapBillFinancials(
       type: computed.discountType,
       reason: computed.discountReason,
     },
+    couponDiscountInPaise: computed.couponDiscountInPaise ?? 0,
+    couponCode: computed.couponDiscountInPaise ? computed.couponCode ?? null : null,
     refundedAmountInPaise: Math.max(0, bill.refundedAmountInPaise ?? 0),
     reversedChargeInPaise: Math.max(0, bill.reversedChargeInPaise ?? 0),
     refundReason: bill.refundReason ?? null,
@@ -897,7 +908,9 @@ export async function getPatient360Summary(patientId: string) {
       select: {
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         paidAmountInPaise: true,
+        reversedChargeInPaise: true,
       },
     }),
     prisma.visit.count({ where: { patientId, status: { not: 'CANCELLED' } } }),
@@ -1004,6 +1017,8 @@ const TIMELINE_INCLUDE = {
       discountPercentage: true,
       discountAmountInPaise: true,
       discountReason: true,
+      couponDiscountInPaise: true,
+      couponCode: true,
       paidAmountInPaise: true,
       refundedAmountInPaise: true,
       reversedChargeInPaise: true,
@@ -1248,6 +1263,8 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       discountPercentage: financials.discountPercentage,
       discountReason: financials.discountReason,
       discount: financials.discount,
+      couponDiscountInPaise: financials.couponDiscountInPaise,
+      couponCode: financials.couponCode,
       refundedAmountInPaise: financials.refundedAmountInPaise,
       reversedChargeInPaise: financials.reversedChargeInPaise,
       refundReason: financials.refundReason,

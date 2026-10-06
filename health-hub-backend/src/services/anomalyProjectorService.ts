@@ -8,6 +8,7 @@
  *   - AuditLog        (deletes, finalizes, payouts, drafts, role changes …)
  *   - Bill discounts  (₹ amount + reason + who → the real money signal)
  *   - OrderRefund     (refunds / cancellations, ₹ amount + reason)
+ *   - CouponRedemption (an offer code taken off a bill — a discount like any other)
  *   - PaymentTransaction (due collected AFTER billing — cash/large/late = the
  *                         "silently cleared due" signal; at-billing payment is
  *                         already covered by the "Visit billed" audit row)
@@ -174,7 +175,7 @@ export async function projectWindow(
   const branchWhere = branchId ? { branchId } : {};
   const window = { gte: from, lte: to };
 
-  const [auditRows, bills, grants, refunds, reopens, payments] = await Promise.all([
+  const [auditRows, bills, grants, refunds, reopens, payments, redemptions] = await Promise.all([
     prisma.auditLog.findMany({
       where: { createdAt: window, ...branchWhere },
       orderBy: { createdAt: "desc" },
@@ -254,7 +255,30 @@ export async function projectWindow(
         },
       },
     }),
+    // Offer codes. Lives on its own Bill column, so the discount sources above
+    // never saw it. Read when used OR given back, so a cancel re-labels the row.
+    prisma.couponRedemption.findMany({
+      where: { OR: [{ createdAt: window }, { reversedAt: window }] },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+      select: {
+        id: true, billId: true, redeemedByUserId: true, discountInPaise: true,
+        createdAt: true, reversedAt: true, reversedReason: true,
+        coupon: { select: { code: true, campaign: { select: { name: true } } } },
+      },
+    }),
   ]);
+  // CouponRedemption carries no branch or bill relation — read both off the bill.
+  const couponBills = redemptions.length
+    ? await prisma.bill.findMany({
+        where: { id: { in: Array.from(new Set(redemptions.map((r) => r.billId))) }, ...branchWhere },
+        select: {
+          id: true, branchId: true, totalAmountInPaise: true,
+          visit: { select: { id: true, patient: { select: { name: true } } } },
+        },
+      })
+    : [];
+  const couponBillById = new Map(couponBills.map((b) => [b.id, b]));
 
   // Batched actor-name lookup across all sources.
   const userIds = Array.from(new Set([
@@ -264,6 +288,7 @@ export async function projectWindow(
     ...refunds.map((r) => r.createdByUserId),
     ...reopens.map((r) => r.reopenedByUserId),
     ...payments.map((p) => p.collectedByUserId),
+    ...redemptions.map((r) => r.redeemedByUserId),
   ].filter((v): v is string => Boolean(v))));
   const users = userIds.length
     ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, role: true } })
@@ -395,6 +420,31 @@ export async function projectWindow(
     };
   });
 
+  // An offer code is a discount the offer already approved, so it starts low —
+  // visible, not alarming — and rises with size the way a counter discount does.
+  const couponEvents: ProjRow[] = redemptions.flatMap((r) => {
+    const b = couponBillById.get(r.billId);
+    if (!b) return []; // another branch
+    const total = Math.max(0, b.totalAmountInPaise);
+    const pct = total > 0 ? (r.discountInPaise / total) * 100 : 0;
+    const offer = `${r.coupon.campaign.name} (${r.coupon.code})`;
+    const back = r.reversedAt ? " · code given back, bill cancelled" : "";
+    const score = r.discountInPaise >= LARGE_AMOUNT_PAISE ? 2 : 1;
+    const u = r.redeemedByUserId ? userMap.get(r.redeemedByUserId) : null;
+    const patientName = b.visit?.patient?.name ?? null;
+    return [{
+      id: `coupon:${r.id}`, dedupeKey: `coupon:${r.id}`, branchId: b.branchId,
+      occurredAt: r.createdAt, severity: band(score), category: "money", score,
+      event: "Coupon used",
+      detail: `${Math.round(pct)}% off ${rupees(total)} · ${offer}${back}${patientName ? ` · ${patientName}` : ""}`,
+      actorUserId: r.redeemedByUserId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
+      entityType: "Bill", entityId: b.id, patientName,
+      amountInPaise: r.discountInPaise, reason: offer,
+      drillTo: b.visit ? `/diagnostics/results/${b.visit.id}` : null,
+      sourceKind: "coupon", sourceId: r.id,
+    }];
+  });
+
   // ONE cancel/refund writes one OrderRefund row PER TEST — 40 rows for a
   // 40-test bill, which used to hit the feed as 40 identical HIGH events and
   // bury everything else. A transaction stamps them all with the same
@@ -511,7 +561,7 @@ export async function projectWindow(
   });
 
   // Discounts + refunds can change (a discount edited at collect-time) → upsert.
-  const mutable = [...grantEvents, ...discountEvents, ...refundEvents];
+  const mutable = [...grantEvents, ...discountEvents, ...couponEvents, ...refundEvents];
   for (const e of mutable) {
     const { id: _id, dedupeKey, ...rest } = e;
     await prisma.anomalyEvent.upsert({

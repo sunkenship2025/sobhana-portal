@@ -1,7 +1,7 @@
 /**
  * FinancialDetailPanel — read-only bill financials for the inspector (§2, §6).
  *
- * Bill #, visit ref, Total / Discount(+reason) / Paid / Due / Method rows + the
+ * Bill #, visit ref, Total / Discount(+reason) / Coupon / Paid / Due / Method rows + the
  * payment chip. Read-only — all money mutations happen on the visit/bill flows
  * elsewhere. Trusts `dueAmountInPaise` from the backend (it already forces ₹0 on
  * cancelled / refunded visits — never re-derives due here).
@@ -61,6 +61,7 @@ export function FinancialDetailPanel({
   const hasBill = visit.hasBill ?? !!visit.billNumber;
   const discountAmount = visit.discount?.amount ?? visit.discountAmountInPaise ?? 0;
   const discountReason = visit.discount?.reason ?? visit.discountReason ?? null;
+  const couponAmount = visit.couponDiscountInPaise ?? 0;
   const paid = visit.paidAmountInPaise ?? 0;
   const grants = visit.discountGrants ?? [];
   // Oldest first, so the ledger reads down the page in the order it happened.
@@ -165,6 +166,12 @@ export function FinancialDetailPanel({
               − {formatCurrency(discountAmount)}
             </KvRow>
           ))}
+
+        {couponAmount > 0 && (
+          <KvRow label={visit.couponCode ? `Coupon (${visit.couponCode})` : "Coupon"}>
+            − {formatCurrency(couponAmount)}
+          </KvRow>
+        )}
 
         {hasBill && (visit.reversedChargeInPaise ?? 0) > 0 && (
           <KvRow label="Cancelled charge">

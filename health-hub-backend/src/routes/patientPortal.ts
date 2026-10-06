@@ -165,6 +165,8 @@ async function buildOverview(patientIds: string[]) {
           discountPercentage: true,
           discountAmountInPaise: true,
           discountReason: true,
+          couponDiscountInPaise: true,
+          couponCode: true,
           paidAmountInPaise: true,
           refundedAmountInPaise: true,
           reversedChargeInPaise: true,

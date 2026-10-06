@@ -416,7 +416,10 @@ export async function getOwnerDashboardV2(
         paymentStatus: { not: 'PAID' },
         ...billBranchWhere,
       },
-      select: { totalAmountInPaise: true, paidAmountInPaise: true },
+      select: {
+        totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true,
+        couponDiscountInPaise: true, reversedChargeInPaise: true,
+      },
     }),
     prisma.messageLog.count({
       where: {
@@ -453,6 +456,7 @@ export async function getOwnerDashboardV2(
       _sum: {
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         paidAmountInPaise: true,
         reversedChargeInPaise: true,
       },
@@ -505,7 +509,7 @@ export async function getOwnerDashboardV2(
         paymentStatus: { not: 'PAID' },
         ...billBranchWhere,
       },
-      _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, reversedChargeInPaise: true },
+      _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
     }),
 
     // window dataset (feeds revenue trend + branch table, scoped to the slicer)
@@ -515,6 +519,7 @@ export async function getOwnerDashboardV2(
         billedAt: true,
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         reversedChargeInPaise: true,
         branchId: true,
       },
@@ -699,6 +704,7 @@ export async function getOwnerDashboardV2(
       select: {
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         reversedChargeInPaise: true,
         branchId: true,
       },
@@ -750,7 +756,13 @@ export async function getOwnerDashboardV2(
   }
 
   const unpaidAgedAmount = unpaidAgedAgg.reduce(
-    (sum, b) => sum + Math.max(0, b.totalAmountInPaise - b.paidAmountInPaise),
+    (sum, b) =>
+      sum +
+      Math.max(
+        0,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise -
+          b.reversedChargeInPaise - b.paidAmountInPaise,
+      ),
     0,
   );
   if (unpaidAgedAmount > 0) {
@@ -819,7 +831,9 @@ export async function getOwnerDashboardV2(
 
   // ----- money summary (selected window) ---------------------------------
   const grossToday = todayBills._sum.totalAmountInPaise ?? 0;
-  const discountToday = todayBills._sum.discountAmountInPaise ?? 0;
+  // Counter discount + offer code: two columns on the bill, one discount.
+  const discountToday =
+    (todayBills._sum.discountAmountInPaise ?? 0) + (todayBills._sum.couponDiscountInPaise ?? 0);
   const reversedToday = todayBills._sum.reversedChargeInPaise ?? 0;
   const commissionToday =
     accruedCommissionInPaise(todayTestOrders) + clinicCommissionInPaise(todayClinicVisits);
@@ -843,13 +857,14 @@ export async function getOwnerDashboardV2(
     (todayOutstandingAgg._sum.totalAmountInPaise ?? 0) -
       (todayOutstandingAgg._sum.paidAmountInPaise ?? 0) -
       (todayOutstandingAgg._sum.discountAmountInPaise ?? 0) -
+      (todayOutstandingAgg._sum.couponDiscountInPaise ?? 0) -
       (todayOutstandingAgg._sum.reversedChargeInPaise ?? 0),
   );
 
   // Net vs the prior equal-length window (period-over-period). priorBranch*
   // datasets are already scoped to priorWin and the selected branch.
   const priorGrossNet = priorBranchBills.reduce(
-    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise - b.reversedChargeInPaise,
+    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - b.reversedChargeInPaise,
     0,
   );
   const priorCommission =
@@ -873,7 +888,7 @@ export async function getOwnerDashboardV2(
   for (const b of baselineBills) {
     const key = toIstDateKey(b.billedAt);
     if (dailyNetMap.has(key)) {
-      const net = b.totalAmountInPaise - b.discountAmountInPaise - b.reversedChargeInPaise;
+      const net = b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - b.reversedChargeInPaise;
       dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) + net);
     }
   }
@@ -1014,7 +1029,7 @@ export async function getOwnerDashboardV2(
   for (const b of baselineBills) {
     const cur = branchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
     cur.gross += b.totalAmountInPaise;
-    cur.discount += b.discountAmountInPaise;
+    cur.discount += b.discountAmountInPaise + b.couponDiscountInPaise;
     cur.reversed += b.reversedChargeInPaise;
     branchAgg.set(b.branchId, cur);
   }
@@ -1057,7 +1072,7 @@ export async function getOwnerDashboardV2(
   for (const b of priorBranchBills) {
     const cur = priorBranchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
     cur.gross += b.totalAmountInPaise;
-    cur.discount += b.discountAmountInPaise;
+    cur.discount += b.discountAmountInPaise + b.couponDiscountInPaise;
     cur.reversed += b.reversedChargeInPaise;
     priorBranchAgg.set(b.branchId, cur);
   }

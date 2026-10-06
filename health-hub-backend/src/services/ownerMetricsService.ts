@@ -119,6 +119,7 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
         totalAmountInPaise: true,
         paidAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         reversedChargeInPaise: true,
       },
       _count: true,
@@ -175,7 +176,7 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
 
   // Revenue — gross = totalAmountInPaise (pre-discount). Net = total - discount.
   const gross = billAgg._sum.totalAmountInPaise ?? 0;
-  const discount = billAgg._sum.discountAmountInPaise ?? 0;
+  const discount = (billAgg._sum.discountAmountInPaise ?? 0) + (billAgg._sum.couponDiscountInPaise ?? 0);
   const paid = billAgg._sum.paidAmountInPaise ?? 0;
   const reversed = billAgg._sum.reversedChargeInPaise ?? 0;
   const net = gross - discount - reversed;

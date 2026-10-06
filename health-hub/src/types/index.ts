@@ -438,6 +438,9 @@ export interface BaseVisit {
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;
+  /** Offer-code discount — its own line, separate from the counter discount. */
+  couponDiscountInPaise?: number;
+  couponCode?: string | null;
   paidAmountInPaise?: number;
   netAmountInPaise?: number;
   dueAmountInPaise?: number;
@@ -593,6 +596,9 @@ export interface VisitTimelineItem {
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;
+  /** Offer-code discount — its own line, separate from the counter discount. */
+  couponDiscountInPaise?: number;
+  couponCode?: string | null;
   paidAmountInPaise?: number;
   netAmountInPaise?: number;
   dueAmountInPaise?: number;

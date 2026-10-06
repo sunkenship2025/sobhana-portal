@@ -840,6 +840,14 @@ const DiagnosticsPendingResults = () => {
                       )}
                     </span>
                   </div>
+                  {(dueVisit.couponDiscountInPaise ?? 0) > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Coupon{dueVisit.couponCode ? ` (${dueVisit.couponCode})` : ""}
+                      </span>
+                      <span>-{formatMoneyFromPaise(dueVisit.couponDiscountInPaise)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-medium">
                     <span>Net payable</span>
                     <span>

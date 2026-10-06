@@ -53,6 +53,8 @@ export interface MoneyKpi {
   dueInPaise: number; // uncollected on bills billed IN this period (period-scoped due)
   discountInPaise: number;
   discountBillCount: number;
+  /** The offer-code part of discountInPaise. */
+  couponInPaise: number;
   commissionInPaise: number; // referral + clinic commission accrued in period (Net-to-you composition)
   collectionRatePct: number | null; // % of this period's net-billable that has been collected
   grossDeltaPercent: number | null;
@@ -110,6 +112,8 @@ export interface DiscountRow {
   reason: string | null;
   grantedBy: string | null;
   flag: boolean;
+  /** An offer code — approved by the offer, so never flagged for its size. */
+  isCoupon: boolean;
 }
 
 export interface RefundSummary {
@@ -322,6 +326,8 @@ export async function getOwnerMoney(
         discountPercentage: true,
         discountReason: true,
         discountedByUser: { select: { name: true } },
+        couponDiscountInPaise: true,
+        couponCode: true,
         paidAmountInPaise: true,
         reversedChargeInPaise: true,
         paymentStatus: true,
@@ -362,7 +368,7 @@ export async function getOwnerMoney(
     }),
     prisma.bill.aggregate({
       where: { billedAt: { gte: prior.start, lt: prior.end }, ...billBranchWhere, ...domainBillWhere },
-      _sum: { totalAmountInPaise: true, discountAmountInPaise: true, reversedChargeInPaise: true },
+      _sum: { totalAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
       _count: true,
     }),
     prisma.testOrder.findMany({
@@ -404,6 +410,7 @@ export async function getOwnerMoney(
         billedAt: true,
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
         paidAmountInPaise: true,
         reversedChargeInPaise: true,
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
@@ -455,14 +462,16 @@ export async function getOwnerMoney(
 
   // ---- KPIs ----
   const grossInWindow = billsInWindow.reduce((s, b) => s + b.totalAmountInPaise, 0);
-  const discountInWindow = billsInWindow.reduce((s, b) => s + b.discountAmountInPaise, 0);
+  // A bill's discount is the counter discount AND the offer code — two columns, one fact.
+  const discountInWindow = billsInWindow.reduce((s, b) => s + b.discountAmountInPaise + b.couponDiscountInPaise, 0);
   const reversedInWindow = billsInWindow.reduce((s, b) => s + b.reversedChargeInPaise, 0);
   const commissionInWindow =
     accruedCommissionInPaise(testOrdersInWindow) + clinicCommissionInPaise(clinicVisitsInWindow);
   const netInWindow = grossInWindow - discountInWindow - reversedInWindow - commissionInWindow;
 
   const priorGross = priorBillsAgg._sum.totalAmountInPaise ?? 0;
-  const priorDiscount = priorBillsAgg._sum.discountAmountInPaise ?? 0;
+  const priorDiscount =
+    (priorBillsAgg._sum.discountAmountInPaise ?? 0) + (priorBillsAgg._sum.couponDiscountInPaise ?? 0);
   const priorReversed = priorBillsAgg._sum.reversedChargeInPaise ?? 0;
   const priorCommission =
     accruedCommissionInPaise(priorTestOrders) + clinicCommissionInPaise(priorClinicVisits);
@@ -483,7 +492,7 @@ export async function getOwnerMoney(
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
@@ -492,20 +501,20 @@ export async function getOwnerMoney(
   const agedOpenBills = openBills.filter(
     (b) =>
       b.billedAt < cutoff30 &&
-      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise > 0,
+      b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise > 0,
   );
   const outstandingAged = agedOpenBills.reduce(
     (s, b) =>
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
   const outstandingAgedBillCount = agedOpenBills.length;
 
-  const discountBillCount = billsInWindow.filter((b) => b.discountAmountInPaise > 0).length;
+  const discountBillCount = billsInWindow.filter((b) => b.discountAmountInPaise + b.couponDiscountInPaise > 0).length;
 
   // Collection rate for the selected period: of what was net-billable
   // (gross - discount) for bills billed in this window, how much has been
@@ -516,7 +525,7 @@ export async function getOwnerMoney(
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
@@ -534,6 +543,7 @@ export async function getOwnerMoney(
     dueInPaise: unpaidFromThisPeriod,
     discountInPaise: discountInWindow,
     discountBillCount,
+    couponInPaise: billsInWindow.reduce((s, b) => s + b.couponDiscountInPaise, 0),
     commissionInPaise: commissionInWindow,
     collectionRatePct,
     grossDeltaPercent,
@@ -555,7 +565,7 @@ export async function getOwnerMoney(
   for (const b of billsInWindow) {
     const key = toIstDateKey(b.billedAt);
     if (dayMap.has(key)) {
-      dayMap.set(key, (dayMap.get(key) ?? 0) + (b.totalAmountInPaise - b.discountAmountInPaise));
+      dayMap.set(key, (dayMap.get(key) ?? 0) + (b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise));
     }
   }
   for (const o of testOrdersInWindow) {
@@ -583,7 +593,7 @@ export async function getOwnerMoney(
   for (const b of openBills) {
     const owed = Math.max(
       0,
-      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+      b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
     );
     if (owed === 0) continue;
     let bucket: AgingBucket;
@@ -601,7 +611,7 @@ export async function getOwnerMoney(
     .map((b) => {
       const owed = Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       );
       const days = Math.floor((now.getTime() - b.billedAt.getTime()) / DAY_MS);
       return {
@@ -692,22 +702,50 @@ export async function getOwnerMoney(
   const cashByUserTotalCount = cashByUser.length;
 
   // ---- discount log ----
+  // Who applied each offer code, and which offer it was: neither is on the Bill row.
+  const couponBillIds = billsInWindow.filter((b) => b.couponDiscountInPaise > 0).map((b) => b.id);
+  const couponUses = couponBillIds.length
+    ? await prisma.couponRedemption.findMany({
+        where: { billId: { in: couponBillIds }, reversedAt: null },
+        select: { billId: true, redeemedByUserId: true, coupon: { select: { campaign: { select: { name: true } } } } },
+      })
+    : [];
+  const couponUserIds = couponUses.map((u) => u.redeemedByUserId).filter((v): v is string => Boolean(v));
+  const couponUsers = couponUserIds.length
+    ? await prisma.user.findMany({ where: { id: { in: couponUserIds } }, select: { id: true, name: true } })
+    : [];
+  const couponUseByBill = new Map(couponUses.map((u) => [u.billId, u]));
+  const couponUserName = new Map(couponUsers.map((u) => [u.id, u.name]));
   const discountLog: DiscountRow[] = billsInWindow
-    .filter((b) => b.discountAmountInPaise > 0)
-    .map((b) => ({
-      billId: b.id,
-      billNumber: b.billNumber,
-      patientName: b.visit.patient.name,
-      patientTitle: b.visit.patient.title,
-      branchCode: branchById.get(b.branchId)?.code ?? '?',
-      discountInPaise: b.discountAmountInPaise,
-      discountPercent: Math.round(b.discountPercentage ?? 0),
-      reason: b.discountReason ?? null,
-      grantedBy: b.discountedByUser?.name ?? null,
-      flag:
-        (b.discountPercentage ?? 0) > HIGH_DISCOUNT_PCT ||
-        b.discountAmountInPaise > HIGH_DISCOUNT_PAISE,
-    }))
+    .filter((b) => b.discountAmountInPaise + b.couponDiscountInPaise > 0)
+    .map((b) => {
+      const use = couponUseByBill.get(b.id);
+      const coupon = b.couponDiscountInPaise > 0
+        ? `Coupon ${b.couponCode ?? ''}${use ? ` · ${use.coupon.campaign.name}` : ''}`.trim()
+        : null;
+      const manual = b.discountAmountInPaise > 0;
+      const amount = b.discountAmountInPaise + b.couponDiscountInPaise;
+      return {
+        billId: b.id,
+        billNumber: b.billNumber,
+        patientName: b.visit.patient.name,
+        patientTitle: b.visit.patient.title,
+        branchCode: branchById.get(b.branchId)?.code ?? '?',
+        discountInPaise: amount,
+        discountPercent: manual && !coupon
+          ? Math.round(b.discountPercentage ?? 0)
+          : b.totalAmountInPaise > 0 ? Math.round((amount / b.totalAmountInPaise) * 100) : 0,
+        reason: [manual ? b.discountReason : null, coupon].filter(Boolean).join(' + ') || null,
+        grantedBy: manual
+          ? b.discountedByUser?.name ?? null
+          : (use?.redeemedByUserId && couponUserName.get(use.redeemedByUserId)) || null,
+        flag:
+          manual &&
+          ((b.discountPercentage ?? 0) > HIGH_DISCOUNT_PCT ||
+            b.discountAmountInPaise > HIGH_DISCOUNT_PAISE),
+        isCoupon: !manual,
+      };
+    })
     .sort((a, b) => b.discountInPaise - a.discountInPaise);
   const discountLogTotalCount = discountLog.length;
 
@@ -821,7 +859,9 @@ export interface DaySheetRow {
   // raised and must not be counted twice. Blanks sum as zero, so the billing
   // totals and the cash totals both come out right off one unfiltered reduce.
   grossInPaise: number;
-  discountInPaise: number;
+  discountInPaise: number; // counter discount + offer code
+  /** The offer code inside discountInPaise, so the sheet can name it. */
+  couponCode: string | null;
   // Charge voided by a cancelled test. Gross never shrinks on a cancel, so a
   // register without this column reads a fully-cancelled bill as revenue.
   reversedInPaise: number;
@@ -899,6 +939,8 @@ export async function getMoneyDaySheet(
         billedAt: true,
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        couponDiscountInPaise: true,
+        couponCode: true,
         paidAmountInPaise: true,
         reversedChargeInPaise: true,
         refundedAmountInPaise: true,
@@ -1074,12 +1116,16 @@ export async function getMoneyDaySheet(
     // the subtotal moves (billFinancialService.recomputeBillFinancialsForSubtotal),
     // which posts no grant. Subtracting keeps that rescale in the number and
     // needs no fallback branch — a pre-ledger bill simply subtracts nothing.
-    const discountAsOfWindow = Math.max(0, b.discountAmountInPaise - grantedAfterWindow);
-    const discountHere = hasGrantLedger
+    // An offer code is taken at billing, so it belongs to the bill's own day and,
+    // like the counter discount, to this sheet's Discount column and its Net.
+    const couponHere = carried ? 0 : b.couponDiscountInPaise;
+    const discountAsOfWindow =
+      Math.max(0, b.discountAmountInPaise - grantedAfterWindow) + b.couponDiscountInPaise;
+    const discountHere = couponHere + (hasGrantLedger
       ? discountInWindow
       : carried
         ? 0
-        : b.discountAmountInPaise;
+        : b.discountAmountInPaise);
 
     // Ledger is the source of truth when transactions exist; fall back to the
     // stored field only for legacy bills backfilled without a ledger. The count
@@ -1134,6 +1180,7 @@ export async function getMoneyDaySheet(
           : [...billedItems.values()].filter((i) => i.live > 0).length,
       grossInPaise: carried ? 0 : grossAsOfWindow,
       discountInPaise: discountHere,
+      couponCode: couponHere > 0 ? b.couponCode : null,
       reversedInPaise: carried ? 0 : b.reversedChargeInPaise ?? 0,
       netInPaise: carried ? 0 : chargedNetInPaise,
       paidInPaise: collectedInPaise,
