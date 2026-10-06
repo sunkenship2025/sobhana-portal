@@ -9,11 +9,18 @@
  *                       The dashboard's Payouts card leads with moneyToday.commissionInPaise
  *                       (period-scoped) and shows these underneath as the live stock.
  *   - opsPulse          diagnostics / clinic / comms 3-tile status
- *   - revenueTrend      daily net collected (payments − refunds) for the window
- *   - revenueMix        today's net split: reportable / clinic / bill-only+external
+ *   - kpis              the window's money totals and the prior window's, for deltas
+ *   - trend             per day: collected, billed, net, visits, discount — each
+ *                       beside the same day one window earlier
+ *   - revenueTrend      daily net collected (kept for bundles cached before `trend`)
+ *   - revenueMix        window's gross split: reportable / clinic / bill-only+external
  *   - branchTable       per-branch KPIs for the period
  *   - dataAge           days since first visit, used by the UI to suppress
  *                       comparison deltas during the first 30 days
+ *
+ * Every period money figure comes from the money engine (moneyFactsService):
+ * the database adds up by day × branch × register, so this never loads the
+ * window's bills — and the Money page reads the same engine.
  *
  * Register scoping (`domain`, like the Money page): DIAGNOSTICS, CLINIC, or null
  * for both. It scopes every money figure — bills, payments, test orders, clinic
@@ -32,6 +39,7 @@
 
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
+import { getMoneyFacts, totalsOf, type DayFact, type MoneyTotals } from './moneyFactsService';
 import { logger } from '../lib/logger';
 import type { Prisma, VisitDomain } from '@prisma/client';
 
@@ -42,7 +50,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: VisitDomain | null,
 ) =>
-  `owner-dashboard-v2:v5:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
+  `owner-dashboard-v2:v6:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}:${domain ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -156,6 +164,22 @@ export interface TrendPoint {
   collectedInPaise: number;
 }
 
+/** One day's figures (paise; visits/bills are counts). */
+export interface DayPoint {
+  collected: number;
+  gross: number;
+  net: number;
+  visits: number;
+  discount: number;
+  bills: number;
+}
+
+/** A day of the window, beside the same day one window earlier. */
+export interface TrendDay extends DayPoint {
+  date: string; // YYYY-MM-DD in IST
+  prior: DayPoint;
+}
+
 export interface RevenueMix {
   reportableInPaise: number;
   clinicInPaise: number;
@@ -173,6 +197,10 @@ export interface BranchRow {
   tatP50Minutes: number | null;
   deltaPercent: number | null;
   daysDormant: number; // 0 if active in window
+  collectedInPaise: number;
+  grossInPaise: number;
+  discountInPaise: number;
+  collectedDaily: number[]; // one per `trend` day
 }
 
 export interface DashboardV2Response {
@@ -191,6 +219,8 @@ export interface DashboardV2Response {
   payoutLiability: PayoutLiability;
   opsPulse: OpsPulse;
   revenueTrend: TrendPoint[];
+  trend: TrendDay[];
+  kpis: { current: MoneyTotals & { outstanding: number }; prior: MoneyTotals };
   revenueMix: RevenueMix;
   branchTable: BranchRow[];
 }
@@ -258,51 +288,6 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[idx];
 }
 
-/**
- * Per-order commission accrual. Picks up referral + diagnostic-center sides;
- * either may be percentage-based or a fixed-amount snapshot. Untouched fields
- * coalesce to 0 — TestOrders without a referral simply contribute 0.
- */
-function accruedCommissionInPaise(orders: Array<{
-  priceInPaise: number;
-  referralCommissionType: string | null;
-  referralCommissionPercentage: number | null;
-  referralCommissionAmountInPaise: number | null;
-  partnerCutInPaise: number | null;
-}>): number {
-  let total = 0;
-  for (const o of orders) {
-    if (o.referralCommissionType === 'PERCENTAGE') {
-      total += Math.round((o.priceInPaise * (o.referralCommissionPercentage ?? 0)) / 100);
-    } else if (o.referralCommissionType === 'FIXED_AMOUNT') {
-      total += o.referralCommissionAmountInPaise ?? 0;
-    }
-    // What a partner keeps was never ours, so it reduces net exactly as a
-    // commission does — frozen per order at billing time.
-    total += o.partnerCutInPaise ?? 0;
-  }
-  return total;
-}
-
-function clinicCommissionInPaise(visits: Array<{
-  consultationFeeInPaise: number;
-  clinicDoctor: {
-    commissionType: string;
-    commissionPercent: number;
-    commissionAmountInPaise: number | null;
-  };
-}>): number {
-  let total = 0;
-  for (const v of visits) {
-    if (v.clinicDoctor.commissionType === 'PERCENTAGE') {
-      total += Math.round((v.consultationFeeInPaise * (v.clinicDoctor.commissionPercent ?? 0)) / 100);
-    } else if (v.clinicDoctor.commissionType === 'FIXED_AMOUNT') {
-      total += v.clinicDoctor.commissionAmountInPaise ?? 0;
-    }
-  }
-  return total;
-}
-
 // --- main entry ----------------------------------------------------------
 
 export async function getOwnerDashboardV2(
@@ -349,11 +334,6 @@ export async function getOwnerDashboardV2(
   const moneyBillWhere: Prisma.BillWhereInput = domain
     ? { ...billBranchWhere, visit: { domain } }
     : billBranchWhere;
-  // Prisma queries are lazy — an unawaited one never hits the database.
-  const clinicMoney = <T>(q: Promise<T>, empty: T): Promise<T> =>
-    domain === 'DIAGNOSTICS' ? Promise.resolve(empty) : q;
-  const diagMoney = <T>(q: Promise<T>, empty: T): Promise<T> =>
-    domain === 'CLINIC' ? Promise.resolve(empty) : q;
 
   const [scopedBranch, firstVisit] = await Promise.all([
     branchId
@@ -384,19 +364,10 @@ export async function getOwnerDashboardV2(
     // branch dormancy needs all branches regardless of selected scope
     allBranches,
 
-    // money today
-    todayBills,
-    todayTestOrders,
-    todayClinicVisits,
-    todayPaymentsByType,
+    // open receivables (live, all-time)
     todayOutstandingAgg,
-    priorPaymentsByType,
-    trendPayments,
-
-    // 28-day baseline window of net revenue (used for trend + dow delta)
-    baselineBills,
-    baselineTestOrders,
-    baselineClinicVisits,
+    // every period money figure: the window and the equal window before it
+    facts,
 
     // payout liability
     payoutLiabilityRows,
@@ -415,17 +386,8 @@ export async function getOwnerDashboardV2(
     commsAggToday,
     optInWindowVisits,
 
-    // revenue mix (today)
-    todayClinicForMix,
-
-    // branch table — fetched after main bills query
-    branchVisitCounts,
+    // branch table — TAT by branch (selected window)
     branchTatSamples,
-
-    // branch prior-window net (days [60..30) ago) for period-over-period delta
-    priorBranchBills,
-    priorBranchTestOrders,
-    priorBranchClinicVisits,
   ] = await Promise.all([
     // Overdue result entry — count DIAGNOSTIC VISITS (one row per visit) still
     // in the entry queue and older than 24h, mirroring the Result Queue page.
@@ -479,69 +441,6 @@ export async function getOwnerDashboardV2(
       select: { id: true, name: true, code: true, createdAt: true },
     }),
 
-    // money summary (selected window)
-    prisma.bill.aggregate({
-      where: {
-        billedAt: { gte: win.start, lt: win.end },
-        ...moneyBillWhere,
-      },
-      _sum: {
-        totalAmountInPaise: true,
-        discountAmountInPaise: true,
-        couponDiscountInPaise: true,
-        paidAmountInPaise: true,
-        reversedChargeInPaise: true,
-      },
-      _count: true,
-    }),
-    diagMoney(
-      prisma.testOrder.findMany({
-        where: {
-          createdAt: { gte: win.start, lt: win.end },
-          // Cancelled / swapped-out orders accrue no commission (payoutService
-          // skips them) and were never revenue — keep them out of both.
-          cancelledAt: null,
-          ...(branchId ? { branchId } : {}),
-        },
-        select: {
-          priceInPaise: true,
-          referralCommissionType: true,
-          referralCommissionPercentage: true,
-          referralCommissionAmountInPaise: true,
-          partnerCutInPaise: true,
-          workflowMode: true,
-          uploadInsteadAt: true,
-        },
-      }),
-      [],
-    ),
-    clinicMoney(
-      prisma.clinicVisit.findMany({
-        where: {
-          createdAt: { gte: win.start, lt: win.end },
-          ...(branchId ? { visit: { branchId } } : {}),
-        },
-        select: {
-          consultationFeeInPaise: true,
-          clinicDoctor: {
-            select: {
-              commissionType: true,
-              commissionPercent: true,
-              commissionAmountInPaise: true,
-            },
-          },
-        },
-      }),
-      [],
-    ),
-    prisma.paymentTransaction.groupBy({
-      by: ['paymentType', 'transactionType'],
-      where: {
-        transactionDate: { gte: win.start, lt: win.end },
-        bill: moneyBillWhere,
-      },
-      _sum: { amountInPaise: true },
-    }),
     prisma.bill.aggregate({
       where: {
         paymentStatus: { not: 'PAID' },
@@ -549,78 +448,7 @@ export async function getOwnerDashboardV2(
       },
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
     }),
-    prisma.paymentTransaction.groupBy({
-      by: ['paymentType', 'transactionType'],
-      where: {
-        transactionDate: { gte: priorWin.start, lt: priorWin.end },
-        bill: moneyBillWhere,
-      },
-      _sum: { amountInPaise: true },
-    }),
-    // revenue trend — collections in the trend span, bucketed by IST day below
-    prisma.paymentTransaction.findMany({
-      where: {
-        transactionDate: { gte: trendStart, lt: win.end },
-        bill: moneyBillWhere,
-      },
-      select: { transactionDate: true, amountInPaise: true, paymentType: true, transactionType: true },
-    }),
-
-    // window dataset (feeds revenue trend + branch table, scoped to the slicer)
-    prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...moneyBillWhere },
-      select: {
-        billedAt: true,
-        totalAmountInPaise: true,
-        discountAmountInPaise: true,
-        couponDiscountInPaise: true,
-        reversedChargeInPaise: true,
-        branchId: true,
-      },
-    }),
-    diagMoney(
-      prisma.testOrder.findMany({
-        where: {
-          createdAt: { gte: win.start, lt: win.end },
-          // Cancelled / swapped-out orders accrue no commission (payoutService
-          // skips them) and were never revenue — keep them out of both.
-          cancelledAt: null,
-          ...(branchId ? { branchId } : {}),
-        },
-        select: {
-          createdAt: true,
-          branchId: true,
-          priceInPaise: true,
-          referralCommissionType: true,
-          referralCommissionPercentage: true,
-          referralCommissionAmountInPaise: true,
-          partnerCutInPaise: true,
-        },
-      }),
-      [],
-    ),
-    clinicMoney(
-      prisma.clinicVisit.findMany({
-        where: {
-          createdAt: { gte: win.start, lt: win.end },
-          ...(branchId ? { visit: { branchId } } : {}),
-        },
-        select: {
-          createdAt: true,
-          consultationFeeInPaise: true,
-          visit: { select: { branchId: true } },
-          clinicDoctor: {
-            select: {
-              commissionType: true,
-              commissionPercent: true,
-              commissionAmountInPaise: true,
-            },
-          },
-        },
-      }),
-      [],
-    ),
-
+    getMoneyFacts({ start: priorWin.start, end: win.end, branchId, domain }),
     // payout liability
     prisma.doctorPayoutLedger.groupBy({
       by: ['doctorType'],
@@ -727,29 +555,6 @@ export async function getOwnerDashboardV2(
       take: 1000,
     }),
 
-    // revenue mix — clinic visits in the window (for clinic slice)
-    clinicMoney(
-      prisma.clinicVisit
-        .aggregate({
-          where: {
-            createdAt: { gte: win.start, lt: win.end },
-            ...(branchId ? { visit: { branchId } } : {}),
-          },
-          _sum: { consultationFeeInPaise: true },
-        })
-        .then((a) => a._sum.consultationFeeInPaise ?? 0),
-      0,
-    ),
-
-    // branch table — visit counts + tat by branch (selected window)
-    prisma.visit.groupBy({
-      by: ['branchId'],
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...(domain ? { domain } : {}),
-      },
-      _count: true,
-    }),
     prisma.reportVersion.findMany({
       where: {
         status: 'FINALIZED',
@@ -761,60 +566,6 @@ export async function getOwnerDashboardV2(
       },
       take: 2000,
     }),
-
-    // prior-window branch net inputs — mirror the window branch aggregation but
-    // scoped to the equal-length window before it, for the Δ vs prior column.
-    prisma.bill.findMany({
-      where: {
-        billedAt: { gte: priorWin.start, lt: priorWin.end },
-        ...moneyBillWhere,
-      },
-      select: {
-        totalAmountInPaise: true,
-        discountAmountInPaise: true,
-        couponDiscountInPaise: true,
-        reversedChargeInPaise: true,
-        branchId: true,
-      },
-    }),
-    diagMoney(
-      prisma.testOrder.findMany({
-        where: {
-          createdAt: { gte: priorWin.start, lt: priorWin.end },
-          cancelledAt: null,
-          ...(branchId ? { branchId } : {}),
-        },
-        select: {
-          branchId: true,
-          priceInPaise: true,
-          referralCommissionType: true,
-          referralCommissionPercentage: true,
-          referralCommissionAmountInPaise: true,
-          partnerCutInPaise: true,
-        },
-      }),
-      [],
-    ),
-    clinicMoney(
-      prisma.clinicVisit.findMany({
-        where: {
-          createdAt: { gte: priorWin.start, lt: priorWin.end },
-          ...(branchId ? { visit: { branchId } } : {}),
-        },
-        select: {
-          consultationFeeInPaise: true,
-          visit: { select: { branchId: true } },
-          clinicDoctor: {
-            select: {
-              commissionType: true,
-              commissionPercent: true,
-              commissionAmountInPaise: true,
-            },
-          },
-        },
-      }),
-      [],
-    ),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -904,36 +655,16 @@ export async function getOwnerDashboardV2(
   }
 
   // ----- money summary (selected window) ---------------------------------
-  const grossToday = todayBills._sum.totalAmountInPaise ?? 0;
-  // Counter discount + offer code: two columns on the bill, one discount.
-  const discountToday =
-    (todayBills._sum.discountAmountInPaise ?? 0) + (todayBills._sum.couponDiscountInPaise ?? 0);
-  const reversedToday = todayBills._sum.reversedChargeInPaise ?? 0;
-  const commissionToday =
-    accruedCommissionInPaise(todayTestOrders) + clinicCommissionInPaise(todayClinicVisits);
-  const netToday = grossToday - discountToday - reversedToday - commissionToday;
+  // Every period figure comes from the money engine; the one fetch spans the
+  // prior window too, split here by IST day.
+  const winStartKey = toIstDateKey(win.start);
+  const curFacts = facts.days.filter((f) => f.date >= winStartKey);
+  const priorFacts = facts.days.filter((f) => f.date < winStartKey);
+  const cur = totalsOf(curFacts);
+  const prior = totalsOf(priorFacts);
+  const pct = (now: number, before: number) =>
+    before > 0 ? Math.round(((now - before) / before) * 100) : null;
 
-  // Net collected = cash + online in, every refund out (cheques sit outside both).
-  const netCollectedOf = (rows: typeof todayPaymentsByType) =>
-    rows.reduce((s, row) => {
-      const amt = row._sum.amountInPaise ?? 0;
-      if (row.transactionType === 'REFUND') return s - amt;
-      return row.paymentType === 'CASH' || row.paymentType === 'ONLINE' ? s + amt : s;
-    }, 0);
-  const priorCollected = netCollectedOf(priorPaymentsByType);
-
-  // Split payments by direction: PAYMENT rows are collections (cash/online),
-  // REFUND rows are money returned. Bucketing by transactionType stops refunds
-  // from inflating collected cash/online.
-  let cashToday = 0;
-  let onlineToday = 0;
-  let refundToday = 0;
-  for (const row of todayPaymentsByType) {
-    const amt = row._sum.amountInPaise ?? 0;
-    if (row.transactionType === 'REFUND') refundToday += amt;
-    else if (row.paymentType === 'CASH') cashToday += amt;
-    else if (row.paymentType === 'ONLINE') onlineToday += amt;
-  }
   // Open receivables stay all-time regardless of the slicer (a live figure).
   const outstandingTotal = Math.max(
     0,
@@ -944,59 +675,45 @@ export async function getOwnerDashboardV2(
       (todayOutstandingAgg._sum.reversedChargeInPaise ?? 0),
   );
 
-  // Net vs the prior equal-length window (period-over-period). priorBranch*
-  // datasets are already scoped to priorWin and the selected branch.
-  const priorGrossNet = priorBranchBills.reduce(
-    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - b.reversedChargeInPaise,
-    0,
-  );
-  const priorCommission =
-    accruedCommissionInPaise(priorBranchTestOrders) + clinicCommissionInPaise(priorBranchClinicVisits);
-  const priorNet = priorGrossNet - priorCommission;
-  const deltaPercent: number | null =
-    priorNet > 0 ? Math.round(((netToday - priorNet) / priorNet) * 100) : null;
+  const moneyToday: MoneyToday = {
+    grossInPaise: cur.gross,
+    discountInPaise: cur.discount,
+    reversedInPaise: cur.cancelled,
+    commissionInPaise: cur.commission,
+    netInPaise: cur.net,
+    discountRatePct: cur.gross > 0 ? Math.round((cur.discount / cur.gross) * 100) : 0,
+    cashInPaise: cur.cash,
+    onlineInPaise: cur.online,
+    collectedTotalInPaise: cur.cash + cur.online,
+    refundInPaise: cur.refunds,
+    outstandingInPaise: outstandingTotal,
+    deltaPercent: pct(cur.net, prior.net),
+    netCollectedInPaise: cur.netCollected,
+    collectedDeltaPercent: pct(cur.netCollected, prior.netCollected),
+  };
 
-  // ----- bucket collections by IST date for the revenue trend ------------
-  // Same basis as "Net collected" on the money card: cash + online in, every
-  // refund out. Cheques are left out there, so they are left out here.
-  const dailyCollected = new Map<string, number>();
+  // ----- daily series: window + the same day one window earlier ----------
+  // Capped at MAX_TREND_DAYS so long windows (YTD) stay readable.
   const trendKeys: string[] = [];
   for (let i = 0; i < trendDays; i += 1) {
-    const k = toIstDateKey(new Date(trendStart.getTime() + i * DAY_MS));
-    trendKeys.push(k);
-    dailyCollected.set(k, 0);
+    trendKeys.push(toIstDateKey(new Date(trendStart.getTime() + i * DAY_MS)));
   }
-  for (const t of trendPayments) {
-    const key = toIstDateKey(t.transactionDate);
-    if (!dailyCollected.has(key)) continue;
-    const signed =
-      t.transactionType === 'REFUND'
-        ? -t.amountInPaise
-        : t.paymentType === 'CASH' || t.paymentType === 'ONLINE'
-          ? t.amountInPaise
-          : 0;
-    dailyCollected.set(key, (dailyCollected.get(key) ?? 0) + signed);
-  }
-
-  const moneyToday: MoneyToday = {
-    grossInPaise: grossToday,
-    discountInPaise: discountToday,
-    reversedInPaise: reversedToday,
-    commissionInPaise: commissionToday,
-    netInPaise: netToday,
-    discountRatePct: grossToday > 0 ? Math.round((discountToday / grossToday) * 100) : 0,
-    cashInPaise: cashToday,
-    onlineInPaise: onlineToday,
-    collectedTotalInPaise: cashToday + onlineToday,
-    refundInPaise: refundToday,
-    outstandingInPaise: outstandingTotal,
-    deltaPercent,
-    netCollectedInPaise: cashToday + onlineToday - refundToday,
-    collectedDeltaPercent:
-      priorCollected > 0
-        ? Math.round(((cashToday + onlineToday - refundToday - priorCollected) / priorCollected) * 100)
-        : null,
+  const priorKeyOf = (key: string) => toIstDateKey(new Date(istDateKeyToStart(key).getTime() - winSpanMs));
+  const byDay = (rows: DayFact[]) => {
+    const m = new Map<string, DayFact[]>();
+    for (const f of rows) m.set(f.date, [...(m.get(f.date) ?? []), f]);
+    return m;
   };
+  const point = (rows: DayFact[] | undefined): DayPoint => {
+    const t = totalsOf(rows ?? []);
+    return { collected: t.netCollected, gross: t.gross, net: t.net, visits: t.visits, discount: t.discount, bills: t.bills };
+  };
+  const allByDay = byDay(facts.days);
+  const trend: TrendDay[] = trendKeys.map((date) => ({
+    date,
+    ...point(allByDay.get(date)),
+    prior: point(allByDay.get(priorKeyOf(date))),
+  }));
 
   // ----- payout liability -------------------------------------------------
   const liability: PayoutLiability = {
@@ -1070,25 +787,16 @@ export async function getOwnerDashboardV2(
   };
 
   // ----- revenue trend (selected window) ---------------------------------
-  // trendKeys + dailyCollected were built above, spanning the window (capped
-  // at MAX_TREND_DAYS days).
-  const revenueTrend: TrendPoint[] = trendKeys.map((date) => ({
-    date,
-    collectedInPaise: dailyCollected.get(date) ?? 0,
-  }));
+  // Kept for bundles cached before `trend` (deploy skew): same numbers.
+  const revenueTrend: TrendPoint[] = trend.map((d) => ({ date: d.date, collectedInPaise: d.collected }));
 
   // ----- revenue mix (selected window) -----------------------------------
-  // An order switched to "Upload instead" (uploadInsteadAt set) reads
-  // EXTERNAL_UPLOAD now, but it was SOLD as a reportable narrative and still
-  // produces a report — keep its revenue in the reportable bucket. Native
-  // external-upload products (no uploadInsteadAt) stay bill-only as before.
-  const reportableRev = todayTestOrders
-    .filter((o) => o.workflowMode === 'REPORTABLE' || o.uploadInsteadAt != null)
-    .reduce((s, o) => s + o.priceInPaise, 0);
-  const billOnlyRev = todayTestOrders
-    .filter((o) => o.workflowMode !== 'REPORTABLE' && o.uploadInsteadAt == null)
-    .reduce((s, o) => s + o.priceInPaise, 0);
-  const clinicRev = todayClinicForMix;
+  // An order switched to "Upload instead" was SOLD as reportable — the engine
+  // keeps it there. Native external-upload products stay bill-only.
+  const curCats = facts.categories.filter((c) => c.date >= winStartKey);
+  const reportableRev = curCats.filter((c) => c.reportable).reduce((s, c) => s + c.price, 0);
+  const billOnlyRev = curCats.filter((c) => !c.reportable).reduce((s, c) => s + c.price, 0);
+  const clinicRev = cur.clinicFees;
   const revenueMix: RevenueMix = {
     reportableInPaise: reportableRev,
     clinicInPaise: clinicRev,
@@ -1097,31 +805,10 @@ export async function getOwnerDashboardV2(
   };
 
   // ----- branch table ----------------------------------------------------
-  const visitCountByBranch = new Map<string, number>();
-  for (const row of branchVisitCounts) {
-    visitCountByBranch.set(row.branchId, (row._count as any) ?? 0);
-  }
-
-  // bucket gross/discount per branch from the window dataset
-  const branchAgg = new Map<string, { gross: number; discount: number; reversed: number }>();
-  for (const b of baselineBills) {
-    const cur = branchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
-    cur.gross += b.totalAmountInPaise;
-    cur.discount += b.discountAmountInPaise + b.couponDiscountInPaise;
-    cur.reversed += b.reversedChargeInPaise;
-    branchAgg.set(b.branchId, cur);
-  }
-  const branchCommission = new Map<string, number>();
-  for (const o of baselineTestOrders) {
-    const cur = branchCommission.get(o.branchId) ?? 0;
-    branchCommission.set(o.branchId, cur + accruedCommissionInPaise([o]));
-  }
-  for (const v of baselineClinicVisits) {
-    const bid = v.visit?.branchId;
-    if (!bid) continue;
-    const cur = branchCommission.get(bid) ?? 0;
-    branchCommission.set(bid, cur + clinicCommissionInPaise([v]));
-  }
+  const curByBranch = new Map<string, DayFact[]>();
+  const priorByBranch = new Map<string, DayFact[]>();
+  for (const f of curFacts) curByBranch.set(f.branchId, [...(curByBranch.get(f.branchId) ?? []), f]);
+  for (const f of priorFacts) priorByBranch.set(f.branchId, [...(priorByBranch.get(f.branchId) ?? []), f]);
 
   // tat per branch
   const branchTatBuckets = new Map<string, number[]>();
@@ -1145,41 +832,16 @@ export async function getOwnerDashboardV2(
     if (row._max.createdAt) lastVisitByBranch.set(row.branchId, row._max.createdAt);
   }
 
-  // prior-window net per branch (same shape as current: gross - discount - commission)
-  const priorBranchAgg = new Map<string, { gross: number; discount: number; reversed: number }>();
-  for (const b of priorBranchBills) {
-    const cur = priorBranchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
-    cur.gross += b.totalAmountInPaise;
-    cur.discount += b.discountAmountInPaise + b.couponDiscountInPaise;
-    cur.reversed += b.reversedChargeInPaise;
-    priorBranchAgg.set(b.branchId, cur);
-  }
-  const priorBranchCommission = new Map<string, number>();
-  for (const o of priorBranchTestOrders) {
-    const cur = priorBranchCommission.get(o.branchId) ?? 0;
-    priorBranchCommission.set(o.branchId, cur + accruedCommissionInPaise([o]));
-  }
-  for (const v of priorBranchClinicVisits) {
-    const bid = v.visit?.branchId;
-    if (!bid) continue;
-    const cur = priorBranchCommission.get(bid) ?? 0;
-    priorBranchCommission.set(bid, cur + clinicCommissionInPaise([v]));
-  }
-
   const visibleBranches = branchId
     ? allBranches.filter((b) => b.id === branchId)
     : allBranches;
 
   const branchTable: BranchRow[] = visibleBranches
     .map((b) => {
-      const agg = branchAgg.get(b.id) ?? { gross: 0, discount: 0, reversed: 0 };
-      const commission = branchCommission.get(b.id) ?? 0;
-      const net = agg.gross - agg.discount - agg.reversed - commission;
-      const priorAgg = priorBranchAgg.get(b.id) ?? { gross: 0, discount: 0, reversed: 0 };
-      const priorNet =
-        priorAgg.gross - priorAgg.discount - priorAgg.reversed - (priorBranchCommission.get(b.id) ?? 0);
-      const visits = visitCountByBranch.get(b.id) ?? 0;
-      const tatList = (branchTatBuckets.get(b.id) ?? []).sort((a, c) => a - c);
+      const c = totalsOf(curByBranch.get(b.id) ?? []);
+      const p = totalsOf(priorByBranch.get(b.id) ?? []);
+      const daily = byDay(curByBranch.get(b.id) ?? []);
+      const tatList = (branchTatBuckets.get(b.id) ?? []).sort((x, y) => x - y);
       const lastVisit = lastVisitByBranch.get(b.id);
       const daysDormant = lastVisit
         ? Math.max(0, Math.floor((now.getTime() - lastVisit.getTime()) / DAY_MS))
@@ -1188,16 +850,20 @@ export async function getOwnerDashboardV2(
         branchId: b.id,
         branchName: b.name,
         branchCode: b.code,
-        netInPaise: net,
-        visitCount: visits,
-        avgTicketInPaise: visits > 0 ? Math.round(net / visits) : null,
+        netInPaise: c.net,
+        visitCount: c.visits,
+        avgTicketInPaise: c.visits > 0 ? Math.round(c.net / c.visits) : null,
         tatP50Minutes: percentile(tatList, 50),
-        deltaPercent:
-          priorNet > 0 ? Math.round(((net - priorNet) / priorNet) * 100) : null,
+        // Δ follows the headline: net collected against the prior window.
+        deltaPercent: pct(c.netCollected, p.netCollected),
         daysDormant: daysDormant >= DORMANT_DAYS ? daysDormant : 0,
+        collectedInPaise: c.netCollected,
+        grossInPaise: c.gross,
+        discountInPaise: c.discount,
+        collectedDaily: trendKeys.map((k) => totalsOf(daily.get(k) ?? []).netCollected),
       };
     })
-    .sort((a, b) => b.netInPaise - a.netInPaise);
+    .sort((a, b) => b.collectedInPaise - a.collectedInPaise);
 
   const response: DashboardV2Response = {
     generatedAt: now.toISOString(),
@@ -1215,6 +881,11 @@ export async function getOwnerDashboardV2(
     payoutLiability: liability,
     opsPulse,
     revenueTrend,
+    trend,
+    kpis: {
+      current: { ...cur, outstanding: outstandingTotal },
+      prior,
+    },
     revenueMix,
     branchTable,
   };

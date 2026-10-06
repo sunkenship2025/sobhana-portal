@@ -21,12 +21,13 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Clock, Info } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
+import { KpiTile, ComparisonTrendChart, Sparkline } from './_shared/dashboardCharts';
 import {
   TOKENS,
   SectionCard,
@@ -41,9 +42,7 @@ import {
   formatIstDateTime,
   ErrorCard,
   RefreshButton,
-  TrendChart,
   DeltaPercent,
-  severityForRatio,
   formatRupees,
   DomainFilter,
   DomainKey,
@@ -128,6 +127,8 @@ interface DashboardV2 {
     };
   };
   revenueTrend: { date: string; collectedInPaise: number }[];
+  trend: TrendDay[];
+  kpis: { current: Totals & { outstanding: number }; prior: Totals };
   revenueMix: {
     reportableInPaise: number;
     clinicInPaise: number;
@@ -144,7 +145,138 @@ interface DashboardV2 {
     tatP50Minutes: number | null;
     deltaPercent: number | null;
     daysDormant: number;
+    collectedInPaise: number;
+    grossInPaise: number;
+    discountInPaise: number;
+    collectedDaily: number[];
   }[];
+}
+
+interface DayPoint {
+  collected: number;
+  gross: number;
+  net: number;
+  visits: number;
+  discount: number;
+  bills: number;
+}
+interface TrendDay extends DayPoint {
+  date: string;
+  prior: DayPoint;
+}
+interface Totals {
+  netCollected: number;
+  net: number;
+  visits: number;
+  gross: number;
+  bills: number;
+  discount: number;
+}
+
+// ----- metrics: one definition feeds the KPI tile, its delta and the trend --
+
+type MetricKey = 'collected' | 'net' | 'visits' | 'avgBill' | 'discount';
+interface Metric {
+  label: string;
+  title: string;
+  num: (p: DayPoint) => number;
+  den?: (p: DayPoint) => number; // ratio metrics: averaged as Σnum / Σden
+  scale?: number;
+  format: (v: number) => string;
+  axis: (v: number) => string;
+  goodWhenUp: boolean;
+}
+const rupeesShort = (p: number) => formatRupees(p, { short: true });
+// Whole rupees: paise on a summary tile is noise.
+const rupeesWhole = (p: number) => formatRupees(Math.round(p / 100) * 100);
+const METRICS: Record<MetricKey, Metric> = {
+  collected: {
+    label: 'Net collected',
+    title: 'Net collected per day',
+    num: (p) => p.collected,
+    format: rupeesWhole,
+    axis: rupeesShort,
+    goodWhenUp: true,
+  },
+  net: {
+    label: 'Net to you',
+    title: 'Net to you per day (billed, after discounts & commission)',
+    num: (p) => p.net,
+    format: rupeesWhole,
+    axis: rupeesShort,
+    goodWhenUp: true,
+  },
+  visits: {
+    label: 'Visits',
+    title: 'Visits per day',
+    num: (p) => p.visits,
+    format: (v) => Math.round(v).toLocaleString('en-IN'),
+    axis: (v) => Math.round(v).toLocaleString('en-IN'),
+    goodWhenUp: true,
+  },
+  avgBill: {
+    label: 'Avg bill',
+    title: 'Average bill per day (gross ÷ bills)',
+    num: (p) => p.gross,
+    den: (p) => p.bills,
+    format: rupeesWhole,
+    axis: rupeesShort,
+    goodWhenUp: true,
+  },
+  discount: {
+    label: 'Discounts',
+    title: 'Discount as % of gross, per day',
+    num: (p) => p.discount,
+    den: (p) => p.gross,
+    scale: 100,
+    format: (v) => `${v.toFixed(1)}%`,
+    axis: (v) => `${Math.round(v)}%`,
+    goodWhenUp: false,
+  },
+};
+const METRIC_ORDER: MetricKey[] = ['collected', 'net', 'visits', 'avgBill', 'discount'];
+
+const totalsPoint = (t: Totals): DayPoint => ({
+  collected: t.netCollected,
+  gross: t.gross,
+  net: t.net,
+  visits: t.visits,
+  discount: t.discount,
+  bills: t.bills,
+});
+function metricValue(m: Metric, p: DayPoint): number | null {
+  if (!m.den) return m.num(p);
+  const d = m.den(p);
+  return d > 0 ? (m.num(p) / d) * (m.scale ?? 1) : null;
+}
+/** Trailing 7-day value at each point: Σnum / 7 for flows, Σnum / Σden for ratios. */
+function rolling7(m: Metric, series: DayPoint[]): (number | null)[] {
+  return series.map((_, i) => {
+    if (i < 6) return null;
+    const w = series.slice(i - 6, i + 1);
+    const num = w.reduce((s, p) => s + m.num(p), 0);
+    if (!m.den) return num / 7;
+    const den = w.reduce((s, p) => s + m.den!(p), 0);
+    return den > 0 ? (num / den) * (m.scale ?? 1) : null;
+  });
+}
+/**
+ * Daily series for a metric: the window's values, the prior window's same-day
+ * values, and both 7-day averages. The prior window ends where this one
+ * starts, so it seeds the window's first six averages — unless the trend was
+ * capped (long windows), where the two are not adjacent.
+ */
+function metricSeries(m: Metric, trend: TrendDay[], adjacent: boolean) {
+  const days = trend.map((d) => ({ date: d.date, value: metricValue(m, d), prior: metricValue(m, d.prior) }));
+  const long = trend.length >= 14;
+  const priors = trend.map((d) => d.prior);
+  const average = long
+    ? adjacent
+      ? rolling7(m, [...priors, ...trend]).slice(trend.length)
+      : rolling7(m, trend)
+    : days.map((d) => d.value);
+  const priorAverage = long ? rolling7(m, priors) : days.map((d) => d.prior);
+  return { days, average, priorAverage, long };
 }
 
 // Design tokens + primitives are the single source of truth in
@@ -262,29 +394,13 @@ function MoneyTodayCard({
   // proportional widths against gross; if gross = 0, fall back to flat zero bars
   const widthFor = (v: number) => (gross > 0 ? Math.max(0, v / gross) : 0);
 
-  const delta = data.collectedDeltaPercent;
-  const deltaColor = delta !== null && delta >= 0 ? TOKENS.healthy : TOKENS.critical;
-
   return (
     <SectionCard
       label={`Money · ${periodLabel}`}
-      description="Net collected · cash + online received, less refunds paid out"
+      description="What came in, and where the billed amount went"
     >
-      <div className="flex items-baseline gap-3">
-        <DisplayNumber>{formatRupees(data.netCollectedInPaise)}</DisplayNumber>
-        {delta !== null ? (
-          <span style={{ color: deltaColor, fontSize: 13 }}>
-            {delta >= 0 ? '+' : ''}
-            {delta}% vs prior period
-          </span>
-        ) : (
-          <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-            nothing collected in the prior period to compare
-          </span>
-        )}
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2" style={{ fontSize: 12 }}>
+      <SectionLabel>Collected</SectionLabel>
+      <div className="mt-2 grid grid-cols-3 gap-2" style={{ fontSize: 12 }}>
         <Link
           to="/money/cash?date=today"
           style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
@@ -363,31 +479,6 @@ function MoneyTodayCard({
             }
           />
         </div>
-      </div>
-    </SectionCard>
-  );
-}
-
-// ----- total open receivables (all-time) -------------------------------
-
-function OutstandingTile({ data }: { data: DashboardV2['moneyToday'] }) {
-  // Caution only when outstanding is meaningfully large vs today's gross (>10%),
-  // not merely > 0 — a small open balance is normal.
-  const sev = severityForRatio(data.outstandingInPaise, data.grossInPaise, {
-    caution: 0.1,
-    critical: 0.1,
-  });
-  return (
-    <SectionCard label="Total open receivables (all-time)">
-      <Link to="/money/bills?aging=open" style={{ textDecoration: 'none' }}>
-        <DisplayNumber>
-          <span style={{ color: sev ? TOKENS.caution : TOKENS.textPrimary }}>
-            {formatRupees(data.outstandingInPaise)}
-          </span>
-        </DisplayNumber>
-      </Link>
-      <div className="mt-1" style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-        Unpaid balance across all bills · open ↗
       </div>
     </SectionCard>
   );
@@ -630,26 +721,107 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
   );
 }
 
-// ----- 30d trend (line, no chart lib for phase 1) -----------------------
+// ----- KPI row + trend --------------------------------------------------
 
-function RevenueTrendCard({
-  trend,
-  periodLabel,
+function KpiRow({
+  data,
+  metric,
+  onMetric,
+  adjacent,
 }: {
-  trend: DashboardV2['revenueTrend'];
-  periodLabel: string;
+  data: DashboardV2;
+  metric: MetricKey;
+  onMetric: (m: MetricKey) => void;
+  adjacent: boolean;
 }) {
-  const chartData = trend.map((p) => ({ date: p.date, value: p.collectedInPaise }));
+  const cur = totalsPoint(data.kpis.current);
+  const prior = totalsPoint(data.kpis.prior);
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      {METRIC_ORDER.map((k) => {
+        const m = METRICS[k];
+        const now = metricValue(m, cur);
+        const before = metricValue(m, prior);
+        let delta: { text: string; up: boolean } | null = null;
+        if (now != null && before != null && before !== 0) {
+          if (m.den && m.scale) {
+            const pts = now - before; // a rate moves in points, not percent
+            delta = { text: `${Math.abs(pts).toFixed(1)} pts`, up: pts >= 0 };
+          } else {
+            const pct = Math.round(((now - before) / Math.abs(before)) * 100);
+            delta = { text: `${Math.abs(pct)}%`, up: pct >= 0 };
+          }
+        }
+        return (
+          <KpiTile
+            key={k}
+            label={m.label}
+            value={now == null ? '—' : m.format(now)}
+            delta={delta}
+            deltaGoodWhenUp={m.goodWhenUp}
+            footnote="no prior period to compare"
+            spark={metricSeries(m, data.trend, adjacent).average}
+            selected={metric === k}
+            onSelect={() => onMetric(k)}
+          />
+        );
+      })}
+      <Link to="/money/bills?aging=open" className="block h-full" style={{ textDecoration: 'none' }}>
+        <KpiTile
+          label="Open dues · all-time"
+          value={formatRupees(data.kpis.current.outstanding)}
+          delta={null}
+          footnote="unpaid across all bills · open ↗"
+        />
+      </Link>
+    </div>
+  );
+}
+
+function TrendCard({
+  data,
+  metric,
+  periodLabel,
+  adjacent,
+  onPickDay,
+}: {
+  data: DashboardV2;
+  metric: MetricKey;
+  periodLabel: string;
+  adjacent: boolean;
+  onPickDay: (date: string) => void;
+}) {
+  const m = METRICS[metric];
+  const { days, average, priorAverage, long } = useMemo(
+    () => metricSeries(m, data.trend, adjacent),
+    [m, data.trend, adjacent],
+  );
+  const capped = data.trend.length > 0 && !adjacent;
   return (
     <SectionCard
-      label={`Net collected · ${periodLabel}`}
-      description="Cash + online collected each day, less refunds paid out"
+      label={`${m.title} · ${periodLabel}`}
+      description={capped ? `Last ${data.trend.length} days of the window` : 'Pick a tile above to chart it'}
     >
-      <TrendChart
-        data={chartData}
-        valueFormat={(v) => formatRupees(v, { short: true })}
-        markLastAsToday
-        accent={TOKENS.net}
+      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        <span className="inline-flex items-center gap-1.5">
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: TOKENS.gross, display: 'inline-block' }} />
+          Each day
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span style={{ width: 14, height: 2, background: TOKENS.info, display: 'inline-block' }} />
+          {long ? '7-day average' : 'This period'}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span style={{ width: 14, borderTop: `2px dashed ${TOKENS.textTertiary}`, display: 'inline-block' }} />
+          {long ? 'Prior period, 7-day average' : 'Prior period'}
+        </span>
+      </div>
+      <ComparisonTrendChart
+        days={days}
+        average={average}
+        priorAverage={priorAverage}
+        format={m.axis}
+        onPickDay={onPickDay}
       />
     </SectionCard>
   );
@@ -822,99 +994,127 @@ function RevenueMixCard({
 
 // ----- branch table -----------------------------------------------------
 
+type BranchSort = 'collected' | 'delta' | 'visits' | 'avg' | 'net' | 'tat';
+
 function BranchTableCard({
   rows,
   periodLabel,
+  onPickBranch,
 }: {
   rows: DashboardV2['branchTable'];
   periodLabel: string;
+  onPickBranch: (branchId: string) => void;
 }) {
-  if (rows.length === 0) {
-    return (
-      <div id="branch-performance">
-        <SectionCard label="Branch performance" description={`${periodLabel} · sorted by net`}>
-          <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
-        </SectionCard>
-      </div>
-    );
-  }
+  const [sort, setSort] = useState<BranchSort>('collected');
+  const keyOf = (r: DashboardV2['branchTable'][number]): number => {
+    switch (sort) {
+      case 'delta': return r.deltaPercent ?? -Infinity;
+      case 'visits': return r.visitCount;
+      case 'avg': return r.avgTicketInPaise ?? -Infinity;
+      case 'net': return r.netInPaise;
+      case 'tat': return -(r.tatP50Minutes ?? Infinity); // fastest first
+      default: return r.collectedInPaise;
+    }
+  };
+  const sorted = [...rows].sort((a, b) => keyOf(b) - keyOf(a));
+  const head = (k: BranchSort, label: string) => (
+    <th className="py-2 text-right" aria-sort={sort === k ? 'descending' : undefined}>
+      <button
+        onClick={() => setSort(k)}
+        style={{
+          color: sort === k ? TOKENS.textPrimary : TOKENS.textTertiary,
+          fontWeight: sort === k ? 500 : 400,
+          background: 'transparent',
+          border: 0,
+          padding: 0,
+          cursor: 'pointer',
+        }}
+      >
+        {label}
+        {sort === k ? ' ↓' : ''}
+      </button>
+    </th>
+  );
 
   return (
     <div id="branch-performance">
-    <SectionCard label="Branch performance" description={`${periodLabel} · sorted by net`}>
-      <div className="overflow-x-auto">
-        <table className="w-full" style={{ fontSize: 12 }}>
-          <thead>
-            <tr
-              style={{
-                color: TOKENS.textTertiary,
-                textAlign: 'left',
-                fontWeight: 400,
-              }}
-            >
-              <th className="py-2">Branch</th>
-              <th className="py-2 text-right">Net rev</th>
-              <th className="py-2 text-right">Visits</th>
-              <th className="py-2 text-right">Avg ticket</th>
-              <th className="py-2 text-right">Δ prior</th>
-              <th className="py-2 text-right">TAT p50</th>
-              <th className="py-2 text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const dormant = r.daysDormant > 0;
-              return (
-                <tr
-                  key={r.branchId}
-                  style={{
-                    borderTop: `0.5px solid ${TOKENS.border}`,
-                    background: dormant ? '#FCEBEB30' : undefined,
-                  }}
-                >
-                  <td className="py-3">
-                    <Link
-                      to={`/owner?branch=${r.branchId}`}
-                      style={{ color: TOKENS.info, textDecoration: 'none' }}
-                    >
-                      {r.branchName}{' '}
-                      <span style={{ color: TOKENS.textTertiary }}>({r.branchCode})</span>
-                    </Link>
-                  </td>
-                  <td className="py-3 text-right">
-                    <span style={{ color: TOKENS.textPrimary }}>
-                      {formatRupees(r.netInPaise, { short: true })}
-                    </span>
-                  </td>
-                  <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {r.visitCount}
-                  </td>
-                  <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {r.avgTicketInPaise !== null
-                      ? formatRupees(r.avgTicketInPaise)
-                      : '—'}
-                  </td>
-                  <td className="py-3 text-right">
-                    <DeltaPercent value={r.deltaPercent} />
-                  </td>
-                  <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {r.tatP50Minutes !== null ? `${Math.round(r.tatP50Minutes)}m` : '—'}
-                  </td>
-                  <td
-                    className="py-3 text-right"
-                    style={{
-                      color: dormant ? TOKENS.caution : TOKENS.textTertiary,
-                    }}
-                  >
-                    {dormant ? `dormant ${r.daysDormant}d` : 'active'}
-                  </td>
+      <SectionCard
+        label="Branches"
+        description={`${periodLabel} · click a branch to see the whole dashboard for it`}
+      >
+        {rows.length === 0 ? (
+          <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: 12 }}>
+              <thead>
+                <tr style={{ color: TOKENS.textTertiary, textAlign: 'left' }}>
+                  <th className="py-2" style={{ fontWeight: 400 }}>Branch</th>
+                  {head('collected', 'Net collected')}
+                  <th className="py-2 text-right" style={{ fontWeight: 400 }}>Trend</th>
+                  {head('delta', 'Δ prior')}
+                  {head('visits', 'Visits')}
+                  {head('avg', 'Avg bill (net)')}
+                  {head('net', 'Net to you')}
+                  {head('tat', 'TAT p50')}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </SectionCard>
+              </thead>
+              <tbody>
+                {sorted.map((r) => {
+                  const dormant = r.daysDormant > 0;
+                  return (
+                    <tr
+                      key={r.branchId}
+                      onClick={() => onPickBranch(r.branchId)}
+                      style={{
+                        borderTop: `0.5px solid ${TOKENS.border}`,
+                        background: dormant ? '#FCEBEB30' : undefined,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <td className="py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onPickBranch(r.branchId); }}
+                          style={{ color: TOKENS.info, background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                        >
+                          {r.branchName}{' '}
+                          <span style={{ color: TOKENS.textTertiary }}>({r.branchCode})</span>
+                        </button>
+                        {dormant && (
+                          <span style={{ color: TOKENS.caution, marginLeft: 6 }}>dormant {r.daysDormant}d</span>
+                        )}
+                      </td>
+                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                        {formatRupees(r.collectedInPaise, { short: true })}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex justify-end">
+                          <Sparkline values={r.collectedDaily} width={88} height={20} />
+                        </div>
+                      </td>
+                      <td className="py-3 text-right">
+                        <DeltaPercent value={r.deltaPercent} />
+                      </td>
+                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                        {r.visitCount.toLocaleString('en-IN')}
+                      </td>
+                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                        {r.avgTicketInPaise !== null ? rupeesWhole(r.avgTicketInPaise) : '—'}
+                      </td>
+                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                        {formatRupees(r.netInPaise, { short: true })}
+                      </td>
+                      <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
+                        {r.tatP50Minutes !== null ? `${(r.tatP50Minutes / 60).toFixed(1)}h` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }
@@ -967,6 +1167,8 @@ function todayKey(): string {
 
 export default function OwnerDashboardV2() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [metric, setMetric] = useState<MetricKey>('collected');
   const branchValue = searchParams.get('branch') || 'all';
   const rawPeriod = searchParams.get('period');
   const period: PeriodKey = DASH_PERIOD_OPTS.includes(rawPeriod as PeriodKey)
@@ -1031,6 +1233,13 @@ export default function OwnerDashboardV2() {
   });
 
   const data = query.data;
+  // The trend covers the whole window unless it was capped (long windows); only
+  // then is the prior window adjacent to it, so averages can be seeded from it.
+  const adjacent = Boolean(
+    data &&
+      data.trend.length ===
+        Math.round((Date.parse(data.period.endIso) - Date.parse(data.period.startIso)) / 86_400_000),
+  );
   const baselineBanner = useMemo(() => {
     if (!data) return null;
     if (data.dataAge.daysSinceLaunch < 7) {
@@ -1110,28 +1319,37 @@ export default function OwnerDashboardV2() {
               <ActionQueue chips={data.actionQueue} />
             </div>
 
+            <KpiRow data={data} metric={metric} onMetric={setMetric} adjacent={adjacent} />
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
               <div className="lg:col-span-3">
+                <TrendCard
+                  data={data}
+                  metric={metric}
+                  periodLabel={periodLabel}
+                  adjacent={adjacent}
+                  onPickDay={(d) =>
+                    navigate(`/money/cash?period=custom&start=${d}&end=${d}&branch=${encodeURIComponent(branchValue)}&domain=${domain}`)
+                  }
+                />
+              </div>
+              <div className="lg:col-span-2">
                 <MoneyTodayCard data={data.moneyToday} periodLabel={periodLabel} />
               </div>
-              <div className="flex flex-col gap-4 lg:col-span-2">
-                <PayoutsCard
-                  data={data.payoutLiability}
-                  money={data.moneyToday}
-                  periodLabel={periodLabel}
-                />
-                <OutstandingTile data={data.moneyToday} />
-              </div>
             </div>
+
+            <BranchTableCard rows={data.branchTable} periodLabel={periodLabel} onPickBranch={setBranchValue} />
 
             <OpsPulseRow data={data.opsPulse} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <RevenueTrendCard trend={data.revenueTrend} periodLabel={periodLabel} />
               <RevenueMixCard mix={data.revenueMix} periodLabel={periodLabel} />
+              <PayoutsCard
+                data={data.payoutLiability}
+                money={data.moneyToday}
+                periodLabel={periodLabel}
+              />
             </div>
-
-            <BranchTableCard rows={data.branchTable} periodLabel={periodLabel} />
           </div>
         )}
       </div>

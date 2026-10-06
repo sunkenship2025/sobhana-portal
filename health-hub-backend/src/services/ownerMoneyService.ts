@@ -19,6 +19,7 @@ import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
+import { getMoneyFacts, totalsOf } from './moneyFactsService';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
@@ -27,7 +28,7 @@ const cacheKey = (
   range: CustomRange | null,
   domain: DaySheetDomain | null,
 ) =>
-  `owner-money:v3:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-money:v4:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -222,42 +223,6 @@ function toIstDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function accruedCommissionInPaise(orders: Array<{
-  priceInPaise: number;
-  referralCommissionType: string | null;
-  referralCommissionPercentage: number | null;
-  referralCommissionAmountInPaise: number | null;
-  partnerCutInPaise: number | null;
-}>): number {
-  let total = 0;
-  for (const o of orders) {
-    if (o.referralCommissionType === 'PERCENTAGE') {
-      total += Math.round((o.priceInPaise * (o.referralCommissionPercentage ?? 0)) / 100);
-    } else if (o.referralCommissionType === 'FIXED_AMOUNT') {
-      total += o.referralCommissionAmountInPaise ?? 0;
-    }
-    // What the partner keeps is money that was never ours, so it reduces net
-    // exactly as a commission does — already frozen per order.
-    total += o.partnerCutInPaise ?? 0;
-  }
-  return total;
-}
-
-function clinicCommissionInPaise(visits: Array<{
-  consultationFeeInPaise: number;
-  clinicDoctor: { commissionType: string; commissionPercent: number; commissionAmountInPaise: number | null };
-}>): number {
-  let total = 0;
-  for (const v of visits) {
-    if (v.clinicDoctor.commissionType === 'PERCENTAGE') {
-      total += Math.round((v.consultationFeeInPaise * (v.clinicDoctor.commissionPercent ?? 0)) / 100);
-    } else if (v.clinicDoctor.commissionType === 'FIXED_AMOUNT') {
-      total += v.clinicDoctor.commissionAmountInPaise ?? 0;
-    }
-  }
-  return total;
-}
-
 // --- main entry ---------------------------------------------------------
 
 export async function getOwnerMoney(
@@ -281,14 +246,9 @@ export async function getOwnerMoney(
   const prior = priorWindow(win);
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
   // Diagnostic/OP register filter. A bill's register lives on its visit
-  // (visit.domain). testOrders/clinicVisits reach it through their own visit
-  // relation; payments through bill.visit. Null ⇒ both registers (the "All" toggle).
+  // (visit.domain); payments reach it through bill.visit. Null ⇒ both registers (the "All" toggle).
   const domainBillWhere: Prisma.BillWhereInput = domain ? { visit: { domain } } : {};
   const domainVisitWhere = domain ? { visit: { domain } } : {};
-  const clinicVisitScope =
-    branchId || domain
-      ? { visit: { ...(branchId ? { branchId } : {}), ...(domain ? { domain } : {}) } }
-      : {};
   const paymentBillScope =
     branchId || domain
       ? { bill: { ...(branchId ? { branchId } : {}), ...(domain ? { visit: { domain } } : {}) } }
@@ -297,11 +257,7 @@ export async function getOwnerMoney(
   const [
     scopedBranch,
     billsInWindow,
-    testOrdersInWindow,
-    clinicVisitsInWindow,
-    priorBillsAgg,
-    priorTestOrders,
-    priorClinicVisits,
+    facts,
     openBills,
     refundedBills,
     paymentsInWindow,
@@ -334,73 +290,9 @@ export async function getOwnerMoney(
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
     }),
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { branchId } : {}),
-        ...domainVisitWhere,
-      },
-      select: {
-        priceInPaise: true,
-        createdAt: true,
-        referralCommissionType: true,
-        referralCommissionPercentage: true,
-        referralCommissionAmountInPaise: true,
-        partnerCutInPaise: true,
-      },
-    }),
-    prisma.clinicVisit.findMany({
-      where: {
-        createdAt: { gte: win.start, lt: win.end },
-        ...clinicVisitScope,
-      },
-      select: {
-        consultationFeeInPaise: true,
-        createdAt: true,
-        clinicDoctor: {
-          select: {
-            commissionType: true,
-            commissionPercent: true,
-            commissionAmountInPaise: true,
-          },
-        },
-      },
-    }),
-    prisma.bill.aggregate({
-      where: { billedAt: { gte: prior.start, lt: prior.end }, ...billBranchWhere, ...domainBillWhere },
-      _sum: { totalAmountInPaise: true, discountAmountInPaise: true, couponDiscountInPaise: true, reversedChargeInPaise: true },
-      _count: true,
-    }),
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: prior.start, lt: prior.end },
-        ...(branchId ? { branchId } : {}),
-        ...domainVisitWhere,
-      },
-      select: {
-        priceInPaise: true,
-        referralCommissionType: true,
-        referralCommissionPercentage: true,
-        referralCommissionAmountInPaise: true,
-        partnerCutInPaise: true,
-      },
-    }),
-    prisma.clinicVisit.findMany({
-      where: {
-        createdAt: { gte: prior.start, lt: prior.end },
-        ...clinicVisitScope,
-      },
-      select: {
-        consultationFeeInPaise: true,
-        clinicDoctor: {
-          select: {
-            commissionType: true,
-            commissionPercent: true,
-            commissionAmountInPaise: true,
-          },
-        },
-      },
-    }),
+    // gross, discount, commission, net and the trend: the shared money engine,
+    // over this window and the equal one before it.
+    getMoneyFacts({ start: prior.start, end: win.end, branchId, domain }),
     prisma.bill.findMany({
       where: { paymentStatus: { not: 'PAID' }, ...billBranchWhere, ...domainBillWhere },
       select: {
@@ -461,30 +353,17 @@ export async function getOwnerMoney(
   ]);
 
   // ---- KPIs ----
-  const grossInWindow = billsInWindow.reduce((s, b) => s + b.totalAmountInPaise, 0);
-  // A bill's discount is the counter discount AND the offer code — two columns, one fact.
-  const discountInWindow = billsInWindow.reduce((s, b) => s + b.discountAmountInPaise + b.couponDiscountInPaise, 0);
-  const reversedInWindow = billsInWindow.reduce((s, b) => s + b.reversedChargeInPaise, 0);
-  const commissionInWindow =
-    accruedCommissionInPaise(testOrdersInWindow) + clinicCommissionInPaise(clinicVisitsInWindow);
-  const netInWindow = grossInWindow - discountInWindow - reversedInWindow - commissionInWindow;
-
-  const priorGross = priorBillsAgg._sum.totalAmountInPaise ?? 0;
-  const priorDiscount =
-    (priorBillsAgg._sum.discountAmountInPaise ?? 0) + (priorBillsAgg._sum.couponDiscountInPaise ?? 0);
-  const priorReversed = priorBillsAgg._sum.reversedChargeInPaise ?? 0;
-  const priorCommission =
-    accruedCommissionInPaise(priorTestOrders) + clinicCommissionInPaise(priorClinicVisits);
-  const priorNet = priorGross - priorDiscount - priorReversed - priorCommission;
-
+  const winStartKey = toIstDateKey(win.start);
+  const cur = totalsOf(facts.days.filter((f) => f.date >= winStartKey));
+  const prev = totalsOf(facts.days.filter((f) => f.date < winStartKey));
+  const grossInWindow = cur.gross;
+  const discountInWindow = cur.discount;
+  const commissionInWindow = cur.commission;
+  const netInWindow = cur.net;
   const grossDeltaPercent =
-    priorBillsAgg._count > 0 && priorGross > 0
-      ? Math.round(((grossInWindow - priorGross) / priorGross) * 100)
-      : null;
+    prev.bills > 0 && prev.gross > 0 ? Math.round(((cur.gross - prev.gross) / prev.gross) * 100) : null;
   const netDeltaPercent =
-    priorBillsAgg._count > 0 && priorNet > 0
-      ? Math.round(((netInWindow - priorNet) / priorNet) * 100)
-      : null;
+    prev.bills > 0 && prev.net > 0 ? Math.round(((cur.net - prev.net) / prev.net) * 100) : null;
 
   // outstanding (all-time, scoped)
   const outstandingTotal = openBills.reduce(
@@ -543,7 +422,7 @@ export async function getOwnerMoney(
     dueInPaise: unpaidFromThisPeriod,
     discountInPaise: discountInWindow,
     discountBillCount,
-    couponInPaise: billsInWindow.reduce((s, b) => s + b.couponDiscountInPaise, 0),
+    couponInPaise: cur.coupon,
     commissionInPaise: commissionInWindow,
     collectionRatePct,
     grossDeltaPercent,
@@ -562,21 +441,11 @@ export async function getOwnerMoney(
     dayKeys.push(k);
     dayMap.set(k, 0);
   }
-  for (const b of billsInWindow) {
-    const key = toIstDateKey(b.billedAt);
-    if (dayMap.has(key)) {
-      dayMap.set(key, (dayMap.get(key) ?? 0) + (b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise));
-    }
-  }
-  for (const o of testOrdersInWindow) {
-    const key = toIstDateKey(o.createdAt);
-    if (!dayMap.has(key)) continue;
-    dayMap.set(key, (dayMap.get(key) ?? 0) - accruedCommissionInPaise([o]));
-  }
-  for (const v of clinicVisitsInWindow) {
-    const key = toIstDateKey(v.createdAt);
-    if (!dayMap.has(key)) continue;
-    dayMap.set(key, (dayMap.get(key) ?? 0) - clinicCommissionInPaise([v]));
+  // Net to you per day, same definition as the KPI (cancellations included).
+  for (const f of facts.days) {
+    if (!dayMap.has(f.date)) continue;
+    const t = totalsOf([f]);
+    dayMap.set(f.date, (dayMap.get(f.date) ?? 0) + t.net);
   }
   const revenueTrend = dayKeys.map((d) => ({ date: d, netInPaise: dayMap.get(d) ?? 0 }));
 
