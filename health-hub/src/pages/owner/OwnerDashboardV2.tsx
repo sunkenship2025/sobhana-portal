@@ -90,7 +90,7 @@ interface DashboardV2 {
     byType: {
       referralInPaise: number;
       clinicInPaise: number;
-      diagnosticCenterInPaise: number;
+      partnerInPaise: number;
     };
   };
   opsPulse: {
@@ -520,8 +520,8 @@ function PayoutsCard({
             value={formatRupees(data.byType.clinicInPaise)}
           />
           <StatRow
-            label="External centers"
-            value={formatRupees(data.byType.diagnosticCenterInPaise)}
+            label="Partners"
+            value={formatRupees(data.byType.partnerInPaise)}
           />
         </div>
       </div>
