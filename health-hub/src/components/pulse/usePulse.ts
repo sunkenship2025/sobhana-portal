@@ -82,6 +82,7 @@ export function usePulse() {
   const [today, setToday] = useState<Today | null>(null);
   const branchName = useBranchStore((s) => s.getActiveBranch?.()?.name || null);
   const [todayFailed, setTodayFailed] = useState(false);
+  const [digest, setDigest] = useState<string[] | null>(null);
   const stateRef = useRef<PulseState>({});
   const ctrlRef = useRef<AbortController | null>(null);
   const idRef = useRef(1);
@@ -91,6 +92,8 @@ export function usePulse() {
 
   const prefetch = useCallback(() => { fetchToday().then(setToday).catch(() => setTodayFailed(true)); }, []);
   useEffect(() => { if (open && !today) { const t = setTimeout(() => setTodayFailed((f) => f || !todayCache), 2000); prefetch(); return () => clearTimeout(t); } }, [open, today, prefetch]);
+  // the month so far — slower than the today pack, so it arrives on its own and never holds it up
+  useEffect(() => { if (open && !digest) branchRequest<{ lines: string[] }>('/pulse/digest', bid()).then((d) => setDigest(d.lines || [])).catch(() => setDigest([])); }, [open, digest]);
 
   const ask = useCallback(async (q: string) => {
     const text = q.trim(); if (!text) return;
@@ -122,5 +125,5 @@ export function usePulse() {
   }, []);
   const toggleCollapse = useCallback((id: number) => setTurns((ts) => ts.map((t) => t.id === id ? { ...t, collapsed: !t.collapsed } : t)), []);
   const reset = useCallback(() => { ctrlRef.current?.abort(); setTurns([]); stateRef.current = {}; }, []);
-  return { open, setOpen, expanded, setExpanded, turns, today, todayFailed, thinking, ask, stop, rate, prefetch, toggleCollapse, reset, branchName, context: stateRef.current };
+  return { open, setOpen, expanded, setExpanded, turns, today, digest, todayFailed, thinking, ask, stop, rate, prefetch, toggleCollapse, reset, branchName, context: stateRef.current };
 }

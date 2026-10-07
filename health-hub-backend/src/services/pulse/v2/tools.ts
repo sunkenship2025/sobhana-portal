@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, dimSql, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES, OPEN_VISIT } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -16,6 +16,7 @@ import { groupedBy, periodOf, filtersOf, orderedBy } from './sqlscope';
 import { repairIdents, resolveTerm, resolveTermIn, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 import { compileBindings, formatBindings } from './binding';
+import { getMoneyFacts, totalsOf, getCollectedSplits, getReferrerFacts } from '../../moneyFactsService';
 
 import { t_compute } from './calc';
 
@@ -108,7 +109,7 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
        offered without anyone remembering to update a message. */
     if (!dimOk(metric, dim)) {
       /* A COST IS NOT A SUBSTITUTE FOR A VALUE. Same unit is not the same quantity: offering
-         commission_on_orders first for a REVENUE question invites exactly the basis error this
+         commission first for a REVENUE question invites exactly the basis error this
          layer spent the week removing. Cost-shaped metrics are ranked last unless the question
          was about one. */
       const costly = (m: string) => /commission|discount|refund|payout/i.test(m);
@@ -120,8 +121,9 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
                       : `Use the "query" tool to express this one; do not ask a registry tool for it again.`) };
     }
     const j = dimJoin(metric, dim); if (j && !join.includes(j)) join += j;
-    const vals = filterValues(rawVal).map((v) => v.replace(/'/g, "''"));
-    where.push(`${DIMS[dim]} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
+    // "fridays" and "friday" are Friday
+    const vals = filterValues(rawVal).map((v) => (dim === 'weekday' ? v.replace(/s$/i, '').replace(/^./, (c) => c.toUpperCase()).replace(/(?<=^.).*/, (r) => r.toLowerCase()) : v).replace(/'/g, "''"));
+    where.push(`${dimSql(metric, dim)} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
   }
   return { where, join };
 }
@@ -179,7 +181,7 @@ async function t_breakdown(a: any): Promise<Partial<Evidence>> {
   if (!DIMS[d] || !dimOk(m, d)) return { ok: false, error: `'${m}' cannot be split by '${d}'. Supported: ${(METRIC_DIMS[m] || []).join(', ')}` };
   const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
   const join = dimJoin(m, d) + (f.join.includes(dimJoin(m, d)) ? '' : f.join);
-  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, DIMS[d], f.where), scalar(m, p.prev.from, p.prev.to, join, DIMS[d], f.where)]);
+  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, dimSql(m, d), f.where), scalar(m, p.prev.from, p.prev.to, join, dimSql(m, d), f.where)]);
   if (!cur) return { ok: false, error: 'no rows' };
   const pm = new Map<string, number>((prev || []).map((r: any) => [r.k, r.v]));
   const total = cur.reduce((s: number, r: any) => s + r.v, 0);
@@ -208,7 +210,8 @@ async function t_trend(a: any): Promise<Partial<Evidence>> {
   const m = a.metric; const F = FROMS[m]; const M = METRICS[m];
   if (!M || !F) return { ok: false, error: `no such metric '${m}'` };
   const bucket = /day/i.test(a.bucket || '') ? 'day' : /week/i.test(a.bucket || '') ? 'week' : 'month';
-  const back = Math.min(Number(a.buckets) || (bucket === 'month' ? 6 : bucket === 'week' ? 8 : 30), 40);
+  // a weekday filter keeps one day in seven, so "every Friday" needs a long run of days behind it
+  const back = Math.min(Number(a.buckets) || (bucket === 'month' ? 6 : bucket === 'week' ? 8 : a.filter?.weekday ? 180 : 30), bucket === 'day' ? 400 : 40);
   const today = todayIST();
   const from = bucket === 'day' ? addDays(today, -back) : bucket === 'week' ? addDays(today, -7 * back) : `${Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) <= back ? 1 : 0)}-${String(((Number(today.slice(5, 7)) - back + 11) % 12) + 1).padStart(2, '0')}-01`;
   /* TREND ACCEPTED A FILTER AND THREW IT AWAY. Asked for the CT stream month by month it returned
@@ -599,15 +602,13 @@ async function t_receivables(a: any): Promise<Partial<Evidence>> {
 async function t_pending_reports(a: any): Promise<Partial<Evidence>> {
   const hrs = Math.min(Math.max(Number(a.hours) || 24, 1), 240);
   const r = await query(`SELECT br.code k, count(*)::int v FROM "Visit" v JOIN "Branch" br ON br.id=v."branchId"
-    JOIN "DiagnosticReport" dr ON dr."visitId"=v.id
-    WHERE v."createdAt" < now() - interval '${hrs} hours' AND v."createdAt" > now() - interval '30 days'
-      AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')
+    WHERE ${OPEN_VISIT()} AND v."createdAt" < now() - interval '${hrs} hours'
     GROUP BY 1 ORDER BY 2 DESC`);
   if (r.err) return { ok: false, error: r.err };
   const rows = (r.rows || []).map((x: any) => ({ k: String(x.k), v: Number(x.v) }));
   const total = rows.reduce((s, x) => s + x.v, 0);
   return { ok: true, unit: 'count', dimension: 'branch',
-    summary: { pendingOver: `${hrs}h`, total, window: 'last 30 days', byBranch: rows.map((x) => ({ name: x.k, value: x.v })) },
+    summary: { pendingOver: `${hrs}h`, total, definition: 'open diagnostic visits with a report still to release, as on the Operations page', byBranch: rows.map((x) => ({ name: x.k, value: x.v })) },
     data: { rows, total } };
 }
 /** referrers who used to send work and have stopped — the highest-value list in this data */
@@ -713,15 +714,14 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
   }
   if (kind === 'pending_reports' || kind === 'late_reports') {
     const hrs = Math.min(Math.max(Number(a.hours) || 24, 1), 720);
-    const w = [`v."createdAt" < now() - interval '${hrs} hours'`, `v."createdAt" > now() - interval '60 days'`];
+    const w = [OPEN_VISIT(), `v."createdAt" < now() - interval '${hrs} hours'`];
     if (br) w.push(`br.code = '${br}'`);
     const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
         v."billNumber" AS bill, br.code AS branch, (v."createdAt" ${IST})::date::text AS registered,
         ROUND(EXTRACT(EPOCH FROM (now() - v."createdAt"))/3600)::int AS hours_waiting
       FROM "Visit" v JOIN "Patient" p ON p.id = v."patientId" JOIN "Branch" br ON br.id = v."branchId"
-      JOIN "DiagnosticReport" dr ON dr."visitId" = v.id
       LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
-      WHERE ${w.join(' AND ')} AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')
+      WHERE ${w.join(' AND ')}
       ORDER BY hours_waiting DESC LIMIT ${limit}`, [], LIST_CAP);
     if (ex.err) return { ok: false, error: ex.err };
     return { ok: true, unit: 'count', phi: true,
@@ -863,7 +863,98 @@ async function t_resolve(a: any, _k?: any, q?: string): Promise<Partial<Evidence
   return { ok: true, detail: terms.join(', '), summary: { resolved: found }, data: found };
 }
 
+/** The list price of a test or package — "give me cost", "which CT is the most expensive". A price
+ *  is a rate, never a sum over orders. `match` is a code or the start of a word in the name. */
+async function t_price(a: any): Promise<Partial<Evidence>> {
+  const m = String(a.match || a.test || '').trim().replace(/'/g, "''").replace(/[\\%_]/g, '');
+  const n = Math.min(Number(a.limit) || 10, 50);
+  const where = [`bp."isActive"`, m ? `(bp.code ILIKE '${m}' OR bp.name ~* '\\m${m.replace(/[.*+?^${}()|[\]]/g, '\\$&')}')` : 'TRUE'];
+  const ex = await query(`SELECT bp.name, bp.code, bp."basePriceInPaise" AS price_paise FROM "BillableProduct" bp
+    WHERE ${where.join(' AND ')} ORDER BY bp."basePriceInPaise" ${/asc|cheap|low/i.test(String(a.sort || '')) ? 'ASC' : 'DESC'} NULLS LAST LIMIT ${n}`, [], n);
+  if (ex.err) return { ok: false, error: ex.err };
+  if (!ex.rows?.length) return { ok: false, error: `no active test or package matches '${a.match}'` };
+  const rows = ex.rows.map((r: any) => ({ name: r.name, code: r.code, price: fmt(Number(r.price_paise), 'paise') }));
+  return { ok: true, dimension: 'test', unit: 'paise', means: 'list price per test, from the catalogue',
+    summary: { rows, matched: m || 'all' }, data: { rows: ex.rows.map((r: any) => ({ name: r.name, code: r.code, price_paise: Number(r.price_paise) })) } };
+}
+
+/**
+ * THE DIGEST — Tableau Pulse's shape: the facts an open question needs ("how is the business",
+ * "why is it up", "where am I losing money", "how can I grow"), computed by code from the money
+ * engine and ranked by rupees, so the model phrases findings instead of hunting for them. These
+ * questions used to run an open investigation of 7–24 model calls and 13–82 seconds, and usually
+ * ended low-confidence with several claims unresolved. This is zero model calls.
+ *
+ * The window is this month's complete days against the same days of last month — the comparison
+ * the dashboard makes — or, in the first three days of a month, last month against the one before.
+ */
+async function t_insights(_a: any): Promise<Partial<Evidence>> {
+  const T = todayIST(), ms = T.slice(0, 8) + '01';
+  const prevStart = (d: string) => { const [y, m] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10); };
+  const elapsed = Math.round((Date.parse(T) - Date.parse(ms)) / 864e5);
+  const [cur, prev] = elapsed >= 3
+    ? [{ from: ms, to: T }, { from: prevStart(ms), to: addDays(prevStart(ms), elapsed) }]
+    : [{ from: prevStart(ms), to: ms }, { from: prevStart(prevStart(ms)), to: prevStart(ms) }];
+  const at = (d: string) => new Date(`${d}T00:00:00+05:30`);
+  const scope = { start: at(prev.from), end: at(cur.to), branchId: null, domain: null };
+  const [{ days }, splits, refs, branches, doctors, dues, late] = await Promise.all([
+    getMoneyFacts(scope), getCollectedSplits(scope, at(cur.from), at(prev.to)), getReferrerFacts(scope, at(cur.from), at(prev.to)),
+    query(`SELECT id, code FROM "Branch"`), query(`SELECT id, name FROM "ReferralDoctor"`, [], 5000),
+    query(`SELECT COALESCE(SUM(${DUE()}),0)::bigint v, count(*)::int n, COALESCE(SUM(CASE WHEN b."billedAt" < now() - interval '30 days' THEN ${DUE()} ELSE 0 END),0)::bigint old FROM "Bill" b WHERE ${OWES()}`),
+    query(`SELECT count(*)::int n FROM "Visit" v WHERE ${OPEN_VISIT()} AND v."createdAt" < now() - interval '24 hours'`),
+  ]);
+  const inWin = (w: { from: string; to: string }) => (f: { date: string }) => f.date >= w.from && f.date < w.to;
+  const now = totalsOf(days.filter(inWin(cur))), before = totalsOf(days.filter(inWin(prev)));
+  const R = (p: number) => fmt(p, 'paise');
+  const pct = (a: number, b: number) => (b ? `${a >= b ? '+' : ''}${((a - b) / Math.abs(b) * 100).toFixed(1)}%` : 'new');
+  const code = new Map((branches.rows || []).map((r: any) => [r.id, r.code]));
+  const docName = new Map((doctors.rows || []).map((r: any) => [r.id, r.name]));
+  const SOURCE: Record<string, string> = { referred: 'Doctor referrals', walkin: 'Walk-ins', partner: 'Partner labs', clinic: 'OP clinic' };
+
+  // what moved the total: department, source and branch, each adding back up to the headline
+  const sumBy = (key: (s: any) => string) => { const m = new Map<string, { v: number; p: number }>();
+    for (const s of splits) { const k = key(s); const x = m.get(k) || { v: 0, p: 0 }; x.v += s.collected; x.p += s.priorCollected; m.set(k, x); } return m; };
+  const branchMoves = new Map<string, { v: number; p: number }>();
+  for (const f of days) { const k = String(code.get(f.branchId) || f.branchId); const x = branchMoves.get(k) || { v: 0, p: 0 };
+    const net = f.cash + f.online - f.refunds; if (inWin(cur)(f)) x.v += net; else if (inWin(prev)(f)) x.p += net; branchMoves.set(k, x); }
+  const movers = [...[...sumBy((s) => s.category)].map(([k, x]) => ({ kind: 'department', name: k, ...x })),
+    ...[...sumBy((s) => SOURCE[s.source] || s.source)].map(([k, x]) => ({ kind: 'source', name: k, ...x })),
+    ...[...branchMoves].map(([k, x]) => ({ kind: 'branch', name: k, ...x }))]
+    .map((x) => ({ ...x, d: x.v - x.p })).filter((x) => Math.abs(x.d) >= 100).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+  const docs = refs.map((r) => ({ name: r.name || String(docName.get(r.referralDoctorId) || ''), d: r.billed - r.priorBilled, v: r.billed, p: r.priorBilled, visits: r.visits, priorVisits: r.priorVisits }));
+  const stopped = docs.filter((d) => d.priorVisits > 0 && d.visits === 0);
+  const d0 = dues.rows?.[0] || {};
+
+  // every leak in rupees, so "where am I losing money" is ranked by money, not by what sounds actionable
+  const leaks = [
+    { name: 'Discounts given', paise: now.discount, note: `${now.gross ? (now.discount / now.gross * 100).toFixed(1) : '0'}% of billing` },
+    { name: 'Referral commission', paise: now.commission, note: `${now.netCollected ? (now.commission / now.netCollected * 100).toFixed(1) : '0'}% of collection` },
+    { name: 'Refunds', paise: now.refunds, note: 'money given back' },
+    { name: 'Charges cancelled after billing', paise: now.cancelled, note: 'voided on bills' },
+    { name: 'Owed by patients', paise: Number(d0.v || 0), note: `${d0.n || 0} bills, ${R(Number(d0.old || 0))} older than 30 days` },
+    { name: 'Billing from referrers who stopped', paise: stopped.reduce((t, d) => t + d.p, 0), note: `${stopped.length} doctors sent work last time and none this time` },
+  ].filter((l) => l.paise > 0).sort((a, b) => b.paise - a.paise);
+
+  const window = `${cur.from} to ${addDays(cur.to, -1)}, against ${prev.from} to ${addDays(prev.to, -1)}`;
+  return { ok: true, unit: 'paise', dimension: 'driver', period: { cur, prev } as any,
+    means: `the business ${window}, on the Money page basis — collected is cash + online less refunds`,
+    summary: {
+      window,
+      collected: { now: R(now.netCollected), before: R(before.netCollected), changePct: pct(now.netCollected, before.netCollected) },
+      visits: { now: now.visits, before: before.visits, changePct: pct(now.visits, before.visits) },
+      netToCentre: { now: R(now.net), before: R(before.net) },
+      parts: movers.slice(0, 8).map((m) => ({ name: `${m.name} (${m.kind})`, value: R(m.v), change: `${m.d >= 0 ? '+' : '-'}${R(Math.abs(m.d))}` })),
+      leaks: leaks.map((l) => ({ name: l.name, value: R(l.paise), note: l.note })),
+      referrersDown: docs.filter((d) => d.d < 0).sort((a, b) => a.d - b.d).slice(0, 3).map((d) => ({ name: d.name, value: R(d.v), change: `-${R(-d.d)}` })),
+      referrersUp: docs.filter((d) => d.d > 0).sort((a, b) => b.d - a.d).slice(0, 3).map((d) => ({ name: d.name, value: R(d.v), change: `+${R(d.d)}` })),
+      reportsLate: Number(late.rows?.[0]?.n || 0),
+    },
+    data: { rows: movers.slice(0, 8).map((m) => ({ k: `${m.name} (${m.kind})`, v: m.v, prev: m.p, delta: m.d })), total: now.netCollected } };
+}
+
 export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evidence>>> = {
+  price: t_price,
+  insights: t_insights,
   metric: t_metric, compare: t_compare, breakdown: t_breakdown, rank: t_rank,
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
@@ -986,15 +1077,16 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
          refusing a metric outright: "what is our margin" is a centre-level question and revenue
          is exactly the right answer to it. Only an actual work-scoped CONSTRAINT means revenue
          cannot serve, because only then is it being asked to do something it cannot do. */
-      if (r.ok && ['revenue', 'net_billed'].includes(String(args?.metric || ''))
+      /* revenue and commission now carry each test's share, so they scope to work like anything
+         else; net_billed is a whole bill and still cannot. */
+      if (r.ok && String(args?.metric || '') === 'net_billed'
           && (spec?.scope || []).some((c2: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c2?.dimension))) {
         return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
-          error: `'${args.metric}' cannot be scoped to a test, category or modality — revenue is cash on payments and net_billed is bill-level, so neither belongs to orders. Use "billed_on_orders" (what those orders were billed) with the same filter, and "commission_on_orders" beside it if you need contribution.` } as Evidence;
+          error: `'net_billed' is a whole bill and cannot be scoped to a test, category or modality. Use "revenue" (what that work brought in) or "billed_on_orders" (what it was billed at) with the same filter.` } as Evidence;
       }
-      if (r.ok && String(args?.metric || '') === 'commission'
-          && workScoped(spec, q)) {
+      if (r.ok && String(args?.metric || '') === 'payouts_paid' && workScoped(spec, q)) {
         return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
-          error: 'the "commission" metric reads DoctorPayoutLedger — what a doctor was PAID — which carries no link to a test order and cannot be scoped to a test, category or modality. Use "commission_on_orders", the commission frozen on the orders themselves. Its denominator for a share is net_billed over the same orders, never revenue collected.' } as Evidence;
+          error: 'payouts_paid is what payout runs recorded and carries no link to a test. Use "commission", which scopes to any test, department or modality.' } as Evidence;
       }
       if (r.ok && FILTERABLE.has(tool)) {
         /* Excused, not ignored: a constraint marked unfilterable is one the registry genuinely

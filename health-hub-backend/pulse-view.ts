@@ -250,10 +250,13 @@ const PLAN = PLAN_SYS(), INV = INVESTIGATE_SYS();
 const RESP = RESPOND_SYS({ ...contractFor('magnitude'), canShow: ['kpi'] });
 
 console.log('\nwhat the model is told exists\n');
-for (const m of ['billed_on_orders', 'commission_on_orders']) {
+for (const m of ['revenue', 'commission', 'billed_on_orders']) {
   ok(`${m} reaches the planner`, PLAN.includes(m));
   ok(`${m} is filterable and has a FROM`, !!METRIC_DIMS[m] && !!METRICS[m]);
 }
+ok('revenue and commission scope to work', ['revenue', 'commission'].every((m) => METRIC_DIMS[m].includes('modality')));
+ok('the planner is told the catalog comes first', /THE CATALOG FIRST/.test(PLAN) && !/DEFAULT TO "query"/.test(PLAN));
+ok('price is offered to the planner', /\bprice\s+\{match/.test(PLAN));
 ok('compute is offered to the planner', /\bcompute\b/.test(PLAN));
 ok('compute is offered to the INVESTIGATOR, where operands land', /"tool":"compute"/.test(INV));
 ok('derive advertises its filter', /derive\s+\{numerator, denominator, period, filter\}/.test(PLAN));
@@ -272,8 +275,8 @@ for (const [n, p] of [['plan', PLAN], ['investigate', INV], ['respond', RESP]] a
   ok(`${n} has no unresolved template holes`, !/\$\{|\bundefined\b|\[object Object\]/.test(p),
      (p.match(/\$\{[^}]*\}|undefined|\[object Object\]/) || [''])[0]);
 }
-ok('the metric block lists every metric', Object.keys(METRICS).every((m) => METRIC_BLOCK.includes(m)),
-   Object.keys(METRICS).filter((m) => !METRIC_BLOCK.includes(m)).join(','));
+ok('the metric block lists every metric', Object.keys(METRICS).every((m) => METRIC_BLOCK().includes(m)),
+   Object.keys(METRICS).filter((m) => !METRIC_BLOCK().includes(m)).join(','));
 
 /* THE OWNER ASKED NOT TO BE BLOCKED FROM PULLING LISTS, AND THAT IS AN AUTHORIZATION DECISION
    RATHER THAN A PROPERTY OF THE QUERY. It is made at the route, where the asker is known, and

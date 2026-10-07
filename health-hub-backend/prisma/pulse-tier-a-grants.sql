@@ -41,3 +41,8 @@ GRANT SELECT ("id", "conversationId", "direction", "messageType", "status", "isA
 GRANT SELECT ("id", "patientId", "branchId", "assignedToId", "status", "lastInboundAt",
               "lastMessageAt", "unreadCount", "autoRepliedAt", "createdAt", "updatedAt")
   ON "Conversation" TO analytics_ro;
+
+-- Whether a test was closed as "no report needed" (films only). Without it a late report could not
+-- be told from a test that never needed one, and Pulse counted 349 late reports where the
+-- Operations page — whose definition this now shares — counts 13.
+GRANT SELECT ("noReportAt") ON "TestOrder" TO analytics_ro;

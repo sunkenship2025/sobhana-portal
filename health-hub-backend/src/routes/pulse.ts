@@ -37,6 +37,11 @@ router.get('/today', async (_req, res) => {
   catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
 });
 
+router.get('/digest', async (_req, res) => {
+  try { const { digestLines } = await import('../services/pulse/today'); res.json({ lines: await digestLines() }); }
+  catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
+});
+
 router.get('/health', async (_req, res) => {
   try { const [k, model] = await Promise.all([ensureKnowledge(), modelStatus()]); const broken = Object.entries(k.registryHealth).filter(([, v]) => v.startsWith('BROKEN'));
     res.status(broken.length || !model.ok ? 500 : 200).json({ ok: broken.length === 0 && model.ok, model, builtAt: k.builtAt, namesAt: k.namesAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length, registry: k.registryHealth }); }

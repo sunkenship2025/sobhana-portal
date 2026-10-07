@@ -16,7 +16,7 @@ export async function scalar(metric: string, from: string, to: string, extraJoin
   // Kidcare branches are test entries, not trade. Hiding them from a CHART was not enough — they
   // were still being summed into every total, so "this month's revenue" carried test money.
   // Excluded unless the caller named a branch, in which case it was asked for deliberately.
-  if (/"Branch"\s+br\b/.test(fromClause + extraJoin) && !where.some((c) => /br\."?code"?/i.test(c))) {
+  if (TEST_BRANCHES.length && /"Branch"\s+br\b/.test(fromClause + extraJoin) && !where.some((c) => /br\."?code"?/i.test(c))) {
     w.push(`br.code NOT IN (${TEST_BRANCHES.map((b) => `'${b}'`).join(', ')})`);
   }
   if (timeCol) { w.push(`(${timeCol} ${IST}) >= '${from}'`); w.push(`(${timeCol} ${IST}) < '${to}'`); }
@@ -75,6 +75,8 @@ export function periods(kind: string, today = todayIST()) {
      reasonable. The trailing-N forms are spelled generously for that reason: last, past,
      previous, trailing, rolling, with or without separators, "90d" as well as "last-90-days".
      What cannot be parsed still falls back — but far less now reaches it. */
+  // "ever", "most repeat customer", "billed for" with no window: the whole history the system holds
+  if (/^(all|all-time|ever|lifetime|since-start|overall|total)$/.test(k0)) return { cur: { from: '2000-01-01', to: addDays(today, 1) }, prev: { from: '1999-01-01', to: '2000-01-01' }, partial: false, days: 9999, note: 'all time' };
   if (k0 === 'today') { return { cur: { from: today, to: addDays(today, 1) }, prev: { from: addDays(today, -1), to: today }, partial: true, days: 1, note: 'today vs yesterday' }; }
   if (k0 === 'yesterday') { const y = addDays(today, -1); return { cur: { from: y, to: today }, prev: { from: addDays(y, -1), to: y }, partial: false, days: 1, note: 'yesterday vs the day before' }; }
   if (k0 === 'last-month' || k0 === 'previous-month') { const pm = M === 1 ? 12 : M - 1, py = M === 1 ? Y - 1 : Y; kind = `${py}-${String(pm).padStart(2, '0')}`; }

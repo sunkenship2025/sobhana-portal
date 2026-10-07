@@ -14,7 +14,8 @@
  * Hand-written fixtures are how you file bugs against your own imagination.
  */
 import { Artifact } from '../components/pulse/PulseArtifacts';
-import { TurnView } from '../components/pulse/PulsePanel';
+import { useState } from 'react';
+import { TurnView, PulsePanel } from '../components/pulse/PulsePanel';
 import '../components/pulse/pulse.css';
 import EV from './fixtures.json';
 
@@ -88,7 +89,22 @@ const TURNS: any[] = [
       evidence: EV, chips: [] } },
 ];
 
+/* The panel's own states — the opening screen with the month's digest and a low-credit line, and
+   a question in flight, where Ask becomes Stop. Fake hook values; nothing is fetched. */
+const noop = () => {};
+const fakePanel = (over: any) => ({ open: true, setOpen: noop, expanded: false, setExpanded: noop, turns: [], digest: null, todayFailed: false,
+  thinking: false, ask: noop, stop: noop, rate: noop, prefetch: noop, toggleCollapse: noop, reset: noop, branchName: 'All branches', context: {},
+  today: { date: '2026-10-07', sofar: true, collectionToday: 1680000, vsUsual: null, cases: 17, due: 970200, lateReports: 13,
+    chips: [{ label: 'which reports are late', q: '' }, { label: 'who owes money', q: '' }], model: { ok: true, usd: 1.05 } }, ...over });
+const PANELS = [
+  { title: 'opening screen — digest, low credit', p: fakePanel({ digest: ['Collected ₹4,14,930 over 1–6 Oct, +12.2% on the same days last month.',
+    'Biggest moves: CNT (branch) +₹54,355; Partner labs (source) -₹15,800.', 'Billing from referrers who stopped: ₹41,350 — 21 doctors sent work last time and none this time.', '13 reports past 24 hours.'] }) },
+  { title: 'model out of credit', p: fakePanel({ today: { ...fakePanel({}).today, model: { ok: false, usd: 0, why: 'the model account is out of credit' } } }) },
+  { title: 'thinking — Stop replaces Ask', p: fakePanel({ thinking: true, turns: [{ id: 1, q: 'where am i losing money', pending: true, steps: [{ text: 'Working out what to measure', kind: 'phase' }] }] }) },
+];
+
 export default function ArtifactGallery() {
+  const [ratings, setRatings] = useState<Record<number, 'up' | 'down'>>({});
   /* THE REAL PANEL IS 420px COLLAPSED AND 600px EXPANDED, and every card must survive the
      narrow one — that is the default and the one most owners never change. Rendering the gallery
      wider than the product is how a table with six columns looks fine in review and unreadable in
@@ -106,9 +122,18 @@ export default function ArtifactGallery() {
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: `repeat(auto-fill, ${w}px)`, marginBottom: 28 }}>
         {TURNS.map((t, i) => (
           <section key={i} data-turn={i} style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e6e8eb' }}>
-            <TurnView t={t as any} onAsk={() => {}} onExpand={() => {}} />
+            <TurnView t={{ ...t, rating: ratings[t.id], answer: { ...t.answer, turn: `fixture-${t.id}` } } as any} onAsk={() => {}} onExpand={() => {}}
+              onRate={(r) => setRatings((x) => ({ ...x, [t.id]: r }))} />
           </section>
         ))}
+      </div>
+      <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>The panel</h2>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 28 }}>
+        {PANELS.map((x) => (
+          <section key={x.title} data-panel={x.title} style={{ width: 460, height: 640, position: 'relative', transform: 'translateZ(0)' }}>
+            <code style={{ fontSize: 12, fontWeight: 600 }}>{x.title}</code>
+            <PulsePanel p={x.p as any} onClose={noop} />
+          </section>))}
       </div>
       <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Every artifact type</h2>
       <div style={{ display: 'grid', gap: 20, gridTemplateColumns: `repeat(auto-fill, ${w}px)` }}>

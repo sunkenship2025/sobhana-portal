@@ -290,7 +290,14 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
                   <div className={`mt-0.5 text-[17px] font-semibold ${warn ? 'text-[#D91C2B]' : ''}`}>{v}</div>
                 </div>))}
             </div>
-            <Chips chips={p.today.chips} onAsk={submit} />
+            {!!p.digest?.length && (
+              <div className="rounded-xl border bg-card px-4 py-3">
+                <div className="text-[10.5px] font-medium uppercase tracking-[.08em] text-muted-foreground">This month so far</div>
+                <ul className="mt-1.5 space-y-1">
+                  {p.digest.map((l, i) => <li key={i} className="text-[12.5px] leading-[1.5]">{l}</li>)}
+                </ul>
+              </div>)}
+            <Chips chips={[...p.today.chips, { label: 'Where am I losing money', q: 'where am i losing money' }]} onAsk={submit} />
           </div>
         ) : p.todayFailed ? (
           <div className="pt-2">

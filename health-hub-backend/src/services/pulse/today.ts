@@ -7,7 +7,7 @@
  */
 import { query, todayIST } from './db';
 import { addDays } from './diagnostic';
-import { DUE, OWES } from './catalog';
+import { DUE, OWES, OPEN_VISIT } from './catalog';
 import { getMoneyFacts, totalsOf } from '../moneyFactsService';
 
 export interface Today { date: string; sofar: boolean; collectionToday: number; vsUsual: number | null; cases: number; due: number; lateReports: number; chips: { label: string; q: string }[]; builtAt: number }
@@ -23,7 +23,7 @@ export async function todayPack(): Promise<Today> {
   const [{ days }, due, lateReports] = await Promise.all([
     getMoneyFacts({ start: istMidnight(addDays(t, -56)), end: istMidnight(tomorrow), branchId: null, domain: null }),
     num(`SELECT COALESCE(SUM(${DUE()}),0) v FROM "Bill" b WHERE ${OWES()}`),
-    num(`SELECT count(*) v FROM "Visit" v JOIN "DiagnosticReport" dr ON dr."visitId"=v.id WHERE v."createdAt" < now() - interval '24 hours' AND v."createdAt" > now() - interval '14 days' AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')`),
+    num(`SELECT count(*) v FROM "Visit" v WHERE ${OPEN_VISIT()} AND v."createdAt" < now() - interval '24 hours'`),
   ]);
   const on = (d: string) => totalsOf(days.filter((f) => f.date === d));
   const now = on(t);
@@ -40,4 +40,30 @@ export async function todayPack(): Promise<Today> {
   if (!chips.length) chips.push({ label: 'collection this month', q: 'this month collection how much' }, { label: 'doctor wise', q: 'doctor wise cases this month top 5' });
   cache = { date: t, sofar: hourIST < 17, collectionToday, vsUsual, cases, due, lateReports, chips: chips.slice(0, 2), builtAt: Date.now() };
   return cache;
+}
+
+/**
+ * The month so far, in three or four plain lines — the digest the owner would otherwise have to
+ * ask for. Built from the insights tool, so every figure is the Money page's, and no model is
+ * called. Cached 15 minutes; it is also the body of the daily WhatsApp digest once Meta approves
+ * the template.
+ */
+let digestCache: { at: number; lines: string[] } | null = null;
+export async function digestLines(): Promise<string[]> {
+  if (digestCache && Date.now() - digestCache.at < 15 * 60 * 1000) return digestCache.lines;
+  const { TOOLS } = await import('./v2/tools');
+  const r: any = await TOOLS.insights({}, null as any);
+  if (!r.ok) return [];
+  const s = r.summary;
+  const [from, to] = s.window.split(',')[0].split(' to ');
+  const day = (d: string) => Number(d.slice(8)), mon = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
+  const span = mon(from) === mon(to) ? `${day(from)}–${day(to)} ${mon(to)}` : `${day(from)} ${mon(from)} – ${day(to)} ${mon(to)}`;
+  const lines = [`Collected ${s.collected.now} over ${span}, ${s.collected.changePct} on the same days last month.`];
+  const up = (s.parts || []).find((p: any) => p.change.startsWith('+')), down = (s.parts || []).find((p: any) => p.change.startsWith('-'));
+  if (up || down) lines.push(`Biggest moves: ${[up && `${up.name} ${up.change}`, down && `${down.name} ${down.change}`].filter(Boolean).join('; ')}.`);
+  const leak = (s.leaks || []).find((l: any) => l.name !== 'Referral commission');
+  if (leak) lines.push(`${leak.name}: ${leak.value} — ${leak.note}.`);
+  if (s.reportsLate > 0) lines.push(`${s.reportsLate} report${s.reportsLate === 1 ? '' : 's'} past 24 hours.`);
+  digestCache = { at: Date.now(), lines };
+  return lines;
 }

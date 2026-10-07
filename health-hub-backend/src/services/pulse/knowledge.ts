@@ -122,22 +122,13 @@ COUNTING A PARENT THROUGH A ONE-TO-MANY CHILD
  * test branch bottom and then invented a reason for it ("its first visit was 5 Aug, so it has
  * just opened") because the fact lived in the SQL prompt where the narrator never saw it.
  */
-export const BUSINESS_FACTS = `WHICH BRANCHES ARE REAL — the owner told us this; the row counts alone do not say it
-  LIVE, and the whole business:  CNT (Sobhana - Chintal) and BLN (Sobhana - Balanagar).
-  NOT IN USE:  JGG (Jagathgiri Gutta - Kidcare) and IDPL (IDPL - Kidcare). Both Kidcare branches
-  exist only for TESTING. Their rows are test entries, not trade.
-  · Never present a movement at JGG or IDPL as a business finding, and never explain one. "JGG
-    revenue fell 24%" on twenty-nine lifetime visits is noise reported as news.
-  · Keep them out of rankings, "which branch is worst", quiet-doctor lists and anomalies unless
-    the owner names the branch.
-  · EXCLUDE THEM FROM EVERY FIGURE unless the owner names the branch: add
-    br.code NOT IN ('JGG','IDPL') wherever the query touches Branch. I had this the other way
-    round and it was wrong. Test entries inside a revenue total are not a rounding error, they
-    are wrong money — the owner asked what the business EARNED, and a test transaction is not
-    earnings. Hiding them from a chart while still summing them into the total was the worst of
-    both: the number was wrong and the reason was invisible.
-  · If the owner asks about them directly, answer, and say plainly that the branch is only used
-    for testing so the numbers are not real trade.`;
+export const BUSINESS_FACTS = `THE BRANCHES
+  CNT (Sobhana - Chintal) and BLN (Sobhana - Balanagar) carry almost all the business.
+  JGG (Jagathgiri Gutta - Kidcare) and IDPL (IDPL - Kidcare) are small Kidcare branches — a few
+  dozen transactions a month. They are counted in every total, exactly as the owner's dashboard
+  counts them, so a Pulse figure and the dashboard always agree.
+  · A percentage move at JGG or IDPL rests on a handful of visits: say how few before calling it
+    a trend.`;
 
 export const ONTOLOGY = `BUSINESS ONTOLOGY — how the business concepts relate
 
@@ -772,7 +763,7 @@ export function mentionsKnown(k: Knowledge, q: string): boolean {
 }
 export function assemble(k: Knowledge, q: string): string {
   const adv = needsAdvanced(q) ? `\n${ADVANCED}` : '';
-  return `DATABASE SCHEMA\n${k.graphSchema}\n\nENUMS\n${k.enums}\n${coverageFor(k, q)}\n${GLOSSARY()}\n${ONTOLOGY}\n${CONVENTIONS}\n${SOFT}\n${METRIC_BLOCK}\n\n${DIM_BLOCK}\n${FEWSHOT}${adv}${resolveValues(k, q)}\n\nQUESTION\n${q}`;
+  return `DATABASE SCHEMA\n${k.graphSchema}\n\nENUMS\n${k.enums}\n${coverageFor(k, q)}\n${GLOSSARY()}\n${ONTOLOGY}\n${CONVENTIONS}\n${SOFT}\n${METRIC_BLOCK()}\n\n${DIM_BLOCK}\n${FEWSHOT}${adv}${resolveValues(k, q)}\n\nQUESTION\n${q}`;
 }
 export { METRICS };
 

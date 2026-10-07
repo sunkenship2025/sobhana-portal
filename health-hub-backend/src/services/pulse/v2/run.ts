@@ -18,6 +18,10 @@ import { renderOptions, describeEvidence, rowsOf, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
+import { dimOk } from '../catalog';
+import { factsOf, withFigures } from './facts';
+/** catalog tools whose scope travels in args.filter */
+const CATALOG = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'derive']);
 import { turnSignal } from '../llm';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
@@ -138,26 +142,29 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     chips: [{ label: 'patients not back in 90 days', q: 'how many patients have not returned in 90 days' }, { label: 'new patients this month', q: 'new patients this month' }], state: { ...state, lastQ: q } };
 
   let steps = (plan.steps || []).slice(0, 6);
-  // A registry tool computes one fixed thing. If it is the ONLY step and the question carries a
-  // qualifier its arguments cannot express, the number will be right for a different question —
-  // the "Chintal billed 14,111 tests" failure. Send those to query, which sees the whole sentence.
-  const QUALIFIED = /\bmedian\b|\bpercentile\b|\baverage\b|\bper\b|\bnever\b|\bmore than\b|\bat least\b|\beach\b|\bdistinct\b|\bunique\b|\bboth\b|\bwithout\b|\bexcept\b|\bonly\b|\bcame back\b|\breturn(ed)?\b|\brepeat\b|\bfirst[- ]?(ever|time|visit)\b|\bstopped\b|\bnot\b|\bno\b |\bwhich day\b|\bhighest\b.*\bday\b/i;
-  const REGISTRY = new Set(['metric', 'compare', 'derive']);
-  // A qualifier the plan never carries is the silent-drop failure: "only lab" answered with the
-  // total including OP fees, labelled "lab collection". Validated filters catch a WRONG filter;
-  // nothing caught a MISSING one. If the question scopes it and no step does, send it to query,
-  // which sees the whole sentence.
-  // Any qualifier in the question the SPEC failed to capture is the silent-drop failure. Trust
-  // the spec when it has one; fall back to the semantic index when the analyst wrote none.
+  /* CATALOG FIRST. A qualifier in the owner's sentence — declared in the spec or only found in the
+     words — is ADDED to every catalog step whose metric can carry it. "chintal only lab" is revenue
+     with two filters, not a reason to write SQL. This used to work the other way: any qualifier,
+     or any of two dozen words ("only", "per", "not", "average"), threw the whole question to
+     generated SQL, which is why half of all steps were model-written queries and a third of
+     those failed. Only a qualifier NO step can express still goes to SQL. */
+  const scopeOf = [...(spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value)
+    .map((c: any) => ({ dimension: String(c.dimension), value: c.values?.length ? c.values : c.value })),
+    ...scopeTermsIn(q).filter((c) => c.dimension && c.value).map((c) => ({ dimension: String(c.dimension), value: c.value as any }))];
+  const wanted = scopeOf.filter((c, i) => scopeOf.findIndex((x) => x.dimension === c.dimension) === i);
+  for (const st of steps as any[]) {
+    if (!CATALOG.has(st?.tool) || !st.args?.metric) continue;
+    for (const c of wanted) {
+      if (st.args.filter?.[c.dimension] != null || st.args.dimension === c.dimension) continue;
+      if (dimOk(st.args.metric, c.dimension)) st.args = { ...st.args, filter: { ...(st.args.filter || {}), [c.dimension]: c.value } };
+    }
+  }
   const declared = new Set((spec?.scope || []).map((c) => c.dimension));
-  const found = scopeTermsIn(q);
-  const uncaptured = found.filter((c) => c.dimension && !declared.has(c.dimension));
+  const uncaptured = scopeTermsIn(q).filter((c) => c.dimension && !declared.has(c.dimension));
   const covered = (c: { dimension: string | null }) => steps.some((st: any) =>
-    (c.dimension && st?.args?.filter?.[c.dimension] != null) || st?.args?.dimension === c.dimension || st?.tool === 'query');
+    (c.dimension && st?.args?.filter?.[c.dimension] != null) || st?.args?.dimension === c.dimension || st?.tool === 'query' || !CATALOG.has(st?.tool));
   if (uncaptured.length && !uncaptured.every(covered))
     steps = [{ tool: 'query', label: 'answer the question as asked', args: { question: q } }];
-  if (steps.length === 1 && REGISTRY.has(steps[0]?.tool) && QUALIFIED.test(q))
-    steps = [{ tool: 'query', label: steps[0].label || 'answer the question', args: { question: q } }];
   // A single query step answers the whole question, so it gets the owner's words verbatim. The
   // analyst's paraphrase drops qualifiers ("in August", "excluding cancelled") often enough to
   // matter, and the SQL is then written for a subtly different question.
@@ -469,12 +476,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // truncates mid-JSON, V2 throws, and V1 answers a DIFFERENT question with none of this evidence.
   // Everything above is thrown away for a formatting hiccup. One retry, told to keep it short.
   let res: any;
-  try { res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options); }
+  const facts = factsOf(usable);
+  const filled = (r: any) => withFigures(r, facts).res;
+  try { res = filled(await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options, facts)); }
   catch (e: any) {
     say('Tightening the write-up', 'phase');
-    res = await askResponse(q, plan.goal || '', usable, findings, contract,
+    res = filled(await askResponse(q, plan.goal || '', usable, findings, contract,
       'Your last reply was cut off before it was valid JSON. Say the same thing in fewer words.',
-      brief(inv), options);
+      brief(inv), options, facts));
     calls++;
   }
   calls++;
@@ -488,9 +497,17 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   let check = checkAnswer(contract, text, artifacts, allowed, usable, undefined, spec);
   // what was wrong BEFORE the repair — recording the post-repair state says nothing
   const firstViolations = check.violations;
-  if (!check.ok) {
+  /* Too many figures is a layout problem, not a wrong answer: simplify() keeps the sentences that
+     carry the conclusion, deterministically, for free. Only a violation about TRUTH — a figure from
+     nowhere, a scope or period claimed that no step measured, a required card missing — is worth
+     a second model call. Density alone caused 25 of the 27 rewrites on record. */
+  const DENSITY = /numbers?, more than|carries \d+ numbers/;
+  if (!check.ok && check.violations.every((v: string) => DENSITY.test(v))) {
+    const simple = simplify(contract, text, artifacts);
+    if (simple.dropped) { text = simple.text; simplified = true; }
+  } else if (!check.ok) {
     try {
-      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv), options); calls++;
+      const again = filled(await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv), options, facts)); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || compose(again) || '').trim();
       repaired = true;
       if (t2 && checkAnswer(contract, t2, a2, allowed, usable, undefined, spec).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }

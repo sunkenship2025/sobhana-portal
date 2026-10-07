@@ -18,11 +18,13 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { ensureKnowledge } from './src/services/pulse/knowledge';
 import { runStep } from './src/services/pulse/v2/tools';
+import { scalar, addDays } from './src/services/pulse/diagnostic';
+import { todayIST } from './src/services/pulse/db';
+import { getMoneyFacts, totalsOf, getCollectedSplits } from './src/services/moneyFactsService';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.ANALYTICS_DATABASE_URL || process.env.DATABASE_URL } } });
 const IST = (x: string) => `(${x} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')`;
 const IMG = `'Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI'`;
-const COMM = `SUM(CASE WHEN o."referralCommissionType"='PERCENTAGE' THEN ROUND(o."priceInPaise" * COALESCE(o."referralCommissionPercentage",0)/100.0) ELSE COALESCE(o."referralCommissionAmountInPaise",0) END)`;
 
 let pass = 0, fail = 0;
 const ok = (name: string, got: any, want: any, why = '') => {
@@ -42,38 +44,61 @@ const near = (name: string, got: number, want: number, tol: number) => {
 
   // ── truth, computed here, independently of anything the layer does ──────────────────────
   const t: any = (await db.$queryRawUnsafe(`
-    SELECT COUNT(*) n, SUM(o."priceInPaise") billed, ${COMM} comm
+    SELECT COUNT(*) n, SUM(o."priceInPaise") billed
     FROM "TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=v."branchId"
-    WHERE o."payoutCategorySnapshot" IN (${IMG}) AND br.code NOT IN ('JGG','IDPL')
+    WHERE o."payoutCategorySnapshot" IN (${IMG}) AND o."cancelledAt" IS NULL AND o."replacedAt" IS NULL
       AND ${IST('o."createdAt"')} >= CURRENT_DATE - 90 AND ${IST('o."createdAt"')} < CURRENT_DATE`))[0];
-  const N = Number(t.n), B = Number(t.billed), C = Number(t.comm);
-  console.log(`\ntruth (imaging, 90d, live): ${N} orders  billed ₹${Math.round(B/100).toLocaleString('en-IN')}  commission ₹${Math.round(C/100).toLocaleString('en-IN')}\n`);
+  const N = Number(t.n), B = Number(t.billed);
+  console.log(`\ntruth (imaging, 90d, live): ${N} orders  billed ₹${Math.round(B/100).toLocaleString('en-IN')}\n`);
+
+  /* THE OWNER'S OWN PAGE IS THE TRUTH FOR MONEY. Pulse's revenue and commission are the money
+     engine's definitions written out row by row; if either drifts, a Pulse answer and the Money
+     page show two numbers for one thing, which is the failure the owner called out by name. */
+  console.log('MONEY PAGE PARITY — every Pulse money figure equals the dashboard, to the rupee');
+  const T0 = todayIST(); const at = (d: string) => new Date(`${d}T00:00:00+05:30`);
+  const r0 = (x: number) => Math.round(x / 100);
+  for (const [label, from, to] of [['yesterday', addDays(T0, -1), T0], ['month to date', T0.slice(0, 8) + '01', addDays(T0, 1)], ['last 30 days', addDays(T0, -30), T0]] as [string, string, string][]) {
+    const e = totalsOf((await getMoneyFacts({ start: at(from), end: at(to), branchId: null, domain: null })).days);
+    const ect = (await getCollectedSplits({ start: at(from), end: at(to), branchId: null, domain: null }, at(from), at(from))).filter((x) => x.category === 'CT / MRI').reduce((s2, x) => s2 + x.collected, 0);
+    ok(`collected, ${label}`, r0(await scalar('revenue', from, to)), r0(e.netCollected));
+    ok(`commission, ${label}`, r0(await scalar('commission', from, to)), r0(e.commission));
+    ok(`CT collected, ${label}`, r0(await scalar('revenue', from, to, '', null, [`o."payoutCategorySnapshot" IN ('CT / MRI')`])), r0(ect));
+  }
 
   const IMGF = { service_kind: 'IMAGING' };
   const CT = { payout_category: 'CT / MRI' };
   console.log('SCOPED METRICS — a filter the registry could not express is how every CT figure came back 0');
-  const b = await step({ tool: 'metric', args: { metric: 'billed_on_orders', period: 'last_90_days', filter: IMGF } });
-  const c = await step({ tool: 'metric', args: { metric: 'commission_on_orders', period: 'last_90_days', filter: IMGF } });
+  const b = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days', filter: IMGF } });
+  const c = await step({ tool: 'metric', args: { metric: 'commission', period: 'last_90_days', filter: IMGF } });
   const n = await step({ tool: 'metric', args: { metric: 'test_orders', period: 'last_90_days', filter: IMGF } });
-  near('billed_on_orders scoped to imaging', Number(b.data?.value ?? b.data), B, 0.02);
-  near('commission_on_orders scoped to imaging', Number(c.data?.value ?? c.data), C, 0.02);
+  const bo = await step({ tool: 'metric', args: { metric: 'billed_on_orders', period: 'last_90_days', filter: IMGF } });
+  near('billed_on_orders scoped to imaging', Number(bo.data?.value ?? bo.data), B, 0.02);
   near('test_orders scoped to imaging', Number(n.data?.value ?? n.data), N, 0.02);
+  ok('revenue scoped to imaging answers', b.ok && Number(b.data?.value) > 0, true, b.error);
+  ok('commission scoped to imaging answers', c.ok && Number(c.data?.value) > 0, true, c.error);
+  const C = Number(c.data?.value), R = Number(b.data?.value);
+  // the parts add back up to the headline — the owner's rule for every split
+  for (const m of ['revenue', 'commission']) {
+    const whole = Number((await step({ tool: 'metric', args: { metric: m, period: 'last_90_days' } })).data?.value);
+    const parts = (await step({ tool: 'breakdown', args: { metric: m, dimension: 'service_kind', period: 'last_90_days' } })).data?.rows || [];
+    ok(`${m} by service kind adds up to the total`, Math.round(parts.reduce((s2: number, r: any) => s2 + r.v, 0) / 100), Math.round(whole / 100));
+  }
 
   console.log('\nSCOPED RATIO — the filter must reach BOTH halves, or the two cover different rows');
-  const share = await step({ tool: 'derive', args: { numerator: 'commission_on_orders', denominator: 'billed_on_orders', period: 'last_90_days', filter: IMGF } });
-  ok('commission share of imaging', share.summary?.value, `${(C / B * 100).toFixed(1)}%`);
+  const share = await step({ tool: 'derive', args: { numerator: 'commission', denominator: 'revenue', period: 'last_90_days', filter: IMGF } });
+  ok('commission share of imaging', share.summary?.value, `${(C / R * 100).toFixed(1)}%`);
   const per = await step({ tool: 'derive', args: { numerator: 'billed_on_orders', denominator: 'test_orders', period: 'last_90_days', filter: IMGF } });
   near('billed per imaging scan', Number(per.data?.value) / 100, B / 100 / N, 0.02);
 
   console.log('\nREPEATABILITY — the same question twice is the same number');
   const again: string[] = [];
-  for (let i = 0; i < 3; i++) { const r = await step({ tool: 'derive', args: { numerator: 'commission_on_orders', denominator: 'billed_on_orders', period: 'last_90_days', filter: IMGF } }); again.push(r.summary?.value); }
+  for (let i = 0; i < 3; i++) { const r = await step({ tool: 'derive', args: { numerator: 'commission', denominator: 'revenue', period: 'last_90_days', filter: IMGF } }); again.push(r.summary?.value); }
   ok('three runs agree', new Set(again).size, 1, again.join('/'));
 
   console.log('\nARITHMETIC — paise, and operands that may not be combined');
   const pay = await step({ tool: 'compute', args: { formula: 'capital / ((billed - commission) / 3)', unit: 'months',
     let: { capital: { value: 5000000, unit: 'rupees' }, billed: { step: 0 }, commission: { step: 1 } } } }, [{ ...b, step: 0 }, { ...c, step: 1 }]);
-  near('CT-style payback, paise normalised', Number(pay.data?.value), 5000000 / ((B - C) / 100 / 3), 0.02);
+  near('CT-style payback, paise normalised', Number(pay.data?.value), 5000000 / ((R - C) / 100 / 3), 0.02);
   /* A GENERATED QUERY DECLARES NO UNIT, AND ITS COLUMN IS THE ONLY THING THAT SAYS PAISE.
      ₹1,32,500 of CT billing was divided into ₹50,00,000 as though it were ₹1,32,50,000 — a fifty
      lakh scanner paying for itself in half a month, from an answer that said out loud the
@@ -112,12 +137,12 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('refuses money supplied as paise', paise.ok, false, 'a 100x error that looks plausible');
 
   console.log('\nROUTING — a dead end is retried; a direction is followed');
-  const wrong: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days', filter: CT } });
-  ok('revenue refuses a work scope', wrong.ok, false, 'cash lives on payments, not orders');
-  ok('  and names the metric that can', /billed_on_orders/.test(String(wrong.error)), true, String(wrong.error).slice(0, 80));
-  ok('  value metric ranked above cost', String(wrong.error).indexOf('billed_on_orders') < String(wrong.error).indexOf('commission_on_orders'), true);
-  const right: any = await step({ tool: 'metric', args: { metric: 'billed_on_orders', period: 'last_90_days', filter: CT } });
-  ok('the named metric actually answers', right.ok, true, right.error);
+  const ctRev: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days', filter: CT } });
+  ok('revenue answers for a kind of work', ctRev.ok, true, ctRev.error);
+  const wrong: any = await runStep({ tool: 'metric', args: { metric: 'net_billed', period: 'last_90_days' } }, 0, k,
+    { goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI', confidence: 1 }] } as any, {}, [], 'ct billing');
+  ok('net_billed refuses a work scope', wrong.ok, false, 'a bill is not a test');
+  ok('  and names the metric that can', /"revenue"/.test(String(wrong.error)), true, String(wrong.error).slice(0, 80));
   const plain: any = await step({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } });
   ok('unscoped revenue still works', plain.ok, true, 'the guard must not block the common case');
   const marginQ: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_90_days' } }, 0, k,
@@ -165,9 +190,9 @@ const near = (name: string, got: number, want: number, tol: number) => {
   const q0 = 'how many months would it take to pay back a 50 lakh CT scanner at our current CT volume';
   const sp: any = completeSpec({ goal: '', scope: [{ term: 'CT', dimension: 'payout_category', value: 'CT / MRI' }] } as any, q0);
   ok('the question fixes its own window', sp?.time?.period, 'last-90-days');
-  const ctB: any = await runStep({ tool: 'metric', args: { metric: 'billed_on_orders', period: sp.time.period, filter: CT } }, 0, k, sp, {}, [], q0);
-  const ctC: any = await runStep({ tool: 'metric', args: { metric: 'commission_on_orders', period: sp.time.period, filter: CT } }, 1, k, sp, {}, [], q0);
-  ok('CT billed is measurable', ctB.ok && Number(ctB.data?.value) > 0, true, ctB.error);
+  const ctB: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: sp.time.period, filter: CT } }, 0, k, sp, {}, [], q0);
+  const ctC: any = await runStep({ tool: 'metric', args: { metric: 'commission', period: sp.time.period, filter: CT } }, 1, k, sp, {}, [], q0);
+  ok('CT collection is measurable', ctB.ok && Number(ctB.data?.value) > 0, true, ctB.error);
   ok('CT commission is measurable', ctC.ok && Number(ctC.data?.value) > 0, true, ctC.error);
   const months: string[] = [];
   for (let i = 0; i < 3; i++) {
@@ -176,7 +201,7 @@ const near = (name: string, got: number, want: number, tol: number) => {
     months.push(r.ok ? r.summary.value : `ERR ${r.error}`);
   }
   ok('payback computes, same every time', new Set(months).size === 1 && !months[0].startsWith('ERR'), true, months.join(' / '));
-  console.log(`     → ${months[0]} from ₹${Math.round(Number(ctB.data.value)/100).toLocaleString('en-IN')} billed less ₹${Math.round(Number(ctC.data.value)/100).toLocaleString('en-IN')} commission over 90 days`);
+  console.log(`     → ${months[0]} from ₹${Math.round(Number(ctB.data.value)/100).toLocaleString('en-IN')} collected less ₹${Math.round(Number(ctC.data.value)/100).toLocaleString('en-IN')} commission over 90 days`);
 
   /* THE CONTRACT CHECKS, BOTH DIRECTIONS. These are the last line before an answer reaches the
      owner, and they are pure functions — so there is no excuse for them being the only thing here
@@ -256,7 +281,7 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('baseline refuses a filter it cannot express', baseFiltered.ok, false, String(baseFiltered.error).slice(0, 60));
 
   console.log('\nAN EMPTY WINDOW IS NOT AN EMPTY RESULT');
-  const noPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-90-days', priorDays: 180 } });
+  const noPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-180-days', priorDays: 180 } });   // data begins 1 Jul 2026; this prior window ends before it
   ok('a prior window predating all data refuses', noPrior.ok, false, 'zero lapsed doctors would be a claim about the doctors');
   ok('  and names the horizon', /history only begins|no referrals exist between/.test(String(noPrior.error)), true, String(noPrior.error).slice(0, 70));
   const hasPrior: any = await step({ tool: 'quiet_doctors', args: { period: 'last-30-days', priorDays: 30 } });

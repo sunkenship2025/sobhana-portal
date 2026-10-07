@@ -15,6 +15,7 @@ import type { Contract } from './contract';
 import { JOBS, type AnalyticalJob } from './capability';
 import { conceptSummary, BUSINESS_FACTS } from '../knowledge';
 import type { Evidence } from './tools';
+import { factTable, type Fact } from './facts';
 
 const metricLines = Object.entries(METRICS).map(([n, m]) => `  ${n} [${m.u}] ${m.d.split('.')[0]}${METRIC_DIMS[n] ? ` · splits by: ${METRIC_DIMS[n].join(', ')}` : ''}`).join('\n');
 
@@ -30,23 +31,20 @@ const TOOLBOX = `TOOLS
       track something, check the tools above and the schema; they built this system and they
       know what is in it. Denying a feature that exists is the worst answer you can give.
 
-  query       {question}
-      Writes SQL for exactly the question you give it, against the full schema, with the house
-      metric definitions and this centre's conventions already in the prompt. It is the ACCURATE
-      general tool and the right default for any question that asks for a specific figure.
-      Give it the question in full, including every qualifier — the branch, the period, the
-      condition. It handles anything: cohorts, medians, anti-joins, self-joins, per-parent
-      averages, "never", "more than two", "each", a single named day.
-
-  The tools below are FAST and exact, but each computes one fixed thing. Use one only when the
-  question is exactly that thing with no extra condition. If the question adds a qualifier the
-  tool's arguments cannot express, use "query" instead — a close number is a wrong number.
+  THE CATALOG — use these first. Every figure they return is the figure on the owner's own
+  dashboard and Money page, computed the same way, the same every time. Every qualifier the owner
+  says becomes a filter: {branch, domain, payment_type, test, payout_category, modality,
+  service_kind, workflow_mode, weekday, referring_doctor} — whichever the metric lists below.
 
   metric      {metric, period, filter}                 one figure. filter e.g. {branch:"CNT"}
   compare     {metric, period, filter}                 this period vs the comparable one before
   breakdown   {metric, dimension, period, filter}      split, with each part's share of the change
   rank        {metric, dimension, period, limit}       top members of a dimension
-  trend       {metric, bucket:"day|week|month", buckets}   the series over time
+  trend       {metric, bucket:"day|week|month", buckets, filter}   the series over time
+      "every Friday" is a day trend with filter {weekday:"Friday"}.
+  price       {match, sort, limit}                     LIST PRICE of a test or package — "what does
+      X cost", "which CT is most expensive". match is a code or a word the name starts with.
+      A price is a rate: never answer it by summing orders.
   baseline    {metric, period}                         is this normal, or genuinely unusual?
   anomaly     {metrics:[...], period}                  which headline numbers are off-normal
   derive      {numerator, denominator, period, filter}  one metric divided by another, SCOPED
@@ -54,9 +52,9 @@ const TOOLBOX = `TOOLS
       applied to both sides, so the two halves always cover the same rows. Prefer it over a
       generated query whenever both metrics exist — a registry ratio is the same number every
       time it is asked, and a generated one is not.
-      Scoped to work (a test, category, modality or service kind), the operands are
-      billed_on_orders and commission_on_orders — never revenue, which is cash and belongs to
-      payments rather than orders.
+      revenue and commission both scope to a test, category, modality or service kind, and each
+      carries that work's share — so "CT commission as a share of CT collection" is derive with
+      the same {modality:"CT / MRI"} filter on both.
   compute     {formula, let, unit, means}              ARITHMETIC OVER FIGURES YOU ALREADY HAVE
       The only place a calculation may happen. You may not do arithmetic in the answer, so a
       question whose answer is "these two numbers, subtracted, divided by that one" is answered
@@ -76,6 +74,21 @@ const TOOLBOX = `TOOLS
       · formula takes only + - * / ( ) and your operand names.
       · unit is what the RESULT is: rupees, percent, months, years, days, or number.
       · A step that measures a SPLIT has no single figure — measure the one number you need.
+
+  query       {question}
+      THE FALLBACK. Writes SQL for one question the catalog cannot express — a cohort, an
+      anti-join, a single named record, a column no dimension covers. Give it the question in
+      full with every qualifier. It costs a model call, it is not the same twice, and every use is
+      logged as a gap in the catalog — so use it only when nothing above fits.
+
+THE DIGEST — for the open questions
+  insights         {}
+      "How is the business", "why is it up / down", "where am I losing money", "how can I improve
+      or grow", "what should I worry about": this month against the same days of last month, what
+      moved it (department, source, branch, referring doctor), and every leak sized in rupees —
+      commission, referrers who stopped, discounts, dues, refunds, cancellations — plus late
+      reports. Computed by code, ranked by money. ONE step answers these questions; add a step
+      only to go deeper on a finding the owner names.
 
 OPERATIONAL TOOLS — states of the business, not metrics. These are what an owner can act on.
   receivables      {}                                money earned and not collected, and where
@@ -106,17 +119,24 @@ METRICS — the house definitions, used by the tools above and available to "que
 ${metricLines}
 
 THE OWNER'S WORDS FOR THESE — "cases" is not "tests"
-  collection / collected / kitna aaya / paisa   -> revenue        (money RECEIVED)
+  collection / collected / turnover / making / kitna aaya / paisa -> revenue   (money RECEIVED)
   billing / billed                              -> net_billed     (value INVOICED, not collection)
+  "how much has <test> been billed for"         -> billed_on_orders with {test}
   cases / footfall / patients came / kitne aaye -> visits         (NOT test_orders)
   tests / investigations / profiles             -> test_orders
   due / pending / outstanding / baaki           -> outstanding
-  referral amount / commission / kitna dena hai -> commission
+  referral amount / commission / kitna dena hai -> commission     (what is owed on the work)
+  "what did we pay out" / payout runs           -> payouts_paid
+  net / profit after commission                 -> revenue minus commission, with compute
   "doctor wise", "which doctors", "who is sending" means the REFERRING doctor
   (ReferralDoctor), never the clinic doctor who sees the patient.
 
 SCOPE WORDS — these narrow the question and MUST become a filter, never be ignored
-  lab / diagnostics / tests / scans / investigations  -> filter {domain:"DIAGNOSTICS"}
+  lab / diagnostics / investigations                  -> filter {domain:"DIAGNOSTICS"}
+  scans / imaging                                     -> filter {service_kind:"IMAGING"}
+  CT / ultrasound / USG / x-ray                       -> filter {modality:"CT / MRI" | "Ultrasound" | "X-Ray"}
+  external / bill only / reportable reports           -> filter {workflow_mode:"EXTERNAL_UPLOAD" | "BILL_ONLY" | "REPORTABLE"}
+  on Fridays / every Monday                           -> filter {weekday:"Friday"}
   OP / IP / clinic / consultation / doctor visit      -> filter {domain:"CLINIC"}
   chintal CNT / balanagar BLN / jagadgirigutta JGG / idpl IDPL -> filter {branch:"<code>"}
   cash / online / cheque                              -> filter {payment_type:"CASH|ONLINE|CHEQUE"}
@@ -131,7 +151,8 @@ ${conceptSummary()}
 
 ${BUSINESS_FACTS}
 PERIODS: "month" (month-to-date vs the same days last month), "week" (trailing 7 vs previous 7),
-         "last_month", an explicit "YYYY-MM", "today", "yesterday", "last_30_days".`;
+         "last_month", an explicit "YYYY-MM", "today", "yesterday", "last_30_days",
+         "last_3_months", "all" (the whole history — "ever", "most repeat customer", "billed for").`;
 
 export const PLAN_SYS = () => `You are the analyst for an Indian diagnostic centre's owner. Today is ${todayIST()} (IST).
 
@@ -153,21 +174,36 @@ sort:"oldest". "only balanagar" is the same step with branch:"BLN". For a "query
 the question to carry the change. Never answer a modification as if it were a fresh question, and
 never fall back to a general overview.
 
-DEFAULT TO "query" FOR A FIGURE
-If the owner is asking what a number is, plan one "query" step with their question in full. That is
-usually the whole plan. Reach for a fixed tool only when the question is precisely that metric over
-that period with no extra condition, or when you are decomposing, trending, checking normality or
-scanning operations — that is what those tools are for.
-"average tests per diagnostics visit" is a query, not test_orders ÷ visits: the population is
-diagnostics visits including those with none, which derive cannot express.
-Never answer about everything and label it as a subset.
+THE CATALOG FIRST — worked plans, each one verified against the owner's Money page
+  "yesterday's collection in chintal"      metric  {metric:"revenue", period:"yesterday", filter:{branch:"CNT"}}
+  "last week collection chintal only lab"  metric  {metric:"revenue", period:"week", filter:{branch:"CNT", domain:"DIAGNOSTICS"}}
+  "yesterday's collection by payment mode" breakdown {metric:"revenue", dimension:"payment_type", period:"yesterday"}
+  "how much do we make on CT per month"    trend   {metric:"revenue", bucket:"month", buckets:4, filter:{modality:"CT / MRI"}}
+  "how many scans last month in chintal"   metric  {metric:"test_orders", period:"last_month", filter:{branch:"CNT", service_kind:"IMAGING"}}
+  "branch with most ultrasounds, 3 months" rank    {metric:"test_orders", dimension:"branch", period:"last_3_months", filter:{modality:"Ultrasound"}}
+  "most repeating customer"                rank    {metric:"visits", dimension:"patient", period:"all", limit:5}
+  "external reports per month"             trend   {metric:"revenue", bucket:"month", filter:{workflow_mode:"EXTERNAL_UPLOAD"}}
+  "what report types / categories exist"   breakdown {metric:"test_orders", dimension:"workflow_mode" | "payout_category", period:"all"}
+  "give me cost" / "most expensive CT"     price   {match:"CT"}  — or the test's code
+  "who owes money"                         worklist {kind:"dues"}
+  "how is my business / how can I improve" insights {}
+  "where am I losing money"                insights {}
+  "why is my business going up"            insights {}
+  "50 lakh CT machine, after referral, when do I get it back" — measure, then calculate, ONE plan:
+      [{"tool":"metric","args":{"metric":"revenue","period":"last_month","filter":{"modality":"CT / MRI"}}},
+       {"tool":"metric","args":{"metric":"commission","period":"last_month","filter":{"modality":"CT / MRI"}}},
+       {"tool":"compute","args":{"formula":"capital / (collected - commission)",
+         "let":{"capital":{"value":5000000,"unit":"rupees"},"collected":{"step":0},"commission":{"step":1}},
+         "unit":"months","means":"months to repay the machine from CT collection net of commission"}}]
+Use "query" only when nothing above can express the question — and never answer about
+everything and label it as a subset.
 
 RULES
  · 1 to 6 steps. Fewer is better. Never add a step whose result you would not use.
- · Only name metrics and dimensions from the lists above. Use "query" for anything else.
+ · Only name metrics and dimensions from the lists above. Use "query" only for what they cannot express.
  · Do not plan a step that merely restates another step.
- · A question about improving, fixing, worrying or losing money is answered with the OPERATIONAL
-   tools, not with headline growth. Growth going well does not mean nothing needs attention.
+ · A question about improving, fixing, worrying or losing money starts from "insights", not from
+   headline growth. Growth going well does not mean nothing needs attention.
  · If the question cannot be answered from a diagnostic centre's own records (competitors,
    market share, where a patient went instead), return {"outOfScope": true, "why": "..."}.
  · The owner may see their own patients. A request for a list — who owes money, who has not
@@ -375,12 +411,18 @@ ${(c.canShow || []).length ? ` · Only these can truthfully represent this evide
  · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
    established, say plainly what was ruled out if it matters, and name what is still open rather
    than implying more certainty than the evidence carries. Never recite the hypothesis list.
- · JGG and IDPL are TEST branches, not real trade. Never report or explain their movements as a
-   business finding, and keep them out of rankings unless the owner named the branch.
+ · JGG and IDPL are small Kidcare branches. A move there rests on a few visits; say so.
  · Say which denominator a percentage uses. "98.7% of the change" and "72.6% of the total" are
    different claims; never put one where the owner asked for the other.
 
 ${ARTIFACTS}
+
+FIGURES — BY REFERENCE ONLY
+"facts" lists every figure the evidence supports, already formatted, each with an id. Write a
+figure ONLY as its id in braces — "collection rose {F4} to {F2}" — and the exact value is filled in
+for you. Never type a digit, a ₹ amount or a percentage yourself, and never do arithmetic: if the
+figure you need is not in facts, say what you do have instead. A sentence can be complete with no
+figure at all — the card carries the detail.
 
 RULES
  · Use ONLY the formatted values in the evidence. Never compute or invent a number — if the
@@ -478,9 +520,10 @@ export const askInvestigate = (q: string, goal: string, ev: Evidence[], prior?: 
     // truncated mid-array at 6,532 characters and took the whole turn down with it.
     { maxTokens: 3000 });
 
-export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any, ranked?: any[]) =>
+export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any, ranked?: any[], facts?: Fact[]) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
     JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings, investigation, artifactOptions: ranked,
+      facts: facts ? factTable(facts) : undefined,
       evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
         rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }),
     // Sized opportunities are long objects — at 900 the array truncated mid-element and the
