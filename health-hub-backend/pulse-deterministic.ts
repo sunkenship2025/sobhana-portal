@@ -163,7 +163,7 @@ const near = (name: string, got: number, want: number, tol: number) => {
   ok('revenue scoped to a DOMAIN still answers', byDomain.ok, true, 'domain is not a test, category or modality');
 
   console.log('\nTHE PERIOD BINDING MUST CORRECT, NOT CLOBBER');
-  const specP: any = { goal: '', scope: [], time: { period: 'last-90-days' } };
+  const specP: any = { goal: '', scope: [], time: { period: 'last-90-days', stated: true } };
   const bound: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last_30_days' } }, 0, k, specP, {}, [], 'revenue last 90 days');
   ok('a step disagreeing with the spec is corrected', bound.summary?.period?.includes(new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)), true, bound.summary?.period);
   const agree: any = await runStep({ tool: 'metric', args: { metric: 'revenue', period: 'last-90-days' } }, 0, k, specP, {}, [], 'revenue last 90 days');

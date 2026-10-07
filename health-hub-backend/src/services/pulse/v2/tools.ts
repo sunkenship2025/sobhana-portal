@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, dimSql, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES, OPEN_VISIT } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, dimSql, dimShow, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES, OPEN_VISIT } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -181,7 +181,7 @@ async function t_breakdown(a: any): Promise<Partial<Evidence>> {
   if (!DIMS[d] || !dimOk(m, d)) return { ok: false, error: `'${m}' cannot be split by '${d}'. Supported: ${(METRIC_DIMS[m] || []).join(', ')}` };
   const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
   const join = dimJoin(m, d) + (f.join.includes(dimJoin(m, d)) ? '' : f.join);
-  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, dimSql(m, d), f.where), scalar(m, p.prev.from, p.prev.to, join, dimSql(m, d), f.where)]);
+  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, dimShow(m, d), f.where), scalar(m, p.prev.from, p.prev.to, join, dimShow(m, d), f.where)]);
   if (!cur) return { ok: false, error: 'no rows' };
   const pm = new Map<string, number>((prev || []).map((r: any) => [r.k, r.v]));
   const total = cur.reduce((s: number, r: any) => s + r.v, 0);
@@ -1037,7 +1037,7 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
      The spec's period comes from the owner's own words, so it is not a preference to be weighed
      against the planner's: it is corrected in place rather than rejected, because a step that
      merely fails here costs a round and comes back with the same guess. */
-  if (spec?.time?.period && FILTERABLE.has(tool) && args.period && String(args.period).replace(/[\s_]+/g, '-').toLowerCase() !== String(spec.time.period).replace(/[\s_]+/g, '-').toLowerCase()) {
+  if ((spec?.time as any)?.stated && spec?.time?.period && FILTERABLE.has(tool) && args.period && String(args.period).replace(/[\s_]+/g, '-').toLowerCase() !== String(spec.time.period).replace(/[\s_]+/g, '-').toLowerCase()) {
     args.period = spec.time.period;
   }
   for (let attempt = 0; attempt < 2; attempt++) {

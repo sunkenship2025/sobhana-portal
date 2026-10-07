@@ -300,7 +300,8 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
      when the question states a window in plain words, that is the window. */
   const norm = (x: any) => String(x ?? '').replace(/[\s_]+/g, '-').toLowerCase();
   const bind = (want: string, phrase: string) => {
-    if (!time?.period || norm(time.period) !== want) time = { ...(time || {}), period: want, phrase } as any;
+    // `stated`: the owner said it, so it binds every step. A window the planner merely assumed does not.
+    time = { ...(time || {}), period: !time?.period || norm(time.period) !== want ? want : time.period, phrase, stated: true } as any;
   };
   const counted = String(q || '').match(/\b(?:last|past|previous|trailing|rolling)\s+(\d+)\s*(day|week|month|year)s?\b/i);
   /* THE WORDS PEOPLE ACTUALLY USE. Only the numeric forms were honoured, so "last 90 days" was
@@ -310,8 +311,10 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
      thirteen days against thirty-one, reported under the owner's own words. */
   const WORDED: [RegExp, string][] = [
     [/\byesterday\b/i, 'yesterday'], [/\btoday\b/i, 'today'],
+    // "this month compared to last month" is about THIS month — last month is the comparison, so
+    // this month is checked first ("this months", with the s, is how it is typed)
+    [/\bthis\s+months?\b|\bmonth[- ]to[- ]date\b|\bmtd\b/i, 'this-month'],
     [/\blast\s+month\b|\bprevious\s+month\b/i, 'last-month'],
-    [/\bthis\s+month\b|\bmonth[- ]to[- ]date\b|\bmtd\b/i, 'this-month'],
     [/\blast\s+week\b|\bpast\s+week\b/i, 'last-week'],
     [/\bthis\s+week\b|\bweek[- ]to[- ]date\b/i, 'this-week'],
   ];
@@ -335,7 +338,7 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
      youngest. The phrase is set too, so the answer states the window it assumed — an assumption
      the owner can see is an assumption they can overrule. */
   if (!time?.period && /\b(payback|pay back|roi|return on|run[- ]?rate|per (scan|test|order|patient|visit)|current (volume|pace|rate)|at this (pace|rate))\b/i.test(String(q || ''))) {
-    time = { ...(time || {}), period: 'last-90-days', phrase: 'the last 90 days' } as any;
+    time = { ...(time || {}), period: 'last-90-days', phrase: 'the last 90 days', stated: true } as any;
   }
   if (time?.period) {
     try {

@@ -18,7 +18,7 @@ import { renderOptions, describeEvidence, rowsOf, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
-import { dimOk } from '../catalog';
+import { dimOk, DIMS } from '../catalog';
 import { factsOf, withFigures } from './facts';
 /** catalog tools whose scope travels in args.filter */
 const CATALOG = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'derive']);
@@ -35,7 +35,11 @@ import { turnSignal } from '../llm';
    been established. For money questions a defensible answer in 25 seconds beats a plausible one
    in 8, so the loop is allowed to keep going while it is closing real hypotheses; hitting one of
    these is a FAILURE mode that the answer has to disclose, not a normal finish. */
-const MAX_STEPS = 40, MAX_ROUNDS = 12, MAX_MS = 180_000, MAX_CALLS = 30;
+/* Measured on the owner's questions: rounds past the third added minutes and calls but not a single
+   case that passed only because of them — "discount reasons" ran ten rounds and thirty-one calls for
+   101 seconds. The open questions now start from the computed digest, so the loop is a short
+   follow-through, not the main path. */
+const MAX_STEPS = 16, MAX_ROUNDS = 3, MAX_MS = 60_000, MAX_CALLS = 12;
 /* A cap cannot tell an investigation that is working from one that is stuck, so it punishes both.
    Asked how to grow the business, the loop spent eight rounds and fifteen query attempts on the
    two hypotheses that mattered, got one to run, and was cut off by the round count with exactly
@@ -124,8 +128,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
        is one the generator cannot translate and the repair loop then mangles. "patientNumber" is
        a column that exists, verifySpec's fallback matches it, and the literal must survive into
        the query — which is the whole point of binding the row rather than its type. */
-    spec.scope = [...(spec.scope || []).filter((c) => c.dimension !== refId.column),
-      { term: refId.value, dimension: refId.column, value: refId.value, how: 'reference', confidence: 1 }];
+    /* A catalog row is {k, v}: its key IS the value of the card's own dimension — "THIRUPATHI RAO
+       (P-000031)" is exactly what the patient dimension produces — so it binds as that dimension, a
+       filter every catalog tool can apply. Bound as the column "k", nothing could express it and
+       "name him" came back "nothing came back". Tests are shown by name and filtered by code, so
+       they keep the old binding. */
+    const column = refId.column === 'k' && DIMS[subject] && subject !== 'test' ? subject : refId.column;
+    spec.scope = [...(spec.scope || []).filter((c) => c.dimension !== column),
+      { term: refId.value, dimension: column, value: refId.value, how: 'reference', confidence: 1 }];
   }
   /* A blanket refusal here was wrong. The route is requireRole('owner') — the only person who
      can reach this is the one who owns the records, and asking for their own patients by name is
@@ -155,7 +165,9 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   for (const st of steps as any[]) {
     if (!CATALOG.has(st?.tool) || !st.args?.metric) continue;
     for (const c of wanted) {
-      if (st.args.filter?.[c.dimension] != null || st.args.dimension === c.dimension) continue;
+      // only a catalog dimension compiles into a filter; a row identity ("patientNumber") stays on the spec
+      // a split filtered to one of its own values is just that row — which is what a pointed-at row asks for
+      if (!DIMS[c.dimension] || st.args.filter?.[c.dimension] != null) continue;
       if (dimOk(st.args.metric, c.dimension)) st.args = { ...st.args, filter: { ...(st.args.filter || {}), [c.dimension]: c.value } };
     }
   }

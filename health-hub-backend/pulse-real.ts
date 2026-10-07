@@ -133,8 +133,15 @@ export const CASES: Case[] = [
   { id: 'ct_mtd_vs_last', q: 'this month isnt complete right how is this month ct doing compared with last motth ct', kind: 'value',
     truth: () => cross(W.mtd, (w) => collectedBy(w, ['CT / MRI'])) },
   { id: 'external_per_month', q: 'how much am i making rom external reports per month', kind: 'value',
-    truth: async () => { const r = await sql(`SELECT COALESCE(SUM("priceInPaise"),0)::bigint p FROM "TestOrder" o WHERE o."workflowMode"='EXTERNAL_UPLOAD' AND o."cancelledAt" IS NULL AND ${inWin('o."createdAt"', W.lastMonth)}`);
-      return [{ label: 'external uploads billed, last month', values: [rs(Number(r[0].p))] }]; } },
+    // "making" is collected on the owner's basis; billed is accepted too, as both are defensible here
+    truth: async () => {
+      const b = await sql(`SELECT COALESCE(SUM("priceInPaise"),0)::bigint p FROM "TestOrder" o WHERE o."workflowMode"='EXTERNAL_UPLOAD' AND o."cancelledAt" IS NULL AND o."replacedAt" IS NULL AND ${inWin('o."createdAt"', W.lastMonth)}`);
+      const c = await sql(`WITH pay AS (SELECT b."visitId", SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" WHEN pt."paymentType" IN ('CASH','ONLINE') THEN pt."amountInPaise" ELSE 0 END)::numeric amt
+          FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id=pt."billId" WHERE ${inWin('pt."transactionDate"', W.lastMonth)} GROUP BY 1),
+        lt AS (SELECT t."visitId", t."workflowMode", greatest(t."priceInPaise",0)::numeric p FROM "TestOrder" t JOIN pay USING ("visitId") WHERE t."cancelledAt" IS NULL AND t."replacedAt" IS NULL),
+        tot AS (SELECT "visitId", sum(p) total FROM lt GROUP BY 1)
+        SELECT COALESCE(SUM(pay.amt * lt.p / tot.total),0) v FROM pay JOIN tot USING ("visitId") JOIN lt USING ("visitId") WHERE tot.total > 0 AND lt."workflowMode"='EXTERNAL_UPLOAD'`);
+      return [{ label: 'external uploads collected, last month', values: [rs(Number(c[0].v))] }, { label: 'external uploads billed, last month', values: [rs(Number(b[0].p))] }]; } },
 
   // what the centre records
   { id: 'workflow_types', q: 'we have types called reportable bill only external', kind: 'value',
@@ -167,9 +174,11 @@ export const CASES: Case[] = [
   { id: 'ct_payback_50l', q: 'do u think the 50 lakhs on ct scan machine will be worth it loo at ct refferal rates and tell me estimated roi', kind: 'value', heldOut: true,
     truth: () => payback() },
 
-  // a guard: the test branches are not trade
-  { id: 'jgg_guard', q: 'Why did JGG revenue fall this month?', kind: 'guard',
-    guard: /not (in use|live|active|trading|operational|a real)|test(ing)? branch|for testing|no real (trade|business)|isn'?t (live|in use)/i },
+  // Kidcare counts, as on the dashboard: the answer must give what JGG took in the same days last month
+  { id: 'jgg_fall', q: 'Why did JGG revenue fall this month?', kind: 'value',
+    truth: async () => { const days = (w: Win) => Math.round((Date.parse(w.to) - Date.parse(w.from)) / 864e5);
+      return Promise.all(W.mtd.map(async (w) => ({ label: `JGG, first ${days(w)} days of last month`,
+        values: [await collected({ from: W.lastMonth.from, to: add(W.lastMonth.from, days(w)), label: '' }, 'JGG')] }))); } },
 
   // open questions: no single right figure, judged on finishing, time, calls and grounding
   { id: 'losing_money', q: 'where am i losing money', kind: 'open' },
@@ -179,7 +188,15 @@ export const CASES: Case[] = [
   { id: 'self_patients', q: 'how can we increase self patients', kind: 'open' },
   { id: 'quiet_doctors', q: 'overall which doctor not sending much comparative to other months', kind: 'open' },
   { id: 'discount_reasons', q: 'can u read all the reaons for discounts and understand whats driving it', kind: 'open' },
-  { id: 'heavy_discount', q: 'which test is heavily discounted', kind: 'open' },
+  { id: 'heavy_discount', q: 'which test is heavily discounted', kind: 'value',
+    // each test's share of its bill's discount, by price; the top test over any reasonable window
+    truth: async () => Promise.all([...W.last3m, W.lastMonth].map(async (w) => {
+      const r = await sql(`WITH t AS (SELECT o."visitId", coalesce(o."testNameSnapshot", o."testCodeSnapshot") n, greatest(o."priceInPaise",0)::numeric p FROM "TestOrder" o
+          WHERE o."cancelledAt" IS NULL AND o."replacedAt" IS NULL AND ${inWin('o."createdAt"', w)}),
+        tot AS (SELECT o."visitId", sum(greatest(o."priceInPaise",0))::numeric total FROM "TestOrder" o WHERE o."replacedAt" IS NULL GROUP BY 1)
+        SELECT t.n, SUM((b."discountAmountInPaise" + b."couponDiscountInPaise")::numeric * t.p / NULLIF(tot.total,0)) d
+        FROM t JOIN tot USING ("visitId") JOIN "Bill" b ON b."visitId" = t."visitId" GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 1`);
+      return { label: `most discount, ${w.label}`, names: [String(r[0].n)] }; })) },
   { id: 'slow_reports', q: 'on avergaw which reports take the longest', kind: 'open' },
   { id: 'mistakes', q: 'which staff makes most mistakes', kind: 'open' },
   { id: 'anomalies', q: 'find me all anomolies this month compared to last month', kind: 'open', heldOut: true },
@@ -335,7 +352,10 @@ async function main(): Promise<void> {
       const ms = Date.now() - t0;
       const alts = c.truth ? await c.truth() : [];          // truth at the same moment as the answer
       const s = score(a, c, alts);
-      runs.push({ pass: s.pass, why: s.why, ms, calls: a?.meta?.calls ?? a?.trace?.calls ?? 0, tools: toolsOf(a), kind: a?.kind });
+      runs.push({ pass: s.pass, why: s.why, ms, calls: a?.meta?.calls ?? a?.trace?.calls ?? 0, tools: toolsOf(a), kind: a?.kind, rounds: a?.meta?.rounds,
+        // what the owner read, and what each step did — enough to debug a failure without re-running it
+        text: seen(a).text.slice(0, 600), steps: (a?.evidence || []).map((e: any) => ({ tool: e.tool, ok: e.ok, label: e.label, args: undefined, error: e.error?.slice(0, 160),
+          summary: JSON.stringify(e.summary ?? null).slice(0, 300) })), plan: a?.trace?.plan?.proposed });
     }
     const all = runs.every((r) => r.pass), any = runs.some((r) => r.pass);
     out.push({ id: c.id, q: c.q, kind: c.kind, heldOut: !!c.heldOut, all, any, runs });

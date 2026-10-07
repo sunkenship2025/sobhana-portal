@@ -502,6 +502,8 @@ const SYNONYMS: Concept[] = [
      never written down. A concept index built from data VALUES cannot discover the name of the
      dimension those values sit in, or the expansion of an abbreviation nobody stores. */
   { term: 'computed tomography', dimension: 'modality', value: 'CT / MRI', meaning: 'CT — computed tomography. The CT / MRI modality', source: 'glossary', family: 'IMAGING' },
+  // bare "ct" is the scanner to an owner; the lab test is reached by its name, "clotting time"
+  { term: 'ct', dimension: 'modality', value: 'CT / MRI', meaning: 'CT imaging — the CT / MRI modality. The lab test CT (Clotting Time) only when the owner says "clotting"', source: 'glossary', family: 'IMAGING' },
   { term: 'ct scan', dimension: 'modality', value: 'CT / MRI', meaning: 'CT imaging — the CT / MRI modality, NOT the CT lab code for Clotting Time', source: 'glossary', family: 'IMAGING' },
   { term: 'mri', dimension: 'modality', value: 'CT / MRI', meaning: 'MRI — grouped with CT in the CT / MRI modality', source: 'glossary', family: 'IMAGING' },
   { term: 'modality', dimension: null, value: null, meaning: 'the kind of imaging or lab work an order is: Ultrasound, X-Ray, CT / MRI, ECG / Cardiology or Laboratory. Break down or filter with the "modality" dimension', source: 'glossary' },

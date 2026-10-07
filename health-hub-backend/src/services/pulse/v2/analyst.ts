@@ -185,6 +185,8 @@ THE CATALOG FIRST — worked plans, each one verified against the owner's Money 
   "external reports per month"             trend   {metric:"revenue", bucket:"month", filter:{workflow_mode:"EXTERNAL_UPLOAD"}}
   "what report types / categories exist"   breakdown {metric:"test_orders", dimension:"workflow_mode" | "payout_category", period:"all"}
   "give me cost" / "most expensive CT"     price   {match:"CT"}  — or the test's code
+  "this month's collection vs last month"  compare {metric:"revenue", period:"month"}  — "compared to last month" is the comparison, the period is THIS month
+  "which test is heavily discounted"       rank    {metric:"discount_on_orders", dimension:"test", period:"last_3_months", limit:10}
   "who owes money"                         worklist {kind:"dues"}
   "how is my business / how can I improve" insights {}
   "where am I losing money"                insights {}

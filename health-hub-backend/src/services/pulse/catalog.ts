@@ -33,7 +33,7 @@ const COLLECTED_ROWS = `(SELECT p0.id, p0."billId", p0."transactionDate", p0."pa
  * and each clinic consultation's doctor share, by consultation date. liveOrderShares, unwindowed:
  * the shares are per visit, so computing them over every visit gives each test the same share.
  */
-const COMMISSION_ROWS = `(WITH o0 AS (
+const SHARES = `WITH o0 AS (
     SELECT t.id, t."visitId", t."branchId", t."createdAt", t."cancelledAt", t."replacedAt",
            greatest(round(t."priceInPaise"), 0)::bigint AS p, t."priceInPaise" AS price,
            t."referralCommissionType"::text AS ty, t."referralCommissionPercentage" AS pct,
@@ -48,7 +48,8 @@ const COMMISSION_ROWS = `(WITH o0 AS (
   floored AS (SELECT live.*, CASE WHEN total > 0 THEN (d * p) / total ELSE 0 END AS fl,
                      CASE WHEN total > 0 THEN (d * p) % total ELSE 0 END AS rem FROM live),
   shared AS (SELECT floored.*, fl + CASE WHEN total > 0 AND row_number() OVER (PARTITION BY "visitId" ORDER BY rem DESC, id)
-                     <= d - sum(fl) OVER (PARTITION BY "visitId") THEN 1 ELSE 0 END AS share FROM floored)
+                     <= d - sum(fl) OVER (PARTITION BY "visitId") THEN 1 ELSE 0 END AS share FROM floored)`;
+const COMMISSION_ROWS = `(${SHARES}
   SELECT id AS "testOrderId", "visitId", "branchId", "createdAt",
          (CASE WHEN ty = 'FIXED_AMOUNT' THEN greatest(0, round(coalesce(amt, 0)))
                ELSE greatest(0, round((price * coalesce(pct, 0) / 100)::numeric) - share) END + cut)::numeric AS amount
@@ -58,6 +59,11 @@ const COMMISSION_ROWS = `(WITH o0 AS (
          (CASE WHEN d0."commissionType" = 'PERCENTAGE' THEN round((cv."consultationFeeInPaise" * coalesce(d0."commissionPercent", 0) / 100)::numeric)
                WHEN d0."commissionType" = 'FIXED_AMOUNT' THEN coalesce(d0."commissionAmountInPaise", 0) ELSE 0 END)::numeric
   FROM "ClinicVisit" cv JOIN "Visit" v0 ON v0.id = cv."visitId" JOIN "ClinicDoctor" d0 ON d0.id = cv."clinicDoctorId")`;
+/** Each live test's share of its bill's discount (counter + offer code), exactly as the payout
+ *  statement allocates it — so "which test is discounted most" has an answer. */
+const DISCOUNT_ROWS = `(${SHARES}
+  SELECT id AS "testOrderId", "visitId", "branchId", "createdAt", share::numeric AS amount, price::numeric AS price
+  FROM shared WHERE "cancelledAt" IS NULL)`;
 
 /**
  * What a patient still owes, as one expression — the Money page's: a bill not marked PAID whose
@@ -142,6 +148,10 @@ export const METRICS: Record<string, Metric> = {
        + '(after the test\'s share of the bill discount) plus the partner\'s cut, plus clinic doctors\' share of '
        + 'consultation fees. Scopes to any test, department, modality, branch or referring doctor. '
        + 'Net to the centre is revenue minus commission.' },
+  discount_on_orders: { k: 'discount per test which test discounted heavily discounted discount by test category department doctor', sql: 'SUM(dc.amount)',
+    tables: ['TestOrder', 'Bill'], t: 'dc."createdAt"', u: 'paise',
+    d: 'Each test\'s share of its bill\'s discount (counter + offer code), as the payout statement allocates it, by test date. '
+       + 'For WHICH tests, departments or doctors carry the discount; the discount total the Money page shows is discount_total.' },
   payouts_paid: { k: 'payout paid statement ledger settled run', sql: 'SUM(pl."derivedAmountInPaise")',
     tables: ['DoctorPayoutLedger'], t: 'pl."periodStartDate"', u: 'paise', filt: 'pl."deletedAt" IS NULL',
     d: 'What payout runs actually recorded for doctors, by statement period. Only for "what did we pay out"; '
@@ -167,6 +177,7 @@ export const METRIC_DIMS: Record<string, string[]> = {
   refund_total: ['branch'],
   commission: ['branch', 'domain', 'referring_doctor', 'test', 'payout_category', 'modality', 'service_kind', 'workflow_mode', 'weekday'],
   payouts_paid: ['referring_doctor', 'branch'],
+  discount_on_orders: ['branch', 'domain', 'referring_doctor', 'test', 'payout_category', 'modality', 'service_kind', 'weekday'],
   billed_on_orders: ['branch', 'test', 'payout_category', 'modality', 'service_kind', 'referring_doctor', 'workflow_mode', 'weekday'],
 };
 export const DIM_LABEL: Record<string, string> = {
@@ -190,6 +201,7 @@ export const FROMS: Record<string, [string, string]> = {
   refund_total: ['"OrderRefund" orf JOIN "Visit" v ON v.id=orf."visitId" JOIN "Branch" br ON br.id=orf."branchId"', 'orf."createdAt"'],
   commission: [`${COMMISSION_ROWS} c JOIN "Visit" v ON v.id=c."visitId" JOIN "Branch" br ON br.id=c."branchId" LEFT JOIN "TestOrder" o ON o.id=c."testOrderId"`, 'c."createdAt"'],
   payouts_paid: ['"DoctorPayoutLedger" pl JOIN "Branch" br ON br.id=pl."branchId"', 'pl."periodStartDate"'],
+  discount_on_orders: [`${DISCOUNT_ROWS} dc JOIN "Visit" v ON v.id=dc."visitId" JOIN "Branch" br ON br.id=dc."branchId" LEFT JOIN "TestOrder" o ON o.id=dc."testOrderId"`, 'dc."createdAt"'],
   billed_on_orders: ['"TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=o."branchId"', 'o."createdAt"'],
   // rate metrics: no Branch join, so no breakdowns — but the formula is still exercised by the self-check
   abnormal_rate: ['"TestResult" r', ''],
@@ -259,3 +271,6 @@ export function dimOk(metric: string, dim: string): boolean {
 
 /** A dimension's SQL for one metric — the weekday is read off that metric's own date column. */
 export const dimSql = (metric: string, dim: string) => (DIMS[dim] || '').replace('{t}', FROMS[metric]?.[1] || 'NULL');
+/** What a split SHOWS, where that differs from what a filter matches: tests are filtered by code
+ *  and shown by name — "give me table with test name not code" was asked in production. */
+export const dimShow = (metric: string, dim: string) => dim === 'test' ? `coalesce(o."testNameSnapshot", o."testCodeSnapshot")` : dimSql(metric, dim);

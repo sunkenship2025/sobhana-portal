@@ -21,7 +21,10 @@ export async function scalar(metric: string, from: string, to: string, extraJoin
   }
   if (timeCol) { w.push(`(${timeCol} ${IST}) >= '${from}'`); w.push(`(${timeCol} ${IST}) < '${to}'`); }
   const sel = dimExpr ? `${dimExpr} AS k, ${M.sql} AS v` : `${M.sql} AS v`;
-  const ex = await query(`SELECT ${sel} FROM ${fromClause}${extraJoin}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}${dimExpr ? ' GROUP BY 1' : ''}`);
+  /* A split is every group, largest first. query() caps rows, and an unordered GROUP BY under a cap
+     kept an arbitrary slice: ranking ~3,000 patients by visits returned a patient with 6 and never
+     saw the one with 23, and a breakdown's total — summed from these rows — came back short. */
+  const ex = await query(`SELECT ${sel} FROM ${fromClause}${extraJoin}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}${dimExpr ? ' GROUP BY 1 ORDER BY 2 DESC NULLS LAST' : ''}`, [], dimExpr ? 100_000 : undefined);
   if (ex.err || !ex.rows) return null;
   return dimExpr ? ex.rows.map((r) => ({ k: String(r.k ?? '(none)'), v: Number(r.v ?? 0) })) : Number(ex.rows[0]?.v ?? 0);
 }
