@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, dimSql, dimShow, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES, OPEN_VISIT } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, dimSql, dimShow, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES, OPEN_VISIT, OF_TEST } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -1100,6 +1100,7 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
            honours exactly what the owner asked for, and rejecting it blocked every route to a
            CT figure at once. See the same correction in verifySpec. */
         const dropped = asked.filter((c: any) => {
+          if ((applied as any).test != null && OF_TEST.has(c.dimension)) return false;
           const wanted = [c.value, ...(c.values || []), ...(c.aliases || [])].map((v: any) => String(v).trim().toLowerCase());
           const vals = Object.values(applied as any).flatMap((got: any) =>
             got == null ? [] : (Array.isArray(got) ? got : String(got).split(',')).map((x: any) => String(x).trim().toLowerCase()));
@@ -1126,6 +1127,10 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
       }
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
+      // free SQL is the fallback in code, not a hint: "turnaround by test" has no catalog shape, and left
+      // to the next round the analyst answered from what it had instead of asking the database
+      if (!r.ok && tool !== 'query' && q && /cannot be split by|Use the "query" tool/.test(String(r.error || '')))
+        return runStep({ tool: 'query', label, args: { question: `${label} (the owner asked: ${q})` } }, i, k, spec, policy, prior, q);
       return hideTestBranches({ step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r, ms: Date.now() - t0 } as Evidence, step.args);
     } catch (e: any) {
       const msg = String(e?.message || e);

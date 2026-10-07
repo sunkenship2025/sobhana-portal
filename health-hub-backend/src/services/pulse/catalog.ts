@@ -258,6 +258,8 @@ export const DIMJOIN_FOR: Record<string, Record<string, string>> = {
   payouts_paid: { referring_doctor: ' LEFT JOIN "ReferralDoctor" rd ON rd.id=pl."referralDoctorId"' },
 };
 export const dimJoin = (metric: string, dim: string) => DIMJOIN_FOR[metric]?.[dim] ?? DIMJOIN[dim] ?? '';
+/** what a single test already fixes — a filter on the test makes these redundant at best */
+export const OF_TEST = new Set(['modality', 'service_kind', 'domain', 'workflow_mode', 'payout_category']);
 export function dimOk(metric: string, dim: string): boolean {
   if (DIMJOIN_FOR[metric]?.[dim]) return true;
   const from = FROMS[metric]?.[0] || '';

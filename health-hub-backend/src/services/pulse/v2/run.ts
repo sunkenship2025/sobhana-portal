@@ -18,7 +18,7 @@ import { renderOptions, describeEvidence, rowsOf, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
-import { dimOk, DIMS } from '../catalog';
+import { dimOk, DIMS, OF_TEST } from '../catalog';
 import { factsOf, withFigures } from './facts';
 /** catalog tools whose scope travels in args.filter */
 const CATALOG = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'derive']);
@@ -170,11 +170,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       if (!DIMS[c.dimension] || st.args.filter?.[c.dimension] != null) continue;
       if (dimOk(st.args.metric, c.dimension)) st.args = { ...st.args, filter: { ...(st.args.filter || {}), [c.dimension]: c.value } };
     }
+    // a named test already fixes its modality and kind: the "ct" in "CT-BRAIN PLAIN" is not also "every CT",
+    // and orders whose modality disagrees with their test would drop out
+    if (st.args.filter?.test != null) for (const d of OF_TEST) delete st.args.filter[d];
   }
   const declared = new Set((spec?.scope || []).map((c) => c.dimension));
   const uncaptured = scopeTermsIn(q).filter((c) => c.dimension && !declared.has(c.dimension));
   const covered = (c: { dimension: string | null }) => steps.some((st: any) =>
-    (c.dimension && st?.args?.filter?.[c.dimension] != null) || st?.args?.dimension === c.dimension || st?.tool === 'query' || !CATALOG.has(st?.tool));
+    (c.dimension && st?.args?.filter?.[c.dimension] != null) || (OF_TEST.has(String(c.dimension)) && st?.args?.filter?.test != null) || st?.args?.dimension === c.dimension || st?.tool === 'query' || !CATALOG.has(st?.tool));
   if (uncaptured.length && !uncaptured.every(covered))
     steps = [{ tool: 'query', label: 'answer the question as asked', args: { question: q } }];
   // A single query step answers the whole question, so it gets the owner's words verbatim. The
