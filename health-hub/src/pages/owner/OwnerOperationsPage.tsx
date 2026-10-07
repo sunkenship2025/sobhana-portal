@@ -1,265 +1,316 @@
 /**
  * Owner Operations page — GET /api/owner/operations
  *
- * Answers: are reports going out on time, where is the queue stuck, what
- * looks wrong, what failed.
+ * Top to bottom: what needs doing now (chips) · open reports by stage × age
+ * beside the visits waiting longest (live) · then, for the period, the KPIs ·
+ * turnaround per day beside each department · arrival hour vs same-day
+ * reports beside how reports reach patients · the team beside the clinic ·
+ * messages that failed (with numbers to call).
  *
- * Layout:
- *   - 4 KPI: TAT median / finalized today / in queue / delivery rate
- *   - Report turnaround buckets (last 7 days)
- *   - Diagnostics queue (50%) + Clinic queue grouped by doctor (50%)
- *   - Audit feed
- *   - Communication failures (conditional — hides at zero)
+ * Every period figure is about one set of visits — diagnostic visits
+ * registered in the period that need a report — so the charts add up to the
+ * KPIs. No money: the lab in-charge opens this page too.
  */
-
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
 import { formatPatientName } from '@/lib/patientDisplay';
+import { KpiTile, ComparisonTrendChart, ActionQueue, GroupLabel, Delta, SERIES, HEAT, TH, ROW, TOTAL_ROW, type AttentionChip } from './_shared/dashboardCharts';
 import {
   TOKENS,
   formatIstDateTime,
   formatIstTime,
+  formatIstDate,
   SectionCard,
-  KpiCard,
   BranchFilter,
+  PeriodFilter,
+  PeriodKey,
+  PERIOD_LABEL,
   OwnerPageHeader,
   RefreshButton,
   ErrorCard,
   FullPageSkeleton,
-  SeverityBadge,
-  TruncationFooter,
 } from './_shared/ownerUi';
+
+interface Kpis {
+  visits: number;
+  released: number;
+  medianMinutes: number | null;
+  within24Pct: number | null;
+  deliveredPct: number | null;
+  openedPct: number | null;
+  consults: number;
+}
 
 interface OperationsResponse {
   generatedAt: string;
+  period: { key: PeriodKey; startIso: string; endIso: string };
+  comparison: { startIso: string; endIso: string; sameWeekday: boolean; cutAtNow?: boolean };
   branchScope: { branchId: string | null; branchName: string | null };
-  kpis: {
-    tatMedianMinutes: number | null;
-    tatSampleCount: number;
-    finalizedToday: number;
-    finalizableToday: number;
-    inQueue: number;
-    inQueueDiagnostics: number;
-    inQueueClinic: number;
-    deliveryRatePercent: number | null;
-    deliveryAttempted: number;
-    inFlight: number;
-  };
-  reportTurnaround: {
-    sampleCount: number;
-    windowDays: number;
-    medianMinutes: number | null;
-    slaMinutes: number;
-    withinSlaPercent: number | null;
-    overSlaCount: number;
-    buckets: { label: string; count: number }[];
-  };
-   diagnosticsQueue: Array<{
-     visitId: string;
-     patientName: string;
-     patientTitle?: string | null;
-     branchCode: string;
-    productName: string | null;
-    stage:
-      | 'awaiting result entry'
-      | 'in progress'
-      | 'draft · awaiting sign-off'
-      | 'sample pending'
-      | 'PDF missing';
+  attention: AttentionChip[];
+  pipeline: { bands: string[]; rows: { stage: string; label: string; counts: number[] }[]; total: number };
+  oldestOpen: {
+    visitId: string;
+    patientName: string;
+    patientTitle: string | null;
+    branchCode: string;
+    tests: string;
+    stage: string;
     ageMinutes: number;
-  }>;
-  clinicQueue: Array<{
+  }[];
+  clinicNow: {
     doctorId: string;
     doctorName: string;
     branchName: string | null;
-    shiftStartIso: string | null;
-    waitingCount: number;
-    inProgressCount: number;
-    avgWaitMinutes: number | null;
-     patients: Array<{
-       visitId: string;
-       patientName: string;
-       patientTitle?: string | null;
-       visitType: 'OP' | 'IP';
-      waitMinutes: number;
-    }>;
-  }>;
-  audit: Array<{
-    id: string;
-    severity: 'high' | 'medium' | 'low';
-    event: string;
-    who: string | null;
-    detail: string;
-    whenIso: string;
-    drillTo: string | null;
-  }>;
-   commsFailures: Array<{
-     patientName: string;
-     patientTitle?: string | null;
+    waiting: number;
+    inConsultation: number;
+    seenToday: number;
+    longestWaitMinutes: number | null;
+  }[];
+  kpis: Kpis;
+  prior: Kpis;
+  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
+  byHour: { hour: number; sameDay: number; later: number; notYet: number }[];
+  departments: { name: string; visits: number; released: number; medianMinutes: number | null; within24Pct: number | null; filmsOnly: number }[];
+  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
+  team: { userId: string; name: string; role: string; registered: number; testsEntered: number; reportsReleased: number }[];
+  clinicDoctors: { doctorId: string; doctorName: string; consults: number; priorConsults: number; digitalRx: number; paperRx: number }[];
+  failures: {
+    patientId: string | null;
+    patientName: string;
+    patientTitle: string | null;
     phone: string;
     attemptCount: number;
     contextLabel: string;
-    errorCode: string | null;
     failureReason: string;
     lastTriedIso: string;
-  }>;
-  commsSummary: { patients: number; sends: number };
+  }[];
+  failureSummary: { patients: number; sends: number };
 }
 
-// ----- TAT histogram ----------------------------------------------------
+// ----- helpers ----------------------------------------------------------
 
-// Compact human label for a duration in minutes (axis spans hours now).
-// Human-readable duration that adapts to magnitude:
-//   < 60 min  → "45m"
-//   < 24 h    → "6h 18m" (drops 0m → "6h")
-//   >= 24 h   → "2d 4h"  (drops 0h → "2d")
+/** 45m · 6h 18m · 2d 4h */
 function fmtDuration(mins: number): string {
   const m = Math.max(0, Math.round(mins));
   if (m < 60) return `${m}m`;
-  const totalH = Math.floor(m / 60);
-  const rem = m % 60;
-  if (totalH < 24) return rem === 0 ? `${totalH}h` : `${totalH}h ${rem}m`;
-  const d = Math.floor(totalH / 24);
-  const h = totalH % 24;
-  return h === 0 ? `${d}d` : `${d}d ${h}h`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`;
+}
+const count = (v: number) => Math.round(v).toLocaleString('en-IN');
+const hourLabel = (h: number) => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+const NOT_YET = '#C9C7BF';
+const LATE = SERIES[1];
+const ON_TIME = SERIES[0];
+
+function Swatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
+      {label}
+    </span>
+  );
 }
 
-// One turnaround bucket. The row shows a raw count; what it never says is how
-// big a slice of the week that is, so hover/focus reveals the share in the
-// count cell (whose width is reserved up front, so nothing shifts).
-function TurnaroundRow({
-  label,
-  count,
-  maxCount,
-  sampleCount,
-  color,
-}: {
-  label: string;
-  count: number;
-  maxCount: number;
-  sampleCount: number;
-  color: string;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const pct = sampleCount > 0 ? Math.round((count / sampleCount) * 100) : 0;
+/** "vs last Tue (to this hour)" for a single day, else "vs prior period". */
+function vsLabel(data: OperationsResponse): string {
+  if (!data.comparison.sameWeekday) return 'vs prior period';
+  const day = new Date(data.comparison.startIso).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' });
+  return `vs last ${day}${data.comparison.cutAtNow ? ' by now' : ''}`;
+}
+
+/** 919989655190 → +91 99896 55190 */
+const fmtPhone = (raw: string) => {
+  const d = raw.replace(/\D/g, '');
+  return d.length === 12 && d.startsWith('91') ? `+91 ${d.slice(2, 7)} ${d.slice(7)}` : raw;
+};
+
+// ----- KPIs ---------------------------------------------------------------
+
+function OpsKpis({ data }: { data: OperationsResponse }) {
+  const k = data.kpis;
+  const p = data.prior;
+  const vs = vsLabel(data);
+  const pctDelta = (now: number, before: number) => {
+    if (!before) return null;
+    const c = Math.round(((now - before) / before) * 100);
+    return { text: `${Math.abs(c)}%`, up: c >= 0 };
+  };
+  const ptsDelta = (now: number | null, before: number | null) => {
+    if (now == null || before == null) return null;
+    const d = now - before;
+    return { text: d === 0 ? '0%' : `${Math.abs(d)} pts`, up: d >= 0 };
+  };
+  const open = k.visits - k.released;
   return (
-    <div
-      className="flex items-center gap-3"
-      style={{ fontSize: 12, outline: 'none', cursor: 'default' }}
-      tabIndex={0}
-      aria-label={`${label}: ${count} reports, ${pct} percent of the window`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
-    >
-      <div style={{ width: 92, flexShrink: 0, color: TOKENS.textSecondary }}>{label}</div>
-      <div className="flex-1">
-        <div
-          style={{
-            width: `${count === 0 ? 0 : Math.max(3, (count / maxCount) * 100)}%`,
-            height: hovered ? 12 : 10,
-            borderRadius: 3,
-            background: color,
-            transition: 'height 120ms ease',
-          }}
-        />
-      </div>
-      <div
-        style={{
-          width: 68,
-          flexShrink: 0,
-          textAlign: 'right',
-          color: TOKENS.textSecondary,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {hovered ? `${count} · ${pct}%` : count}
-      </div>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <KpiTile
+        label="Reports out"
+        hint={`${count(k.visits)} visits needed a report · ${count(open)} not out yet`}
+        value={count(k.released)}
+        delta={pctDelta(k.released, p.released)}
+        vs={vs}
+      />
+      <KpiTile
+        label="Typical turnaround"
+        hint="Median time from registration to the first report out"
+        value={k.medianMinutes != null ? fmtDuration(k.medianMinutes) : '—'}
+        delta={k.medianMinutes != null && p.medianMinutes ? pctDelta(k.medianMinutes, p.medianMinutes) : null}
+        deltaGoodWhenUp={false}
+        vs={vs}
+      />
+      <KpiTile
+        label="Out within 24h"
+        hint="Of visits whose day is up: reports out within 24 hours of registration"
+        value={k.within24Pct != null ? `${k.within24Pct}%` : '—'}
+        delta={ptsDelta(k.within24Pct, p.within24Pct)}
+        vs={vs}
+      />
+      <KpiTile
+        label="Delivered on WhatsApp"
+        hint="Of reports out, the patient's WhatsApp received the message"
+        value={k.deliveredPct != null ? `${k.deliveredPct}%` : '—'}
+        delta={ptsDelta(k.deliveredPct, p.deliveredPct)}
+        vs={vs}
+      />
+      <KpiTile
+        label="Opened online"
+        hint="Of reports out, the patient opened the report link or the app"
+        value={k.openedPct != null ? `${k.openedPct}%` : '—'}
+        delta={ptsDelta(k.openedPct, p.openedPct)}
+        vs={vs}
+      />
+      <KpiTile label="Clinic consults" value={count(k.consults)} delta={pctDelta(k.consults, p.consults)} vs={vs} />
     </div>
   );
 }
 
-// Report turnaround, in plain language for owners/managers: a "typical" time,
-// the share within the 24h SLA, and fixed time buckets with counts. Fixed
-// buckets mean a single slow report can't stretch the scale — it just lands in
-// "Over 3 days" — which is what made the old percentile histogram unreadable.
-function ReportTurnaroundCard({
-  turnaround,
-}: {
-  turnaround: OperationsResponse['reportTurnaround'];
-}) {
-  if (turnaround.sampleCount === 0) {
-    return (
-      <SectionCard label="Report turnaround" description={`Last ${turnaround.windowDays} days`}>
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          No reports finalized yet.
-        </div>
-      </SectionCard>
-    );
-  }
-  const maxCount = Math.max(1, ...turnaround.buckets.map((b) => b.count));
-  // Within the day = green; past the SLA (1–3 days / 3 days+) tints amber → red.
-  const barColor = (label: string) =>
-    label === 'Over 3 days'
-      ? TOKENS.critical
-      : label === '1–3 days'
-        ? TOKENS.caution
-        : TOKENS.healthy;
+// ----- live: open reports ------------------------------------------------
 
+/** Open visits by stage × time since registration. Darker = more visits. */
+function PipelineCard({ data }: { data: OperationsResponse['pipeline'] }) {
+  const max = Math.max(1, ...data.rows.flatMap((r) => r.counts));
+  const colTotal = (i: number) => data.rows.reduce((s, r) => s + r.counts[i], 0);
   return (
     <SectionCard
-      label="Report turnaround"
-      description={`Last ${turnaround.windowDays} days · registration to report`}
+      label="Open reports · live"
+      description="By stage, and how long since the patient registered"
+      className="h-full"
+      rightSlot={
+        <Link to="/diagnostics/pending" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
+          Pending ↗
+        </Link>
+      }
     >
-      <div className="mb-3" style={{ fontSize: 13, color: TOKENS.textSecondary }}>
-        {turnaround.medianMinutes !== null && (
-          <>
-            Typical{' '}
-            <strong style={{ color: TOKENS.textPrimary }}>
-              {fmtDuration(turnaround.medianMinutes)}
-            </strong>
-          </>
-        )}
-        {turnaround.withinSlaPercent !== null && (
-          <>
-            {' · '}
-            <strong style={{ color: TOKENS.textPrimary }}>
-              {turnaround.withinSlaPercent}%
-            </strong>{' '}
-            ready within a day
-          </>
-        )}
-      </div>
+      {data.total === 0 ? (
+        <div style={{ color: TOKENS.healthy, fontSize: 13 }}>Nothing open. Every report is out.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', borderCollapse: 'separate', borderSpacing: 2 }}>
+            <thead>
+              <tr>
+                <th className="pb-1 text-left align-bottom" style={TH}>Stage</th>
+                {data.bands.map((b, i) => (
+                  <th key={b} className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 56, color: i >= 2 ? TOKENS.critical : TH.color }}>
+                    {b}
+                  </th>
+                ))}
+                <th className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 44 }}>All</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => {
+                const sum = r.counts.reduce((s, c) => s + c, 0);
+                return (
+                  <tr key={r.stage}>
+                    <td className="py-1.5 pr-2" style={{ color: sum ? TOKENS.textPrimary : TOKENS.textTertiary }}>{r.label}</td>
+                    {r.counts.map((c, i) => {
+                      const step = Math.min(HEAT.length - 1, Math.floor((c / max) * HEAT.length));
+                      return (
+                        <td
+                          key={i}
+                          className="px-2 py-1.5 text-right"
+                          title={c ? `${r.label} · ${data.bands[i]}: ${c} visit${c === 1 ? '' : 's'}` : undefined}
+                          style={{
+                            borderRadius: 4,
+                            background: c ? HEAT[step] : 'transparent',
+                            color: !c ? TOKENS.textTertiary : step >= 3 ? 'white' : TOKENS.textPrimary,
+                          }}
+                        >
+                          {c || '·'}
+                        </td>
+                      );
+                    })}
+                    <td className="px-2 py-1.5 text-right font-medium">{sum}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="font-medium" style={TOTAL_ROW}>
+                <td className="pt-2">All open</td>
+                {data.bands.map((b, i) => (
+                  <td key={b} className="px-2 pt-2 text-right" style={{ color: i >= 2 && colTotal(i) ? TOKENS.critical : undefined }}>
+                    {colTotal(i)}
+                  </td>
+                ))}
+                <td className="px-2 pt-2 text-right">{data.total}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
 
-      <div className="space-y-1.5">
-        {turnaround.buckets.map((b) => (
-          <TurnaroundRow
-            key={b.label}
-            label={b.label}
-            count={b.count}
-            maxCount={maxCount}
-            sampleCount={turnaround.sampleCount}
-            color={barColor(b.label)}
-          />
-        ))}
-      </div>
-
-      {turnaround.overSlaCount > 0 && (
-        <div
-          className="mt-3 border-t pt-2"
-          style={{ borderColor: TOKENS.border, fontSize: 12 }}
-        >
-          <span style={{ color: TOKENS.critical }}>
-            {turnaround.overSlaCount} report{turnaround.overSlaCount === 1 ? '' : 's'} took over a
-            day
-          </span>{' '}
-          <Link to="/diagnostics/pending?filter=overdue" style={{ color: TOKENS.info }}>
-            view ↗
+function OldestOpenCard({ rows, total }: { rows: OperationsResponse['oldestOpen']; total: number }) {
+  return (
+    <SectionCard label="Waiting longest · live" description="Oldest open visits first" className="h-full">
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>Nothing waiting.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr className="text-left">
+                <th className="pb-1" style={TH}>Patient · tests</th>
+                <th className="pb-1" style={TH}>Stage</th>
+                <th className="pb-1 text-right" style={TH}>Waiting</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.visitId} style={ROW}>
+                  <td className="py-1.5 pr-3" style={{ maxWidth: 340 }}>
+                    <Link to={`/diagnostics/results/${r.visitId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
+                      {formatPatientName(r.patientName, r.patientTitle)}
+                    </Link>
+                    <div className="truncate" style={{ color: TOKENS.textTertiary, fontSize: 11 }} title={r.tests}>
+                      {r.branchCode} · {r.tests}
+                    </div>
+                  </td>
+                  <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary, whiteSpace: 'nowrap' }}>{r.stage}</td>
+                  <td
+                    className="py-1.5 text-right"
+                    style={{ whiteSpace: 'nowrap', color: r.ageMinutes > 1440 ? TOKENS.critical : TOKENS.textPrimary }}
+                  >
+                    {fmtDuration(r.ageMinutes)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {total > rows.length && (
+        <div className="mt-2" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+          {rows.length} of {total} open ·{' '}
+          <Link to="/diagnostics/pending" style={{ color: TOKENS.info, textDecoration: 'none' }}>
+            see all ↗
           </Link>
         </div>
       )}
@@ -267,487 +318,541 @@ function ReportTurnaroundCard({
   );
 }
 
-// ----- diagnostics queue -----------------------------------------------
+// ----- turnaround ---------------------------------------------------------
 
-function DiagnosticsQueueCard({ rows }: { rows: OperationsResponse['diagnosticsQueue'] }) {
-  if (rows.length === 0) {
-    return (
-      <SectionCard label="Diagnostics queue" description="Live · oldest first">
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          Queue is clear.
-        </div>
-      </SectionCard>
-    );
-  }
-
+function TurnaroundByDayCard({ data, periodLabel, onPickDay }: { data: OperationsResponse; periodLabel: string; onPickDay: (d: string) => void }) {
+  const days = data.byDay;
+  const k = data.kpis;
   return (
     <SectionCard
-      label="Diagnostics queue"
-      description="Live · oldest first"
-      rightSlot={
-        <Link
-          to="/diagnostics/pending"
-          style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}
-        >
-          view all ↗
-        </Link>
-      }
+      label={`Reports out on time · ${periodLabel}`}
+      description="Visits by the day they registered · click a day to see just that day"
+      className="h-full"
     >
-      <div className="overflow-x-auto">
-        <table className="w-full" style={{ fontSize: 12 }}>
-          <thead>
-            <tr
-              style={{
-                color: TOKENS.textTertiary,
-                textAlign: 'left',
-                fontWeight: 400,
-              }}
-            >
-              <th className="pb-2">Patient · product</th>
-              <th className="pb-2">Stage</th>
-              <th className="pb-2 text-right">Age</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 10).map((r) => {
-              const ageColor =
-                r.ageMinutes > 30
-                  ? TOKENS.critical
-                  : r.ageMinutes > 15
-                    ? TOKENS.caution
-                    : TOKENS.textPrimary;
-              return (
-                <tr key={r.visitId} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                  <td className="py-2">
-                    <Link
-                      to={`/diagnostics/results/${r.visitId}`}
-                      style={{ color: TOKENS.info, textDecoration: 'none' }}
-                    >
-                      {formatPatientName(r.patientName, r.patientTitle)}
-                    </Link>
-                    <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                      {r.branchCode} · {r.productName ?? '—'}
-                    </div>
-                  </td>
-                  <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                    {r.stage}
-                  </td>
-                  <td className="py-2 text-right" style={{ color: ageColor }}>
-                    {fmtDuration(r.ageMinutes)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        <Swatch color={ON_TIME} label="Out within 24h" />
+        <Swatch color={LATE} label="Took longer" />
+        <Swatch color={NOT_YET} label="Not out yet, under 24h" />
+        {k.medianMinutes != null && (
+          <span style={{ marginLeft: 'auto', color: TOKENS.textTertiary }}>Typical {fmtDuration(k.medianMinutes)}</span>
+        )}
       </div>
-      <TruncationFooter shown={Math.min(10, rows.length)} total={rows.length} />
+      <ComparisonTrendChart
+        days={days.map((d) => ({ date: d.date, value: d.onTime + d.late + d.pending, prior: null }))}
+        average={days.map(() => null)}
+        priorAverage={days.map(() => null)}
+        format={count}
+        valueLabel="Visits"
+        height={280}
+        onPickDay={onPickDay}
+        note={(i) => (days[i].medianMinutes != null ? `Typical ${fmtDuration(days[i].medianMinutes!)}` : null)}
+        parts={[
+          { label: 'Out within 24h', color: ON_TIME, values: days.map((d) => d.onTime) },
+          { label: 'Took longer', color: LATE, values: days.map((d) => d.late) },
+          { label: 'Not out yet', color: NOT_YET, values: days.map((d) => d.pending) },
+        ]}
+      />
     </SectionCard>
   );
 }
 
-// ----- clinic queue grouped by doctor ----------------------------------
-
-function ClinicQueueCard({ groups }: { groups: OperationsResponse['clinicQueue'] }) {
-  if (groups.length === 0) {
-    return (
-      <SectionCard label="Clinic queue" description="Grouped by doctor on shift">
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          No clinic doctor on shift.
-        </div>
-      </SectionCard>
-    );
-  }
+/** Visits by the hour they registered: report the same day, later, or not yet. */
+function ArrivalHourCard({ rows, periodLabel }: { rows: OperationsResponse['byHour']; periodLabel: string }) {
+  const sameDayPct = (rs: typeof rows) => {
+    const done = rs.reduce((s, r) => s + r.sameDay + r.later, 0);
+    return done ? Math.round((rs.reduce((s, r) => s + r.sameDay, 0) / done) * 100) : null;
+  };
+  const early = sameDayPct(rows.filter((r) => r.hour < 17));
+  const late = sameDayPct(rows.filter((r) => r.hour >= 17));
+  // Every hour from the first to the last visit, so quiet hours show as gaps.
+  const from = rows.length ? Math.min(...rows.map((r) => r.hour)) : 7;
+  const to = rows.length ? Math.max(...rows.map((r) => r.hour)) : 21;
+  const at = new Map(rows.map((r) => [r.hour, r]));
+  const hours = Array.from({ length: to - from + 1 }, (_, i) => at.get(from + i) ?? { hour: from + i, sameDay: 0, later: 0, notYet: 0 });
   return (
     <SectionCard
-      label="Clinic queue"
-      description="Grouped by doctor · oldest waiting first"
-      rightSlot={
-        <Link
-          to="/clinic/queue"
-          style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}
-        >
-          view all ↗
-        </Link>
-      }
+      label={`When patients come in · ${periodLabel}`}
+      description="Visits by the hour they registered, and whether the report went out the same day"
+      className="h-full"
     >
-      <div className="space-y-3">
-        {groups.map((g) => (
-          <div
-            key={g.doctorId}
-            style={{
-              borderTop: `0.5px solid ${TOKENS.border}`,
-              paddingTop: 8,
-            }}
-          >
-            <div className="flex items-baseline justify-between">
-              <div className="flex items-center gap-2">
-                <span
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: '#E5F4ED',
-                    color: TOKENS.healthy,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    fontWeight: 500,
-                  }}
-                >
-                  {g.doctorName
-                    .split(' ')
-                    .filter(Boolean)
-                    .map((s) => s[0])
-                    .slice(0, 2)
-                    .join('')
-                    .toUpperCase()}
-                </span>
-                <span>
-                  <span style={{ color: TOKENS.textPrimary, fontSize: 13 }}>
-                    {g.doctorName}
-                  </span>
-                  <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                    {g.branchName ?? '—'}
-                    {g.shiftStartIso && ` · first consult at ${formatIstTime(g.shiftStartIso)}`}
-                  </div>
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: TOKENS.textSecondary }}>
-                {g.waitingCount} waiting · {g.inProgressCount} in consultation
-                {g.avgWaitMinutes !== null && ` · avg wait ${fmtDuration(g.avgWaitMinutes)}`}
-              </div>
-            </div>
-            {g.patients.length > 0 && (
-              <div className="mt-2 space-y-1 pl-10">
-                {g.patients.slice(0, 5).map((p) => (
-                  <div
-                    key={p.visitId}
-                    className="flex items-baseline justify-between"
-                    style={{ fontSize: 12 }}
-                  >
-                    <span>
-                      <span style={{ color: TOKENS.textPrimary }}>{formatPatientName(p.patientName, p.patientTitle)}</span>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          marginLeft: 6,
-                          padding: '1px 4px',
-                          background: p.visitType === 'IP' ? '#FCEBEB30' : '#E5F0FB',
-                          color: p.visitType === 'IP' ? TOKENS.critical : TOKENS.info,
-                          borderRadius: 3,
-                        }}
-                      >
-                        {p.visitType}
-                      </span>
-                    </span>
-                    <span
-                      style={{
-                        color: p.waitMinutes > 30 ? TOKENS.critical : TOKENS.textTertiary,
-                      }}
+      {early != null && late != null && (
+        <div className="mb-2" style={{ fontSize: 13, color: TOKENS.textSecondary }}>
+          Registered after 5 pm: <strong style={{ color: late < early - 15 ? TOKENS.critical : TOKENS.textPrimary }}>{late}%</strong> got the report the same day,
+          against <strong style={{ color: TOKENS.textPrimary }}>{early}%</strong> before 5 pm.
+        </div>
+      )}
+      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        <Swatch color={ON_TIME} label="Same day" />
+        <Swatch color={LATE} label="Next day or later" />
+        <Swatch color={NOT_YET} label="Not out yet (today)" />
+      </div>
+      <ComparisonTrendChart
+        days={hours.map((h) => ({ date: String(h.hour), value: h.sameDay + h.later + h.notYet, prior: null }))}
+        average={hours.map(() => null)}
+        priorAverage={hours.map(() => null)}
+        format={count}
+        valueLabel="Visits"
+        height={260}
+        axisLabel={(k) => hourLabel(Number(k))}
+        titleLabel={(k) => `${hourLabel(Number(k))}–${hourLabel(Number(k) + 1)}`}
+        note={(i) => {
+          const h = hours[i];
+          const done = h.sameDay + h.later;
+          return done ? `${Math.round((h.sameDay / done) * 100)}% same day` : null;
+        }}
+        parts={[
+          { label: 'Same day', color: ON_TIME, values: hours.map((h) => h.sameDay) },
+          { label: 'Next day or later', color: LATE, values: hours.map((h) => h.later) },
+          { label: 'Not out yet', color: NOT_YET, values: hours.map((h) => h.notYet) },
+        ]}
+      />
+    </SectionCard>
+  );
+}
+
+function DepartmentsCard({ rows, periodLabel }: { rows: OperationsResponse['departments']; periodLabel: string }) {
+  return (
+    <SectionCard
+      label={`By department · ${periodLabel}`}
+      description="Registration to that department's report"
+      className="h-full"
+    >
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No visits in this period.</div>
+      ) : (
+        <>
+          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr>
+                <th className="pb-1 text-left" style={TH}>Department</th>
+                <th className="pb-1 text-right" style={TH}>Patients</th>
+                <th className="pb-1 text-right" style={TH}>Typical</th>
+                <th className="pb-1 text-right" style={TH}>In 24h</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((d) => {
+                const open = d.visits - d.released - d.filmsOnly;
+                const notes = [d.filmsOnly ? `${d.filmsOnly} films only` : '', open > 0 ? `${open} open` : ''].filter(Boolean).join(' · ');
+                return (
+                  <tr key={d.name} style={ROW}>
+                    <td className="py-1.5 pr-2">
+                      {d.name}
+                      {notes && <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{notes}</div>}
+                    </td>
+                    <td className="py-1.5 text-right">{count(d.visits)}</td>
+                    <td className="py-1.5 text-right">{d.medianMinutes != null ? fmtDuration(d.medianMinutes) : '—'}</td>
+                    <td
+                      className="py-1.5 text-right"
+                      style={{ color: d.within24Pct != null && d.within24Pct < 80 ? TOKENS.critical : undefined }}
                     >
-                      {fmtDuration(p.waitMinutes)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+                      {d.within24Pct != null ? `${d.within24Pct}%` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="mt-2" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+            A patient counts once per department. Films only = closed without a typed report.
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </SectionCard>
   );
 }
 
-// ----- audit feed -------------------------------------------------------
+// ----- delivery -----------------------------------------------------------
 
-function AuditFeedCard({ rows }: { rows: OperationsResponse['audit'] }) {
-  if (rows.length === 0) {
-    return (
-      <SectionCard label="Audit & anomalies">
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          Nothing notable in the last 24h.{' '}
-          <Link to="/ops/audit" style={{ color: TOKENS.info, textDecoration: 'none' }}>
-            Open full page →
-          </Link>
+function DeliveryCard({ d, failedPatients, periodLabel }: { d: OperationsResponse['delivery']; failedPatients: number; periodLabel: string }) {
+  const step = (label: string, n: number, color: string, hint?: string) => (
+    <div className="py-1.5" style={ROW} title={hint}>
+      <div className="flex items-baseline justify-between gap-3" style={{ fontSize: 13 }}>
+        <span>{label}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {count(n)}
+          <span style={{ color: TOKENS.textTertiary }}> · {d.released ? Math.round((n / d.released) * 100) : 0}%</span>
+        </span>
+      </div>
+      <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
+        <div style={{ width: `${d.released ? (n / d.released) * 100 : 0}%`, height: '100%', borderRadius: 3, background: color }} />
+      </div>
+    </div>
+  );
+  return (
+    <SectionCard label={`How reports reach patients · ${periodLabel}`} description="Of reports out in this period" className="h-full">
+      {d.released === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No reports out yet.</div>
+      ) : (
+        <>
+          {step('Reports out', d.released, ON_TIME)}
+          {step('Sent on WhatsApp', d.sent, ON_TIME)}
+          {step('Delivered', d.delivered, ON_TIME, 'Reached the phone (delivered or read)')}
+          {step('Opened online', d.opened, ON_TIME, 'Patient opened the report link or the app')}
+          <div className="mt-3">{step('Printed at the counter', d.printed, NOT_YET)}</div>
+          {failedPatients > 0 && (
+            <a
+              href="#failed-messages"
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById('failed-messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="mt-3 block"
+              style={{ fontSize: 12, color: TOKENS.info, textDecoration: 'none' }}
+            >
+              {failedPatients} patient{failedPatients === 1 ? '' : 's'} with a failed message ↓
+            </a>
+          )}
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
+// ----- people -------------------------------------------------------------
+
+const ROLE_LABEL: Record<string, string> = { owner: 'Owner', lab_incharge: 'Lab in-charge', staff: 'Front desk' };
+
+function TeamCard({ rows, periodLabel }: { rows: OperationsResponse['team']; periodLabel: string }) {
+  const sum = (k: 'registered' | 'testsEntered' | 'reportsReleased') => rows.reduce((s, r) => s + r[k], 0);
+  return (
+    <SectionCard label={`Team · ${periodLabel}`} description="Who did the work, diagnostics and clinic" className="h-full">
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No activity in this period.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr>
+                <th className="pb-1 text-left" style={TH}>Person</th>
+                <th className="pb-1 text-right" style={TH} title="Visits registered (diagnostics and clinic)">Registered</th>
+                <th className="pb-1 text-right" style={TH} title="Tests whose results they entered">Tests entered</th>
+                <th className="pb-1 text-right" style={TH} title="Reports they finalized and released">Reports released</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.userId} style={ROW}>
+                  <td className="py-1.5 pr-2">
+                    {r.name}
+                    <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {ROLE_LABEL[r.role] ?? r.role}</span>
+                  </td>
+                  {(['registered', 'testsEntered', 'reportsReleased'] as const).map((k) => (
+                    <td key={k} className="py-1.5 text-right" style={{ color: r[k] ? undefined : TOKENS.textTertiary }}>
+                      {r[k] ? count(r[k]) : '·'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="font-medium" style={TOTAL_ROW}>
+                <td className="pt-2">Everyone</td>
+                <td className="pt-2 text-right">{count(sum('registered'))}</td>
+                <td className="pt-2 text-right">{count(sum('testsEntered'))}</td>
+                <td className="pt-2 text-right">{count(sum('reportsReleased'))}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-      </SectionCard>
-    );
-  }
+      )}
+    </SectionCard>
+  );
+}
+
+function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLabel: string }) {
+  const rows = data.clinicDoctors;
+  const total = rows.reduce((s, r) => s + r.consults, 0);
+  const prior = rows.reduce((s, r) => s + r.priorConsults, 0);
   return (
     <SectionCard
-      label="Audit & anomalies"
-      description="Top events in 24h — open the full page for search, filters & 1-year history"
+      label={`Clinic · ${periodLabel}`}
+      className="h-full"
+      rightSlot={
+        <Link to="/clinic/queue" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
+          Queue ↗
+        </Link>
+      }
     >
-      <div className="overflow-x-auto">
-        <table className="w-full" style={{ fontSize: 12 }}>
+      <div className="mb-3" style={{ fontSize: 13 }}>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }}>Now</div>
+        {data.clinicNow.length === 0 ? (
+          <div style={{ color: TOKENS.textSecondary }}>Nobody waiting for a doctor.</div>
+        ) : (
+          data.clinicNow.map((c) => (
+            <div key={c.doctorId} className="flex flex-wrap justify-between gap-x-3">
+              <span>{c.doctorName}</span>
+              <span style={{ color: TOKENS.textSecondary }}>
+                <span style={{ color: (c.longestWaitMinutes ?? 0) > 30 ? TOKENS.critical : undefined }}>
+                  {c.waiting} waiting{c.longestWaitMinutes != null ? ` · longest ${fmtDuration(c.longestWaitMinutes)}` : ''}
+                </span>
+                {c.inConsultation ? ` · ${c.inConsultation} in with the doctor` : ''} · {c.seenToday} seen today
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No consults in this period.</div>
+      ) : (
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
           <thead>
-            <tr
-              style={{
-                color: TOKENS.textTertiary,
-                textAlign: 'left',
-                fontWeight: 400,
-              }}
-            >
-              <th className="pb-2">Severity</th>
-              <th className="pb-2">Event</th>
-              <th className="pb-2">Who</th>
-              <th className="pb-2">Detail</th>
-              <th className="pb-2">Time</th>
+            <tr>
+              <th className="pb-1 text-left" style={TH}>Doctor</th>
+              <th className="pb-1 text-right" style={TH}>Consults</th>
+              <th className="pb-1 text-right" style={TH}>vs before</th>
+              <th className="pb-1 text-right" style={TH} title="Prescriptions written in the app · on paper">Rx app · paper</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                <td className="py-2">
-                  <SeverityBadge severity={r.severity} />
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                  {r.drillTo ? (
-                    <Link to={r.drillTo} style={{ color: TOKENS.info, textDecoration: 'none' }}>
-                      {r.event}
-                    </Link>
-                  ) : (
-                    r.event
-                  )}
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                  {r.who ?? '—'}
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                  {r.detail}
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textTertiary }}>
-                  {formatIstTime(r.whenIso)}
+              <tr key={r.doctorId} style={ROW}>
+                <td className="py-1.5 pr-2">{r.doctorName}</td>
+                <td className="py-1.5 text-right">{count(r.consults)}</td>
+                <td className="py-1.5 text-right"><Delta now={r.consults} before={r.priorConsults} /></td>
+                <td className="py-1.5 text-right" style={{ color: TOKENS.textSecondary }}>
+                  {r.digitalRx} · {r.paperRx}
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
-      </div>
-      <div style={{ marginTop: 10, textAlign: 'right' }}>
-        <Link to="/ops/audit" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
-          Open full Audit &amp; Anomalies page →
-        </Link>
-      </div>
-    </SectionCard>
-  );
-}
-
-// ----- comms failures ---------------------------------------------------
-
-function CommsFailuresCard({
-  rows,
-  summary,
-}: {
-  rows: OperationsResponse['commsFailures'];
-  summary: OperationsResponse['commsSummary'];
-}) {
-  // Hides entirely when nothing failed.
-  if (rows.length === 0) return null;
-  // Tolerate a briefly-stale API during a deploy (new UI, old response shape):
-  // fall back to what the rows themselves imply rather than throwing.
-  const s = summary ?? {
-    patients: rows.length,
-    sends: rows.reduce((n, r) => n + (r.attemptCount ?? 1), 0),
-  };
-  return (
-    <SectionCard
-      label="Communication failures · last 24h"
-      rightSlot={
-        <span
-          style={{ fontSize: 12, color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
-        >
-          <b style={{ color: TOKENS.textSecondary, fontWeight: 600 }}>{s.patients}</b>
-          {s.patients === 1 ? ' patient · ' : ' patients · '}
-          <b style={{ color: TOKENS.textSecondary, fontWeight: 600 }}>{s.sends}</b>
-          {s.sends === 1 ? ' failed send' : ' failed sends'}
-        </span>
-      }
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full" style={{ fontSize: 12 }}>
-          <thead>
-            <tr style={{ color: TOKENS.textTertiary, textAlign: 'left', fontWeight: 400 }}>
-              <th className="pb-2">Patient</th>
-              <th className="pb-2">Number</th>
-              <th className="pb-2">Failed</th>
-              <th className="pb-2">Reason</th>
-              <th className="pb-2">Last tried</th>
+          <tfoot>
+            <tr className="font-medium" style={TOTAL_ROW}>
+              <td className="pt-2">All doctors</td>
+              <td className="pt-2 text-right">{count(total)}</td>
+              <td className="pt-2 text-right"><Delta now={total} before={prior} /></td>
+              <td />
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                  {formatPatientName(r.patientName, r.patientTitle)}
-                </td>
-                <td className="py-2">
-                  {/* The number to reach them on — the row's action, so it's dialable. */}
-                  <a
-                    href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
-                    style={{
-                      color: TOKENS.info,
-                      textDecoration: 'none',
-                      fontVariantNumeric: 'tabular-nums',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {r.phone}
-                  </a>
-                </td>
-                <td className="py-2" style={{ whiteSpace: 'nowrap' }}>
-                  <span
-                    style={{
-                      color: TOKENS.critical,
-                      fontWeight: 600,
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    {r.attemptCount}
-                  </span>
-                  <span style={{ color: TOKENS.textTertiary, marginLeft: 8 }}>
-                    {r.contextLabel}
-                  </span>
-                </td>
-                <td className="py-2" style={{ color: TOKENS.critical }}>
-                  {r.errorCode && (
-                    <span
-                      style={{ color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
-                    >
-                      {r.errorCode}
-                      {' · '}
-                    </span>
-                  )}
-                  {r.failureReason}
-                </td>
-                <td
-                  className="py-2"
-                  style={{ color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}
-                >
-                  {formatIstTime(r.lastTriedIso)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          </tfoot>
         </table>
+      )}
+      <div className="mt-2" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+        No time-with-doctor figure: the desk marks visits done in batches, so those times describe the desk, not the consult.
       </div>
-      <TruncationFooter shown={rows.length} total={s.patients} />
     </SectionCard>
   );
 }
 
-// ----- main page --------------------------------------------------------
+// ----- failed messages ----------------------------------------------------
+
+function FailedMessagesCard({ data, periodLabel }: { data: OperationsResponse; periodLabel: string }) {
+  const rows = data.failures;
+  const s = data.failureSummary;
+  return (
+    <div id="failed-messages" style={{ scrollMarginTop: 16 }} className="h-full">
+      <SectionCard
+        label={`Messages that didn't reach the patient · ${periodLabel}`}
+        description="Reports, bills and prescriptions (campaigns left out) · call them on the number shown"
+        className="h-full"
+        rightSlot={
+          s.patients > 0 ? (
+            <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+              {s.patients} patient{s.patients === 1 ? '' : 's'} · {s.sends} failed send{s.sends === 1 ? '' : 's'}
+            </span>
+          ) : undefined
+        }
+      >
+        {rows.length === 0 ? (
+          <div style={{ color: TOKENS.healthy, fontSize: 13 }}>Every message in this period reached the patient's WhatsApp.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: 13 }}>
+              <thead>
+                <tr className="text-left">
+                  <th className="pb-1" style={TH}>Patient</th>
+                  <th className="pb-1" style={TH}>Number</th>
+                  <th className="pb-1" style={TH}>What failed</th>
+                  <th className="pb-1" style={TH}>Why</th>
+                  <th className="pb-1 text-right" style={TH}>Last tried</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.patientId ?? `${r.phone}-${i}`} style={ROW}>
+                    <td className="py-1.5 pr-3">
+                      {r.patientId ? (
+                        <Link to={`/clinic/patient-360/${r.patientId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
+                          {formatPatientName(r.patientName, r.patientTitle)}
+                        </Link>
+                      ) : (
+                        formatPatientName(r.patientName, r.patientTitle)
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-3" style={{ whiteSpace: 'nowrap' }}>
+                      <a href={`tel:+${r.phone.replace(/[^\d]/g, '')}`} style={{ color: TOKENS.info, textDecoration: 'none', fontVariantNumeric: 'tabular-nums' }}>
+                        {fmtPhone(r.phone)}
+                      </a>
+                    </td>
+                    <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary, whiteSpace: 'nowrap' }}>
+                      {r.attemptCount > 1 ? `${r.attemptCount} sends · ` : ''}
+                      {r.contextLabel}
+                    </td>
+                    <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary }}>{r.failureReason}</td>
+                    <td className="py-1.5 text-right" style={{ color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}>
+                      {formatIstDate(r.lastTriedIso)} {formatIstTime(r.lastTriedIso)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {s.patients > rows.length && (
+          <div className="mt-2" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+            Latest {rows.length} of {s.patients} patients.
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
+// ----- main page ----------------------------------------------------------
+
+const OPS_PERIOD_OPTS: PeriodKey[] = ['today', 'yesterday', '7d', '30d', 'mtd', 'custom'];
+
+function todayKey(): string {
+  return new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+}
 
 export default function OwnerOperationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const branchValue = searchParams.get('branch') || 'all';
+  const rawPeriod = searchParams.get('period');
+  const period: PeriodKey = OPS_PERIOD_OPTS.includes(rawPeriod as PeriodKey) ? (rawPeriod as PeriodKey) : '7d';
+  const customStart = searchParams.get('start') || '';
+  const customEnd = searchParams.get('end') || '';
+  const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
 
-  const setBranchValue = (newBranch: string) => {
-    setSearchParams(prev => {
-      prev.set('branch', newBranch);
+  const update = (fn: (p: URLSearchParams) => void) =>
+    setSearchParams((prev) => {
+      fn(prev);
       return prev;
     });
-  };
+  const setBranchValue = (b: string) => update((p) => p.set('branch', b));
+  const setPeriod = (next: PeriodKey) =>
+    update((p) => {
+      p.set('period', next);
+      if (next === 'custom') {
+        if (!p.get('start')) p.set('start', todayKey());
+        if (!p.get('end')) p.set('end', todayKey());
+      } else {
+        p.delete('start');
+        p.delete('end');
+      }
+    });
+  const setCustomRange = (r: { start: string; end: string }) =>
+    update((p) => {
+      p.set('period', 'custom');
+      if (r.start) p.set('start', r.start);
+      if (r.end) p.set('end', r.end);
+    });
+
+  const params =
+    period === 'custom'
+      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
 
   const query = useQuery<OperationsResponse>({
-    queryKey: ['owner-operations', branchValue],
-    queryFn: () =>
-      apiRequest<OperationsResponse>(
-        `${API_BASE}/owner/operations?branch=${encodeURIComponent(branchValue)}`,
-      ),
-    refetchInterval: 30 * 1000, // live page — 30s
-    staleTime: 15 * 1000,
+    queryKey: ['owner-operations', period, branchValue, customStart, customEnd],
+    queryFn: () => apiRequest<OperationsResponse>(`${API_BASE}/owner/operations?${params}`),
+    enabled: period !== 'custom' || customReady,
+    refetchInterval: 60 * 1000, // the live half should feel live
+    staleTime: 30 * 1000,
   });
 
-  const data = query.data;
+  // A server still on the old shape (deploy skew) has no pipeline: wait for it.
+  const data = query.data?.pipeline ? query.data : undefined;
+  const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
+  const multiDay = (data?.byDay.length ?? 0) > 1;
 
   return (
     <AppLayout context="owner" hideContextBanner>
-      <div
-        className="mx-auto"
-        style={{ maxWidth: 1440, color: TOKENS.textPrimary, background: TOKENS.page }}
-      >
+      <div className="mx-auto" style={{ maxWidth: 1440, color: TOKENS.textPrimary, background: TOKENS.page }}>
         <OwnerPageHeader
           title="Operations"
           subtitle={
             data
-              ? `${formatIstDateTime(data.generatedAt)} · ${
-                  data.branchScope.branchName ?? 'all branches'
-                } · live`
+              ? `${formatIstDateTime(data.generatedAt)} · ${data.branchScope.branchName ?? 'all branches'} · live parts refresh every minute`
               : 'Loading…'
           }
           rightSlot={
             <>
+              <PeriodFilter
+                value={period}
+                onChange={setPeriod}
+                options={OPS_PERIOD_OPTS}
+                customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
+                onCustomRangeChange={setCustomRange}
+              />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
               <RefreshButton isFetching={query.isFetching} onClick={() => query.refetch()} />
             </>
           }
         />
 
-        {query.isLoading && <FullPageSkeleton />}
+        {(query.isLoading || (query.data && !data)) && <FullPageSkeleton />}
         {query.isError && <ErrorCard onRetry={() => query.refetch()} />}
 
         {data && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <KpiCard
-                label="Registration→Report (median)"
-                value={
-                  data.kpis.tatMedianMinutes !== null
-                    ? fmtDuration(data.kpis.tatMedianMinutes)
-                    : '—'
-                }
-                sub={
-                  data.kpis.tatSampleCount >= 4
-                    ? `${data.kpis.tatSampleCount} reports · last 7 days`
-                    : `${data.kpis.tatSampleCount}/4 samples · baseline forming`
-                }
-              />
-              <KpiCard
-                label="Reports finalized today"
-                value={data.kpis.finalizedToday}
-                sub="since midnight"
-              />
-              <KpiCard
-                label="In queue right now"
-                value={data.kpis.inQueue}
-                sub={
-                  Number.isFinite(data.kpis.inQueueDiagnostics)
-                    ? `incl. ${data.kpis.inQueueDiagnostics} diagnostics + ${data.kpis.inQueueClinic} clinic`
-                    : undefined
-                }
-              />
-              <KpiCard
-                label="Message delivery"
-                value={
-                  data.kpis.deliveryRatePercent !== null
-                    ? `${data.kpis.deliveryRatePercent}%`
-                    : data.kpis.inFlight > 0
-                      ? 'in flight'
-                      : '—'
-                }
-                sub={
-                  data.kpis.deliveryRatePercent === null && data.kpis.inFlight > 0
-                    ? `${data.kpis.inFlight} awaiting delivery receipts · 0 settled`
-                    : `${data.kpis.deliveryAttempted} settled${
-                        Number.isFinite(data.kpis.inFlight) ? ` · ${data.kpis.inFlight} in flight` : ''
-                      }`
-                }
-              />
+            <div>
+              <GroupLabel>Needs attention · live</GroupLabel>
+              <ActionQueue chips={data.attention} />
             </div>
 
-            <ReportTurnaroundCard turnaround={data.reportTurnaround} />
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <DiagnosticsQueueCard rows={data.diagnosticsQueue} />
-              <ClinicQueueCard groups={data.clinicQueue} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <PipelineCard data={data.pipeline} />
+              </div>
+              <div className="lg:col-span-7">
+                <OldestOpenCard rows={data.oldestOpen} total={data.pipeline.total} />
+              </div>
             </div>
 
-            <AuditFeedCard rows={data.audit} />
+            <div>
+              <GroupLabel>{periodLabel} · visits registered in the period</GroupLabel>
+              <OpsKpis data={data} />
+            </div>
 
-            <CommsFailuresCard rows={data.commsFailures} summary={data.commsSummary} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-8">
+                {multiDay ? (
+                  <TurnaroundByDayCard data={data} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
+                ) : (
+                  <ArrivalHourCard rows={data.byHour} periodLabel={periodLabel} />
+                )}
+              </div>
+              <div className="lg:col-span-4">
+                <DepartmentsCard rows={data.departments} periodLabel={periodLabel} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              {multiDay ? (
+                <div className="lg:col-span-7">
+                  <ArrivalHourCard rows={data.byHour} periodLabel={periodLabel} />
+                </div>
+              ) : (
+                <div className="lg:col-span-7">
+                  <FailedMessagesCard data={data} periodLabel={periodLabel} />
+                </div>
+              )}
+              <div className="lg:col-span-5">
+                <DeliveryCard d={data.delivery} failedPatients={data.failureSummary.patients} periodLabel={periodLabel} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-7">
+                <TeamCard rows={data.team} periodLabel={periodLabel} />
+              </div>
+              <div className="lg:col-span-5">
+                <ClinicCard data={data} periodLabel={periodLabel} />
+              </div>
+            </div>
+
+            {multiDay && <FailedMessagesCard data={data} periodLabel={periodLabel} />}
           </div>
         )}
       </div>

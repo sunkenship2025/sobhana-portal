@@ -16,12 +16,12 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Clock, Info } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
-import { KpiTile, ComparisonTrendChart, Sparkline, SERIES, BusyHoursHeatmap, BarList, StatementLine, Delta, GroupLabel, TH, ROW, TOTAL_ROW, type BarRow } from './_shared/dashboardCharts';
+import { KpiTile, ComparisonTrendChart, Sparkline, SERIES, BusyHoursHeatmap, BarList, StatementLine, Delta, GroupLabel, ActionQueue, TH, ROW, TOTAL_ROW, type BarRow, type AttentionChip } from './_shared/dashboardCharts';
 import {
   TOKENS,
   SectionCard,
@@ -50,13 +50,8 @@ type ActionChipType =
   | 'dormant_branch'
   | 'identity_change_unjustified';
 
-interface ActionChip {
+interface ActionChip extends AttentionChip {
   type: ActionChipType;
-  severity: 'high' | 'medium' | 'low';
-  label: string;
-  count?: number;
-  amountInPaise?: number;
-  drillTo: string;
 }
 
 interface DashboardV2 {
@@ -300,104 +295,6 @@ function metricSeries(m: Metric, trend: TrendDay[], adjacent: boolean) {
 // Design tokens + primitives are the single source of truth in
 // ./_shared/ownerUi (imported above).
 
-function severityRank(s: ActionChip['severity']): number {
-  if (s === 'high') return 3;
-  if (s === 'medium') return 2;
-  return 1;
-}
-
-function severityColor(s: ActionChip['severity']): string {
-  if (s === 'high') return TOKENS.critical;
-  if (s === 'medium') return TOKENS.caution;
-  return TOKENS.textTertiary;
-}
-
-function severityIcon(s: ActionChip['severity']) {
-  if (s === 'high') return AlertTriangle;
-  if (s === 'medium') return Clock;
-  return Info;
-}
-
-// ----- action queue -----------------------------------------------------
-
-function ActionQueue({ chips }: { chips: ActionChip[] }) {
-  if (chips.length === 0) {
-    return (
-      <div
-        className="px-4 py-3"
-        style={{
-          color: TOKENS.textTertiary,
-          fontSize: 13,
-          background: TOKENS.surface,
-          border: `0.5px solid ${TOKENS.border}`,
-          borderRadius: 12,
-        }}
-      >
-        All clear — no decisions pending.
-      </div>
-    );
-  }
-
-  // Sort by severity (high > medium > low), then by amount desc. There are only
-  // 6 chip types, so the cap of 7 shows them all — no overflow chip.
-  const sorted = [...chips]
-    .sort((a, b) => {
-      const sev = severityRank(b.severity) - severityRank(a.severity);
-      if (sev !== 0) return sev;
-      return (b.amountInPaise ?? 0) - (a.amountInPaise ?? 0);
-    })
-    .slice(0, 7);
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {sorted.map((chip) => {
-        const Icon = severityIcon(chip.severity);
-        const color = severityColor(chip.severity);
-        const badge =
-          chip.amountInPaise !== undefined
-            ? formatRupees(chip.amountInPaise, { short: true })
-            : chip.count !== undefined
-              ? String(chip.count)
-              : null;
-        return (
-          <Link
-            key={chip.type}
-            to={chip.drillTo}
-            className="inline-flex items-center gap-2"
-            style={{
-              background: TOKENS.surface,
-              border: `0.5px solid ${TOKENS.border}`,
-              borderLeftWidth: 2,
-              borderLeftColor: color,
-              borderRadius: 4,
-              padding: '8px 12px',
-              fontSize: 13,
-              color: TOKENS.textPrimary,
-              textDecoration: 'none',
-            }}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
-            <span>{chip.label}</span>
-            {badge && (
-              <span
-                className="ml-1 font-medium"
-                style={{
-                  color,
-                  background: `${color}1A`,
-                  borderRadius: 3,
-                  padding: '1px 6px',
-                  fontSize: 12,
-                }}
-              >
-                {badge}
-              </span>
-            )}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
 
 // ----- where the money went + this month ---------------------------------
 

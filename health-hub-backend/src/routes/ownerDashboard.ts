@@ -21,15 +21,15 @@ const router = Router();
 
 router.use(authMiddleware);
 
-// GET /api/owner/operations?branch=<id|all>
+// GET /api/owner/operations?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id|all>
+//   (custom takes &start/&end like /money). Live sections ignore the period.
 // Operations is the live ops worklist — available to the owner AND the lab
 // in-charge (ops oversight). Registered BEFORE the owner-only gate below so
 // lab_incharge requests aren't rejected by it.
 router.get('/operations', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
   try {
-    const rawBranch = (req.query.branch as string) || 'all';
-    const branchId = rawBranch === 'all' ? null : rawBranch;
-    const data = await getOwnerOperations(branchId);
+    const { period, branchId, range } = parseMoneyQuery(req);
+    const data = await getOwnerOperations(period, branchId, range);
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner operations load failed');

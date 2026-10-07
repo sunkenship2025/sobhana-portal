@@ -1,242 +1,211 @@
 /**
- * Owner Operations page aggregations.
+ * Owner Operations page — GET /api/owner/operations.
  *
- * Backs GET /api/owner/operations. Answers: are reports going out on time,
- * where is the queue stuck, what looks wrong, what failed.
+ * Answers, in order: what is stuck right now, are reports going out on time
+ * (and which department or hour of day is slow), do patients actually get
+ * them, and who is doing the work. No money: the lab in-charge sees this page.
  *
- * Sections:
- *   - kpis              TAT median / Reports finalized / In queue / Delivery rate
- *   - tatHistogram      Last 100 finalized reports bucketed in 3-min bins
- *   - diagnosticsQueue  Live, age-tinted list of unfinalized orders
- *   - clinicQueue       Grouped by clinic doctor on shift
- *   - audit             Latest 20 anomalies (identity / discount / deletions), scored
- *                       high/medium/low via a base-tier + context-modifier model
- *   - commsFailures     Failed MessageLog rows in last 24h, grouped by reason
+ * Live (ignores the period): attention chips, the open-report pipeline by
+ * stage × age, the oldest open visits, the clinic queue today.
+ *
+ * Period: one cohort — diagnostic visits REGISTERED in the window that need a
+ * report (at least one live reportable or outside-lab test not closed as films
+ * only). Every turnaround, delivery and hour-of-day figure is about that same
+ * set, so they reconcile. Turnaround = registration → first report released
+ * (a partial release counts: the patient has something). A single day is
+ * compared with the same weekday a week earlier, like the Money page.
+ *
+ * The audit feed that used to sit here lives on its own page (/ops/audit).
  */
 
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 import { describeWaError } from './whatsappErrors';
+import { comparisonWindow } from './moneyFactsService';
+import { customWindow, periodWindow, toIstDateKey, PeriodKey, CustomRange } from './ownerMoneyService';
 
-const CACHE_TTL_SEC = 30; // shorter TTL — this page is meant to feel live
-// v3: comms failures grouped by patient + commsSummary added (shape change).
-const cacheKey = (branchId: string | null) =>
-  `owner-operations:v3:${branchId ?? 'all'}`;
+const CACHE_TTL_SEC = 60;
+const cacheKey = (period: PeriodKey, branchId: string | null, range: CustomRange | null) =>
+  `owner-operations:v4:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const SLA_TAT_MINUTES = 1440; // 24 hours from registration (owner decision)
+const SLA_MINUTES = 1440; // a report within a day of registration (owner decision)
+const CLINIC_LONG_WAIT_MINUTES = 30;
 
-// Discount-audit thresholds (P1-E): control which discounts ENTER the feed.
-const DISCOUNT_AUDIT_PERCENT = 10; // fire audit at >= 10%
-const DISCOUNT_AUDIT_PAISE = 50_000; // ...or >= ₹500 absolute
+/** Open-work age bands, in hours (upper bounds). */
+const AGE_BANDS = [
+  { label: 'Under 4h', maxH: 4 },
+  { label: '4–24h', maxH: 24 },
+  { label: '1–3 days', maxH: 72 },
+  { label: 'Over 3 days', maxH: Infinity },
+];
 
-// ── Severity scoring model ────────────────────────────────────────────────
-// Every audit event gets a base score by type, plus context modifiers, then
-// the total maps to a band. This replaces the old per-source hardcoded tiers
-// (which never produced "low" and ignored discount-as-%-of-bill). Each factor
-// records a human reason so the detail line can explain WHY it scored.
-const SEV_LARGE_AMOUNT_PAISE = 200_000; // >= ₹2,000 absolute → +1
-const SEV_PCT_HIGH = 50; // >= 50% of bill → +2
-const SEV_PCT_MED = 20; // 20–50% of bill → +1
-const IDENTITY_REPEAT_THRESHOLD = 2; // > this many identity edits to one patient → +1
-
-type Severity = 'high' | 'medium' | 'low';
-
-function bandFromScore(score: number): Severity {
-  if (score >= 4) return 'high';
-  if (score >= 2) return 'medium';
-  return 'low';
-}
-
-// Fold the scoring reasons into the detail line so the frontend needs no change
-// and the owner can see why a row is flagged (e.g. "· 83% of bill · off-hours").
-function withReasons(detail: string, reasons: string[]): string {
-  return reasons.length ? `${detail} · ${reasons.join(' · ')}` : detail;
-}
-
-// Catalog (config) edits we surface in the feed, mapped to a friendly label.
-// These are logged to AuditLog by the billable-products / clinical-panels routes.
-const CATALOG_ENTITY_LABELS: Record<string, string> = {
-  BillableProduct: 'Billable product',
-  ClinicalPanel: 'Clinical panel',
+export type OpenStage = 'none' | 'entering' | 'outside' | 'partly';
+const STAGE_LABEL: Record<OpenStage, string> = {
+  none: 'No results yet',
+  entering: 'Awaiting sign-off',
+  outside: 'Outside lab pending',
+  partly: 'Partly released',
 };
 
-// Pull a human name out of an AuditLog old/newValues JSON blob (the catalog
-// routes stash { name, displayName } there) so the feed can show what changed.
-function catalogDisplayName(raw: string | null): string | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw);
-    return v?.displayName || v?.name || null;
-  } catch {
-    return null;
-  }
-}
-
-export interface OperationsKpi {
-  tatMedianMinutes: number | null;
-  tatSampleCount: number;
-  finalizedToday: number;
-  finalizableToday: number;
-  inQueue: number;
-  inQueueDiagnostics: number;
-  inQueueClinic: number;
-  deliveryRatePercent: number | null;
-  deliveryAttempted: number;
-  inFlight: number;
-}
-
-export interface TurnaroundBucket {
+export interface AttentionChip {
+  type: string;
   label: string;
-  count: number;
-}
-
-export interface ReportTurnaround {
-  sampleCount: number;
-  windowDays: number;
-  medianMinutes: number | null;
-  slaMinutes: number;
-  withinSlaPercent: number | null; // share finalized within the SLA (<= 24h)
-  overSlaCount: number;
-  buckets: TurnaroundBucket[];
-}
-
-export interface DiagnosticsQueueRow {
-  visitId: string;
-  patientName: string;
-  patientTitle: string | null;
-  branchCode: string;
-  productName: string | null;
-  stage:
-    | 'awaiting result entry'
-    | 'in progress'
-    | 'draft · awaiting sign-off'
-    | 'sample pending'
-    | 'PDF missing';
-  ageMinutes: number;
-}
-
-export interface ClinicQueueDoctor {
-  doctorId: string;
-  doctorName: string;
-  branchName: string | null;
-  shiftStartIso: string | null;
-  waitingCount: number;
-  inProgressCount: number;
-  avgWaitMinutes: number | null;
-  patients: Array<{
-    visitId: string;
-    patientName: string;
-    patientTitle: string;
-    visitType: 'OP' | 'IP';
-    waitMinutes: number;
-  }>;
-}
-
-export interface AuditRow {
-  id: string;
+  count?: number;
   severity: 'high' | 'medium' | 'low';
-  event: string;
-  who: string | null;
-  detail: string;
-  whenIso: string;
-  drillTo: string | null;
+  drillTo: string;
 }
 
-// One row = one patient (their repeat failed sends collapsed together).
-export interface CommsFailureRow {
-  patientName: string;
-  patientTitle: string | null;
-  /** Recipient number we sent to — shown so the patient is immediately dialable. */
-  phone: string;
-  /** How many sends failed for this patient in the window. */
-  attemptCount: number;
-  /** Which sends failed, e.g. "3 report, 1 bill" — or just "bill" for a single kind. */
-  contextLabel: string;
-  errorCode: string | null;
-  failureReason: string;
-  /** Most recent failure for this patient. */
-  lastTriedIso: string;
+export interface OpsKpis {
+  /** Visits in the cohort (need a report). */
+  visits: number;
+  released: number;
+  medianMinutes: number | null;
+  /** Of visits whose day is up (released, or open over 24h): share out within 24h. */
+  within24Pct: number | null;
+  deliveredPct: number | null; // WhatsApp delivered, of released
+  openedPct: number | null; // opened online, of released
+  consults: number;
 }
 
 export interface OperationsResponse {
   generatedAt: string;
+  period: { key: PeriodKey; startIso: string; endIso: string };
+  /** cutAtNow: the window is still running, so the comparison stops at the same point in it. */
+  comparison: { startIso: string; endIso: string; sameWeekday: boolean; cutAtNow: boolean };
   branchScope: { branchId: string | null; branchName: string | null };
-  kpis: OperationsKpi;
-  reportTurnaround: ReportTurnaround;
-  diagnosticsQueue: DiagnosticsQueueRow[];
-  clinicQueue: ClinicQueueDoctor[];
-  audit: AuditRow[];
-  commsFailures: CommsFailureRow[];
-  /** Counts across the whole window (before the top-N cut), so the header can
-   * show how much the grouping collapsed — e.g. "7 patients · 16 failed sends". */
-  commsSummary: { patients: number; sends: number };
+  attention: AttentionChip[];
+  pipeline: {
+    bands: string[];
+    rows: { stage: OpenStage; label: string; counts: number[] }[];
+    total: number;
+  };
+  oldestOpen: {
+    visitId: string;
+    patientName: string;
+    patientTitle: string | null;
+    branchCode: string;
+    tests: string;
+    stage: string;
+    ageMinutes: number;
+  }[];
+  clinicNow: {
+    doctorId: string;
+    doctorName: string;
+    branchName: string | null;
+    waiting: number;
+    inConsultation: number;
+    seenToday: number;
+    longestWaitMinutes: number | null;
+  }[];
+  kpis: OpsKpis;
+  prior: OpsKpis;
+  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
+  byHour: { hour: number; sameDay: number; later: number; notYet: number }[];
+  departments: {
+    name: string;
+    visits: number;
+    released: number;
+    medianMinutes: number | null;
+    within24Pct: number | null;
+    filmsOnly: number;
+  }[];
+  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
+  team: { userId: string; name: string; role: string; registered: number; testsEntered: number; reportsReleased: number }[];
+  clinicDoctors: {
+    doctorId: string;
+    doctorName: string;
+    consults: number;
+    priorConsults: number;
+    digitalRx: number;
+    paperRx: number;
+  }[];
+  failures: {
+    patientId: string | null;
+    patientName: string;
+    patientTitle: string | null;
+    phone: string;
+    attemptCount: number;
+    contextLabel: string;
+    failureReason: string;
+    lastTriedIso: string;
+  }[];
+  failureSummary: { patients: number; sends: number };
 }
 
-/** "3 report, 1 bill" for a mixed patient; just "bill" when only one kind failed. */
+// --- helpers ------------------------------------------------------------
+
+function startOfTodayIst(now: Date): Date {
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);
+  ist.setUTCHours(0, 0, 0, 0);
+  return new Date(ist.getTime() - IST_OFFSET_MS);
+}
+
+const istHour = (ms: number) => new Date(ms + IST_OFFSET_MS).getUTCHours();
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
+}
+
+const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : null);
+const num = (v: unknown) => Number(v ?? 0);
+
+/** "3 report, 1 bill" for a mixed patient; just "report" for one kind. */
 function formatContexts(contexts: Map<string, number>): string {
   const entries = [...contexts.entries()].sort((a, b) => b[1] - a[1]);
   if (entries.length === 1) return entries[0][0];
   return entries.map(([type, n]) => `${n} ${type}`).join(', ');
 }
 
-// --- helpers ------------------------------------------------------------
-
-function startOfTodayIst(now: Date): Date {
-  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
-  istNow.setUTCHours(0, 0, 0, 0);
-  return new Date(istNow.getTime() - IST_OFFSET_MS);
+interface CohortRow {
+  id: string;
+  cur: boolean;
+  reg: Date;
+  rel: Date | null;
+  open: boolean;
+  sent: boolean;
+  delivered: boolean;
+  opened: boolean;
+  printed: boolean;
 }
 
-function percentile(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
-  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[idx];
-}
-
-// Fixed, human-readable turnaround buckets. Unlike a data-driven histogram, a
-// single slow outlier can't stretch the scale — it just lands in the last
-// bucket. Boundaries are inclusive-upper so "12–24h" matches the 24h SLA.
-const TURNAROUND_BUCKETS: { label: string; maxMinutes: number }[] = [
-  { label: 'Under 4h', maxMinutes: 4 * 60 },
-  { label: '4–12h', maxMinutes: 12 * 60 },
-  { label: '12–24h', maxMinutes: 24 * 60 },
-  { label: '1–3 days', maxMinutes: 72 * 60 },
-  { label: 'Over 3 days', maxMinutes: Infinity },
-];
-
-function buildTurnaroundBuckets(durations: number[]): TurnaroundBucket[] {
-  const counts: TurnaroundBucket[] = TURNAROUND_BUCKETS.map((b) => ({
-    label: b.label,
-    count: 0,
-  }));
-  for (const d of durations) {
-    let idx = TURNAROUND_BUCKETS.findIndex((b) => d <= b.maxMinutes);
-    if (idx === -1) idx = counts.length - 1;
-    counts[idx].count += 1;
-  }
-  return counts;
-}
-
-function isOffHoursIst(d: Date): boolean {
-  const ist = new Date(d.getTime() + IST_OFFSET_MS);
-  const minutesOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  // Off-hours = 10:00pm–7:30am IST. A diagnostic centre runs into the evening,
-  // so only genuinely late/early activity is a signal (not normal evening work).
-  return minutesOfDay >= 22 * 60 || minutesOfDay < 7 * 60 + 30;
+/** KPIs as they stood at `asOf` (now, or the same moment in the comparison window). */
+function kpisOf(all: CohortRow[], asOf: number, consults: number): OpsKpis {
+  const rows = all.map((r) => (r.rel && r.rel.getTime() > asOf ? { ...r, rel: null, open: true } : r));
+  const nowMs = asOf;
+  const released = rows.filter((r) => r.rel);
+  const tats = released.map((r) => (r.rel!.getTime() - r.reg.getTime()) / 60_000).filter((m) => m >= 0);
+  const onTime = tats.filter((m) => m <= SLA_MINUTES).length;
+  const lateOpen = rows.filter((r) => !r.rel && r.open && nowMs - r.reg.getTime() > SLA_MINUTES * 60_000).length;
+  return {
+    visits: rows.length,
+    released: released.length,
+    medianMinutes: median(tats),
+    within24Pct: pct(onTime, tats.length + lateOpen),
+    deliveredPct: pct(released.filter((r) => r.delivered).length, released.length),
+    openedPct: pct(released.filter((r) => r.opened).length, released.length),
+    consults,
+  };
 }
 
 // --- main entry ---------------------------------------------------------
 
 export async function getOwnerOperations(
+  period: PeriodKey,
   branchId: string | null,
+  range: CustomRange | null = null,
 ): Promise<OperationsResponse> {
   const redis = getRedisClient();
+  const key = cacheKey(period, branchId, range);
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(branchId));
+      const hit = await redis.get(key);
       if (hit) return JSON.parse(hit) as OperationsResponse;
     } catch (err) {
       logger.warn({ err, branchId }, 'owner-operations: cache read failed');
@@ -244,293 +213,197 @@ export async function getOwnerOperations(
   }
 
   const now = new Date();
+  const nowMs = now.getTime();
   const todayStart = startOfTodayIst(now);
-  const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
-  const yesterdayStart = new Date(now.getTime() - DAY_MS);
-  const sevenDaysStart = new Date(now.getTime() - 7 * DAY_MS);
+  const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
+  // A window still running is compared with the comparison window up to the
+  // same moment: today at 10:47 against last Wednesday up to 10:47, not all of it.
+  const full = comparisonWindow(win);
+  const shiftMs = win.start.getTime() - full.start.getTime();
+  const cutAtNow = win.end.getTime() > nowMs;
+  const prior = cutAtNow ? { start: full.start, end: new Date(Math.min(full.end.getTime(), nowMs - shiftMs)) } : full;
+  const sameWeekday = Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS) === 1;
+
+  const vBranch = branchId ? Prisma.sql`AND v."branchId" = ${branchId}` : Prisma.empty;
+  const aBranch = branchId ? Prisma.sql`AND a."branchId" = ${branchId}` : Prisma.empty;
+  const oBranch = branchId ? Prisma.sql`AND o."branchId" = ${branchId}` : Prisma.empty;
+  // A visit needs a report while it has a live reportable / outside-lab test
+  // that was not closed as films only.
+  const needsReport = Prisma.sql`EXISTS (
+    SELECT 1 FROM "TestOrder" o WHERE o."visitId" = v.id AND o."cancelledAt" IS NULL
+      AND o."noReportAt" IS NULL AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD'))`;
 
   const [
     scopedBranch,
-    turnaroundRows,
-    finalizedTodayRows,
-    finalizableTodayVisits,
-    inQueueByDomain,
-    diagnosticsRaw,
-    diagnosticsFinalized,
-    clinicWaitingRows,
-    clinicInProgressRows,
-    commsToday,
-    auditIdentity,
-    auditDiscounts,
-    auditOffHours,
-    commsFailures,
     branches,
-    auditNoReport,
-    auditReopened,
-    auditCancelRefunds,
+    cohort,
+    deptRows,
+    openVisits,
+    clinicOpen,
+    clinicSeenToday,
+    clinicPeriod,
+    registeredBy,
+    enteredBy,
+    releasedBy,
+    failedRows,
+    failedReport24h,
   ] = await Promise.all([
-    branchId
-      ? prisma.branch.findUnique({
-          where: { id: branchId },
-          select: { id: true, name: true },
-        })
-      : Promise.resolve(null),
+    branchId ? prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } }) : null,
+    prisma.branch.findMany({ select: { id: true, code: true } }),
 
-    // Report turnaround sample: finalized reports whose VISIT was registered in
-    // the last 7 days. Scoping by REGISTRATION date (not "last N finalized")
-    // keeps backlog cleanups — old visits bulk-finalized recently — out of the
-    // numbers, so the median/buckets reflect current turnaround. take is a
-    // generous safety bound; real 7-day volume sits well under it.
-    prisma.reportVersion.findMany({
-      where: {
-        status: 'FINALIZED',
-        report: {
-          ...(branchId ? { branchId } : {}),
-          visit: { createdAt: { gte: sevenDaysStart } },
-        },
-      },
-      orderBy: { finalizedAt: 'desc' },
-      take: 2000,
-      select: {
-        finalizedAt: true,
-        report: { select: { visit: { select: { createdAt: true } } } },
-      },
-    }),
+    // The cohort, this window and the comparison window, one row per visit.
+    prisma.$queryRaw<
+      { id: string; cur: boolean; reg: Date; rel: Date | null; open: boolean; sent: boolean; delivered: boolean; opened: boolean; printed: boolean }[]
+    >`
+      SELECT v.id, (v."createdAt" >= ${win.start}) AS cur, v."createdAt" AS reg,
+        (SELECT min(rv."finalizedAt") FROM "DiagnosticReport" r
+           JOIN "ReportVersion" rv ON rv."reportId" = r.id AND rv.status = 'FINALIZED'
+          WHERE r."visitId" = v.id) AS rel,
+        v.status IN ('DRAFT', 'WAITING') AS open,
+        EXISTS (SELECT 1 FROM "MessageLog" m WHERE m."contextType" = 'REPORT' AND m."contextId" = v.id) AS sent,
+        EXISTS (SELECT 1 FROM "MessageLog" m WHERE m."contextType" = 'REPORT' AND m."contextId" = v.id
+                  AND m.status IN ('DELIVERED', 'READ')) AS delivered,
+        EXISTS (SELECT 1 FROM "DiagnosticReport" r JOIN "ReportVersion" rv ON rv."reportId" = r.id
+                  JOIN "ReportAccessLog" l ON l."reportVersionId" = rv.id
+                 WHERE r."visitId" = v.id AND l."accessedVia" IN ('TOKEN', 'PATIENT_PORTAL')) AS opened,
+        v."reportPrintedAt" IS NOT NULL AS printed
+      FROM "Visit" v
+      WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' ${vBranch}
+        AND ((v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end})
+          OR (v."createdAt" >= ${prior.start} AND v."createdAt" < ${prior.end}))
+        AND ${needsReport}`,
 
-    // Finalized today as DISTINCT visits (a multi-test visit finalizes one report).
-    prisma.reportVersion.findMany({
-      where: {
-        status: 'FINALIZED',
-        finalizedAt: { gte: todayStart, lt: tomorrowStart },
-        ...(branchId ? { report: { branchId } } : {}),
-      },
-      select: { report: { select: { visitId: true } } },
-    }),
+    // Per department: a visit's part is out when every live test of that
+    // department in it is out. Reportable tests are out with the first released
+    // version holding their result; an outside-lab test with the first one
+    // released after its PDF was uploaded.
+    prisma.$queryRaw<{ name: string; visits: number; released: number; films: number; p50: number | null; within: number }[]>`
+      WITH t AS (
+        SELECT o."visitId", v."createdAt" AS reg,
+          CASE WHEN o."workflowMode" = 'EXTERNAL_UPLOAD' AND coalesce(nullif(trim(o."payoutCategorySnapshot"), ''), 'Other') = 'Laboratory'
+               THEN 'Outside lab'
+               ELSE coalesce(nullif(trim(o."payoutCategorySnapshot"), ''), 'Other') END AS name,
+          o."noReportAt" IS NOT NULL AS films,
+          CASE WHEN o."workflowMode" = 'REPORTABLE' THEN
+            (SELECT min(rv."finalizedAt") FROM "TestResult" tr
+               JOIN "ReportVersion" rv ON rv.id = tr."reportVersionId" AND rv.status = 'FINALIZED'
+              WHERE tr."testOrderId" = o.id)
+          ELSE
+            (SELECT min(rv."finalizedAt") FROM "DiagnosticReport" r
+               JOIN "ReportVersion" rv ON rv."reportId" = r.id AND rv.status = 'FINALIZED'
+              WHERE r."visitId" = o."visitId"
+                AND rv."finalizedAt" >= (SELECT min(u."uploadedAt") FROM "ExternalReportUpload" u
+                                          WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL))
+          END AS rel
+        FROM "TestOrder" o JOIN "Visit" v ON v.id = o."visitId"
+        WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' AND o."cancelledAt" IS NULL
+          AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
+          AND v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end} ${vBranch}
+      ), vd AS (
+        SELECT "visitId", name, reg, bool_and(films) AS films,
+          CASE WHEN bool_and(films OR rel IS NOT NULL) AND bool_or(NOT films) THEN max(rel) END AS rel
+        FROM t GROUP BY 1, 2, 3
+      )
+      SELECT name, count(*)::int AS visits,
+        count(*) FILTER (WHERE rel IS NOT NULL)::int AS released,
+        count(*) FILTER (WHERE films)::int AS films,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM rel - reg) / 60)
+          FILTER (WHERE rel IS NOT NULL) AS p50,
+        count(*) FILTER (WHERE rel - reg <= interval '24 hours')::int AS within
+      FROM vd GROUP BY 1 ORDER BY 2 DESC`,
 
-    // Finalizable today as DISTINCT visits having >= 1 REPORTABLE order today.
-    prisma.testOrder.findMany({
-      where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
-        workflowMode: 'REPORTABLE',
-        ...(branchId ? { branchId } : {}),
-      },
-      select: { visitId: true },
-      distinct: ['visitId'],
-    }),
+    // Open diagnostic work, live: one row per open visit with what its live
+    // tests are waiting on. (Raw SQL: Prisma's nested take-1 relations ran a
+    // query per test and took 8s.)
+    prisma.$queryRaw<
+      { id: string; createdAt: Date; branchId: string; name: string; title: string | null; partly: boolean; outsideMissing: number; anyIn: boolean; names: string[] }[]
+    >`
+      SELECT v.id, v."createdAt", v."branchId", p.name, p.title::text AS title,
+        EXISTS (SELECT 1 FROM "DiagnosticReport" r JOIN "ReportVersion" rv ON rv."reportId" = r.id
+                 WHERE r."visitId" = v.id AND rv.status = 'FINALIZED') AS partly,
+        count(*) FILTER (WHERE o."workflowMode" = 'EXTERNAL_UPLOAD' AND NOT EXISTS (
+          SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL))::int AS "outsideMissing",
+        bool_or(EXISTS (SELECT 1 FROM "TestResult" tr WHERE tr."testOrderId" = o.id)
+             OR EXISTS (SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL)) AS "anyIn",
+        array_agg(DISTINCT coalesce(pr.name, o."testNameSnapshot")) AS names
+      FROM "Visit" v
+      JOIN "Patient" p ON p.id = v."patientId"
+      JOIN "TestOrder" o ON o."visitId" = v.id AND o."cancelledAt" IS NULL AND o."noReportAt" IS NULL
+        AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
+      LEFT JOIN "BillableProduct" pr ON pr.id = o."productId"
+      WHERE v.domain = 'DIAGNOSTICS' AND v.status IN ('DRAFT', 'WAITING') ${vBranch}
+      GROUP BY v.id, p.name, p.title
+      ORDER BY v."createdAt"
+      LIMIT 500`,
 
-    // In-queue split by domain (P0-D): grouped so the KPI reconciles with the
-    // two domain-scoped queue cards below.
-    prisma.visit.groupBy({
-      by: ['domain'],
+    // Clinic queue, today's check-ins only (an unclosed visit from last week is
+    // a housekeeping miss, not a patient in the waiting room).
+    prisma.clinicVisit.findMany({
       where: {
         status: { in: ['WAITING', 'IN_PROGRESS'] },
-        ...(branchId ? { branchId } : {}),
+        createdAt: { gte: todayStart },
+        ...(branchId ? { visit: { branchId } } : {}),
       },
-      _count: true,
-    }),
-
-    // Diagnostics queue — visits not yet finalized, with patient + first product
-    prisma.visit.findMany({
-      where: {
-        domain: 'DIAGNOSTICS',
-        status: { in: ['WAITING', 'IN_PROGRESS'] },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 50,
       select: {
-        id: true,
-        createdAt: true,
         status: true,
-        branchId: true,
-        patient: { select: { name: true, title: true } },
-        // Cancelled orders are voided off the visit — excluded so a cancelled
-        // test's name/stage never stands in for the visit's live work.
-        testOrders: {
-          where: { cancelledAt: null },
-          select: {
-            workflowMode: true,
-            product: { select: { name: true } },
-            testNameSnapshot: true,
-            testResults: { select: { id: true }, take: 1 },
-            externalUploads: { select: { id: true }, take: 1 },
-          },
-          take: 5,
-        },
-        report: {
-          select: {
-            versions: {
-              orderBy: { versionNum: 'desc' },
-              take: 1,
-              select: { status: true },
-            },
-          },
-        },
-      },
-    }),
-
-    prisma.visit.findMany({
-      where: {
-        domain: 'DIAGNOSTICS',
-        status: 'COMPLETED',
-        ...(branchId ? { branchId } : {}),
-        report: {
-          versions: {
-            some: { status: 'DRAFT' },
-          },
-        },
-        // A completed visit only genuinely "awaits sign-off" if it still has a
-        // live REPORTABLE order. Bill-only, films-only (noReportAt) and cancelled
-        // orders never produce a typed report but DO leave a vestigial DRAFT
-        // report version behind — without this guard those closed visits (465 of
-        // them) resurfaced in the live queue as stale "awaiting sign-off" rows.
-        testOrders: {
-          some: { workflowMode: 'REPORTABLE', cancelledAt: null, noReportAt: null },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 25,
-      select: {
-        id: true,
-        createdAt: true,
-        branchId: true,
-        patient: { select: { name: true, title: true } },
-        testOrders: {
-          where: { cancelledAt: null },
-          select: { product: { select: { name: true } }, testNameSnapshot: true },
-          take: 1,
-        },
-        report: {
-          select: {
-            versions: {
-              orderBy: { versionNum: 'desc' },
-              take: 1,
-              select: { status: true },
-            },
-          },
-        },
-      },
-    }),
-
-    prisma.clinicVisit.findMany({
-      where: {
-        status: 'WAITING',
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 100,
-      select: {
-        id: true,
         createdAt: true,
         clinicDoctorId: true,
-        visitType: true,
-        clinicDoctor: { select: { name: true } },
-        visit: {
-          select: {
-            patient: { select: { name: true, title: true } },
-            branch: { select: { name: true } },
-          },
-        },
-      },
-    }),
-
-    prisma.clinicVisit.findMany({
-      where: {
-        status: 'IN_PROGRESS',
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      select: {
-        id: true,
-        clinicDoctorId: true,
-        startedAt: true,
         clinicDoctor: { select: { name: true } },
         visit: { select: { branch: { select: { name: true } } } },
       },
     }),
-
-    prisma.messageLog.groupBy({
-      by: ['status'],
+    prisma.clinicVisit.groupBy({
+      by: ['clinicDoctorId'],
       where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
-        ...(branchId ? { branchId } : {}),
+        status: 'COMPLETED',
+        createdAt: { gte: todayStart },
+        ...(branchId ? { visit: { branchId } } : {}),
       },
       _count: true,
     }),
 
-    prisma.patientChangeLog.findMany({
-      where: { changeType: 'IDENTITY', createdAt: { gte: yesterdayStart } },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        patientId: true,
-        fieldName: true,
-        oldValue: true,
-        newValue: true,
-        changeReason: true,
-        changedRole: true,
-        changedBy: true,
-        createdAt: true,
-        patient: { select: { name: true, title: true } },
-      },
-    }),
+    // Clinic consults, this window and the comparison one.
+    // No time-with-doctor: the desk marks visits done in batches (12 in two
+    // minutes on 6 Oct 2026) and doctors never press Start, so those times
+    // would describe the desk, not the consult.
+    prisma.$queryRaw<{ doctorId: string; doctorName: string; cur: boolean; digital: boolean; paper: boolean }[]>`
+      SELECT cv."clinicDoctorId" AS "doctorId", d.name AS "doctorName", (cv."createdAt" >= ${win.start}) AS cur,
+        EXISTS (SELECT 1 FROM "Prescription" p WHERE p."visitId" = v.id) AS digital,
+        cv."rxOutcome" = 'PAPER' AS paper
+      FROM "ClinicVisit" cv JOIN "Visit" v ON v.id = cv."visitId" JOIN "ClinicDoctor" d ON d.id = cv."clinicDoctorId"
+      WHERE v.status <> 'CANCELLED' ${vBranch}
+        AND ((cv."createdAt" >= ${win.start} AND cv."createdAt" < ${win.end})
+          OR (cv."createdAt" >= ${prior.start} AND cv."createdAt" < ${prior.end}))`,
 
-    // Recent bills with significant discounts (P1-E: threshold, not rupee-one)
-    prisma.bill.findMany({
-      where: {
-        billedAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
-        OR: [
-          { discountPercentage: { gte: DISCOUNT_AUDIT_PERCENT } },
-          { discountAmountInPaise: { gte: DISCOUNT_AUDIT_PAISE } },
-        ],
-      },
-      orderBy: { billedAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        discountPercentage: true,
-        discountAmountInPaise: true,
-        discountReason: true,
-        totalAmountInPaise: true,
-        billNumber: true,
-        billedAt: true,
-        discountedByUser: { select: { name: true } },
-        visit: { select: { patient: { select: { name: true } } } },
-      },
-    }),
+    // Team: who registered, who entered results, who released reports.
+    prisma.$queryRaw<{ userId: string; n: number }[]>`
+      SELECT a."userId", count(*)::int AS n FROM "AuditLog" a
+      WHERE a."actionType" = 'CREATE' AND a."entityType" = 'VISIT' AND a."userId" IS NOT NULL
+        AND a."createdAt" >= ${win.start} AND a."createdAt" < ${win.end} ${aBranch}
+      GROUP BY 1`,
+    prisma.$queryRaw<{ userId: string; n: number }[]>`
+      SELECT tr."enteredByUserId" AS "userId", count(DISTINCT tr."testOrderId")::int AS n
+      FROM "TestResult" tr JOIN "TestOrder" o ON o.id = tr."testOrderId"
+      WHERE tr."enteredByUserId" IS NOT NULL
+        AND tr."createdAt" >= ${win.start} AND tr."createdAt" < ${win.end} ${oBranch}
+      GROUP BY 1`,
+    prisma.$queryRaw<{ userId: string; n: number }[]>`
+      SELECT a."userId", count(*)::int AS n FROM "AuditLog" a
+      WHERE a."actionType" = 'FINALIZE' AND a."entityType" = 'Report' AND a."userId" IS NOT NULL
+        AND a."createdAt" >= ${win.start} AND a."createdAt" < ${win.end} ${aBranch}
+      GROUP BY 1`,
 
-    // Recent audit log entries: deletions/payout removals (off-hours anomaly)
-    // and catalog edits (products / panels — name pulled from old/newValues).
-    prisma.auditLog.findMany({
-      where: {
-        createdAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      select: {
-        id: true,
-        actionType: true,
-        entityType: true,
-        entityId: true,
-        userId: true,
-        oldValues: true,
-        newValues: true,
-        createdAt: true,
-      },
-    }),
-
-    // Failed message deliveries in last 24h. Fetched flat then grouped by patient
-    // below; the cap is a memory guard (a clinic sees dozens/day, not hundreds).
+    // Patient messages that failed in the window. Campaign sends are left out:
+    // they fail to numbers that never opted in, which is not an operations fault.
     prisma.messageLog.findMany({
       where: {
         status: 'FAILED',
-        createdAt: { gte: yesterdayStart },
+        contextType: { not: 'CAMPAIGN' },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: 500,
+      take: 1000,
       select: {
         patientId: true,
         contextType: true,
@@ -541,576 +414,180 @@ export async function getOwnerOperations(
         patient: { select: { name: true, title: true } },
       },
     }),
-
-    prisma.branch.findMany({ select: { id: true, code: true, name: true } }),
-
-    // No-report-needed closes (films-only) in the last 24h — a reportable order
-    // closed without a written report because the patient declined. Surfaced in
-    // the audit feed so owners see it happening (money-neutral, but auditable).
-    prisma.testOrder.findMany({
+    prisma.messageLog.findMany({
       where: {
-        noReportAt: { gte: yesterdayStart },
+        status: 'FAILED',
+        contextType: 'REPORT',
+        createdAt: { gte: new Date(nowMs - DAY_MS) },
         ...(branchId ? { branchId } : {}),
       },
-      orderBy: { noReportAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        testNameSnapshot: true,
-        noReportAt: true,
-        noReportReason: true,
-        noReportByUser: { select: { name: true } },
-        visit: { select: { patientId: true, patient: { select: { name: true } } } },
-      },
-    }),
-
-    // Reopened films-only closes in the last 24h — a "no report needed" close
-    // reversed so the test re-enters the report workflow. Routine; audit-only.
-    prisma.testOrder.findMany({
-      where: {
-        reopenedAt: { gte: yesterdayStart },
-        noReportAt: null,
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { reopenedAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        testNameSnapshot: true,
-        reopenedAt: true,
-        reopenedByUser: { select: { name: true } },
-        visit: { select: { patientId: true, patient: { select: { name: true } } } },
-      },
-    }),
-
-    // Cancel / refund of billed tests in the last 24h. The refund route is the
-    // ONLY writer of entityType 'Bill' audit rows (ORDER_REFUND = cash returned,
-    // ORDER_CANCEL = charge reversal only), so a dedicated query surfaces them
-    // reliably instead of competing for slots in the shared 50-row audit pull.
-    prisma.auditLog.findMany({
-      where: {
-        entityType: 'Bill',
-        actionType: 'UPDATE',
-        createdAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      select: {
-        id: true,
-        entityId: true,
-        userId: true,
-        newValues: true,
-        createdAt: true,
-      },
+      distinct: ['phone'],
+      select: { phone: true },
     }),
   ]);
 
-  const branchById = new Map((branches ?? []).map((b) => [b.id, b]));
+  const codeOf = new Map(branches.map((b) => [b.id, b.code]));
 
-  // --- report turnaround + KPIs -------------------------------------------
-  const durations = turnaroundRows
-    .filter((r) => r.report?.visit?.createdAt && r.finalizedAt)
-    .map(
-      (r) =>
-        (r.finalizedAt!.getTime() - r.report!.visit.createdAt.getTime()) / 60_000,
-    )
-    .filter((d) => d >= 0);
-  const sortedDurations = [...durations].sort((a, b) => a - b);
-  const tatMedian = percentile(sortedDurations, 50);
-  const withinSlaCount = durations.filter((d) => d <= SLA_TAT_MINUTES).length;
-  const reportTurnaround: ReportTurnaround = {
-    sampleCount: durations.length,
-    windowDays: 7,
-    medianMinutes: tatMedian,
-    slaMinutes: SLA_TAT_MINUTES,
-    withinSlaPercent:
-      durations.length > 0
-        ? Math.round((withinSlaCount / durations.length) * 100)
-        : null,
-    overSlaCount: durations.length - withinSlaCount,
-    buckets: buildTurnaroundBuckets(durations),
+  // --- cohort: KPIs, by day, by hour, delivery ----------------------------
+  const rows: CohortRow[] = cohort.map((r) => ({ ...r, cur: Boolean(r.cur) }));
+  const cur = rows.filter((r) => r.cur);
+  const clinicCur = clinicPeriod.filter((c) => c.cur).length;
+  const kpis = kpisOf(cur, nowMs, clinicCur);
+  const priorKpis = kpisOf(rows.filter((r) => !r.cur), nowMs - shiftMs, clinicPeriod.length - clinicCur);
+
+  const dayMap = new Map<string, { onTime: number; late: number; pending: number; tats: number[] }>();
+  for (let t = win.start.getTime(); t < Math.min(win.end.getTime(), nowMs); t += DAY_MS) {
+    dayMap.set(toIstDateKey(new Date(t)), { onTime: 0, late: 0, pending: 0, tats: [] });
+  }
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, sameDay: 0, later: 0, notYet: 0 }));
+  for (const r of cur) {
+    const d = dayMap.get(toIstDateKey(r.reg));
+    const tat = r.rel ? (r.rel.getTime() - r.reg.getTime()) / 60_000 : null;
+    if (d) {
+      if (tat != null) {
+        d.tats.push(tat);
+        if (tat <= SLA_MINUTES) d.onTime++;
+        else d.late++;
+      } else if (r.open) {
+        if (nowMs - r.reg.getTime() > SLA_MINUTES * 60_000) d.late++;
+        else d.pending++;
+      }
+    }
+    const h = hours[istHour(r.reg.getTime())];
+    if (r.rel && toIstDateKey(r.rel) === toIstDateKey(r.reg)) h.sameDay++;
+    else if (r.rel || toIstDateKey(r.reg) !== toIstDateKey(now)) h.later++;
+    else h.notYet++;
+  }
+  const byDay = [...dayMap.entries()].map(([date, d]) => ({
+    date,
+    onTime: d.onTime,
+    late: d.late,
+    pending: d.pending,
+    medianMinutes: median(d.tats),
+  }));
+  const byHour = hours.filter((h) => h.sameDay + h.later + h.notYet > 0);
+  const releasedCur = cur.filter((r) => r.rel);
+  const delivery = {
+    released: releasedCur.length,
+    sent: releasedCur.filter((r) => r.sent).length,
+    delivered: releasedCur.filter((r) => r.delivered).length,
+    opened: releasedCur.filter((r) => r.opened).length,
+    printed: releasedCur.filter((r) => r.printed).length,
   };
 
-  // delivery rate today (P0-A): denominator excludes in-flight SENT.
-  // attempted = DELIVERED + READ + FAILED; SENT is surfaced separately as inFlight.
-  let deliveredToday = 0;
-  let attemptedToday = 0;
-  let inFlightToday = 0;
-  for (const row of commsToday) {
-    const c = (row._count as any) ?? 0;
-    if (row.status === 'SENT') {
-      inFlightToday += c;
-    } else if (row.status === 'FAILED') {
-      attemptedToday += c;
-    } else if (row.status === 'DELIVERED' || row.status === 'READ') {
-      deliveredToday += c;
-      attemptedToday += c;
-    }
-  }
-  const deliveryRate = attemptedToday > 0 ? Math.round((deliveredToday / attemptedToday) * 100) : null;
+  const departments = deptRows.map((d) => ({
+    name: d.name,
+    visits: num(d.visits),
+    released: num(d.released),
+    medianMinutes: d.p50 == null ? null : Math.round(num(d.p50)),
+    within24Pct: pct(num(d.within), num(d.released)),
+    filmsOnly: num(d.films),
+  }));
 
-  // P0-B: distinct-visit counts (a 3-test visit counts once, not three times).
-  const finalizedDistinctVisits = new Set(
-    finalizedTodayRows
-      .map((r) => r.report?.visitId)
-      .filter((v): v is string => Boolean(v)),
-  ).size;
-  const finalizableDistinctVisits = finalizableTodayVisits.length;
-
-  // P0-D: in-queue split by domain so the KPI reconciles with the two cards.
-  let inQueueDiagnostics = 0;
-  let inQueueClinic = 0;
-  for (const row of inQueueByDomain) {
-    const c = (row._count as any) ?? 0;
-    if (row.domain === 'DIAGNOSTICS') inQueueDiagnostics += c;
-    else if (row.domain === 'CLINIC') inQueueClinic += c;
-  }
-
-  const kpis: OperationsKpi = {
-    tatMedianMinutes: tatMedian,
-    tatSampleCount: durations.length,
-    finalizedToday: finalizedDistinctVisits,
-    finalizableToday: finalizableDistinctVisits,
-    inQueue: inQueueDiagnostics + inQueueClinic,
-    inQueueDiagnostics,
-    inQueueClinic,
-    deliveryRatePercent: deliveryRate,
-    deliveryAttempted: attemptedToday,
-    inFlight: inFlightToday,
+  // --- live pipeline ------------------------------------------------------
+  const counts: Record<OpenStage, number[]> = {
+    partly: [0, 0, 0, 0],
+    outside: [0, 0, 0, 0],
+    entering: [0, 0, 0, 0],
+    none: [0, 0, 0, 0],
   };
-
-  // --- diagnostics queue ---------------------------------------------------
-  const diagnosticsQueue: DiagnosticsQueueRow[] = [];
-  for (const v of diagnosticsRaw) {
-    const orders = v.testOrders;
-    const externalUploadOrder = orders.find((o) => o.workflowMode === 'EXTERNAL_UPLOAD');
-    let stage: DiagnosticsQueueRow['stage'];
-    if (externalUploadOrder && externalUploadOrder.externalUploads.length === 0) {
-      stage = 'PDF missing';
-    } else if (v.status === 'WAITING') {
-      stage = 'sample pending';
-    } else if (v.report?.versions[0]?.status === 'DRAFT') {
-      stage = 'draft · awaiting sign-off';
-    } else if (orders.every((o) => o.testResults.length === 0)) {
-      stage = 'awaiting result entry';
-    } else {
-      stage = 'in progress';
-    }
-    const productName =
-      orders[0]?.product?.name ?? orders[0]?.testNameSnapshot ?? null;
-    const ageMinutes = Math.floor((now.getTime() - v.createdAt.getTime()) / 60_000);
-    diagnosticsQueue.push({
+  const open = openVisits.map((v) => {
+    const outsideMissing = num(v.outsideMissing);
+    const stage: OpenStage = v.partly ? 'partly' : outsideMissing > 0 ? 'outside' : v.anyIn ? 'entering' : 'none';
+    const ageMinutes = Math.floor((nowMs - v.createdAt.getTime()) / 60_000);
+    const band = AGE_BANDS.findIndex((b) => ageMinutes < b.maxH * 60);
+    counts[stage][band]++;
+    const names = v.names ?? [];
+    return {
       visitId: v.id,
-      patientName: v.patient.name,
-      patientTitle: v.patient.title,
-      branchCode: branchById.get(v.branchId)?.code ?? '?',
-      productName,
-      stage,
+      patientName: v.name,
+      patientTitle: v.title,
+      branchCode: codeOf.get(v.branchId) ?? '?',
+      tests: names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : ''),
+      stage: STAGE_LABEL[stage],
       ageMinutes,
-    });
-  }
-  // append draft-awaiting-sign-off completed visits with finalized status
-  for (const v of diagnosticsFinalized) {
-    if (diagnosticsQueue.some((q) => q.visitId === v.id)) continue;
-    if (v.report?.versions[0]?.status !== 'DRAFT') continue;
-    const productName =
-      v.testOrders[0]?.product?.name ?? v.testOrders[0]?.testNameSnapshot ?? null;
-    const ageMinutes = Math.floor((now.getTime() - v.createdAt.getTime()) / 60_000);
-    diagnosticsQueue.push({
-      visitId: v.id,
-      patientName: v.patient.name,
-      patientTitle: v.patient.title,
-      branchCode: branchById.get(v.branchId)?.code ?? '?',
-      productName,
-      stage: 'draft · awaiting sign-off',
-      ageMinutes,
-    });
-  }
-  diagnosticsQueue.sort((a, b) => b.ageMinutes - a.ageMinutes);
-
-  // --- clinic queue grouped by doctor --------------------------------------
-  const clinicMap = new Map<string, ClinicQueueDoctor>();
-  for (const cv of clinicInProgressRows) {
-    const cur = clinicMap.get(cv.clinicDoctorId) ?? {
-      doctorId: cv.clinicDoctorId,
-      doctorName: cv.clinicDoctor.name,
-      branchName: cv.visit?.branch?.name ?? null,
-      shiftStartIso: cv.startedAt?.toISOString() ?? null,
-      waitingCount: 0,
-      inProgressCount: 0,
-      avgWaitMinutes: null,
-      patients: [],
+      outsideMissing,
     };
-    cur.inProgressCount += 1;
-    if (cv.startedAt && (!cur.shiftStartIso || new Date(cur.shiftStartIso) > cv.startedAt)) {
-      cur.shiftStartIso = cv.startedAt.toISOString();
-    }
-    clinicMap.set(cv.clinicDoctorId, cur);
-  }
-  const waitsByDoctor = new Map<string, number[]>();
-  for (const cv of clinicWaitingRows) {
-    const cur = clinicMap.get(cv.clinicDoctorId) ?? {
-      doctorId: cv.clinicDoctorId,
-      doctorName: cv.clinicDoctor.name,
-      branchName: cv.visit?.branch?.name ?? null,
-      shiftStartIso: null,
-      waitingCount: 0,
-      inProgressCount: 0,
-      avgWaitMinutes: null,
-      patients: [],
-    };
-    const wait = Math.floor((now.getTime() - cv.createdAt.getTime()) / 60_000);
-    cur.waitingCount += 1;
-    cur.patients.push({
-      visitId: cv.id,
-      patientName: cv.visit.patient.name,
-      patientTitle: cv.visit.patient.title ?? '',
-      visitType: cv.visitType as 'OP' | 'IP',
-      waitMinutes: wait,
-    });
-    const arr = waitsByDoctor.get(cv.clinicDoctorId) ?? [];
-    arr.push(wait);
-    waitsByDoctor.set(cv.clinicDoctorId, arr);
-    clinicMap.set(cv.clinicDoctorId, cur);
-  }
-  for (const [doctorId, arr] of waitsByDoctor) {
-    const cur = clinicMap.get(doctorId);
-    if (!cur) continue;
-    cur.avgWaitMinutes =
-      arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : null;
-    cur.patients.sort((a, b) => b.waitMinutes - a.waitMinutes);
-  }
-  const clinicQueue = Array.from(clinicMap.values()).sort((a, b) => {
-    const aMax = Math.max(0, ...a.patients.map((p) => p.waitMinutes));
-    const bMax = Math.max(0, ...b.patients.map((p) => p.waitMinutes));
-    return bMax - aMax;
   });
+  const pipeline = {
+    bands: AGE_BANDS.map((b) => b.label),
+    rows: (['none', 'entering', 'outside', 'partly'] as OpenStage[]).map((stage) => ({
+      stage,
+      label: STAGE_LABEL[stage],
+      counts: counts[stage],
+    })),
+    total: open.length,
+  };
+  const oldestOpen = open.slice(0, 10).map(({ outsideMissing: _o, ...r }) => r);
 
-  // --- audit feed ----------------------------------------------------------
-  // Resolve who made each identity change: PatientChangeLog stores changedBy
-  // (a User id, no FK relation), so look the names up in one batched query and
-  // fall back to the role string when the user no longer exists.
-  const actorIds = [
-    ...new Set(
-      [
-        ...auditIdentity.map((c) => c.changedBy),
-        ...auditOffHours.map((a) => a.userId),
-        ...auditCancelRefunds.map((a) => a.userId),
-      ].filter((v): v is string => Boolean(v)),
-    ),
-  ];
-  const actorUsers = actorIds.length
-    ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+  // --- clinic now -----------------------------------------------------------
+  const clinicMap = new Map<string, OperationsResponse['clinicNow'][number]>();
+  for (const c of clinicOpen) {
+    const cur =
+      clinicMap.get(c.clinicDoctorId) ??
+      {
+        doctorId: c.clinicDoctorId,
+        doctorName: c.clinicDoctor.name,
+        branchName: c.visit?.branch?.name ?? null,
+        waiting: 0,
+        inConsultation: 0,
+        seenToday: 0,
+        longestWaitMinutes: null,
+      };
+    if (c.status === 'IN_PROGRESS') cur.inConsultation++;
+    else {
+      cur.waiting++;
+      const wait = Math.floor((nowMs - c.createdAt.getTime()) / 60_000);
+      cur.longestWaitMinutes = Math.max(cur.longestWaitMinutes ?? 0, wait);
+    }
+    clinicMap.set(c.clinicDoctorId, cur);
+  }
+  for (const g of clinicSeenToday) {
+    const cur = clinicMap.get(g.clinicDoctorId);
+    if (cur) cur.seenToday = num(g._count);
+  }
+  const clinicNow = [...clinicMap.values()].sort((a, b) => (b.longestWaitMinutes ?? 0) - (a.longestWaitMinutes ?? 0));
+
+  // --- clinic doctors over the window ------------------------------------
+  const docMap = new Map<string, OperationsResponse['clinicDoctors'][number]>();
+  for (const c of clinicPeriod) {
+    const d =
+      docMap.get(c.doctorId) ??
+      { doctorId: c.doctorId, doctorName: c.doctorName.trim(), consults: 0, priorConsults: 0, digitalRx: 0, paperRx: 0 };
+    if (c.cur) {
+      d.consults++;
+      if (c.digital) d.digitalRx++;
+      if (c.paper) d.paperRx++;
+    } else d.priorConsults++;
+    docMap.set(c.doctorId, d);
+  }
+  const clinicDoctors = [...docMap.values()]
+    .filter((d) => d.consults > 0)
+    .sort((a, b) => b.consults - a.consults);
+
+  // --- team ---------------------------------------------------------------
+  const teamIds = [...new Set([...registeredBy, ...enteredBy, ...releasedBy].map((r) => r.userId))];
+  const users = teamIds.length
+    ? await prisma.user.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true, role: true } })
     : [];
-  const userNameById = new Map(actorUsers.map((u) => [u.id, u.name]));
+  const byUser = (rs: { userId: string; n: number }[]) => new Map(rs.map((r) => [r.userId, num(r.n)]));
+  const reg = byUser(registeredBy);
+  const ent = byUser(enteredBy);
+  const relBy = byUser(releasedBy);
+  const team = users
+    .map((u) => ({
+      userId: u.id,
+      name: u.name,
+      role: String(u.role),
+      registered: reg.get(u.id) ?? 0,
+      testsEntered: ent.get(u.id) ?? 0,
+      reportsReleased: relBy.get(u.id) ?? 0,
+    }))
+    .sort((a, b) => b.reportsReleased + b.registered - (a.reportsReleased + a.registered) || b.testsEntered - a.testsEntered);
 
-  const audit: AuditRow[] = [];
-
-  // Identity changes: a single edit is MEDIUM (base 2) — usually a legit
-  // correction, occasionally a cover. Repeated edits to the SAME patient escalate
-  // to HIGH (+2). Off-hours adds +1.
-  const identityCountByPatient = new Map<string, number>();
-  for (const c of auditIdentity) {
-    identityCountByPatient.set(c.patientId, (identityCountByPatient.get(c.patientId) ?? 0) + 1);
-  }
-  for (const c of auditIdentity) {
-    const reasons: string[] = [];
-    let score = 2;
-    if (!c.changeReason) reasons.push('no reason');
-    if ((identityCountByPatient.get(c.patientId) ?? 0) > IDENTITY_REPEAT_THRESHOLD) {
-      score += 2;
-      reasons.push('repeated edits to this patient');
-    }
-    if (isOffHoursIst(c.createdAt)) {
-      score += 1;
-      reasons.push('off-hours');
-    }
-    audit.push({
-      id: `id-${c.id}`,
-      severity: bandFromScore(score),
-      event: 'Identity field changed',
-      who: userNameById.get(c.changedBy) ?? c.changedRole,
-      detail: withReasons(
-        `${c.patient.name}: ${c.fieldName} ${c.oldValue ?? '∅'} → ${c.newValue ?? '∅'}`,
-        reasons,
-      ),
-      whenIso: c.createdAt.toISOString(),
-      drillTo: `/clinic/patient-360/${c.patientId}`,
-    });
-  }
-
-  // Discounts: base 1 (LOW); a big discount — ≥50% of the bill OR ≥₹2,000
-  // absolute — is HIGH; a moderate 20–50% is MEDIUM. No-reason and off-hours add
-  // +1 each. Works for both percentage and amount discounts.
-  for (const b of auditDiscounts) {
-    const reasons: string[] = [];
-    let score = 1;
-    // Effective % of bill — the real signal. Amount discounts report 0% in
-    // discountPercentage, so derive it from the amount vs the bill total.
-    const effectivePct =
-      b.totalAmountInPaise > 0
-        ? (b.discountAmountInPaise / b.totalAmountInPaise) * 100
-        : (b.discountPercentage ?? 0);
-    if (effectivePct >= SEV_PCT_HIGH) {
-      score += 3; // ≥50% of bill → HIGH
-      reasons.push(`${Math.round(effectivePct)}% of bill`);
-    } else if (effectivePct >= SEV_PCT_MED) {
-      score += 1; // 20–50% → MEDIUM
-      reasons.push(`${Math.round(effectivePct)}% of bill`);
-    }
-    if (b.discountAmountInPaise >= SEV_LARGE_AMOUNT_PAISE) {
-      score += 3; // ≥₹2,000 absolute → HIGH
-      reasons.push('large amount');
-    }
-    if (!b.discountReason) {
-      score += 1;
-      reasons.push('no reason');
-    }
-    if (isOffHoursIst(b.billedAt)) {
-      score += 1;
-      reasons.push('off-hours');
-    }
-    // Amount-based discounts have no percentage — show the rupee amount instead
-    // of a misleading "Discount 0%".
-    const pct = b.discountPercentage ?? 0;
-    const discountLabel =
-      pct > 0
-        ? `Discount ${Math.round(pct)}%`
-        : `Discount ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')}`;
-    const discountBase = `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`;
-    audit.push({
-      id: `disc-${b.id}`,
-      severity: bandFromScore(score),
-      event: discountLabel,
-      who: b.discountedByUser?.name ?? null,
-      // Surface the operator's stated reason (e.g. "Camp discount") next to the
-      // numbers; the reasons[] tail still explains the severity scoring.
-      detail: withReasons(
-        b.discountReason ? `${discountBase} · ${b.discountReason}` : discountBase,
-        reasons,
-      ),
-      whenIso: b.billedAt.toISOString(),
-      drillTo: null,
-    });
-  }
-
-  // Deletions & payout removals are the highest-value signals for an owner:
-  // base 4 → HIGH regardless of hour. Generic off-hours CREATE/UPDATE rows are
-  // intentionally NOT surfaced as standalone events any more — off-hours is now
-  // a modifier on the events that matter, which cuts noise.
-  for (const a of auditOffHours) {
-    // Post-bill test additions (see addProductsToVisit): a staff adding tests to
-    // an already-billed visit moves money, so every one is surfaced HIGH — the
-    // primary anti-exploit control alongside the role/age gate. Off-hours or a
-    // bill older than a week each nudge it further up.
-    if (a.entityType === 'Visit' && a.actionType === 'UPDATE') {
-      let addParsed:
-        | {
-            action?: string;
-            billNumber?: string;
-            patientId?: string;
-            addedProductNames?: string[];
-            addedAmountInPaise?: number;
-            billAgeDays?: number;
-          }
-        | null = null;
-      try {
-        addParsed = a.newValues ? JSON.parse(a.newValues) : null;
-      } catch {
-        addParsed = null;
-      }
-      if (addParsed?.action === 'ADD_TESTS_TO_BILL') {
-        const reasons: string[] = [];
-        let score = 4; // post-bill add is a money-moving anomaly → HIGH
-        if ((Number(addParsed.billAgeDays) || 0) > 7) {
-          score += 1;
-          reasons.push('bill > 7 days old');
-        }
-        if (isOffHoursIst(a.createdAt)) {
-          score += 1;
-          reasons.push('off-hours');
-        }
-        const names = Array.isArray(addParsed.addedProductNames)
-          ? addParsed.addedProductNames.join(', ')
-          : '';
-        const addedRupees = `₹${Math.round(
-          (Number(addParsed.addedAmountInPaise) || 0) / 100,
-        ).toLocaleString('en-IN')}`;
-        const base =
-          `${addParsed.billNumber ?? a.entityId.slice(0, 8)} · +${addedRupees}` +
-          (names ? ` · ${names}` : '');
-        audit.push({
-          id: `addtests-${a.id}`,
-          severity: bandFromScore(score),
-          event: 'Tests added to bill',
-          who: a.userId
-            ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}`
-            : null,
-          detail: withReasons(base, reasons),
-          whenIso: a.createdAt.toISOString(),
-          drillTo: addParsed.patientId
-            ? `/clinic/patient-360/${addParsed.patientId}`
-            : null,
-        });
-        continue;
-      }
-    }
-
-    // Catalog edits (billable products / clinical panels): informational, low
-    // severity. Surfaced so owners see when the price list or report
-    // definitions change. Delete is nudged to medium as it's more impactful.
-    const catalogLabel = CATALOG_ENTITY_LABELS[a.entityType];
-    if (
-      catalogLabel &&
-      (a.actionType === 'CREATE' || a.actionType === 'UPDATE' || a.actionType === 'DELETE')
-    ) {
-      const reasons: string[] = [];
-      let score = a.actionType === 'DELETE' ? 2 : 1;
-      if (isOffHoursIst(a.createdAt)) {
-        score += 1;
-        reasons.push('off-hours');
-      }
-      const verb =
-        a.actionType === 'CREATE'
-          ? 'created'
-          : a.actionType === 'DELETE'
-            ? 'deleted'
-            : 'updated';
-      const name =
-        catalogDisplayName(a.newValues) ??
-        catalogDisplayName(a.oldValues) ??
-        a.entityId.slice(0, 8);
-      audit.push({
-        id: `catalog-${a.id}`,
-        severity: bandFromScore(score),
-        event: `${catalogLabel} ${verb}`,
-        who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
-        detail: withReasons(name, reasons),
-        whenIso: a.createdAt.toISOString(),
-        drillTo: null,
-      });
-      continue;
-    }
-
-    const isDelete = a.actionType === 'DELETE' || a.actionType === 'PAYOUT_DELETE';
-    if (!isDelete) continue;
-    const reasons: string[] = [];
-    let score = 4;
-    if (isOffHoursIst(a.createdAt)) {
-      score += 1;
-      reasons.push('off-hours');
-    }
-    const label = a.actionType === 'PAYOUT_DELETE' ? 'Payout deleted' : `${a.entityType} deleted`;
-    audit.push({
-      id: `audit-${a.id}`,
-      severity: bandFromScore(score),
-      event: label,
-      who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
-      detail: withReasons(`${a.entityType} ${a.entityId.slice(0, 8)}`, reasons),
-      whenIso: a.createdAt.toISOString(),
-      drillTo: null,
-    });
-  }
-
-  // No-report-needed closes (films-only) and reopens are routine clinical
-  // decisions — always LOW, never escalated by off-hours (a diagnostic centre
-  // runs in the evening). Surfaced for the audit trail, not as anomalies.
-  for (const t of auditNoReport) {
-    if (!t.noReportAt) continue;
-    const base = `${t.visit.patient.name} · ${t.testNameSnapshot}${
-      t.noReportReason ? ` · ${t.noReportReason}` : ''
-    }`;
-    audit.push({
-      id: `noreport-${t.id}`,
-      severity: 'low',
-      event: 'No report needed',
-      who: t.noReportByUser?.name ?? null,
-      detail: base,
-      whenIso: t.noReportAt.toISOString(),
-      drillTo: `/clinic/patient-360/${t.visit.patientId}`,
-    });
-  }
-  for (const t of auditReopened) {
-    if (!t.reopenedAt) continue;
-    audit.push({
-      id: `reopened-${t.id}`,
-      severity: 'low',
-      event: 'Reopened',
-      who: t.reopenedByUser?.name ?? null,
-      detail: `${t.visit.patient.name} · ${t.testNameSnapshot}`,
-      whenIso: t.reopenedAt.toISOString(),
-      drillTo: `/clinic/patient-360/${t.visit.patientId}`,
-    });
-  }
-
-  // Cancel / refund of billed tests — money reversed or returned to the patient,
-  // so owners see it in the trail. Base 1 (LOW, routine); ≥ ₹2,000 reversed or
-  // refunded makes it HIGH; a missing reason and off-hours each add +1.
-  const rupees = (paise: number) =>
-    `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
-  for (const a of auditCancelRefunds) {
-    let parsed:
-      | {
-          action?: string;
-          billNumber?: string;
-          patientId?: string;
-          patientName?: string;
-          chargeReversedInPaise?: number;
-          refundedInPaise?: number;
-          reason?: string;
-        }
-      | null = null;
-    try {
-      parsed = a.newValues ? JSON.parse(a.newValues) : null;
-    } catch {
-      parsed = null;
-    }
-    if (!parsed || (parsed.action !== 'ORDER_REFUND' && parsed.action !== 'ORDER_CANCEL')) {
-      continue;
-    }
-    const reversedPaise = Number(parsed.chargeReversedInPaise) || 0;
-    const refundedPaise = Number(parsed.refundedInPaise) || 0;
-    const reasons: string[] = [];
-    let score = 1;
-    if (Math.max(reversedPaise, refundedPaise) >= SEV_LARGE_AMOUNT_PAISE) {
-      score += 3; // ≥ ₹2,000 reversed/returned → HIGH
-      reasons.push('large amount');
-    }
-    if (!parsed.reason) {
-      score += 1;
-      reasons.push('no reason');
-    }
-    if (isOffHoursIst(a.createdAt)) {
-      score += 1;
-      reasons.push('off-hours');
-    }
-    const billNumber = parsed.billNumber || a.entityId.slice(0, 8);
-    const base =
-      (parsed.patientName ? `${parsed.patientName} · ` : '') +
-      `${billNumber} · ${rupees(reversedPaise)} cancelled` +
-      (refundedPaise > 0 && refundedPaise !== reversedPaise
-        ? ` · ${rupees(refundedPaise)} refunded`
-        : '') +
-      (parsed.reason ? ` · ${parsed.reason}` : '');
-    audit.push({
-      id: `refund-${a.id}`,
-      severity: bandFromScore(score),
-      event: refundedPaise > 0 ? `Refund ${rupees(refundedPaise)}` : 'Tests cancelled',
-      who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
-      detail: withReasons(base, reasons),
-      whenIso: a.createdAt.toISOString(),
-      drillTo: parsed.patientId ? `/clinic/patient-360/${parsed.patientId}` : null,
-    });
-  }
-  audit.sort((a, b) => (a.whenIso < b.whenIso ? 1 : -1));
-  const auditTrimmed = audit.slice(0, 20);
-
-  // --- comms failures ------------------------------------------------------
-  // Collapse repeat sends: one row per patient (a patient routinely gets a bill
-  // send + partial/final report sends, each logged separately). Rows arrive
-  // most-recent-first, so the first row seen per group is the representative.
-  interface CommsGroup {
+  // --- failed messages, one row per patient ---------------------------------
+  interface Group {
+    patientId: string | null;
     patientName: string;
     patientTitle: string | null;
     phone: string;
@@ -1120,13 +597,13 @@ export async function getOwnerOperations(
     failureReason: string | null;
     lastTried: Date;
   }
-  const commsGroups = new Map<string, CommsGroup>();
-  for (const m of commsFailures ?? []) {
-    // Non-patient rows (e.g. payout statements) have no patientId — group by phone.
-    const key = m.patientId ?? `phone:${m.phone}`;
-    let g = commsGroups.get(key);
+  const groups = new Map<string, Group>();
+  for (const m of failedRows) {
+    const k = m.patientId ?? `phone:${m.phone}`;
+    let g = groups.get(k);
     if (!g) {
       g = {
+        patientId: m.patientId,
         patientName: m.patient?.name ?? '—',
         patientTitle: m.patient?.title ?? null,
         phone: m.phone,
@@ -1134,54 +611,95 @@ export async function getOwnerOperations(
         contexts: new Map(),
         errorCode: m.errorCode ?? null,
         failureReason: m.failureReason ?? null,
-        lastTried: m.createdAt,
+        lastTried: m.createdAt, // rows arrive newest first
       };
-      commsGroups.set(key, g);
+      groups.set(k, g);
     }
-    g.count += 1;
+    g.count++;
     const ctx = String(m.contextType).toLowerCase();
     g.contexts.set(ctx, (g.contexts.get(ctx) ?? 0) + 1);
-    if (m.createdAt > g.lastTried) g.lastTried = m.createdAt;
   }
+  const failures = [...groups.values()].slice(0, 25).map((g) => ({
+    patientId: g.patientId,
+    patientName: g.patientName,
+    patientTitle: g.patientTitle,
+    phone: g.phone,
+    attemptCount: g.count,
+    contextLabel: formatContexts(g.contexts),
+    failureReason: describeWaError(g.errorCode, g.failureReason).label,
+    lastTriedIso: g.lastTried.toISOString(),
+  }));
 
-  const allCommsGroups = [...commsGroups.values()].sort(
-    (a, b) => b.count - a.count || b.lastTried.getTime() - a.lastTried.getTime(),
-  );
-  const commsFailureRows: CommsFailureRow[] = allCommsGroups.slice(0, 20).map((g) => {
-    const { label } = describeWaError(g.errorCode, g.failureReason);
-    return {
-      patientName: g.patientName,
-      patientTitle: g.patientTitle,
-      phone: g.phone,
-      attemptCount: g.count,
-      contextLabel: formatContexts(g.contexts),
-      errorCode: g.errorCode,
-      failureReason: label,
-      lastTriedIso: g.lastTried.toISOString(),
-    };
-  });
-  const commsSummary = {
-    patients: allCommsGroups.length,
-    sends: (commsFailures ?? []).length,
-  };
+  // --- attention (live) -----------------------------------------------------
+  const attention: AttentionChip[] = [];
+  const overDay = open.filter((o) => o.ageMinutes > SLA_MINUTES);
+  if (overDay.length) {
+    attention.push({
+      type: 'late-reports',
+      label: `${overDay.length === 1 ? 'Report' : 'Reports'} not out after a day`,
+      count: overDay.length,
+      severity: overDay.some((o) => o.ageMinutes > 3 * SLA_MINUTES) ? 'high' : 'medium',
+      drillTo: '/diagnostics/pending',
+    });
+  }
+  const outside = open.filter((o) => o.outsideMissing > 0);
+  if (outside.length) {
+    const days = Math.floor(Math.max(...outside.map((o) => o.ageMinutes)) / SLA_MINUTES);
+    attention.push({
+      type: 'outside-lab',
+      label: `Outside-lab results not uploaded${days >= 1 ? ` · oldest ${days} day${days === 1 ? '' : 's'}` : ''}`,
+      count: outside.length,
+      severity: days >= 3 ? 'high' : 'medium',
+      drillTo: '/diagnostics/pending',
+    });
+  }
+  if (failedReport24h.length) {
+    attention.push({
+      type: 'report-not-delivered',
+      label: 'Reports not delivered on WhatsApp · last 24h',
+      count: failedReport24h.length,
+      severity: 'medium',
+      drillTo: '#failed-messages',
+    });
+  }
+  const longWaits = clinicOpen.filter(
+    (c) => c.status === 'WAITING' && nowMs - c.createdAt.getTime() > CLINIC_LONG_WAIT_MINUTES * 60_000,
+  ).length;
+  if (longWaits) {
+    attention.push({
+      type: 'clinic-wait',
+      label: `Waiting over ${CLINIC_LONG_WAIT_MINUTES} min for the doctor`,
+      count: longWaits,
+      severity: 'medium',
+      drillTo: '/clinic/queue',
+    });
+  }
 
   const response: OperationsResponse = {
     generatedAt: now.toISOString(),
-    branchScope: { branchId: branchId ?? null, branchName: scopedBranch?.name ?? null },
+    period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
+    comparison: { startIso: prior.start.toISOString(), endIso: prior.end.toISOString(), sameWeekday, cutAtNow },
+    branchScope: { branchId, branchName: scopedBranch?.name ?? null },
+    attention,
+    pipeline,
+    oldestOpen,
+    clinicNow,
     kpis,
-    reportTurnaround,
-    diagnosticsQueue,
-    clinicQueue,
-    audit: auditTrimmed,
-    commsFailures: commsFailureRows,
-    commsSummary,
+    prior: priorKpis,
+    byDay,
+    byHour,
+    departments,
+    delivery,
+    team,
+    clinicDoctors,
+    failures,
+    failureSummary: { patients: groups.size, sends: failedRows.length },
   };
 
   if (redis) {
     redis
-      .set(cacheKey(branchId), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(key, JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err, branchId }, 'owner-operations: cache write failed'));
   }
-
   return response;
 }

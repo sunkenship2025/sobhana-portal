@@ -5,7 +5,18 @@
  */
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { AlertTriangle, Clock, Info } from 'lucide-react';
 import { TOKENS, formatRupees } from './ownerUi';
+
+/** One live to-do: a label, a count or amount, and where it's fixed. */
+export interface AttentionChip {
+  type: string;
+  severity: 'high' | 'medium' | 'low';
+  label: string;
+  count?: number;
+  amountInPaise?: number;
+  drillTo: string;
+}
 
 // ----- one look for every owner card ------------------------------------
 // Body and table text 13px; column heads 12px muted; a hairline above each
@@ -197,8 +208,11 @@ export function ComparisonTrendChart({
   valueLabel,
   axisLabel,
   titleLabel,
+  note,
 }: {
   days: DayValue[];
+  /** An extra line in the hover card for day i (e.g. that day's median turnaround). */
+  note?: (i: number) => string | null;
   /** Keys that are not dates (e.g. hours): how to print them on the axis and in the hover card. */
   axisLabel?: (key: string) => string;
   titleLabel?: (key: string) => string;
@@ -381,6 +395,7 @@ export function ComparisonTrendChart({
             {valueLabel && <span>{valueLabel}</span>}
             <span>{a.value == null ? '—' : format(a.value)}</span>
           </div>
+          {note?.(active) && <div style={{ color: TOKENS.textSecondary }}>{note(active)}</div>}
           {average[active] != null && (
             <div style={{ color: TOKENS.info }}>7-day avg {format(average[active]!)}</div>
           )}
@@ -598,6 +613,114 @@ export function BusyHoursHeatmap({ cells }: { cells: { dow: number; hour: number
         {HEAT.map((c) => <span key={c} style={{ width: 14, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />)}
         More · {max} at most in one hour-slot
       </div>
+    </div>
+  );
+}
+
+// ----- needs attention ----------------------------------------------------
+
+function severityRank(s: AttentionChip['severity']): number {
+  if (s === 'high') return 3;
+  if (s === 'medium') return 2;
+  return 1;
+}
+
+function severityColor(s: AttentionChip['severity']): string {
+  if (s === 'high') return TOKENS.critical;
+  if (s === 'medium') return TOKENS.caution;
+  return TOKENS.textTertiary;
+}
+
+function severityIcon(s: AttentionChip['severity']) {
+  if (s === 'high') return AlertTriangle;
+  if (s === 'medium') return Clock;
+  return Info;
+}
+
+// ----- action queue -----------------------------------------------------
+
+/** Live to-dos as chips, most severe first; each opens where it's fixed. */
+export function ActionQueue({ chips }: { chips: AttentionChip[] }) {
+  if (chips.length === 0) {
+    return (
+      <div
+        className="px-4 py-3"
+        style={{
+          color: TOKENS.textTertiary,
+          fontSize: 13,
+          background: TOKENS.surface,
+          border: `0.5px solid ${TOKENS.border}`,
+          borderRadius: 12,
+        }}
+      >
+        All clear — no decisions pending.
+      </div>
+    );
+  }
+
+  // Sort by severity (high > medium > low), then by amount desc. There are only
+  // 6 chip types, so the cap of 7 shows them all — no overflow chip.
+  const sorted = [...chips]
+    .sort((a, b) => {
+      const sev = severityRank(b.severity) - severityRank(a.severity);
+      if (sev !== 0) return sev;
+      return (b.amountInPaise ?? 0) - (a.amountInPaise ?? 0);
+    })
+    .slice(0, 7);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {sorted.map((chip) => {
+        const Icon = severityIcon(chip.severity);
+        const color = severityColor(chip.severity);
+        const badge =
+          chip.amountInPaise !== undefined
+            ? formatRupees(chip.amountInPaise, { short: true })
+            : chip.count !== undefined
+              ? String(chip.count)
+              : null;
+        return (
+          <Link
+            key={chip.type}
+            to={chip.drillTo}
+            // "#id" = a card further down this page: scroll to it.
+            onClick={(e) => {
+              if (!chip.drillTo.startsWith('#')) return;
+              e.preventDefault();
+              document.getElementById(chip.drillTo.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className="inline-flex items-center gap-2"
+            style={{
+              background: TOKENS.surface,
+              border: `0.5px solid ${TOKENS.border}`,
+              borderLeftWidth: 2,
+              borderLeftColor: color,
+              borderRadius: 4,
+              padding: '8px 12px',
+              fontSize: 13,
+              color: TOKENS.textPrimary,
+              textDecoration: 'none',
+            }}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+            <span>{chip.label}</span>
+            {badge && (
+              <span
+                className="ml-1 font-medium"
+                style={{
+                  color,
+                  background: `${color}1A`,
+                  borderRadius: 3,
+                  padding: '1px 6px',
+                  fontSize: 12,
+                }}
+              >
+                {badge}
+              </span>
+            )}
+          </Link>
+        );
+      })}
     </div>
   );
 }

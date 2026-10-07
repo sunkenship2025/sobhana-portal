@@ -245,13 +245,13 @@ function istDateKeyToStart(key: string): Date {
 }
 
 /** Inclusive [startKey, endKey] IST calendar range → half-open [start, end) UTC window. */
-function customWindow(range: CustomRange): { start: Date; end: Date } {
+export function customWindow(range: CustomRange): { start: Date; end: Date } {
   const start = istDateKeyToStart(range.startKey);
   const end = new Date(istDateKeyToStart(range.endKey).getTime() + DAY_MS);
   return { start, end };
 }
 
-function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } {
+export function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } {
   const todayStart = startOfTodayIst(now);
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
   if (period === 'today') return { start: todayStart, end: tomorrowStart };
@@ -272,7 +272,7 @@ function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } 
 }
 
 
-function toIstDateKey(d: Date): string {
+export function toIstDateKey(d: Date): string {
   const ist = new Date(d.getTime() + IST_OFFSET_MS);
   const y = ist.getUTCFullYear();
   const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
