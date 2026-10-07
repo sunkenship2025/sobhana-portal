@@ -1,28 +1,30 @@
 /**
  * Owner Operations page — GET /api/owner/operations
  *
- * Top to bottom: what needs doing now (chips) · open reports by stage × age
- * beside the visits waiting longest (live) · then, for the period, the KPIs ·
- * turnaround per day beside each department · arrival hour vs same-day
- * reports beside how reports reach patients · the team beside the clinic ·
- * messages that failed (with numbers to call).
+ * For the owner (is every branch running?) and the lab in-charge (what do I
+ * chase?). Top to bottom:
+ *   - one status card per branch, live: today's numbers, what's late, and
+ *     when the lab last released a report
+ *   - pending work, live: one list with tabs — waiting for results, awaiting
+ *     sign-off, outside lab, critical values, patients to call
+ *   - for the period: reports on time per day beside where the time goes;
+ *     departments beside the team; clinic beside report delivery
  *
- * Every period figure is about one set of visits — diagnostic visits
- * registered in the period that need a report — so the charts add up to the
- * KPIs. No money: the lab in-charge opens this page too.
+ * Each number appears once. No money: the lab in-charge opens this page too.
  */
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Phone } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
 import { formatPatientName } from '@/lib/patientDisplay';
-import { KpiTile, ComparisonTrendChart, ActionQueue, GroupLabel, Delta, SERIES, HEAT, TH, ROW, TOTAL_ROW, type AttentionChip } from './_shared/dashboardCharts';
+import { ComparisonTrendChart, GroupLabel, Delta, SERIES, TH, ROW, TOTAL_ROW } from './_shared/dashboardCharts';
 import {
   TOKENS,
   formatIstDateTime,
   formatIstTime,
-  formatIstDate,
   SectionCard,
   BranchFilter,
   PeriodFilter,
@@ -34,60 +36,83 @@ import {
   FullPageSkeleton,
 } from './_shared/ownerUi';
 
-interface Kpis {
+interface BranchStatus {
+  branchId: string;
+  code: string;
+  name: string;
+  registeredToday: number;
+  outToday: number;
+  inProgress: number;
+  late: number;
+  clinicWaiting: number;
+  notDeliveredToday: number;
+  lastReleaseAt: string | null;
+  lastReleaseBy: string | null;
+  lastEntryAt: string | null;
+  lastEntryBy: string | null;
+}
+
+type Stage = 'results' | 'signoff' | 'outside';
+
+interface Speed {
   visits: number;
   released: number;
   medianMinutes: number | null;
   within24Pct: number | null;
-  deliveredPct: number | null;
-  openedPct: number | null;
-  consults: number;
+  waitForResultMinutes: number | null;
+  toSignOffMinutes: number | null;
+  daySameDayPct: number | null;
+  eveningVisits: number;
+  eveningSameDayPct: number | null;
 }
 
 interface OperationsResponse {
   generatedAt: string;
   period: { key: PeriodKey; startIso: string; endIso: string };
-  comparison: { startIso: string; endIso: string; sameWeekday: boolean; cutAtNow?: boolean };
   branchScope: { branchId: string | null; branchName: string | null };
-  attention: AttentionChip[];
-  pipeline: { bands: string[]; rows: { stage: string; label: string; counts: number[] }[]; total: number };
-  oldestOpen: {
+  branches: BranchStatus[];
+  pending: {
     visitId: string;
     patientName: string;
     patientTitle: string | null;
     branchCode: string;
     tests: string;
-    stage: string;
+    stage: Stage;
+    partlyOut: boolean;
+    outsideTests: number;
+    enteredBy: string | null;
     ageMinutes: number;
   }[];
-  clinicNow: {
-    doctorId: string;
-    doctorName: string;
-    branchName: string | null;
-    waiting: number;
-    inConsultation: number;
-    seenToday: number;
-    longestWaitMinutes: number | null;
+  critical: {
+    visitId: string;
+    patientName: string;
+    patientTitle: string | null;
+    branchCode: string;
+    test: string;
+    value: string;
+    flag: 'CRITICAL_HIGH' | 'CRITICAL_LOW';
+    enteredBy: string | null;
+    enteredAt: string;
+    released: boolean;
   }[];
-  kpis: Kpis;
-  prior: Kpis;
-  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
-  byHour: { hour: number; sameDay: number; later: number; notYet: number }[];
-  departments: { name: string; visits: number; released: number; medianMinutes: number | null; within24Pct: number | null; filmsOnly: number }[];
-  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
-  team: { userId: string; name: string; role: string; registered: number; testsEntered: number; reportsReleased: number }[];
-  clinicDoctors: { doctorId: string; doctorName: string; consults: number; priorConsults: number; digitalRx: number; paperRx: number }[];
-  failures: {
+  toCall: {
     patientId: string | null;
     patientName: string;
     patientTitle: string | null;
+    branchCode: string | null;
     phone: string;
-    attemptCount: number;
-    contextLabel: string;
-    failureReason: string;
+    what: string;
+    why: string;
     lastTriedIso: string;
   }[];
-  failureSummary: { patients: number; sends: number };
+  overall: Speed;
+  branchSpeed: (Speed & { code: string; name: string })[];
+  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
+  departments: { name: string; visits: number; released: number; medianMinutes: number | null; within24Pct: number | null; filmsOnly: number }[];
+  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
+  team: { userId: string; name: string; role: string; branches?: string[]; registered: number; testsEntered: number; reportsReleased: number }[];
+  clinicNow: { doctorId: string; doctorName: string; branchCode: string | null; waiting: number; withDoctor: number; seenToday: number; longestWaitMinutes: number | null }[];
+  clinicDoctors: { doctorId: string; doctorName: string; consults: number; priorConsults: number; digitalRx: number; paperRx: number }[];
 }
 
 // ----- helpers ----------------------------------------------------------
@@ -101,10 +126,22 @@ function fmtDuration(mins: number): string {
   return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`;
 }
 const count = (v: number) => Math.round(v).toLocaleString('en-IN');
-const hourLabel = (h: number) => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
-const NOT_YET = '#C9C7BF';
-const LATE = SERIES[1];
+const shortBranch = (name: string) => name.replace(/^Sobhana\s*-\s*/i, '');
+const ageColor = (mins: number) => (mins > 1440 ? TOKENS.critical : mins > 240 ? TOKENS.caution : TOKENS.textPrimary);
+/** 919989655190 → +91 99896 55190 */
+const fmtPhone = (raw: string) => {
+  const d = raw.replace(/\D/g, '');
+  return d.length === 12 && d.startsWith('91') ? `+91 ${d.slice(2, 7)} ${d.slice(7)}` : raw;
+};
+const sinceLabel = (iso: string, nowIso: string) => {
+  const mins = (Date.parse(nowIso) - Date.parse(iso)) / 60000;
+  return mins < 1 ? 'just now' : `${fmtDuration(mins >= 1440 ? Math.floor(mins / 1440) * 1440 : mins)} ago`;
+};
 const ON_TIME = SERIES[0];
+const LATE = SERIES[1];
+const NOT_YET = '#C9C7BF';
+const WAIT = '#EDB95E';
+const SIGN = SERIES[0];
 
 function Swatch({ color, label }: { color: string; label: string }) {
   return (
@@ -115,393 +152,454 @@ function Swatch({ color, label }: { color: string; label: string }) {
   );
 }
 
-/** "vs last Tue (to this hour)" for a single day, else "vs prior period". */
-function vsLabel(data: OperationsResponse): string {
-  if (!data.comparison.sameWeekday) return 'vs prior period';
-  const day = new Date(data.comparison.startIso).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' });
-  return `vs last ${day}${data.comparison.cutAtNow ? ' by now' : ''}`;
-}
+// ----- branches -------------------------------------------------------------
 
-/** 919989655190 → +91 99896 55190 */
-const fmtPhone = (raw: string) => {
-  const d = raw.replace(/\D/g, '');
-  return d.length === 12 && d.startsWith('91') ? `+91 ${d.slice(2, 7)} ${d.slice(7)}` : raw;
-};
-
-// ----- KPIs ---------------------------------------------------------------
-
-function OpsKpis({ data }: { data: OperationsResponse }) {
-  const k = data.kpis;
-  const p = data.prior;
-  const vs = vsLabel(data);
-  const pctDelta = (now: number, before: number) => {
-    if (!before) return null;
-    const c = Math.round(((now - before) / before) * 100);
-    return { text: `${Math.abs(c)}%`, up: c >= 0 };
-  };
-  const ptsDelta = (now: number | null, before: number | null) => {
-    if (now == null || before == null) return null;
-    const d = now - before;
-    return { text: d === 0 ? '0%' : `${Math.abs(d)} pts`, up: d >= 0 };
-  };
-  const open = k.visits - k.released;
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <KpiTile
-        label="Reports out"
-        hint={`${count(k.visits)} visits needed a report · ${count(open)} not out yet`}
-        value={count(k.released)}
-        delta={pctDelta(k.released, p.released)}
-        vs={vs}
-      />
-      <KpiTile
-        label="Typical turnaround"
-        hint="Median time from registration to the first report out"
-        value={k.medianMinutes != null ? fmtDuration(k.medianMinutes) : '—'}
-        delta={k.medianMinutes != null && p.medianMinutes ? pctDelta(k.medianMinutes, p.medianMinutes) : null}
-        deltaGoodWhenUp={false}
-        vs={vs}
-      />
-      <KpiTile
-        label="Out within 24h"
-        hint="Of visits whose day is up: reports out within 24 hours of registration"
-        value={k.within24Pct != null ? `${k.within24Pct}%` : '—'}
-        delta={ptsDelta(k.within24Pct, p.within24Pct)}
-        vs={vs}
-      />
-      <KpiTile
-        label="Delivered on WhatsApp"
-        hint="Of reports out, the patient's WhatsApp received the message"
-        value={k.deliveredPct != null ? `${k.deliveredPct}%` : '—'}
-        delta={ptsDelta(k.deliveredPct, p.deliveredPct)}
-        vs={vs}
-      />
-      <KpiTile
-        label="Opened online"
-        hint="Of reports out, the patient opened the report link or the app"
-        value={k.openedPct != null ? `${k.openedPct}%` : '—'}
-        delta={ptsDelta(k.openedPct, p.openedPct)}
-        vs={vs}
-      />
-      <KpiTile label="Clinic consults" value={count(k.consults)} delta={pctDelta(k.consults, p.consults)} vs={vs} />
+function BranchCard({ b, now, selected, onPick }: { b: BranchStatus; now: string; selected: boolean; onPick: () => void }) {
+  const status =
+    b.late > 0
+      ? { text: `${b.late} late`, color: TOKENS.critical, bg: '#FCEBEB' }
+      : b.inProgress > 0
+        ? { text: 'Running', color: TOKENS.info, bg: '#EEF4FF' }
+        : { text: 'All clear', color: TOKENS.healthy, bg: '#E5F4ED' };
+  const line = (label: string, value: number, bad?: boolean) => (
+    <div className="flex items-baseline justify-between py-1" style={{ ...ROW, fontSize: 13 }}>
+      <span style={{ color: TOKENS.textSecondary }}>{label}</span>
+      <span style={{ fontVariantNumeric: 'tabular-nums', color: bad && value > 0 ? TOKENS.critical : value ? TOKENS.textPrimary : TOKENS.textTertiary, fontWeight: bad && value > 0 ? 500 : 400 }}>
+        {value}
+      </span>
     </div>
+  );
+  return (
+    <button
+      onClick={onPick}
+      aria-pressed={selected}
+      className="h-full w-full text-left transition-colors hover:bg-slate-50"
+      style={{
+        background: TOKENS.surface,
+        border: `${selected ? 1.5 : 0.5}px solid ${selected ? TOKENS.info : TOKENS.border}`,
+        borderRadius: 12,
+        padding: selected ? '13px 15px' : '14px 16px',
+      }}
+      title={selected ? 'Showing this branch · click for all branches' : 'Show only this branch'}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium" style={{ fontSize: 15 }}>{shortBranch(b.name)}</span>
+        <span style={{ fontSize: 12, color: status.color, background: status.bg, borderRadius: 10, padding: '1px 8px', whiteSpace: 'nowrap' }}>{status.text}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {[
+          ['Came in today', b.registeredToday],
+          ['Reports out', b.outToday],
+          ['In progress', b.inProgress],
+        ].map(([l, v]) => (
+          <div key={l as string}>
+            <div className="font-medium" style={{ fontSize: 22, letterSpacing: '-0.01em', lineHeight: 1.2 }}>{v}</div>
+            <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2">
+        {line('Reports late, over a day', b.late, true)}
+        {line('Waiting for the doctor', b.clinicWaiting)}
+        {line('WhatsApp failed today', b.notDeliveredToday, true)}
+      </div>
+      <div className="mt-2" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+        {b.lastReleaseAt
+          ? `Last report out ${sinceLabel(b.lastReleaseAt, now)}${b.lastReleaseBy ? ` · ${b.lastReleaseBy}` : ''}`
+          : 'No report out in two days'}
+      </div>
+    </button>
   );
 }
 
-// ----- live: open reports ------------------------------------------------
+/**
+ * Past four branches, cards wrap into rows nobody compares. A table keeps
+ * every branch on one line each, worst first, with the same numbers.
+ */
+function BranchTable({ rows, now, selected, onPick }: { rows: BranchStatus[]; now: string; selected: string; onPick: (id: string) => void }) {
+  const sorted = [...rows].sort((a, b) => b.late - a.late || b.inProgress - a.inProgress);
+  const sum = (k: 'registeredToday' | 'outToday' | 'inProgress' | 'late' | 'clinicWaiting' | 'notDeliveredToday') => rows.reduce((s, r) => s + r[k], 0);
+  const cell = (v: number, bad?: boolean) => (
+    <td className="py-2 text-right" style={{ color: bad && v > 0 ? TOKENS.critical : v ? undefined : TOKENS.textTertiary, fontWeight: bad && v > 0 ? 500 : 400 }}>
+      {v || '·'}
+    </td>
+  );
+  return (
+    <SectionCard>
+      <div className="overflow-x-auto">
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', minWidth: 760 }}>
+          <thead>
+            <tr>
+              <th className="pb-1 text-left" style={TH}>Branch</th>
+              <th className="pb-1 text-right" style={TH}>Came in today</th>
+              <th className="pb-1 text-right" style={TH}>Reports out</th>
+              <th className="pb-1 text-right" style={TH}>In progress</th>
+              <th className="pb-1 text-right" style={TH}>Late, over a day</th>
+              <th className="pb-1 text-right" style={TH}>Waiting for doctor</th>
+              <th className="pb-1 text-right" style={TH}>WhatsApp failed</th>
+              <th className="pb-1 text-right" style={TH}>Last report out</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((b) => (
+              <tr
+                key={b.branchId}
+                onClick={() => onPick(b.branchId)}
+                className="cursor-pointer hover:bg-slate-50"
+                style={{ ...ROW, background: selected === b.branchId ? '#EEF4FF' : undefined }}
+                title="Show only this branch"
+              >
+                <td className="py-2 font-medium">{shortBranch(b.name)}</td>
+                {cell(b.registeredToday)}
+                {cell(b.outToday)}
+                {cell(b.inProgress)}
+                {cell(b.late, true)}
+                {cell(b.clinicWaiting)}
+                {cell(b.notDeliveredToday, true)}
+                <td className="py-2 text-right" style={{ color: TOKENS.textSecondary, whiteSpace: 'nowrap' }}>
+                  {b.lastReleaseAt ? sinceLabel(b.lastReleaseAt, now) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-medium" style={TOTAL_ROW}>
+              <td className="pt-2">All branches</td>
+              {(['registeredToday', 'outToday', 'inProgress', 'late', 'clinicWaiting', 'notDeliveredToday'] as const).map((k) => (
+                <td key={k} className="pt-2 text-right">{sum(k)}</td>
+              ))}
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </SectionCard>
+  );
+}
 
-/** Open visits by stage × time since registration. Darker = more visits. */
-function PipelineCard({ data }: { data: OperationsResponse['pipeline'] }) {
-  const max = Math.max(1, ...data.rows.flatMap((r) => r.counts));
-  const colTotal = (i: number) => data.rows.reduce((s, r) => s + r.counts[i], 0);
+// ----- pending work -----------------------------------------------------------
+
+type Tab = Stage | 'critical' | 'call';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'results', label: 'Waiting for results' },
+  { key: 'signoff', label: 'Awaiting sign-off' },
+  { key: 'outside', label: 'Outside lab' },
+  { key: 'critical', label: 'Critical values' },
+  { key: 'call', label: 'Call patient' },
+];
+
+function PendingCard({ data }: { data: OperationsResponse }) {
+  const [tab, setTab] = useState<Tab>('results');
+  const [all, setAll] = useState(false);
+  const n = (t: Tab) => (t === 'critical' ? data.critical.length : t === 'call' ? data.toCall.length : data.pending.filter((p) => p.stage === t).length);
+  const LIMIT = 10;
+  const cut = <T,>(rows: T[]) => (all ? rows : rows.slice(0, LIMIT));
+  const total = n(tab);
+  const patientLink = (visitId: string, name: string, title: string | null) => (
+    <Link to={`/diagnostics/results/${visitId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
+      {formatPatientName(name, title)}
+    </Link>
+  );
+
+  let body: React.ReactNode;
+  if (tab === 'critical') {
+    body = (
+      <table className="w-full" style={{ fontSize: 13 }}>
+        <thead>
+          <tr className="text-left">
+            <th className="pb-1" style={TH}>Patient</th>
+            <th className="pb-1" style={TH}>Test</th>
+            <th className="pb-1 text-right" style={TH}>Value</th>
+            <th className="pb-1" style={{ ...TH, paddingLeft: 16 }}>Entered</th>
+            <th className="pb-1 text-right" style={TH}>Report</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cut(data.critical).map((c, i) => (
+            <tr key={`${c.visitId}-${c.test}-${i}`} style={ROW}>
+              <td className="py-1.5 pr-3">
+                {patientLink(c.visitId, c.patientName, c.patientTitle)}
+                <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {c.branchCode}</span>
+              </td>
+              <td className="py-1.5 pr-3">{c.test}</td>
+              <td className="py-1.5 text-right font-medium" style={{ color: TOKENS.critical, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                {c.flag === 'CRITICAL_HIGH' ? '▲' : '▼'} {c.value}
+              </td>
+              <td className="py-1.5" style={{ color: TOKENS.textSecondary, paddingLeft: 16, whiteSpace: 'nowrap' }}>
+                {formatIstDateTime(c.enteredAt)}
+                {c.enteredBy ? ` · ${c.enteredBy}` : ''}
+              </td>
+              <td className="py-1.5 text-right" style={{ color: c.released ? TOKENS.healthy : TOKENS.caution, whiteSpace: 'nowrap' }}>
+                {c.released ? 'Out' : 'Not out yet'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  } else if (tab === 'call') {
+    body = (
+      <table className="w-full" style={{ fontSize: 13 }}>
+        <thead>
+          <tr className="text-left">
+            <th className="pb-1" style={TH}>Patient</th>
+            <th className="pb-1" style={TH}>What didn't arrive</th>
+            <th className="pb-1" style={TH}>Why</th>
+            <th className="pb-1" style={TH}>Tried</th>
+            <th className="pb-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {cut(data.toCall).map((c, i) => (
+            <tr key={c.patientId ?? `${c.phone}-${i}`} style={ROW}>
+              <td className="py-1.5 pr-3">
+                {c.patientId ? (
+                  <Link to={`/clinic/patient-360/${c.patientId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
+                    {formatPatientName(c.patientName, c.patientTitle)}
+                  </Link>
+                ) : (
+                  formatPatientName(c.patientName, c.patientTitle)
+                )}
+                {c.branchCode && <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {c.branchCode}</span>}
+              </td>
+              <td className="py-1.5 pr-3" style={{ whiteSpace: 'nowrap' }}>{c.what}</td>
+              <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary }}>{c.why}</td>
+              <td className="py-1.5 pr-3" style={{ color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}>{sinceLabel(c.lastTriedIso, data.generatedAt)}</td>
+              <td className="py-1.5 text-right">
+                <a
+                  href={`tel:+${c.phone.replace(/\D/g, '')}`}
+                  className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
+                  style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.info, textDecoration: 'none', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
+                >
+                  <Phone className="h-3 w-3" />
+                  {fmtPhone(c.phone)}
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  } else {
+    const rows = data.pending.filter((p) => p.stage === tab).sort((a, b) => b.ageMinutes - a.ageMinutes);
+    const noteOf = (p: OperationsResponse['pending'][number]) =>
+      [
+        p.partlyOut ? 'Part of the report is out' : '',
+        p.outsideTests ? `${p.outsideTests} test${p.outsideTests === 1 ? '' : 's'} not back` : '',
+        p.stage === 'signoff' && p.enteredBy ? `Entered by ${p.enteredBy}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    const notes = rows.some((p) => noteOf(p));
+    body = (
+      <table className="w-full" style={{ fontSize: 13 }}>
+        <thead>
+          <tr className="text-left">
+            <th className="pb-1" style={TH}>Patient · tests</th>
+            <th className="pb-1" style={TH}>Branch</th>
+            {notes && <th className="pb-1" style={TH}>Note</th>}
+            <th className="pb-1 text-right" style={TH}>Waiting</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cut(rows).map((p) => (
+            <tr key={p.visitId} style={ROW}>
+              <td className="py-1.5 pr-3" style={{ maxWidth: 420 }}>
+                {patientLink(p.visitId, p.patientName, p.patientTitle)}
+                <div className="truncate" style={{ color: TOKENS.textTertiary, fontSize: 11 }} title={p.tests}>{p.tests}</div>
+              </td>
+              <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary }}>{p.branchCode}</td>
+              {notes && <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary }}>{noteOf(p) || '—'}</td>}
+              <td className="py-1.5 text-right" style={{ color: ageColor(p.ageMinutes), whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: p.ageMinutes > 1440 ? 500 : 400 }}>
+                {fmtDuration(p.ageMinutes)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
   return (
     <SectionCard
-      label="Open reports · live"
-      description="By stage, and how long since the patient registered"
-      className="h-full"
+      label="Pending work · live"
+      description="Oldest first · waiting time counts from registration · amber after 4h, red after a day"
       rightSlot={
         <Link to="/diagnostics/pending" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
-          Pending ↗
+          Open the pending screen ↗
         </Link>
       }
     >
-      {data.total === 0 ? (
-        <div style={{ color: TOKENS.healthy, fontSize: 13 }}>Nothing open. Every report is out.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', borderCollapse: 'separate', borderSpacing: 2 }}>
-            <thead>
-              <tr>
-                <th className="pb-1 text-left align-bottom" style={TH}>Stage</th>
-                {data.bands.map((b, i) => (
-                  <th key={b} className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 56, color: i >= 2 ? TOKENS.critical : TH.color }}>
-                    {b}
-                  </th>
-                ))}
-                <th className="pb-1 text-right align-bottom" style={{ ...TH, minWidth: 44 }}>All</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((r) => {
-                const sum = r.counts.reduce((s, c) => s + c, 0);
-                return (
-                  <tr key={r.stage}>
-                    <td className="py-1.5 pr-2" style={{ color: sum ? TOKENS.textPrimary : TOKENS.textTertiary }}>{r.label}</td>
-                    {r.counts.map((c, i) => {
-                      const step = Math.min(HEAT.length - 1, Math.floor((c / max) * HEAT.length));
-                      return (
-                        <td
-                          key={i}
-                          className="px-2 py-1.5 text-right"
-                          title={c ? `${r.label} · ${data.bands[i]}: ${c} visit${c === 1 ? '' : 's'}` : undefined}
-                          style={{
-                            borderRadius: 4,
-                            background: c ? HEAT[step] : 'transparent',
-                            color: !c ? TOKENS.textTertiary : step >= 3 ? 'white' : TOKENS.textPrimary,
-                          }}
-                        >
-                          {c || '·'}
-                        </td>
-                      );
-                    })}
-                    <td className="px-2 py-1.5 text-right font-medium">{sum}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="font-medium" style={TOTAL_ROW}>
-                <td className="pt-2">All open</td>
-                {data.bands.map((b, i) => (
-                  <td key={b} className="px-2 pt-2 text-right" style={{ color: i >= 2 && colTotal(i) ? TOKENS.critical : undefined }}>
-                    {colTotal(i)}
-                  </td>
-                ))}
-                <td className="px-2 pt-2 text-right">{data.total}</td>
-              </tr>
-            </tfoot>
-          </table>
+      <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
+        {TABS.map((t) => {
+          const on = tab === t.key;
+          const c = n(t.key);
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={on}
+              onClick={() => {
+                setTab(t.key);
+                setAll(false);
+              }}
+              className="rounded-full border px-3 py-1"
+              style={{
+                fontSize: 12,
+                borderColor: on ? TOKENS.info : TOKENS.border,
+                background: on ? '#EEF4FF' : 'white',
+                color: on ? TOKENS.info : TOKENS.textSecondary,
+              }}
+            >
+              {t.label} <span style={{ fontWeight: 500, color: on ? TOKENS.info : c ? TOKENS.textPrimary : TOKENS.textTertiary }}>{c}</span>
+            </button>
+          );
+        })}
+      </div>
+      {total === 0 ? (
+        <div style={{ color: TOKENS.healthy, fontSize: 13 }}>
+          {tab === 'critical' ? 'No critical values in the last two days.' : tab === 'call' ? 'Every message in the last two days reached the patient.' : 'Nothing here.'}
         </div>
+      ) : (
+        <div className="overflow-x-auto">{body}</div>
+      )}
+      {total > LIMIT && (
+        <button onClick={() => setAll((v) => !v)} className="mt-2" style={{ fontSize: 12, color: TOKENS.info }}>
+          {all ? 'Show fewer' : `Show all ${total}`}
+        </button>
       )}
     </SectionCard>
   );
 }
 
-function OldestOpenCard({ rows, total }: { rows: OperationsResponse['oldestOpen']; total: number }) {
-  return (
-    <SectionCard label="Waiting longest · live" description="Oldest open visits first" className="h-full">
-      {rows.length === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>Nothing waiting.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-            <thead>
-              <tr className="text-left">
-                <th className="pb-1" style={TH}>Patient · tests</th>
-                <th className="pb-1" style={TH}>Stage</th>
-                <th className="pb-1 text-right" style={TH}>Waiting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.visitId} style={ROW}>
-                  <td className="py-1.5 pr-3" style={{ maxWidth: 340 }}>
-                    <Link to={`/diagnostics/results/${r.visitId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
-                      {formatPatientName(r.patientName, r.patientTitle)}
-                    </Link>
-                    <div className="truncate" style={{ color: TOKENS.textTertiary, fontSize: 11 }} title={r.tests}>
-                      {r.branchCode} · {r.tests}
-                    </div>
-                  </td>
-                  <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary, whiteSpace: 'nowrap' }}>{r.stage}</td>
-                  <td
-                    className="py-1.5 text-right"
-                    style={{ whiteSpace: 'nowrap', color: r.ageMinutes > 1440 ? TOKENS.critical : TOKENS.textPrimary }}
-                  >
-                    {fmtDuration(r.ageMinutes)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {total > rows.length && (
-        <div className="mt-2" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-          {rows.length} of {total} open ·{' '}
-          <Link to="/diagnostics/pending" style={{ color: TOKENS.info, textDecoration: 'none' }}>
-            see all ↗
-          </Link>
-        </div>
-      )}
-    </SectionCard>
-  );
-}
+// ----- turnaround -------------------------------------------------------------
 
-// ----- turnaround ---------------------------------------------------------
-
-function TurnaroundByDayCard({ data, periodLabel, onPickDay }: { data: OperationsResponse; periodLabel: string; onPickDay: (d: string) => void }) {
+function OnTimeCard({ data, periodLabel, onPickDay }: { data: OperationsResponse; periodLabel: string; onPickDay: (d: string) => void }) {
+  const s = data.overall;
   const days = data.byDay;
-  const k = data.kpis;
-  return (
-    <SectionCard
-      label={`Reports out on time · ${periodLabel}`}
-      description="Visits by the day they registered · click a day to see just that day"
-      className="h-full"
-    >
-      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
-        <Swatch color={ON_TIME} label="Out within 24h" />
-        <Swatch color={LATE} label="Took longer" />
-        <Swatch color={NOT_YET} label="Not out yet, under 24h" />
-        {k.medianMinutes != null && (
-          <span style={{ marginLeft: 'auto', color: TOKENS.textTertiary }}>Typical {fmtDuration(k.medianMinutes)}</span>
-        )}
-      </div>
-      <ComparisonTrendChart
-        days={days.map((d) => ({ date: d.date, value: d.onTime + d.late + d.pending, prior: null }))}
-        average={days.map(() => null)}
-        priorAverage={days.map(() => null)}
-        format={count}
-        valueLabel="Visits"
-        height={280}
-        onPickDay={onPickDay}
-        note={(i) => (days[i].medianMinutes != null ? `Typical ${fmtDuration(days[i].medianMinutes!)}` : null)}
-        parts={[
-          { label: 'Out within 24h', color: ON_TIME, values: days.map((d) => d.onTime) },
-          { label: 'Took longer', color: LATE, values: days.map((d) => d.late) },
-          { label: 'Not out yet', color: NOT_YET, values: days.map((d) => d.pending) },
-        ]}
-      />
-    </SectionCard>
+  const stat = (label: string, value: string) => (
+    <div>
+      <div className="font-medium" style={{ fontSize: 20, letterSpacing: '-0.01em' }}>{value}</div>
+      <div style={{ fontSize: 12, color: TOKENS.textTertiary }}>{label}</div>
+    </div>
   );
-}
-
-/** Visits by the hour they registered: report the same day, later, or not yet. */
-function ArrivalHourCard({ rows, periodLabel }: { rows: OperationsResponse['byHour']; periodLabel: string }) {
-  const sameDayPct = (rs: typeof rows) => {
-    const done = rs.reduce((s, r) => s + r.sameDay + r.later, 0);
-    return done ? Math.round((rs.reduce((s, r) => s + r.sameDay, 0) / done) * 100) : null;
-  };
-  const early = sameDayPct(rows.filter((r) => r.hour < 17));
-  const late = sameDayPct(rows.filter((r) => r.hour >= 17));
-  // Every hour from the first to the last visit, so quiet hours show as gaps.
-  const from = rows.length ? Math.min(...rows.map((r) => r.hour)) : 7;
-  const to = rows.length ? Math.max(...rows.map((r) => r.hour)) : 21;
-  const at = new Map(rows.map((r) => [r.hour, r]));
-  const hours = Array.from({ length: to - from + 1 }, (_, i) => at.get(from + i) ?? { hour: from + i, sameDay: 0, later: 0, notYet: 0 });
   return (
-    <SectionCard
-      label={`When patients come in · ${periodLabel}`}
-      description="Visits by the hour they registered, and whether the report went out the same day"
-      className="h-full"
-    >
-      {early != null && late != null && (
-        <div className="mb-2" style={{ fontSize: 13, color: TOKENS.textSecondary }}>
-          Registered after 5 pm: <strong style={{ color: late < early - 15 ? TOKENS.critical : TOKENS.textPrimary }}>{late}%</strong> got the report the same day,
-          against <strong style={{ color: TOKENS.textPrimary }}>{early}%</strong> before 5 pm.
-        </div>
-      )}
-      <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
-        <Swatch color={ON_TIME} label="Same day" />
-        <Swatch color={LATE} label="Next day or later" />
-        <Swatch color={NOT_YET} label="Not out yet (today)" />
+    <SectionCard label={`Reports on time · ${periodLabel}`} description="Diagnostic visits registered in the period that needed a report" className="h-full">
+      <div className="mb-3 flex flex-wrap gap-x-10 gap-y-2">
+        {stat('Typical time to report', s.medianMinutes != null ? fmtDuration(s.medianMinutes) : '—')}
+        {stat('Out within 24h', s.within24Pct != null ? `${s.within24Pct}%` : '—')}
+        {stat('Reports out', `${count(s.released)} of ${count(s.visits)}`)}
       </div>
-      <ComparisonTrendChart
-        days={hours.map((h) => ({ date: String(h.hour), value: h.sameDay + h.later + h.notYet, prior: null }))}
-        average={hours.map(() => null)}
-        priorAverage={hours.map(() => null)}
-        format={count}
-        valueLabel="Visits"
-        height={260}
-        axisLabel={(k) => hourLabel(Number(k))}
-        titleLabel={(k) => `${hourLabel(Number(k))}–${hourLabel(Number(k) + 1)}`}
-        note={(i) => {
-          const h = hours[i];
-          const done = h.sameDay + h.later;
-          return done ? `${Math.round((h.sameDay / done) * 100)}% same day` : null;
-        }}
-        parts={[
-          { label: 'Same day', color: ON_TIME, values: hours.map((h) => h.sameDay) },
-          { label: 'Next day or later', color: LATE, values: hours.map((h) => h.later) },
-          { label: 'Not out yet', color: NOT_YET, values: hours.map((h) => h.notYet) },
-        ]}
-      />
-    </SectionCard>
-  );
-}
-
-function DepartmentsCard({ rows, periodLabel }: { rows: OperationsResponse['departments']; periodLabel: string }) {
-  return (
-    <SectionCard
-      label={`By department · ${periodLabel}`}
-      description="Registration to that department's report"
-      className="h-full"
-    >
-      {rows.length === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No visits in this period.</div>
-      ) : (
+      {days.length > 1 && (
         <>
-          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-            <thead>
-              <tr>
-                <th className="pb-1 text-left" style={TH}>Department</th>
-                <th className="pb-1 text-right" style={TH}>Patients</th>
-                <th className="pb-1 text-right" style={TH}>Typical</th>
-                <th className="pb-1 text-right" style={TH}>In 24h</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((d) => {
-                const open = d.visits - d.released - d.filmsOnly;
-                const notes = [d.filmsOnly ? `${d.filmsOnly} films only` : '', open > 0 ? `${open} open` : ''].filter(Boolean).join(' · ');
-                return (
-                  <tr key={d.name} style={ROW}>
-                    <td className="py-1.5 pr-2">
-                      {d.name}
-                      {notes && <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{notes}</div>}
-                    </td>
-                    <td className="py-1.5 text-right">{count(d.visits)}</td>
-                    <td className="py-1.5 text-right">{d.medianMinutes != null ? fmtDuration(d.medianMinutes) : '—'}</td>
-                    <td
-                      className="py-1.5 text-right"
-                      style={{ color: d.within24Pct != null && d.within24Pct < 80 ? TOKENS.critical : undefined }}
-                    >
-                      {d.within24Pct != null ? `${d.within24Pct}%` : '—'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div className="mt-2" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
-            A patient counts once per department. Films only = closed without a typed report.
+          <div className="mb-1 flex flex-wrap gap-4" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+            <Swatch color={ON_TIME} label="Out within 24h" />
+            <Swatch color={LATE} label="Took longer" />
+            <Swatch color={NOT_YET} label="Not out yet, under 24h" />
+            <span style={{ color: TOKENS.textTertiary }}>· by the day they registered · click a day to open it</span>
           </div>
+          <ComparisonTrendChart
+            days={days.map((d) => ({ date: d.date, value: d.onTime + d.late + d.pending, prior: null }))}
+            average={days.map(() => null)}
+            priorAverage={days.map(() => null)}
+            format={count}
+            valueLabel="Visits"
+            height={240}
+            onPickDay={onPickDay}
+            note={(i) => (days[i].medianMinutes != null ? `Typical ${fmtDuration(days[i].medianMinutes!)}` : null)}
+            parts={[
+              { label: 'Out within 24h', color: ON_TIME, values: days.map((d) => d.onTime) },
+              { label: 'Took longer', color: LATE, values: days.map((d) => d.late) },
+              { label: 'Not out yet', color: NOT_YET, values: days.map((d) => d.pending) },
+            ]}
+          />
         </>
       )}
     </SectionCard>
   );
 }
 
-// ----- delivery -----------------------------------------------------------
-
-function DeliveryCard({ d, failedPatients, periodLabel }: { d: OperationsResponse['delivery']; failedPatients: number; periodLabel: string }) {
-  const step = (label: string, n: number, color: string, hint?: string) => (
-    <div className="py-1.5" style={ROW} title={hint}>
-      <div className="flex items-baseline justify-between gap-3" style={{ fontSize: 13 }}>
-        <span>{label}</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {count(n)}
-          <span style={{ color: TOKENS.textTertiary }}> · {d.released ? Math.round((n / d.released) * 100) : 0}%</span>
-        </span>
-      </div>
-      <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
-        <div style={{ width: `${d.released ? (n / d.released) * 100 : 0}%`, height: '100%', borderRadius: 3, background: color }} />
-      </div>
-    </div>
-  );
+/**
+ * Every branch on the same measures, so a slow one stands out — one row per
+ * branch however many there are, and the total underneath.
+ */
+function BranchesComparedCard({ data, periodLabel }: { data: OperationsResponse; periodLabel: string }) {
+  const rows = data.branchSpeed;
+  const all = [...rows, ...(rows.length > 1 ? [{ ...data.overall, code: '', name: 'All branches' }] : [])];
+  const max = Math.max(1, ...all.map((r) => (r.waitForResultMinutes ?? 0) + (r.toSignOffMinutes ?? 0)));
+  const bad = (v: number | null, under: number) => (v != null && v < under ? TOKENS.critical : undefined);
+  const o = data.overall;
   return (
-    <SectionCard label={`How reports reach patients · ${periodLabel}`} description="Of reports out in this period" className="h-full">
-      {d.released === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No reports out yet.</div>
+    <SectionCard
+      label={`Branches compared · ${periodLabel}`}
+      description="Diagnostic visits registered in the period that needed a report · time is the typical visit"
+    >
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No visits in this period.</div>
       ) : (
         <>
-          {step('Reports out', d.released, ON_TIME)}
-          {step('Sent on WhatsApp', d.sent, ON_TIME)}
-          {step('Delivered', d.delivered, ON_TIME, 'Reached the phone (delivered or read)')}
-          {step('Opened online', d.opened, ON_TIME, 'Patient opened the report link or the app')}
-          <div className="mt-3">{step('Printed at the counter', d.printed, NOT_YET)}</div>
-          {failedPatients > 0 && (
-            <a
-              href="#failed-messages"
-              onClick={(e) => {
-                e.preventDefault();
-                document.getElementById('failed-messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              className="mt-3 block"
-              style={{ fontSize: 12, color: TOKENS.info, textDecoration: 'none' }}
-            >
-              {failedPatients} patient{failedPatients === 1 ? '' : 's'} with a failed message ↓
-            </a>
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', minWidth: 760 }}>
+              <thead>
+                <tr>
+                  <th className="pb-1 text-left" style={TH}>Branch</th>
+                  <th className="pb-1 text-right" style={TH}>Visits</th>
+                  <th className="pb-1 text-right" style={TH}>Typical time</th>
+                  <th className="pb-1 text-right" style={TH}>Out in 24h</th>
+                  <th className="pb-1 text-left" style={{ ...TH, paddingLeft: 24, width: '32%' }}>
+                    <span className="inline-flex flex-wrap gap-3">
+                      <Swatch color={WAIT} label="Waiting for the first result" />
+                      <Swatch color={SIGN} label="Result to report out" />
+                    </span>
+                  </th>
+                  <th className="pb-1 text-right" style={TH} title="Registered before 5 pm: report out the same day">Same day, before 5 pm</th>
+                  <th className="pb-1 text-right" style={TH} title="Registered from 5 pm: report out the same day">Same day, after 5 pm</th>
+                </tr>
+              </thead>
+              <tbody>
+                {all.map((r) => {
+                  const total = r.name === 'All branches';
+                  const w = r.waitForResultMinutes ?? 0;
+                  const sg = r.toSignOffMinutes ?? 0;
+                  return (
+                    <tr key={r.name} className={total ? 'font-medium' : undefined} style={total ? TOTAL_ROW : ROW}>
+                      <td className={total ? 'pt-2' : 'py-2'}>{shortBranch(r.name)}</td>
+                      <td className="py-2 text-right">{count(r.visits)}</td>
+                      <td className="py-2 text-right">{r.medianMinutes != null ? fmtDuration(r.medianMinutes) : '—'}</td>
+                      <td className="py-2 text-right" style={{ color: bad(r.within24Pct, 85) }}>{r.within24Pct != null ? `${r.within24Pct}%` : '—'}</td>
+                      <td className="py-2" style={{ paddingLeft: 24 }}>
+                        {r.waitForResultMinutes != null ? (
+                          <div className="flex items-center gap-2" title={`Waiting for the first result ${fmtDuration(w)} · result to report out ${fmtDuration(sg)}`}>
+                            <div className="flex flex-1" style={{ height: 8, gap: 2 }}>
+                              <div style={{ width: `${(w / max) * 100}%`, background: WAIT, borderRadius: 3 }} />
+                              <div style={{ width: `${Math.max(0.6, (sg / max) * 100)}%`, background: SIGN, borderRadius: 3 }} />
+                            </div>
+                            <span style={{ fontSize: 12, color: TOKENS.textSecondary, whiteSpace: 'nowrap', minWidth: 92, textAlign: 'right' }}>
+                              {fmtDuration(w)} + {fmtDuration(sg)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: TOKENS.textTertiary }}>—</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: bad(r.daySameDayPct, 80) }}>{r.daySameDayPct != null ? `${r.daySameDayPct}%` : '—'}</td>
+                      <td className="py-2 text-right" style={{ color: bad(r.eveningSameDayPct, 50) }}>
+                        {r.eveningSameDayPct != null ? `${r.eveningSameDayPct}%` : '—'}
+                        <span style={{ color: TOKENS.textTertiary, fontWeight: 400, fontSize: 11 }}> · {r.eveningVisits}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {o.waitForResultMinutes != null && (
+            <div className="mt-3" style={{ fontSize: 12, color: TOKENS.textSecondary }}>
+              Most of the time is spent before anyone enters a result ({fmtDuration(o.waitForResultMinutes)} of {fmtDuration(o.waitForResultMinutes + (o.toSignOffMinutes ?? 0))}).
+              {o.eveningSameDayPct != null && o.daySameDayPct != null && o.eveningSameDayPct < o.daySameDayPct - 15
+                ? ` Visits after 5 pm mostly wait overnight: ${o.eveningSameDayPct}% got the report the same day.`
+                : ''}
+            </div>
           )}
         </>
       )}
@@ -509,56 +607,99 @@ function DeliveryCard({ d, failedPatients, periodLabel }: { d: OperationsRespons
   );
 }
 
-// ----- people -------------------------------------------------------------
+// ----- departments, team ------------------------------------------------------------
+
+function DepartmentsCard({ rows, periodLabel }: { rows: OperationsResponse['departments']; periodLabel: string }) {
+  return (
+    <SectionCard label={`By department · ${periodLabel}`} description="Registration to that department's report" className="h-full">
+      {rows.length === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No visits in this period.</div>
+      ) : (
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          <thead>
+            <tr>
+              <th className="pb-1 text-left" style={TH}>Department</th>
+              <th className="pb-1 text-right" style={TH}>Patients</th>
+              <th className="pb-1 text-right" style={TH}>Typical</th>
+              <th className="pb-1 text-right" style={TH}>In 24h</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((d) => {
+              const open = d.visits - d.released - d.filmsOnly;
+              const notes = [d.filmsOnly ? `${d.filmsOnly} film${d.filmsOnly === 1 ? '' : 's'} only` : '', open > 0 ? `${open} open` : ''].filter(Boolean).join(' · ');
+              return (
+                <tr key={d.name} style={ROW}>
+                  <td className="py-1.5 pr-2">
+                    {d.name}
+                    {notes && <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{notes}</div>}
+                  </td>
+                  <td className="py-1.5 text-right">{count(d.visits)}</td>
+                  <td className="py-1.5 pl-2 text-right" style={{ whiteSpace: 'nowrap' }}>{d.medianMinutes != null ? fmtDuration(d.medianMinutes) : '—'}</td>
+                  <td className="py-1.5 text-right" style={{ color: d.within24Pct != null && d.within24Pct < 80 ? TOKENS.critical : undefined }}>
+                    {d.within24Pct != null ? `${d.within24Pct}%` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </SectionCard>
+  );
+}
 
 const ROLE_LABEL: Record<string, string> = { owner: 'Owner', lab_incharge: 'Lab in-charge', staff: 'Front desk' };
 
 function TeamCard({ rows, periodLabel }: { rows: OperationsResponse['team']; periodLabel: string }) {
   const sum = (k: 'registered' | 'testsEntered' | 'reportsReleased') => rows.reduce((s, r) => s + r[k], 0);
   return (
-    <SectionCard label={`Team · ${periodLabel}`} description="Who did the work, diagnostics and clinic" className="h-full">
+    <SectionCard label={`Team · ${periodLabel}`} description="Visits registered, tests entered, reports released" className="h-full">
       {rows.length === 0 ? (
         <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No activity in this period.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-            <thead>
-              <tr>
-                <th className="pb-1 text-left" style={TH}>Person</th>
-                <th className="pb-1 text-right" style={TH} title="Visits registered (diagnostics and clinic)">Registered</th>
-                <th className="pb-1 text-right" style={TH} title="Tests whose results they entered">Tests entered</th>
-                <th className="pb-1 text-right" style={TH} title="Reports they finalized and released">Reports released</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.userId} style={ROW}>
-                  <td className="py-1.5 pr-2">
-                    {r.name}
-                    <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}> · {ROLE_LABEL[r.role] ?? r.role}</span>
+        <table className="w-full" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          <thead>
+            <tr>
+              <th className="pb-1 text-left" style={TH}>Person</th>
+              <th className="pb-1 text-right" style={TH}>Registered</th>
+              <th className="pb-1 text-right" style={TH}>Entered</th>
+              <th className="pb-1 text-right" style={TH}>Released</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.userId} style={ROW}>
+                <td className="py-1.5 pr-2">
+                  {r.name}
+                  <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
+                    {ROLE_LABEL[r.role] ?? r.role}
+                    {r.branches?.length ? ` · ${r.branches.join(', ')}` : ''}
+                  </div>
+                </td>
+                {(['registered', 'testsEntered', 'reportsReleased'] as const).map((k) => (
+                  <td key={k} className="py-1.5 text-right" style={{ color: r[k] ? undefined : TOKENS.textTertiary }}>
+                    {r[k] ? count(r[k]) : '·'}
                   </td>
-                  {(['registered', 'testsEntered', 'reportsReleased'] as const).map((k) => (
-                    <td key={k} className="py-1.5 text-right" style={{ color: r[k] ? undefined : TOKENS.textTertiary }}>
-                      {r[k] ? count(r[k]) : '·'}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="font-medium" style={TOTAL_ROW}>
-                <td className="pt-2">Everyone</td>
-                <td className="pt-2 text-right">{count(sum('registered'))}</td>
-                <td className="pt-2 text-right">{count(sum('testsEntered'))}</td>
-                <td className="pt-2 text-right">{count(sum('reportsReleased'))}</td>
+                ))}
               </tr>
-            </tfoot>
-          </table>
-        </div>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-medium" style={TOTAL_ROW}>
+              <td className="pt-2">Everyone</td>
+              <td className="pt-2 text-right">{count(sum('registered'))}</td>
+              <td className="pt-2 text-right">{count(sum('testsEntered'))}</td>
+              <td className="pt-2 text-right">{count(sum('reportsReleased'))}</td>
+            </tr>
+          </tfoot>
+        </table>
       )}
     </SectionCard>
   );
 }
+
+// ----- clinic, delivery ---------------------------------------------------------------
 
 function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLabel: string }) {
   const rows = data.clinicDoctors;
@@ -574,24 +715,21 @@ function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLab
         </Link>
       }
     >
-      <div className="mb-3" style={{ fontSize: 13 }}>
-        <div style={{ color: TOKENS.textTertiary, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }}>Now</div>
-        {data.clinicNow.length === 0 ? (
-          <div style={{ color: TOKENS.textSecondary }}>Nobody waiting for a doctor.</div>
-        ) : (
-          data.clinicNow.map((c) => (
+      {data.clinicNow.length > 0 && (
+        <div className="mb-3" style={{ fontSize: 13 }}>
+          {data.clinicNow.map((c) => (
             <div key={c.doctorId} className="flex flex-wrap justify-between gap-x-3">
-              <span>{c.doctorName}</span>
+              <span>{c.doctorName} <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>· now</span></span>
               <span style={{ color: TOKENS.textSecondary }}>
                 <span style={{ color: (c.longestWaitMinutes ?? 0) > 30 ? TOKENS.critical : undefined }}>
-                  {c.waiting} waiting{c.longestWaitMinutes != null ? ` · longest ${fmtDuration(c.longestWaitMinutes)}` : ''}
+                  {c.waiting} waiting{c.longestWaitMinutes != null ? `, longest ${fmtDuration(c.longestWaitMinutes)}` : ''}
                 </span>
-                {c.inConsultation ? ` · ${c.inConsultation} in with the doctor` : ''} · {c.seenToday} seen today
+                {c.withDoctor ? ` · ${c.withDoctor} with the doctor` : ''} · {c.seenToday} seen
               </span>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
       {rows.length === 0 ? (
         <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No consults in this period.</div>
       ) : (
@@ -600,8 +738,8 @@ function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLab
             <tr>
               <th className="pb-1 text-left" style={TH}>Doctor</th>
               <th className="pb-1 text-right" style={TH}>Consults</th>
-              <th className="pb-1 text-right" style={TH}>vs before</th>
-              <th className="pb-1 text-right" style={TH} title="Prescriptions written in the app · on paper">Rx app · paper</th>
+              <th className="pb-1 text-right" style={{ ...TH, whiteSpace: 'nowrap' }}>vs before</th>
+              <th className="pb-1 text-right" style={{ ...TH, whiteSpace: 'nowrap' }} title="Prescriptions written in the app · on paper">Rx app · paper</th>
             </tr>
           </thead>
           <tbody>
@@ -610,9 +748,7 @@ function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLab
                 <td className="py-1.5 pr-2">{r.doctorName}</td>
                 <td className="py-1.5 text-right">{count(r.consults)}</td>
                 <td className="py-1.5 text-right"><Delta now={r.consults} before={r.priorConsults} /></td>
-                <td className="py-1.5 text-right" style={{ color: TOKENS.textSecondary }}>
-                  {r.digitalRx} · {r.paperRx}
-                </td>
+                <td className="py-1.5 text-right" style={{ color: TOKENS.textSecondary }}>{r.digitalRx} · {r.paperRx}</td>
               </tr>
             ))}
           </tbody>
@@ -626,84 +762,38 @@ function ClinicCard({ data, periodLabel }: { data: OperationsResponse; periodLab
           </tfoot>
         </table>
       )}
-      <div className="mt-2" style={{ fontSize: 11, color: TOKENS.textTertiary }}>
-        No time-with-doctor figure: the desk marks visits done in batches, so those times describe the desk, not the consult.
-      </div>
     </SectionCard>
   );
 }
 
-// ----- failed messages ----------------------------------------------------
-
-function FailedMessagesCard({ data, periodLabel }: { data: OperationsResponse; periodLabel: string }) {
-  const rows = data.failures;
-  const s = data.failureSummary;
-  return (
-    <div id="failed-messages" style={{ scrollMarginTop: 16 }} className="h-full">
-      <SectionCard
-        label={`Messages that didn't reach the patient · ${periodLabel}`}
-        description="Reports, bills and prescriptions (campaigns left out) · call them on the number shown"
-        className="h-full"
-        rightSlot={
-          s.patients > 0 ? (
-            <span style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-              {s.patients} patient{s.patients === 1 ? '' : 's'} · {s.sends} failed send{s.sends === 1 ? '' : 's'}
-            </span>
-          ) : undefined
-        }
-      >
-        {rows.length === 0 ? (
-          <div style={{ color: TOKENS.healthy, fontSize: 13 }}>Every message in this period reached the patient's WhatsApp.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full" style={{ fontSize: 13 }}>
-              <thead>
-                <tr className="text-left">
-                  <th className="pb-1" style={TH}>Patient</th>
-                  <th className="pb-1" style={TH}>Number</th>
-                  <th className="pb-1" style={TH}>What failed</th>
-                  <th className="pb-1" style={TH}>Why</th>
-                  <th className="pb-1 text-right" style={TH}>Last tried</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={r.patientId ?? `${r.phone}-${i}`} style={ROW}>
-                    <td className="py-1.5 pr-3">
-                      {r.patientId ? (
-                        <Link to={`/clinic/patient-360/${r.patientId}`} style={{ color: TOKENS.info, textDecoration: 'none' }}>
-                          {formatPatientName(r.patientName, r.patientTitle)}
-                        </Link>
-                      ) : (
-                        formatPatientName(r.patientName, r.patientTitle)
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ whiteSpace: 'nowrap' }}>
-                      <a href={`tel:+${r.phone.replace(/[^\d]/g, '')}`} style={{ color: TOKENS.info, textDecoration: 'none', fontVariantNumeric: 'tabular-nums' }}>
-                        {fmtPhone(r.phone)}
-                      </a>
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary, whiteSpace: 'nowrap' }}>
-                      {r.attemptCount > 1 ? `${r.attemptCount} sends · ` : ''}
-                      {r.contextLabel}
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ color: TOKENS.textSecondary }}>{r.failureReason}</td>
-                    <td className="py-1.5 text-right" style={{ color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}>
-                      {formatIstDate(r.lastTriedIso)} {formatIstTime(r.lastTriedIso)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {s.patients > rows.length && (
-          <div className="mt-2" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
-            Latest {rows.length} of {s.patients} patients.
-          </div>
-        )}
-      </SectionCard>
+function DeliveryCard({ d, periodLabel }: { d: OperationsResponse['delivery']; periodLabel: string }) {
+  const step = (label: string, n: number, color: string, hint?: string) => (
+    <div className="py-1.5" style={ROW} title={hint}>
+      <div className="flex items-baseline justify-between gap-3" style={{ fontSize: 13 }}>
+        <span>{label}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {count(n)}
+          <span style={{ color: TOKENS.textTertiary }}> · {d.released ? Math.round((n / d.released) * 100) : 0}%</span>
+        </span>
+      </div>
+      <div className="mt-1" style={{ height: 6, borderRadius: 3, background: '#F1F0EC' }}>
+        <div style={{ width: `${d.released ? (n / d.released) * 100 : 0}%`, height: '100%', borderRadius: 3, background: color }} />
+      </div>
     </div>
+  );
+  return (
+    <SectionCard label={`How reports reach patients · ${periodLabel}`} description={`Of the ${count(d.released)} reports out`} className="h-full">
+      {d.released === 0 ? (
+        <div style={{ color: TOKENS.textTertiary, fontSize: 13 }}>No reports out yet.</div>
+      ) : (
+        <>
+          {step('Sent on WhatsApp', d.sent, ON_TIME)}
+          {step('Reached the phone', d.delivered, ON_TIME, 'Delivered or read')}
+          {step('Opened online', d.opened, ON_TIME, 'Patient opened the report link or the app')}
+          {step('Printed at the counter', d.printed, NOT_YET)}
+        </>
+      )}
+    </SectionCard>
   );
 }
 
@@ -757,34 +847,22 @@ export default function OwnerOperationsPage() {
     queryKey: ['owner-operations', period, branchValue, customStart, customEnd],
     queryFn: () => apiRequest<OperationsResponse>(`${API_BASE}/owner/operations?${params}`),
     enabled: period !== 'custom' || customReady,
-    refetchInterval: 60 * 1000, // the live half should feel live
+    refetchInterval: 60 * 1000,
     staleTime: 30 * 1000,
   });
 
-  // A server still on the old shape (deploy skew) has no pipeline: wait for it.
-  const data = query.data?.pipeline ? query.data : undefined;
+  // A server still on an older shape (deploy skew) has no branches: wait for it.
+  const data = query.data?.branches ? query.data : undefined;
   const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
-  const multiDay = (data?.byDay.length ?? 0) > 1;
 
   return (
     <AppLayout context="owner" hideContextBanner>
       <div className="mx-auto" style={{ maxWidth: 1440, color: TOKENS.textPrimary, background: TOKENS.page }}>
         <OwnerPageHeader
           title="Operations"
-          subtitle={
-            data
-              ? `${formatIstDateTime(data.generatedAt)} · ${data.branchScope.branchName ?? 'all branches'} · live parts refresh every minute`
-              : 'Loading…'
-          }
+          subtitle={data ? `${formatIstDateTime(data.generatedAt)} · ${data.branchScope.branchName ?? 'all branches'} · updates every minute` : 'Loading…'}
           rightSlot={
             <>
-              <PeriodFilter
-                value={period}
-                onChange={setPeriod}
-                options={OPS_PERIOD_OPTS}
-                customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
-                onCustomRangeChange={setCustomRange}
-              />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
               <RefreshButton isFetching={query.isFetching} onClick={() => query.refetch()} />
             </>
@@ -797,62 +875,56 @@ export default function OwnerOperationsPage() {
         {data && (
           <div className="space-y-4">
             <div>
-              <GroupLabel>Needs attention · live</GroupLabel>
-              <ActionQueue chips={data.attention} />
+              <GroupLabel>Branches right now · {formatIstTime(data.generatedAt)}</GroupLabel>
+              {data.branches.length > 4 ? (
+                <BranchTable rows={data.branches} now={data.generatedAt} selected={branchValue} onPick={(id) => setBranchValue(branchValue === id ? 'all' : id)} />
+              ) : (
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', maxWidth: data.branches.length === 1 ? 520 : undefined }}
+                >
+                  {[...data.branches].sort((a, b) => b.registeredToday + b.inProgress - (a.registeredToday + a.inProgress)).map((b) => (
+                    <BranchCard
+                      key={b.branchId}
+                      b={b}
+                      now={data.generatedAt}
+                      selected={branchValue === b.branchId}
+                      onPick={() => setBranchValue(branchValue === b.branchId ? 'all' : b.branchId)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <PipelineCard data={data.pipeline} />
-              </div>
-              <div className="lg:col-span-7">
-                <OldestOpenCard rows={data.oldestOpen} total={data.pipeline.total} />
-              </div>
+            <PendingCard data={data} />
+
+            <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+              <GroupLabel>How it went · {periodLabel}</GroupLabel>
+              <PeriodFilter
+                value={period}
+                onChange={setPeriod}
+                options={OPS_PERIOD_OPTS}
+                customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
+                onCustomRangeChange={setCustomRange}
+              />
             </div>
 
-            <div>
-              <GroupLabel>{periodLabel} · visits registered in the period</GroupLabel>
-              <OpsKpis data={data} />
-            </div>
+            <BranchesComparedCard data={data} periodLabel={periodLabel} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
               <div className="lg:col-span-8">
-                {multiDay ? (
-                  <TurnaroundByDayCard data={data} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
-                ) : (
-                  <ArrivalHourCard rows={data.byHour} periodLabel={periodLabel} />
-                )}
+                <OnTimeCard data={data} periodLabel={periodLabel} onPickDay={(d) => setCustomRange({ start: d, end: d })} />
               </div>
               <div className="lg:col-span-4">
-                <DepartmentsCard rows={data.departments} periodLabel={periodLabel} />
+                <DeliveryCard d={data.delivery} periodLabel={periodLabel} />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              {multiDay ? (
-                <div className="lg:col-span-7">
-                  <ArrivalHourCard rows={data.byHour} periodLabel={periodLabel} />
-                </div>
-              ) : (
-                <div className="lg:col-span-7">
-                  <FailedMessagesCard data={data} periodLabel={periodLabel} />
-                </div>
-              )}
-              <div className="lg:col-span-5">
-                <DeliveryCard d={data.delivery} failedPatients={data.failureSummary.patients} periodLabel={periodLabel} />
-              </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <DepartmentsCard rows={data.departments} periodLabel={periodLabel} />
+              <TeamCard rows={data.team} periodLabel={periodLabel} />
+              <ClinicCard data={data} periodLabel={periodLabel} />
             </div>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              <div className="lg:col-span-7">
-                <TeamCard rows={data.team} periodLabel={periodLabel} />
-              </div>
-              <div className="lg:col-span-5">
-                <ClinicCard data={data} periodLabel={periodLabel} />
-              </div>
-            </div>
-
-            {multiDay && <FailedMessagesCard data={data} periodLabel={periodLabel} />}
           </div>
         )}
       </div>

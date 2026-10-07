@@ -1,21 +1,21 @@
 /**
  * Owner Operations page — GET /api/owner/operations.
  *
- * Answers, in order: what is stuck right now, are reports going out on time
- * (and which department or hour of day is slow), do patients actually get
- * them, and who is doing the work. No money: the lab in-charge sees this page.
+ * For the owner (is every branch running?) and the lab in-charge (what do I
+ * chase?). No money on it.
  *
- * Live (ignores the period): attention chips, the open-report pipeline by
- * stage × age, the oldest open visits, the clinic queue today.
+ * Live, ignoring the period:
+ *   branches  one status card per active branch: today's numbers, what's
+ *             late, and when the lab last released a report (is it working?)
+ *   pending   every open visit with its stage — waiting for results, awaiting
+ *             sign-off, outside lab — plus critical values from the last 48h
+ *             and patients whose WhatsApp failed (to call)
  *
  * Period: one cohort — diagnostic visits REGISTERED in the window that need a
- * report (at least one live reportable or outside-lab test not closed as films
- * only). Every turnaround, delivery and hour-of-day figure is about that same
- * set, so they reconcile. Turnaround = registration → first report released
- * (a partial release counts: the patient has something). A single day is
- * compared with the same weekday a week earlier, like the Money page.
- *
- * The audit feed that used to sit here lives on its own page (/ops/audit).
+ * report (a live reportable or outside-lab test not closed as films only).
+ * Turnaround = registration → first report released (a partial release
+ * counts: the patient has something). The day chart, the time split and the
+ * delivery figures are all about that set.
  */
 
 import { Prisma } from '@prisma/client';
@@ -28,112 +28,91 @@ import { customWindow, periodWindow, toIstDateKey, PeriodKey, CustomRange } from
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (period: PeriodKey, branchId: string | null, range: CustomRange | null) =>
-  `owner-operations:v4:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+  `owner-operations:v6:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SLA_MINUTES = 1440; // a report within a day of registration (owner decision)
-const CLINIC_LONG_WAIT_MINUTES = 30;
+const EVENING_HOUR = 17;
 
-/** Open-work age bands, in hours (upper bounds). */
-const AGE_BANDS = [
-  { label: 'Under 4h', maxH: 4 },
-  { label: '4–24h', maxH: 24 },
-  { label: '1–3 days', maxH: 72 },
-  { label: 'Over 3 days', maxH: Infinity },
-];
+export type PendingStage = 'results' | 'signoff' | 'outside';
 
-export type OpenStage = 'none' | 'entering' | 'outside' | 'partly';
-const STAGE_LABEL: Record<OpenStage, string> = {
-  none: 'No results yet',
-  entering: 'Awaiting sign-off',
-  outside: 'Outside lab pending',
-  partly: 'Partly released',
-};
-
-export interface AttentionChip {
-  type: string;
-  label: string;
-  count?: number;
-  severity: 'high' | 'medium' | 'low';
-  drillTo: string;
+export interface BranchStatus {
+  branchId: string;
+  code: string;
+  name: string;
+  registeredToday: number; // diagnostics + clinic
+  outToday: number; // reports released today (first release)
+  inProgress: number; // open, under a day
+  late: number; // open, over a day
+  clinicWaiting: number;
+  notDeliveredToday: number; // patients whose report/bill WhatsApp failed today
+  lastReleaseAt: string | null;
+  lastReleaseBy: string | null;
+  lastEntryAt: string | null;
+  lastEntryBy: string | null;
 }
 
-export interface OpsKpis {
-  /** Visits in the cohort (need a report). */
+export interface Speed {
   visits: number;
   released: number;
   medianMinutes: number | null;
-  /** Of visits whose day is up (released, or open over 24h): share out within 24h. */
   within24Pct: number | null;
-  deliveredPct: number | null; // WhatsApp delivered, of released
-  openedPct: number | null; // opened online, of released
-  consults: number;
+  waitForResultMinutes: number | null;
+  toSignOffMinutes: number | null;
+  daySameDayPct: number | null; // registered before 5 pm: report the same day
+  eveningVisits: number;
+  eveningSameDayPct: number | null; // registered from 5 pm
 }
 
 export interface OperationsResponse {
   generatedAt: string;
   period: { key: PeriodKey; startIso: string; endIso: string };
-  /** cutAtNow: the window is still running, so the comparison stops at the same point in it. */
-  comparison: { startIso: string; endIso: string; sameWeekday: boolean; cutAtNow: boolean };
   branchScope: { branchId: string | null; branchName: string | null };
-  attention: AttentionChip[];
-  pipeline: {
-    bands: string[];
-    rows: { stage: OpenStage; label: string; counts: number[] }[];
-    total: number;
-  };
-  oldestOpen: {
+  branches: BranchStatus[];
+  pending: {
     visitId: string;
     patientName: string;
     patientTitle: string | null;
     branchCode: string;
     tests: string;
-    stage: string;
+    stage: PendingStage;
+    partlyOut: boolean;
+    outsideTests: number;
+    enteredBy: string | null;
     ageMinutes: number;
   }[];
-  clinicNow: {
-    doctorId: string;
-    doctorName: string;
-    branchName: string | null;
-    waiting: number;
-    inConsultation: number;
-    seenToday: number;
-    longestWaitMinutes: number | null;
+  critical: {
+    visitId: string;
+    patientName: string;
+    patientTitle: string | null;
+    branchCode: string;
+    test: string;
+    value: string;
+    flag: 'CRITICAL_HIGH' | 'CRITICAL_LOW';
+    enteredBy: string | null;
+    enteredAt: string;
+    released: boolean;
   }[];
-  kpis: OpsKpis;
-  prior: OpsKpis;
-  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
-  byHour: { hour: number; sameDay: number; later: number; notYet: number }[];
-  departments: {
-    name: string;
-    visits: number;
-    released: number;
-    medianMinutes: number | null;
-    within24Pct: number | null;
-    filmsOnly: number;
-  }[];
-  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
-  team: { userId: string; name: string; role: string; registered: number; testsEntered: number; reportsReleased: number }[];
-  clinicDoctors: {
-    doctorId: string;
-    doctorName: string;
-    consults: number;
-    priorConsults: number;
-    digitalRx: number;
-    paperRx: number;
-  }[];
-  failures: {
+  toCall: {
     patientId: string | null;
     patientName: string;
     patientTitle: string | null;
+    branchCode: string | null;
     phone: string;
-    attemptCount: number;
-    contextLabel: string;
-    failureReason: string;
+    what: string;
+    why: string;
     lastTriedIso: string;
   }[];
-  failureSummary: { patients: number; sends: number };
+  /** The whole cohort; branchSpeed is the same measures per branch (sums to it). */
+  overall: Speed;
+  branchSpeed: (Speed & { code: string; name: string })[];
+  byDay: { date: string; onTime: number; late: number; pending: number; medianMinutes: number | null }[];
+  departments: { name: string; visits: number; released: number; medianMinutes: number | null; within24Pct: number | null; filmsOnly: number }[];
+  delivery: { released: number; sent: number; delivered: number; opened: number; printed: number };
+  team: { userId: string; name: string; role: string; branches: string[]; registered: number; testsEntered: number; reportsReleased: number }[];
+  clinicNow: { doctorId: string; doctorName: string; branchCode: string | null; waiting: number; withDoctor: number; seenToday: number; longestWaitMinutes: number | null }[];
+  clinicDoctors: { doctorId: string; doctorName: string; consults: number; priorConsults: number; digitalRx: number; paperRx: number }[];
 }
 
 // --- helpers ------------------------------------------------------------
@@ -144,7 +123,7 @@ function startOfTodayIst(now: Date): Date {
   return new Date(ist.getTime() - IST_OFFSET_MS);
 }
 
-const istHour = (ms: number) => new Date(ms + IST_OFFSET_MS).getUTCHours();
+const istHour = (d: Date) => new Date(d.getTime() + IST_OFFSET_MS).getUTCHours();
 
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -155,44 +134,7 @@ function median(values: number[]): number | null {
 
 const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : null);
 const num = (v: unknown) => Number(v ?? 0);
-
-/** "3 report, 1 bill" for a mixed patient; just "report" for one kind. */
-function formatContexts(contexts: Map<string, number>): string {
-  const entries = [...contexts.entries()].sort((a, b) => b[1] - a[1]);
-  if (entries.length === 1) return entries[0][0];
-  return entries.map(([type, n]) => `${n} ${type}`).join(', ');
-}
-
-interface CohortRow {
-  id: string;
-  cur: boolean;
-  reg: Date;
-  rel: Date | null;
-  open: boolean;
-  sent: boolean;
-  delivered: boolean;
-  opened: boolean;
-  printed: boolean;
-}
-
-/** KPIs as they stood at `asOf` (now, or the same moment in the comparison window). */
-function kpisOf(all: CohortRow[], asOf: number, consults: number): OpsKpis {
-  const rows = all.map((r) => (r.rel && r.rel.getTime() > asOf ? { ...r, rel: null, open: true } : r));
-  const nowMs = asOf;
-  const released = rows.filter((r) => r.rel);
-  const tats = released.map((r) => (r.rel!.getTime() - r.reg.getTime()) / 60_000).filter((m) => m >= 0);
-  const onTime = tats.filter((m) => m <= SLA_MINUTES).length;
-  const lateOpen = rows.filter((r) => !r.rel && r.open && nowMs - r.reg.getTime() > SLA_MINUTES * 60_000).length;
-  return {
-    visits: rows.length,
-    released: released.length,
-    medianMinutes: median(tats),
-    within24Pct: pct(onTime, tats.length + lateOpen),
-    deliveredPct: pct(released.filter((r) => r.delivered).length, released.length),
-    openedPct: pct(released.filter((r) => r.opened).length, released.length),
-    consults,
-  };
-}
+const minutesBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 60_000;
 
 // --- main entry ---------------------------------------------------------
 
@@ -215,18 +157,18 @@ export async function getOwnerOperations(
   const now = new Date();
   const nowMs = now.getTime();
   const todayStart = startOfTodayIst(now);
+  const recent = new Date(nowMs - 2 * DAY_MS);
   const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
-  // A window still running is compared with the comparison window up to the
-  // same moment: today at 10:47 against last Wednesday up to 10:47, not all of it.
+  // Clinic consults are compared with the comparison window, cut at the same
+  // moment when this window is still running (today at 10:47 vs last Wed to 10:47).
   const full = comparisonWindow(win);
   const shiftMs = win.start.getTime() - full.start.getTime();
-  const cutAtNow = win.end.getTime() > nowMs;
-  const prior = cutAtNow ? { start: full.start, end: new Date(Math.min(full.end.getTime(), nowMs - shiftMs)) } : full;
-  const sameWeekday = Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS) === 1;
+  const prior = { start: full.start, end: new Date(Math.min(full.end.getTime(), nowMs - shiftMs)) };
 
   const vBranch = branchId ? Prisma.sql`AND v."branchId" = ${branchId}` : Prisma.empty;
   const aBranch = branchId ? Prisma.sql`AND a."branchId" = ${branchId}` : Prisma.empty;
   const oBranch = branchId ? Prisma.sql`AND o."branchId" = ${branchId}` : Prisma.empty;
+  const rBranch = branchId ? Prisma.sql`AND r."branchId" = ${branchId}` : Prisma.empty;
   // A visit needs a report while it has a live reportable / outside-lab test
   // that was not closed as films only.
   const needsReport = Prisma.sql`EXISTS (
@@ -234,28 +176,146 @@ export async function getOwnerOperations(
       AND o."noReportAt" IS NULL AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD'))`;
 
   const [
-    scopedBranch,
-    branches,
-    cohort,
-    deptRows,
+    branchRows,
+    registeredToday,
+    outToday,
+    lastRelease,
+    lastEntry,
     openVisits,
+    criticalRows,
+    failedRows,
     clinicOpen,
     clinicSeenToday,
+    cohort,
+    deptRows,
     clinicPeriod,
     registeredBy,
     enteredBy,
     releasedBy,
-    failedRows,
-    failedReport24h,
   ] = await Promise.all([
-    branchId ? prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } }) : null,
-    prisma.branch.findMany({ select: { id: true, code: true } }),
+    prisma.branch.findMany({ where: { isActive: true }, select: { id: true, code: true, name: true } }),
 
-    // The cohort, this window and the comparison window, one row per visit.
+    prisma.visit.groupBy({
+      by: ['branchId'],
+      where: { createdAt: { gte: todayStart }, status: { not: 'CANCELLED' }, ...(branchId ? { branchId } : {}) },
+      _count: true,
+    }),
+    // Reports out today: visits whose FIRST release happened today (registered
+    // in the last 60 days — anything older is a backlog cleanup, not today's work).
+    prisma.$queryRaw<{ branchId: string; n: number }[]>`
+      SELECT r."branchId", count(*)::int AS n FROM "DiagnosticReport" r
+      WHERE r."createdAt" >= ${new Date(todayStart.getTime() - 60 * DAY_MS)} ${rBranch}
+        AND (SELECT min(rv."finalizedAt") FROM "ReportVersion" rv WHERE rv."reportId" = r.id AND rv.status = 'FINALIZED') >= ${todayStart}
+      GROUP BY 1`,
+    // The lab's heartbeat: last report released and last result saved, per branch.
+    prisma.$queryRaw<{ branchId: string; at: Date; by: string | null }[]>`
+      SELECT DISTINCT ON (a."branchId") a."branchId", a."createdAt" AS at, u.name AS by
+      FROM "AuditLog" a LEFT JOIN "User" u ON u.id = a."userId"
+      WHERE a."actionType" = 'FINALIZE' AND a."entityType" = 'Report' AND a."createdAt" >= ${recent} ${aBranch}
+      ORDER BY a."branchId", a."createdAt" DESC`,
+    prisma.$queryRaw<{ branchId: string; at: Date; by: string | null }[]>`
+      SELECT DISTINCT ON (a."branchId") a."branchId", a."createdAt" AS at, u.name AS by
+      FROM "AuditLog" a LEFT JOIN "User" u ON u.id = a."userId"
+      WHERE a."actionType" = 'UPDATE' AND a."entityType" = 'ReportDraft' AND a."createdAt" >= ${recent} ${aBranch}
+      ORDER BY a."branchId", a."createdAt" DESC`,
+
+    // Open diagnostic work: one row per open visit with what its live tests
+    // are waiting on. (Raw SQL: Prisma's nested take-1 relations ran a query
+    // per test and took 8s.)
     prisma.$queryRaw<
-      { id: string; cur: boolean; reg: Date; rel: Date | null; open: boolean; sent: boolean; delivered: boolean; opened: boolean; printed: boolean }[]
+      { id: string; createdAt: Date; branchId: string; name: string; title: string | null; partly: boolean; outside: number; entered: string | null; anyIn: boolean; names: string[] }[]
     >`
-      SELECT v.id, (v."createdAt" >= ${win.start}) AS cur, v."createdAt" AS reg,
+      SELECT v.id, v."createdAt", v."branchId", p.name, p.title::text AS title,
+        EXISTS (SELECT 1 FROM "DiagnosticReport" r JOIN "ReportVersion" rv ON rv."reportId" = r.id
+                 WHERE r."visitId" = v.id AND rv.status = 'FINALIZED') AS partly,
+        count(*) FILTER (WHERE o."workflowMode" = 'EXTERNAL_UPLOAD' AND NOT EXISTS (
+          SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL))::int AS outside,
+        bool_or(EXISTS (SELECT 1 FROM "TestResult" tr WHERE tr."testOrderId" = o.id)
+             OR EXISTS (SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL)) AS "anyIn",
+        (SELECT u.name FROM "TestOrder" o2 JOIN "TestResult" tr ON tr."testOrderId" = o2.id JOIN "User" u ON u.id = tr."enteredByUserId"
+          WHERE o2."visitId" = v.id ORDER BY tr."createdAt" DESC LIMIT 1) AS entered,
+        array_agg(DISTINCT coalesce(pr.name, o."testNameSnapshot")) AS names
+      FROM "Visit" v
+      JOIN "Patient" p ON p.id = v."patientId"
+      JOIN "TestOrder" o ON o."visitId" = v.id AND o."cancelledAt" IS NULL AND o."noReportAt" IS NULL
+        AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
+      LEFT JOIN "BillableProduct" pr ON pr.id = o."productId"
+      WHERE v.domain = 'DIAGNOSTICS' AND v.status IN ('DRAFT', 'WAITING') ${vBranch}
+      GROUP BY v.id, p.name, p.title
+      ORDER BY v."createdAt"
+      LIMIT 500`,
+
+    // Critical values on tests ordered in the last 48h (one row per test,
+    // whichever report version it was carried into).
+    prisma.$queryRaw<
+      { visitId: string; name: string; title: string | null; branchId: string; test: string; value: number | null; textValue: string | null; unit: string | null; flag: 'CRITICAL_HIGH' | 'CRITICAL_LOW'; by: string | null; at: Date; released: boolean }[]
+    >`
+      SELECT DISTINCT ON (o.id, tr."testId") v.id AS "visitId", p.name, p.title::text AS title, v."branchId",
+        coalesce(td.name, lt.name) AS test, tr.value, tr."textValue", o."referenceUnitSnapshot" AS unit,
+        tr.flag::text AS flag, u.name AS by, tr."createdAt" AS at,
+        EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv.id = tr."reportVersionId" AND rv.status = 'FINALIZED') AS released
+      FROM "TestResult" tr
+      JOIN "TestOrder" o ON o.id = tr."testOrderId"
+      JOIN "Visit" v ON v.id = o."visitId"
+      JOIN "Patient" p ON p.id = v."patientId"
+      JOIN "LabTest" lt ON lt.id = tr."testId"
+      LEFT JOIN "TestDefinition" td ON td.id = tr."testDefinitionId"
+      LEFT JOIN "User" u ON u.id = tr."enteredByUserId"
+      WHERE tr.flag IN ('CRITICAL_HIGH', 'CRITICAL_LOW') AND o."cancelledAt" IS NULL
+        AND o."createdAt" >= ${recent} ${oBranch}
+      ORDER BY o.id, tr."testId", tr."createdAt" DESC`,
+
+    // Messages that failed in the last 48h — reports, bills, prescriptions.
+    // Campaign sends are left out: they fail to numbers that never opted in.
+    prisma.messageLog.findMany({
+      where: {
+        status: 'FAILED',
+        contextType: { not: 'CAMPAIGN' },
+        createdAt: { gte: recent },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      select: {
+        patientId: true,
+        branchId: true,
+        contextType: true,
+        errorCode: true,
+        failureReason: true,
+        phone: true,
+        createdAt: true,
+        patient: { select: { name: true, title: true } },
+      },
+    }),
+
+    // Clinic queue, today's check-ins only (an unclosed visit from last week is
+    // a housekeeping miss, not a patient in the waiting room).
+    prisma.clinicVisit.findMany({
+      where: {
+        status: { in: ['WAITING', 'IN_PROGRESS'] },
+        createdAt: { gte: todayStart },
+        ...(branchId ? { visit: { branchId } } : {}),
+      },
+      select: {
+        status: true,
+        createdAt: true,
+        clinicDoctorId: true,
+        clinicDoctor: { select: { name: true } },
+        visit: { select: { branchId: true } },
+      },
+    }),
+    prisma.clinicVisit.groupBy({
+      by: ['clinicDoctorId'],
+      where: { status: 'COMPLETED', createdAt: { gte: todayStart }, ...(branchId ? { visit: { branchId } } : {}) },
+      _count: true,
+    }),
+
+    // The period's cohort, one row per visit.
+    prisma.$queryRaw<
+      { branchId: string; reg: Date; entry: Date | null; rel: Date | null; open: boolean; sent: boolean; delivered: boolean; opened: boolean; printed: boolean }[]
+    >`
+      SELECT v."branchId", v."createdAt" AS reg,
+        (SELECT min(tr."createdAt") FROM "TestOrder" o JOIN "TestResult" tr ON tr."testOrderId" = o.id WHERE o."visitId" = v.id) AS entry,
         (SELECT min(rv."finalizedAt") FROM "DiagnosticReport" r
            JOIN "ReportVersion" rv ON rv."reportId" = r.id AND rv.status = 'FINALIZED'
           WHERE r."visitId" = v.id) AS rel,
@@ -269,8 +329,7 @@ export async function getOwnerOperations(
         v."reportPrintedAt" IS NOT NULL AS printed
       FROM "Visit" v
       WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' ${vBranch}
-        AND ((v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end})
-          OR (v."createdAt" >= ${prior.start} AND v."createdAt" < ${prior.end}))
+        AND v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end}
         AND ${needsReport}`,
 
     // Per department: a visit's part is out when every live test of that
@@ -312,60 +371,9 @@ export async function getOwnerOperations(
         count(*) FILTER (WHERE rel - reg <= interval '24 hours')::int AS within
       FROM vd GROUP BY 1 ORDER BY 2 DESC`,
 
-    // Open diagnostic work, live: one row per open visit with what its live
-    // tests are waiting on. (Raw SQL: Prisma's nested take-1 relations ran a
-    // query per test and took 8s.)
-    prisma.$queryRaw<
-      { id: string; createdAt: Date; branchId: string; name: string; title: string | null; partly: boolean; outsideMissing: number; anyIn: boolean; names: string[] }[]
-    >`
-      SELECT v.id, v."createdAt", v."branchId", p.name, p.title::text AS title,
-        EXISTS (SELECT 1 FROM "DiagnosticReport" r JOIN "ReportVersion" rv ON rv."reportId" = r.id
-                 WHERE r."visitId" = v.id AND rv.status = 'FINALIZED') AS partly,
-        count(*) FILTER (WHERE o."workflowMode" = 'EXTERNAL_UPLOAD' AND NOT EXISTS (
-          SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL))::int AS "outsideMissing",
-        bool_or(EXISTS (SELECT 1 FROM "TestResult" tr WHERE tr."testOrderId" = o.id)
-             OR EXISTS (SELECT 1 FROM "ExternalReportUpload" u WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL)) AS "anyIn",
-        array_agg(DISTINCT coalesce(pr.name, o."testNameSnapshot")) AS names
-      FROM "Visit" v
-      JOIN "Patient" p ON p.id = v."patientId"
-      JOIN "TestOrder" o ON o."visitId" = v.id AND o."cancelledAt" IS NULL AND o."noReportAt" IS NULL
-        AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
-      LEFT JOIN "BillableProduct" pr ON pr.id = o."productId"
-      WHERE v.domain = 'DIAGNOSTICS' AND v.status IN ('DRAFT', 'WAITING') ${vBranch}
-      GROUP BY v.id, p.name, p.title
-      ORDER BY v."createdAt"
-      LIMIT 500`,
-
-    // Clinic queue, today's check-ins only (an unclosed visit from last week is
-    // a housekeeping miss, not a patient in the waiting room).
-    prisma.clinicVisit.findMany({
-      where: {
-        status: { in: ['WAITING', 'IN_PROGRESS'] },
-        createdAt: { gte: todayStart },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      select: {
-        status: true,
-        createdAt: true,
-        clinicDoctorId: true,
-        clinicDoctor: { select: { name: true } },
-        visit: { select: { branch: { select: { name: true } } } },
-      },
-    }),
-    prisma.clinicVisit.groupBy({
-      by: ['clinicDoctorId'],
-      where: {
-        status: 'COMPLETED',
-        createdAt: { gte: todayStart },
-        ...(branchId ? { visit: { branchId } } : {}),
-      },
-      _count: true,
-    }),
-
-    // Clinic consults, this window and the comparison one.
-    // No time-with-doctor: the desk marks visits done in batches (12 in two
-    // minutes on 6 Oct 2026) and doctors never press Start, so those times
-    // would describe the desk, not the consult.
+    // Clinic consults, this window and the comparison one. No time-with-doctor:
+    // the desk marks visits done in batches (12 in two minutes on 6 Oct 2026)
+    // and doctors never press Start, so those times describe the desk.
     prisma.$queryRaw<{ doctorId: string; doctorName: string; cur: boolean; digital: boolean; paper: boolean }[]>`
       SELECT cv."clinicDoctorId" AS "doctorId", d.name AS "doctorName", (cv."createdAt" >= ${win.start}) AS cur,
         EXISTS (SELECT 1 FROM "Prescription" p WHERE p."visitId" = v.id) AS digital,
@@ -376,87 +384,171 @@ export async function getOwnerOperations(
           OR (cv."createdAt" >= ${prior.start} AND cv."createdAt" < ${prior.end}))`,
 
     // Team: who registered, who entered results, who released reports.
-    prisma.$queryRaw<{ userId: string; n: number }[]>`
-      SELECT a."userId", count(*)::int AS n FROM "AuditLog" a
+    prisma.$queryRaw<{ userId: string; branchId: string; n: number }[]>`
+      SELECT a."userId", a."branchId", count(*)::int AS n FROM "AuditLog" a
       WHERE a."actionType" = 'CREATE' AND a."entityType" = 'VISIT' AND a."userId" IS NOT NULL
         AND a."createdAt" >= ${win.start} AND a."createdAt" < ${win.end} ${aBranch}
-      GROUP BY 1`,
-    prisma.$queryRaw<{ userId: string; n: number }[]>`
-      SELECT tr."enteredByUserId" AS "userId", count(DISTINCT tr."testOrderId")::int AS n
+      GROUP BY 1, 2`,
+    prisma.$queryRaw<{ userId: string; branchId: string; n: number }[]>`
+      SELECT tr."enteredByUserId" AS "userId", o."branchId", count(DISTINCT tr."testOrderId")::int AS n
       FROM "TestResult" tr JOIN "TestOrder" o ON o.id = tr."testOrderId"
       WHERE tr."enteredByUserId" IS NOT NULL
         AND tr."createdAt" >= ${win.start} AND tr."createdAt" < ${win.end} ${oBranch}
-      GROUP BY 1`,
-    prisma.$queryRaw<{ userId: string; n: number }[]>`
-      SELECT a."userId", count(*)::int AS n FROM "AuditLog" a
+      GROUP BY 1, 2`,
+    prisma.$queryRaw<{ userId: string; branchId: string; n: number }[]>`
+      SELECT a."userId", a."branchId", count(*)::int AS n FROM "AuditLog" a
       WHERE a."actionType" = 'FINALIZE' AND a."entityType" = 'Report' AND a."userId" IS NOT NULL
         AND a."createdAt" >= ${win.start} AND a."createdAt" < ${win.end} ${aBranch}
-      GROUP BY 1`,
-
-    // Patient messages that failed in the window. Campaign sends are left out:
-    // they fail to numbers that never opted in, which is not an operations fault.
-    prisma.messageLog.findMany({
-      where: {
-        status: 'FAILED',
-        contextType: { not: 'CAMPAIGN' },
-        createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 1000,
-      select: {
-        patientId: true,
-        contextType: true,
-        errorCode: true,
-        failureReason: true,
-        phone: true,
-        createdAt: true,
-        patient: { select: { name: true, title: true } },
-      },
-    }),
-    prisma.messageLog.findMany({
-      where: {
-        status: 'FAILED',
-        contextType: 'REPORT',
-        createdAt: { gte: new Date(nowMs - DAY_MS) },
-        ...(branchId ? { branchId } : {}),
-      },
-      distinct: ['phone'],
-      select: { phone: true },
-    }),
+      GROUP BY 1, 2`,
   ]);
 
-  const codeOf = new Map(branches.map((b) => [b.id, b.code]));
+  const codeOf = new Map(branchRows.map((b) => [b.id, b.code]));
+  const scopedBranch = branchId ? branchRows.find((b) => b.id === branchId) ?? null : null;
 
-  // --- cohort: KPIs, by day, by hour, delivery ----------------------------
-  const rows: CohortRow[] = cohort.map((r) => ({ ...r, cur: Boolean(r.cur) }));
-  const cur = rows.filter((r) => r.cur);
-  const clinicCur = clinicPeriod.filter((c) => c.cur).length;
-  const kpis = kpisOf(cur, nowMs, clinicCur);
-  const priorKpis = kpisOf(rows.filter((r) => !r.cur), nowMs - shiftMs, clinicPeriod.length - clinicCur);
+  // --- pending (live) -------------------------------------------------------
+  const open = openVisits.map((v) => {
+    const outsideTests = num(v.outside);
+    const names = v.names ?? [];
+    return {
+      visitId: v.id,
+      patientName: v.name,
+      patientTitle: v.title,
+      branchCode: codeOf.get(v.branchId) ?? '?',
+      tests: names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : ''),
+      stage: (outsideTests > 0 ? 'outside' : v.partly || v.anyIn ? 'signoff' : 'results') as PendingStage,
+      partlyOut: Boolean(v.partly),
+      outsideTests,
+      enteredBy: v.entered,
+      ageMinutes: Math.floor(minutesBetween(v.createdAt, now)),
+      branchId: v.branchId,
+    };
+  });
+
+  const critical = criticalRows
+    .map((c) => ({
+      visitId: c.visitId,
+      patientName: c.name,
+      patientTitle: c.title,
+      branchCode: codeOf.get(c.branchId) ?? '?',
+      test: c.test,
+      value: `${c.value ?? c.textValue ?? '—'}${c.unit ? ` ${c.unit}` : ''}`,
+      flag: c.flag,
+      enteredBy: c.by,
+      enteredAt: c.at.toISOString(),
+      released: Boolean(c.released),
+    }))
+    .sort((a, b) => (a.enteredAt < b.enteredAt ? 1 : -1));
+
+  // One row per patient to call, newest failure first.
+  const callMap = new Map<string, OperationsResponse['toCall'][number] & { kinds: Set<string> }>();
+  for (const m of failedRows) {
+    const k = m.patientId ?? `phone:${m.phone}`;
+    const kind = String(m.contextType).toLowerCase();
+    const cur = callMap.get(k);
+    if (cur) {
+      cur.kinds.add(kind);
+      continue;
+    }
+    callMap.set(k, {
+      patientId: m.patientId,
+      patientName: m.patient?.name ?? '—',
+      patientTitle: m.patient?.title ?? null,
+      branchCode: m.branchId ? codeOf.get(m.branchId) ?? null : null,
+      phone: m.phone,
+      what: '',
+      why: describeWaError(m.errorCode, m.failureReason).label,
+      lastTriedIso: m.createdAt.toISOString(),
+      kinds: new Set([kind]),
+    });
+  }
+  const KIND: Record<string, string> = { report: 'Report', bill: 'Bill', prescription: 'Prescription', payment: 'Payment', reminder: 'Reminder' };
+  const toCall = [...callMap.values()].map(({ kinds, ...r }) => ({ ...r, what: [...kinds].map((k) => KIND[k] ?? k).join(' + ') }));
+
+  // --- branch status (live) --------------------------------------------------
+  const regMap = new Map(registeredToday.map((r) => [r.branchId, num(r._count)]));
+  const outMap = new Map(outToday.map((r) => [r.branchId, num(r.n)]));
+  const relMap = new Map(lastRelease.map((r) => [r.branchId, r]));
+  const entMap = new Map(lastEntry.map((r) => [r.branchId, r]));
+  const failedToday = new Map<string, Set<string>>();
+  for (const m of failedRows) {
+    if (!m.branchId || m.createdAt < todayStart) continue;
+    const s = failedToday.get(m.branchId) ?? new Set<string>();
+    s.add(m.patientId ?? m.phone);
+    failedToday.set(m.branchId, s);
+  }
+  const branches: BranchStatus[] = branchRows
+    .filter((b) => !branchId || b.id === branchId)
+    .map((b) => {
+      const mine = open.filter((p) => p.branchId === b.id);
+      return {
+        branchId: b.id,
+        code: b.code,
+        name: b.name,
+        registeredToday: regMap.get(b.id) ?? 0,
+        outToday: outMap.get(b.id) ?? 0,
+        inProgress: mine.filter((p) => p.ageMinutes <= SLA_MINUTES).length,
+        late: mine.filter((p) => p.ageMinutes > SLA_MINUTES).length,
+        clinicWaiting: clinicOpen.filter((c) => c.status === 'WAITING' && c.visit.branchId === b.id).length,
+        notDeliveredToday: failedToday.get(b.id)?.size ?? 0,
+        lastReleaseAt: relMap.get(b.id)?.at.toISOString() ?? null,
+        lastReleaseBy: relMap.get(b.id)?.by ?? null,
+        lastEntryAt: entMap.get(b.id)?.at.toISOString() ?? null,
+        lastEntryBy: entMap.get(b.id)?.by ?? null,
+      };
+    })
+    // Nothing today and no report in two days: a test or dormant branch.
+    .filter((b) => branchId || b.registeredToday + b.outToday > 0 || b.lastReleaseAt);
+
+  // --- the period's cohort ----------------------------------------------------
+  type Row = (typeof cohort)[number];
+  // Speed of one set of visits: the same measures for every branch and the total.
+  const speedOf = (rows: Row[]): Speed => {
+    const tats = rows.filter((r) => r.rel).map((r) => minutesBetween(r.reg, r.rel!)).filter((m) => m >= 0);
+    const lateOpen = rows.filter((r) => !r.rel && r.open && minutesBetween(r.reg, now) > SLA_MINUTES).length;
+    // Registration → first result entered → first report out. Visits with no
+    // entered result (outside-lab PDFs only) can't be split and are left out.
+    const split = rows.filter((r) => r.entry && r.rel && r.rel >= r.entry);
+    // Same-day share by arrival time. Today's visits without a report can still
+    // make it, so they're left out.
+    const sameDay = (rs: Row[]) => {
+      const done = rs.filter((r) => r.rel || toIstDateKey(r.reg) !== toIstDateKey(now));
+      return pct(done.filter((r) => r.rel && toIstDateKey(r.rel) === toIstDateKey(r.reg)).length, done.length);
+    };
+    const evening = rows.filter((r) => istHour(r.reg) >= EVENING_HOUR);
+    return {
+      visits: rows.length,
+      released: tats.length,
+      medianMinutes: median(tats),
+      within24Pct: pct(tats.filter((m) => m <= SLA_MINUTES).length, tats.length + lateOpen),
+      waitForResultMinutes: median(split.map((r) => minutesBetween(r.reg, r.entry!))),
+      toSignOffMinutes: median(split.map((r) => minutesBetween(r.entry!, r.rel!))),
+      daySameDayPct: sameDay(rows.filter((r) => istHour(r.reg) < EVENING_HOUR)),
+      eveningVisits: evening.length,
+      eveningSameDayPct: sameDay(evening),
+    };
+  };
+  const overall = speedOf(cohort);
+  const branchSpeed = branchRows
+    .map((b) => ({ code: b.code, name: b.name, ...speedOf(cohort.filter((r) => r.branchId === b.id)) }))
+    .filter((b) => b.visits > 0)
+    .sort((a, b) => b.visits - a.visits);
 
   const dayMap = new Map<string, { onTime: number; late: number; pending: number; tats: number[] }>();
   for (let t = win.start.getTime(); t < Math.min(win.end.getTime(), nowMs); t += DAY_MS) {
     dayMap.set(toIstDateKey(new Date(t)), { onTime: 0, late: 0, pending: 0, tats: [] });
   }
-  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, sameDay: 0, later: 0, notYet: 0 }));
-  for (const r of cur) {
+  for (const r of cohort) {
     const d = dayMap.get(toIstDateKey(r.reg));
-    const tat = r.rel ? (r.rel.getTime() - r.reg.getTime()) / 60_000 : null;
-    if (d) {
-      if (tat != null) {
-        d.tats.push(tat);
-        if (tat <= SLA_MINUTES) d.onTime++;
-        else d.late++;
-      } else if (r.open) {
-        if (nowMs - r.reg.getTime() > SLA_MINUTES * 60_000) d.late++;
-        else d.pending++;
-      }
+    if (!d) continue;
+    if (r.rel) {
+      const tat = minutesBetween(r.reg, r.rel);
+      d.tats.push(tat);
+      if (tat <= SLA_MINUTES) d.onTime++;
+      else d.late++;
+    } else if (r.open) {
+      if (minutesBetween(r.reg, now) > SLA_MINUTES) d.late++;
+      else d.pending++;
     }
-    const h = hours[istHour(r.reg.getTime())];
-    if (r.rel && toIstDateKey(r.rel) === toIstDateKey(r.reg)) h.sameDay++;
-    else if (r.rel || toIstDateKey(r.reg) !== toIstDateKey(now)) h.later++;
-    else h.notYet++;
   }
   const byDay = [...dayMap.entries()].map(([date, d]) => ({
     date,
@@ -465,14 +557,14 @@ export async function getOwnerOperations(
     pending: d.pending,
     medianMinutes: median(d.tats),
   }));
-  const byHour = hours.filter((h) => h.sameDay + h.later + h.notYet > 0);
-  const releasedCur = cur.filter((r) => r.rel);
+
+  const releasedRows = cohort.filter((r) => r.rel);
   const delivery = {
-    released: releasedCur.length,
-    sent: releasedCur.filter((r) => r.sent).length,
-    delivered: releasedCur.filter((r) => r.delivered).length,
-    opened: releasedCur.filter((r) => r.opened).length,
-    printed: releasedCur.filter((r) => r.printed).length,
+    released: releasedRows.length,
+    sent: releasedRows.filter((r) => r.sent).length,
+    delivered: releasedRows.filter((r) => r.delivered).length,
+    opened: releasedRows.filter((r) => r.opened).length,
+    printed: releasedRows.filter((r) => r.printed).length,
   };
 
   const departments = deptRows.map((d) => ({
@@ -484,71 +576,25 @@ export async function getOwnerOperations(
     filmsOnly: num(d.films),
   }));
 
-  // --- live pipeline ------------------------------------------------------
-  const counts: Record<OpenStage, number[]> = {
-    partly: [0, 0, 0, 0],
-    outside: [0, 0, 0, 0],
-    entering: [0, 0, 0, 0],
-    none: [0, 0, 0, 0],
-  };
-  const open = openVisits.map((v) => {
-    const outsideMissing = num(v.outsideMissing);
-    const stage: OpenStage = v.partly ? 'partly' : outsideMissing > 0 ? 'outside' : v.anyIn ? 'entering' : 'none';
-    const ageMinutes = Math.floor((nowMs - v.createdAt.getTime()) / 60_000);
-    const band = AGE_BANDS.findIndex((b) => ageMinutes < b.maxH * 60);
-    counts[stage][band]++;
-    const names = v.names ?? [];
-    return {
-      visitId: v.id,
-      patientName: v.name,
-      patientTitle: v.title,
-      branchCode: codeOf.get(v.branchId) ?? '?',
-      tests: names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : ''),
-      stage: STAGE_LABEL[stage],
-      ageMinutes,
-      outsideMissing,
-    };
-  });
-  const pipeline = {
-    bands: AGE_BANDS.map((b) => b.label),
-    rows: (['none', 'entering', 'outside', 'partly'] as OpenStage[]).map((stage) => ({
-      stage,
-      label: STAGE_LABEL[stage],
-      counts: counts[stage],
-    })),
-    total: open.length,
-  };
-  const oldestOpen = open.slice(0, 10).map(({ outsideMissing: _o, ...r }) => r);
-
-  // --- clinic now -----------------------------------------------------------
-  const clinicMap = new Map<string, OperationsResponse['clinicNow'][number]>();
+  // --- clinic ---------------------------------------------------------------
+  const nowMap = new Map<string, OperationsResponse['clinicNow'][number]>();
   for (const c of clinicOpen) {
     const cur =
-      clinicMap.get(c.clinicDoctorId) ??
-      {
-        doctorId: c.clinicDoctorId,
-        doctorName: c.clinicDoctor.name,
-        branchName: c.visit?.branch?.name ?? null,
-        waiting: 0,
-        inConsultation: 0,
-        seenToday: 0,
-        longestWaitMinutes: null,
-      };
-    if (c.status === 'IN_PROGRESS') cur.inConsultation++;
+      nowMap.get(c.clinicDoctorId) ??
+      { doctorId: c.clinicDoctorId, doctorName: c.clinicDoctor.name.trim(), branchCode: codeOf.get(c.visit.branchId) ?? null, waiting: 0, withDoctor: 0, seenToday: 0, longestWaitMinutes: null };
+    if (c.status === 'IN_PROGRESS') cur.withDoctor++;
     else {
       cur.waiting++;
-      const wait = Math.floor((nowMs - c.createdAt.getTime()) / 60_000);
-      cur.longestWaitMinutes = Math.max(cur.longestWaitMinutes ?? 0, wait);
+      cur.longestWaitMinutes = Math.max(cur.longestWaitMinutes ?? 0, Math.floor(minutesBetween(c.createdAt, now)));
     }
-    clinicMap.set(c.clinicDoctorId, cur);
+    nowMap.set(c.clinicDoctorId, cur);
   }
   for (const g of clinicSeenToday) {
-    const cur = clinicMap.get(g.clinicDoctorId);
+    const cur = nowMap.get(g.clinicDoctorId);
     if (cur) cur.seenToday = num(g._count);
   }
-  const clinicNow = [...clinicMap.values()].sort((a, b) => (b.longestWaitMinutes ?? 0) - (a.longestWaitMinutes ?? 0));
+  const clinicNow = [...nowMap.values()].sort((a, b) => (b.longestWaitMinutes ?? 0) - (a.longestWaitMinutes ?? 0));
 
-  // --- clinic doctors over the window ------------------------------------
   const docMap = new Map<string, OperationsResponse['clinicDoctors'][number]>();
   for (const c of clinicPeriod) {
     const d =
@@ -561,139 +607,58 @@ export async function getOwnerOperations(
     } else d.priorConsults++;
     docMap.set(c.doctorId, d);
   }
-  const clinicDoctors = [...docMap.values()]
-    .filter((d) => d.consults > 0)
-    .sort((a, b) => b.consults - a.consults);
+  const clinicDoctors = [...docMap.values()].filter((d) => d.consults > 0).sort((a, b) => b.consults - a.consults);
 
-  // --- team ---------------------------------------------------------------
+  // --- team -------------------------------------------------------------------
   const teamIds = [...new Set([...registeredBy, ...enteredBy, ...releasedBy].map((r) => r.userId))];
   const users = teamIds.length
     ? await prisma.user.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true, role: true } })
     : [];
-  const byUser = (rs: { userId: string; n: number }[]) => new Map(rs.map((r) => [r.userId, num(r.n)]));
-  const reg = byUser(registeredBy);
-  const ent = byUser(enteredBy);
-  const relBy = byUser(releasedBy);
+  const countBy = (rs: { userId: string; n: number }[]) => {
+    const m = new Map<string, number>();
+    for (const r of rs) m.set(r.userId, (m.get(r.userId) ?? 0) + num(r.n));
+    return m;
+  };
+  // Where each person worked in the period, busiest branch first.
+  const worked = new Map<string, Map<string, number>>();
+  for (const r of [...registeredBy, ...enteredBy, ...releasedBy]) {
+    const m = worked.get(r.userId) ?? new Map<string, number>();
+    m.set(r.branchId, (m.get(r.branchId) ?? 0) + num(r.n));
+    worked.set(r.userId, m);
+  }
+  const reg = countBy(registeredBy);
+  const ent = countBy(enteredBy);
+  const rel = countBy(releasedBy);
   const team = users
     .map((u) => ({
       userId: u.id,
       name: u.name,
       role: String(u.role),
+      branches: [...(worked.get(u.id) ?? new Map<string, number>()).entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => codeOf.get(id) ?? '?'),
       registered: reg.get(u.id) ?? 0,
       testsEntered: ent.get(u.id) ?? 0,
-      reportsReleased: relBy.get(u.id) ?? 0,
+      reportsReleased: rel.get(u.id) ?? 0,
     }))
     .sort((a, b) => b.reportsReleased + b.registered - (a.reportsReleased + a.registered) || b.testsEntered - a.testsEntered);
-
-  // --- failed messages, one row per patient ---------------------------------
-  interface Group {
-    patientId: string | null;
-    patientName: string;
-    patientTitle: string | null;
-    phone: string;
-    count: number;
-    contexts: Map<string, number>;
-    errorCode: string | null;
-    failureReason: string | null;
-    lastTried: Date;
-  }
-  const groups = new Map<string, Group>();
-  for (const m of failedRows) {
-    const k = m.patientId ?? `phone:${m.phone}`;
-    let g = groups.get(k);
-    if (!g) {
-      g = {
-        patientId: m.patientId,
-        patientName: m.patient?.name ?? '—',
-        patientTitle: m.patient?.title ?? null,
-        phone: m.phone,
-        count: 0,
-        contexts: new Map(),
-        errorCode: m.errorCode ?? null,
-        failureReason: m.failureReason ?? null,
-        lastTried: m.createdAt, // rows arrive newest first
-      };
-      groups.set(k, g);
-    }
-    g.count++;
-    const ctx = String(m.contextType).toLowerCase();
-    g.contexts.set(ctx, (g.contexts.get(ctx) ?? 0) + 1);
-  }
-  const failures = [...groups.values()].slice(0, 25).map((g) => ({
-    patientId: g.patientId,
-    patientName: g.patientName,
-    patientTitle: g.patientTitle,
-    phone: g.phone,
-    attemptCount: g.count,
-    contextLabel: formatContexts(g.contexts),
-    failureReason: describeWaError(g.errorCode, g.failureReason).label,
-    lastTriedIso: g.lastTried.toISOString(),
-  }));
-
-  // --- attention (live) -----------------------------------------------------
-  const attention: AttentionChip[] = [];
-  const overDay = open.filter((o) => o.ageMinutes > SLA_MINUTES);
-  if (overDay.length) {
-    attention.push({
-      type: 'late-reports',
-      label: `${overDay.length === 1 ? 'Report' : 'Reports'} not out after a day`,
-      count: overDay.length,
-      severity: overDay.some((o) => o.ageMinutes > 3 * SLA_MINUTES) ? 'high' : 'medium',
-      drillTo: '/diagnostics/pending',
-    });
-  }
-  const outside = open.filter((o) => o.outsideMissing > 0);
-  if (outside.length) {
-    const days = Math.floor(Math.max(...outside.map((o) => o.ageMinutes)) / SLA_MINUTES);
-    attention.push({
-      type: 'outside-lab',
-      label: `Outside-lab results not uploaded${days >= 1 ? ` · oldest ${days} day${days === 1 ? '' : 's'}` : ''}`,
-      count: outside.length,
-      severity: days >= 3 ? 'high' : 'medium',
-      drillTo: '/diagnostics/pending',
-    });
-  }
-  if (failedReport24h.length) {
-    attention.push({
-      type: 'report-not-delivered',
-      label: 'Reports not delivered on WhatsApp · last 24h',
-      count: failedReport24h.length,
-      severity: 'medium',
-      drillTo: '#failed-messages',
-    });
-  }
-  const longWaits = clinicOpen.filter(
-    (c) => c.status === 'WAITING' && nowMs - c.createdAt.getTime() > CLINIC_LONG_WAIT_MINUTES * 60_000,
-  ).length;
-  if (longWaits) {
-    attention.push({
-      type: 'clinic-wait',
-      label: `Waiting over ${CLINIC_LONG_WAIT_MINUTES} min for the doctor`,
-      count: longWaits,
-      severity: 'medium',
-      drillTo: '/clinic/queue',
-    });
-  }
 
   const response: OperationsResponse = {
     generatedAt: now.toISOString(),
     period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
-    comparison: { startIso: prior.start.toISOString(), endIso: prior.end.toISOString(), sameWeekday, cutAtNow },
     branchScope: { branchId, branchName: scopedBranch?.name ?? null },
-    attention,
-    pipeline,
-    oldestOpen,
-    clinicNow,
-    kpis,
-    prior: priorKpis,
+    branches,
+    pending: open.map(({ branchId: _b, ...p }) => p),
+    critical,
+    toCall,
+    overall,
+    branchSpeed,
     byDay,
-    byHour,
     departments,
     delivery,
     team,
+    clinicNow,
     clinicDoctors,
-    failures,
-    failureSummary: { patients: groups.size, sends: failedRows.length },
   };
 
   if (redis) {
