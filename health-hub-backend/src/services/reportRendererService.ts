@@ -568,7 +568,21 @@ export interface RenderOptions {
   // Deliberately NOT set by the Redis-cached merged-PDF path — a cached buffer
   // would freeze the first print's timestamp onto every later download.
   printedAt?: Date;
+  // "Print draft" of an UNFINALIZED report, for the doctor to proofread on
+  // paper: a band at the top of each report, a faint DRAFT across every printed
+  // page, and no signature images. The value is who printed it.
+  draftBy?: string;
 }
+
+const DRAFT_CSS = `
+  .draft-band { border: 1.2px solid #222; padding: 4px 8px; margin-bottom: 6px; text-align: center;
+    font: 700 9pt/1.35 Arial, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+  .draft-band small { display: block; font-weight: 400; font-size: 7.5pt; letter-spacing: 0; text-transform: none; }
+  .draft-watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
+    font: 800 110pt/1 Arial, sans-serif; letter-spacing: .08em; color: rgba(0, 0, 0, .05); }
+  .signature-image { display: none !important; }
+  .signature-block::before { content: 'Not signed — draft'; display: inline-block; margin-bottom: 3px;
+    border: 1px dashed #999; padding: 1px 8px; font-size: 7.5pt; color: #555; }`;
 
 interface ResolvedProfile {
   cssBlock: string;
@@ -1283,7 +1297,7 @@ ${pagesHtml}
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { profile, baseUrl = '', qrDataUrl = '', printedAt } = options;
+  const { profile, baseUrl = '', qrDataUrl = '', printedAt, draftBy } = options;
   const resolved = resolveProfile(profile);
   const printedOnDisplay = printedAt ? formatDateTime(printedAt.toISOString()) : '';
 
@@ -1311,6 +1325,17 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
     .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint, printedOnDisplay))
     .join('');
+
+  if (draftBy) {
+    // In the body, under the letterhead space, so pre-printed paper can't cover it.
+    const band = `<div class="draft-band">Draft — not a certified report<small>For the doctor's review before finalizing. Not to be given to the patient. Printed by ${escapeHtml(draftBy)}.</small></div>`;
+    return renderDocumentHtml(
+      snapshot,
+      { ...resolved, extraStyles: resolved.extraStyles + DRAFT_CSS },
+      '<div class="draft-watermark">DRAFT</div>' +
+        pages.split('<main class="report-content">').join(`<main class="report-content">${band}`),
+    );
+  }
 
   return renderDocumentHtml(snapshot, resolved, pages);
 }

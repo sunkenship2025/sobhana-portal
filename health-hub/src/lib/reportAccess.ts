@@ -86,6 +86,47 @@ export async function fetchFinalizedReportPdfBlobUrl(
   return URL.createObjectURL(blob);
 }
 
+// A page that embeds the PDF in an <iframe> (NOT <embed>) and calls
+// iframe.contentWindow.print() — the cross-browser pattern that actually
+// triggers Chrome's PDF viewer to open the print dialog. window.print() on the
+// wrapper would just print the wrapper page (blank) instead of the PDF.
+function printWrapperHtml(pdfUrl: string): string {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Print Report</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #525659; overflow: hidden; }
+    iframe { width: 100vw; height: 100vh; border: 0; display: block; }
+  </style>
+</head>
+<body>
+  <iframe id="pdf" src="${pdfUrl}"></iframe>
+  <script>
+    var iframe = document.getElementById('pdf');
+    var fired = false;
+    function tryPrint() {
+      if (fired) return;
+      fired = true;
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (e) {
+        // Cross-origin or sandboxed PDF viewer — fall back to printing the
+        // wrapper window. Worst case: user clicks Print in the PDF toolbar.
+        try { window.print(); } catch (e2) { /* user can use toolbar */ }
+      }
+    }
+    // iframe 'load' event fires reliably for blob: PDF URLs in Chrome.
+    // Backup timer guards against rare timing issues.
+    iframe.addEventListener('load', function() { setTimeout(tryPrint, 300); });
+    setTimeout(tryPrint, 2500);
+  </script>
+</body>
+</html>`;
+}
+
 /**
  * Open the finalized report in a new tab.
  *
@@ -122,45 +163,7 @@ export async function openFinalizedReportWindow(
     return;
   }
 
-  // Auto-print path: wrapper HTML embeds the PDF in an <iframe> (NOT <embed>)
-  // and calls iframe.contentWindow.print() — that's the cross-browser pattern
-  // that actually triggers Chrome's PDF viewer to open the print dialog.
-  // window.print() on the parent wrapper would just print the wrapper page
-  // (blank) instead of the PDF content.
-  const wrapperHtml = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Print Report</title>
-  <style>
-    html, body { margin: 0; padding: 0; height: 100%; background: #525659; overflow: hidden; }
-    iframe { width: 100vw; height: 100vh; border: 0; display: block; }
-  </style>
-</head>
-<body>
-  <iframe id="pdf" src="${pdfUrl}"></iframe>
-  <script>
-    var iframe = document.getElementById('pdf');
-    var fired = false;
-    function tryPrint() {
-      if (fired) return;
-      fired = true;
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (e) {
-        // Cross-origin or sandboxed PDF viewer — fall back to printing the
-        // wrapper window. Worst case: user clicks Print in the PDF toolbar.
-        try { window.print(); } catch (e2) { /* user can use toolbar */ }
-      }
-    }
-    // iframe 'load' event fires reliably for blob: PDF URLs in Chrome.
-    // Backup timer guards against rare timing issues.
-    iframe.addEventListener('load', function() { setTimeout(tryPrint, 300); });
-    setTimeout(tryPrint, 2500);
-  </script>
-</body>
-</html>`;
+  const wrapperHtml = printWrapperHtml(pdfUrl);
 
   const wrapperBlob = new Blob([wrapperHtml], { type: 'text/html' });
   const wrapperUrl = URL.createObjectURL(wrapperBlob);
@@ -177,6 +180,42 @@ export async function openFinalizedReportWindow(
     URL.revokeObjectURL(pdfUrl);
     URL.revokeObjectURL(wrapperUrl);
   }, 120_000);
+}
+
+/**
+ * "Print draft": print an UNFINALIZED report so the doctor can read it on
+ * paper. The server stamps it DRAFT — NOT A CERTIFIED REPORT and leaves the
+ * signatures off. The window opens before any await, i.e. inside the click:
+ * saving + rendering can outlast the browser's pop-up allowance.
+ */
+export async function printDraftReport(
+  request: StaffReportRequest & { testOrderIds: string[]; beforeFetch?: () => Promise<void> }
+): Promise<void> {
+  const win = window.open('', '_blank');
+  if (!win) throw new Error('Pop-up was blocked — allow pop-ups and try again.');
+  win.document.title = 'Print draft';
+  win.document.body.textContent = 'Preparing draft…';
+
+  try {
+    await request.beforeFetch?.();
+    const response = await fetch(
+      `${API_BASE}/visits/diagnostic/${request.visitId}/preview-report?draft=1&testOrderIds=${request.testOrderIds.join(',')}`,
+      { headers: buildReportHeaders(request.token, request.branchId) },
+    );
+    if (!response.ok || !(response.headers.get('content-type') || '').includes('application/pdf')) {
+      throw new Error(await extractDownloadError(response));
+    }
+    const pdfUrl = URL.createObjectURL(await response.blob());
+    const wrapperUrl = URL.createObjectURL(new Blob([printWrapperHtml(pdfUrl)], { type: 'text/html' }));
+    win.location.href = wrapperUrl;
+    window.setTimeout(() => {
+      URL.revokeObjectURL(pdfUrl);
+      URL.revokeObjectURL(wrapperUrl);
+    }, 120_000);
+  } catch (error) {
+    win.close();
+    throw error;
+  }
 }
 
 export async function downloadFinalizedReportPdf(

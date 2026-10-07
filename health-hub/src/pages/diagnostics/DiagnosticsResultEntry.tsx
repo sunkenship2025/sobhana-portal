@@ -18,7 +18,8 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp, Lock, Pencil, Upload } from 'lucide-react';
+import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp, Lock, Pencil, Upload, Printer } from 'lucide-react';
+import { printDraftReport } from '@/lib/reportAccess';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1256,6 +1257,29 @@ const DiagnosticsResultEntry = () => {
     }
   }, [persistDraft]);
 
+  // "Print draft" for one narrative: saves it first (even with cloud sync off) so
+  // the paper shows what is on screen. Not awaited before printDraftReport: it
+  // opens its window inside this click, so the pop-up blocker lets it through.
+  const [printingDraftKey, setPrintingDraftKey] = useState<ResultKey | null>(null);
+  const printDraft = (testOrderId: string, testId: string) => {
+    const key = makeResultKey(testOrderId, testId);
+    setPrintingDraftKey(key);
+    printDraftReport({
+      visitId: visitId!,
+      token,
+      branchId: activeBranchId,
+      testOrderIds: [testOrderId],
+      beforeFetch: async () => {
+        if ((await persistDraft(true, { onlyResultKey: key })) === 'failed') {
+          throw new Error('Could not save the report — try again.');
+        }
+        setReportSaveStatusByKey((prev) => ({ ...prev, [key]: 'saved' }));
+      },
+    })
+      .catch((error) => toast.error(error?.message || 'Failed to print draft'))
+      .finally(() => setPrintingDraftKey(null));
+  };
+
   // Result keys whose signing choice (the "which radiologist signed" dropdown or
   // the "use signing rule" checkbox) just changed and needs to hit the server
   // now. Unlike the narrative body, the signer is shared report data: the moment
@@ -2227,14 +2251,29 @@ const DiagnosticsResultEntry = () => {
               onSaveNow={() => saveReport(testOrderId, testId)}
             />
           )}
-          {isWholeOrderRow && !isUploadMode && (
-            <button
-              type="button"
-              onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: testOrderId, testName: panelDisplayName || testName }); }}
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              No report needed
-            </button>
+          {!isUploadMode && (
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={() => printDraft(testOrderId, testId)}
+                disabled={!hasMeaningfulRichText(valueStr) || printingDraftKey === resultKey}
+              >
+                <Printer className="h-3.5 w-3.5" />
+                {printingDraftKey === resultKey ? 'Preparing…' : 'Print draft'}
+              </Button>
+              {isWholeOrderRow && (
+                <button
+                  type="button"
+                  onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: testOrderId, testName: panelDisplayName || testName }); }}
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  No report needed
+                </button>
+              )}
+            </div>
           )}
         </div>
         {isUploadMode && order ? (

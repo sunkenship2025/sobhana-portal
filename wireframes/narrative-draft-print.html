@@ -1,0 +1,218 @@
+<!doctype html><meta charset="utf-8"><title>Narrative draft print — placements</title>
+<style>
+:root{--t1:#1F1F1E;--t2:#5F5E5A;--t3:#888780;--input:#e4e2dd;--muted:#f4f3f0;--border:rgba(0,0,0,.08);
+ --primary:#185484;--healthy:#0F6E56;--caution:#854F0B;--bad:#A32D2D}
+*{box-sizing:border-box}
+body{margin:0;background:#FAFAF8;color:var(--t1);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1060px;margin:0 auto;padding:28px 24px 80px}
+h1{font-size:19px;margin:0 0 3px}
+.lede{font-size:13px;color:var(--t2);margin:0 0 8px;max-width:88ch}
+h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);font-weight:600;
+   margin:36px 0 12px;display:flex;align-items:center;gap:10px}
+h2::after{content:"";flex:1;height:1px;background:var(--border)}
+.v{margin:0 0 30px}
+.vh{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.pill{font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:99px;
+ background:#e7f2ee;color:var(--healthy);text-transform:uppercase}
+.pill.no{background:var(--muted);color:var(--t3)}
+.pill.extra{background:#e6eef6;color:var(--primary)}
+.note{font-size:13px;color:var(--t2);margin:9px 0 0;max-width:88ch}
+.note b{color:var(--t1)}
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:12.5px;color:var(--t2);margin-top:8px;max-width:88ch}
+.pc div::before{margin-right:6px;font-weight:700}
+.pc .p::before{content:"+";color:var(--healthy)} .pc .c::before{content:"−";color:var(--bad)}
+
+/* app chrome */
+.card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px 18px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.sw{width:52px;height:28px;border-radius:99px;background:var(--primary);position:relative}
+.sw .k{position:absolute;right:2px;top:2px;width:24px;height:24px;border-radius:99px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.15);
+ display:flex;align-items:center;justify-content:center;color:var(--primary)}
+.i{width:14px;height:14px;flex:none}.i4{width:16px;height:16px;flex:none}
+.lnk{font-size:12px;font-weight:500;color:var(--t3)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border:1px solid var(--input);border-radius:7px;
+ background:#fff;font-size:13px;font-weight:500;color:var(--t1)}
+.btn.lg{height:44px;justify-content:center;font-size:14px;gap:8px}
+.btn.pri{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.ghost{border-color:transparent}
+.tb{display:flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;padding:5px 6px;margin-bottom:8px;font-size:12px;color:var(--t2)}
+.tb span{min-width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid transparent}
+.tb .sel{border-color:var(--input);background:#fff;padding:0 8px;min-width:auto}
+.tb .sep{width:1px;min-width:1px;height:22px;background:#e2e8f0;margin:0 3px}
+.frame{border:1px solid var(--input);border-radius:4px;background:#fff;padding:14px 22px;font-family:Georgia,serif;font-size:12px;color:#222}
+.frame .logo{font:700 13px/1 -apple-system,sans-serif;color:var(--primary);letter-spacing:.02em}
+.frame .stripe{height:4px;background:linear-gradient(90deg,#185484 33%,#e05a2b 33% 66%,#2a9d8f 66%);margin:8px 0 10px}
+.frame .pi{display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;font:11px/1.6 -apple-system,sans-serif;color:#444;border:1px solid #eee;padding:6px 10px}
+.frame .dep{text-align:center;font:700 11px/1 -apple-system,sans-serif;letter-spacing:.06em;margin:12px 0 4px}
+.frame .pt{text-align:center;font-weight:700;text-decoration:underline;margin-bottom:8px}
+.frame p{margin:0 0 6px}
+.hl{outline:2px dashed #e05a2b;outline-offset:3px;border-radius:7px}
+.sign{text-align:right;font:11px/1.4 -apple-system,sans-serif;margin-top:16px}
+.kbd{display:inline-block;border:1px solid var(--input);border-bottom-width:2px;border-radius:5px;padding:0 6px;font:12px/20px ui-monospace,monospace;background:#fff}
+
+/* preview modal */
+.modal{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)}
+.mh small{display:block;font-size:11px;color:var(--t3)}
+.mb{background:#eceae6;padding:16px;display:flex;justify-content:center}
+.mb .sheet{width:300px;height:170px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+
+/* printed paper */
+.papers{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.paper{position:relative;background:#fff;aspect-ratio:1/1.414;box-shadow:0 2px 14px rgba(0,0,0,.12);padding:26px 24px;
+ font:9.5px/1.55 Georgia,serif;color:#222;overflow:hidden}
+.paper .pi{display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;font:8.5px/1.5 -apple-system,sans-serif;color:#444;border:1px solid #eee;padding:5px 8px;margin-top:4px}
+.paper .dep{text-align:center;font:700 8.5px/1 -apple-system,sans-serif;letter-spacing:.06em;margin:10px 0 3px}
+.paper .pt{text-align:center;font-weight:700;text-decoration:underline;margin-bottom:6px}
+.paper p{margin:0 0 4px}
+.band{font:700 8.5px/1.35 -apple-system,sans-serif;letter-spacing:.04em;border:1.2px solid #222;padding:5px 8px;text-align:center;text-transform:uppercase}
+.band small{display:block;font-weight:500;text-transform:none;letter-spacing:0;font-size:8px;color:#444}
+.foot{position:absolute;left:24px;right:24px;bottom:16px;font:8px/1.3 -apple-system,sans-serif;color:#444;border-top:1px solid #ccc;padding-top:5px}
+.wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.wm span{transform:rotate(-35deg);font:800 74px/1 -apple-system,sans-serif;letter-spacing:.08em}
+.unsigned{text-align:right;font:8.5px/1.4 -apple-system,sans-serif;margin-top:12px}
+.unsigned i{display:inline-block;border:1px dashed #999;padding:3px 8px;color:#555;font-style:normal;margin-bottom:3px}
+.cap{font-size:12.5px;color:var(--t2);margin-top:10px}
+.cap b{color:var(--t1)}
+
+table.words{border-collapse:collapse;width:100%;max-width:880px;font-size:13px;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.words td,.words th{padding:9px 12px;border-top:1px solid var(--border);text-align:left;vertical-align:top}
+.words th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);font-weight:600;background:#fafaf8;border-top:0}
+.words code{font:600 12px ui-monospace,monospace;background:var(--muted);padding:1px 6px;border-radius:4px}
+.q{background:#fff;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:6px;padding:10px 14px;margin:0 0 10px;font-size:13px;max-width:88ch}
+.q b{display:block;margin-bottom:2px}
+</style>
+<div class="wrap">
+<h1>Print a narrative report before it is finalized</h1>
+<p class="lede">For doctors who read better on paper. The printout is the <b>same page the patient would get</b>, so line and page breaks can be checked, but it is clearly marked as a draft, has no signature, and records who printed it and when. It prints whatever is on screen: if cloud sync is off, the button saves first.</p>
+
+<!-- ─────────────── PLACEMENTS ─────────────── -->
+<h2>1 · Where the button goes</h2>
+
+<div class="v"><div class="vh">A — On the report's own top row, next to “No report needed” <span class="pill">recommended</span></div>
+<div class="card" style="max-width:820px">
+  <div class="row">
+    <div style="display:flex;gap:8px;align-items:center"><div class="sw"><span class="k"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></span></div></div>
+    <div style="display:flex;gap:14px;align-items:center">
+      <span class="btn hl"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>Print draft</span>
+      <span class="lnk">No report needed</span>
+    </div>
+  </div>
+  <div class="tb"><span class="sel">Times New Roman ▾</span><span class="sel">Normal ▾</span><span class="sel">— ▾</span><span class="sep"></span><span><b>B</b></span><span><i>I</i></span><span><u>U</u></span><span class="sep"></span><span>≡</span><span>≡</span><span>≡</span><span>≡</span><span class="sep"></span><span>•</span><span>1.</span><span class="sep"></span><span class="sel">A ■</span></div>
+  <div class="frame">
+    <div class="logo">SOBHANA DIAGNOSTIC CENTRE</div><div class="stripe"></div>
+    <div class="pi"><div>Patient Name: <b>Mr. K. RAMESH</b></div><div>Bill No: <b>D-CNT-002611</b></div><div>Age / Gender: 58 Years / Male</div><div>Reported On: —</div></div>
+    <div class="dep">DEPARTMENT OF RADIOLOGY</div><div class="pt">USG ABDOMEN &amp; PELVIS</div>
+    <p><b>Liver:</b> Normal in size (13.2 cm) with increased echotexture. No focal lesion. IHBR not dilated.</p>
+    <p><b>Gall bladder:</b> Well distended, no calculi.</p>
+    <p style="color:#999">…</p>
+  </div>
+</div>
+<p class="note">One button per report, right where the doctor is typing. Prints <b>only this test</b> (a visit with USG + X-ray prints just the USG). Same outline shape as the Save button that already appears in this row when sync is off — no new control type, and big enough to find without squinting.</p>
+<div class="pc"><div class="p">Zero navigation: type, print, read, correct</div><div class="c">One more control in the row</div>
+<div class="p">Scope is obvious: this report</div><div class="c">A visit with 3 narratives = 3 prints (usually what you want)</div></div>
+</div>
+
+<div class="v"><div class="vh">B — Printer icon at the end of the formatting toolbar <span class="pill no">not recommended</span></div>
+<div class="card" style="max-width:820px">
+  <div class="tb" style="margin:0"><span class="sel">Times New Roman ▾</span><span class="sel">Normal ▾</span><span class="sel">— ▾</span><span class="sep"></span><span><b>B</b></span><span><i>I</i></span><span><u>U</u></span><span class="sep"></span><span>≡</span><span>≡</span><span>≡</span><span>≡</span><span class="sep"></span><span>•</span><span>1.</span><span class="sep"></span><span class="sel">A ■</span><span class="sep"></span><span class="hl"><svg class="i4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg></span></div>
+</div>
+<p class="note">Where Word puts it, so it feels familiar.</p>
+<div class="pc"><div class="p">Familiar from Word</div><div class="c">Icon-only, small — the very users this is for will miss it</div>
+<div class="p">Uses no extra room</div><div class="c">Mixes a page action into text formatting; on a multi-report visit the sticky toolbar is shared, so “which report?” is unclear</div></div>
+</div>
+
+<div class="v"><div class="vh">C — Bottom of the page, beside “Review Report” <span class="pill no">not recommended</span></div>
+<div class="card" style="max-width:820px">
+  <div style="font-size:12px;color:var(--t3);margin-bottom:6px"><span style="display:inline-flex;vertical-align:-2px"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span> All changes saved · 4:12 PM</div>
+  <div style="display:flex;gap:10px"><span class="btn lg hl" style="width:200px"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>Print draft</span><span class="btn lg pri" style="flex:1"><svg class="i4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>Review Report</span></div>
+</div>
+<div class="pc"><div class="p">Next to the step that comes after it</div><div class="c">Far from the text — doctor scrolls past every report to reach it</div>
+<div class="p">One print for the whole visit</div><div class="c">Prints every test, including the lab values the doctor isn't reviewing</div></div>
+</div>
+
+<div class="v"><div class="vh">D — Inside “Preview Report”, next to “Looks Good — Finalize” <span class="pill extra">optional second place</span></div>
+<div class="modal" style="max-width:820px">
+  <div class="mh"><div style="display:flex;gap:10px;align-items:center"><span style="color:var(--primary);display:flex"><svg class="i4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg></span><div><b>Report Preview</b><small>This is how the final PDF will look to the patient. No data has been saved.</small></div></div>
+    <div style="display:flex;gap:8px;align-items:center"><span class="btn hl"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>Print draft</span><span class="btn pri"><svg class="i4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Looks Good — Finalize</span><span class="btn ghost"><svg class="i4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span></div></div>
+  <div class="mb"><div class="sheet"></div></div>
+</div>
+<p class="note">The doctor is already looking at the exact PDF; this prints what they are looking at (with the draft stamp). Good as a second door, but it is three clicks deep (Review Report → Preview → Print), so it can't be the only one.</p>
+</div>
+
+<div class="v"><div class="vh">E — <span class="kbd">Ctrl</span> + <span class="kbd">P</span> while typing a report <span class="pill extra">free add-on to A</span></div>
+<p class="note" style="margin-top:0">Today Ctrl+P prints the app screen — sidebar, toolbar, half a report. With the cursor in a narrative, Ctrl+P would do exactly what “Print draft” does. Costs a few lines; catches the doctor who prints out of habit.</p>
+</div>
+
+<!-- ─────────────── THE PRINTOUT ─────────────── -->
+<h2>2 · What the printout looks like</h2>
+<p class="note" style="margin:0 0 16px">Same report, three ways of marking it. In every one: <b>no signature image</b>, a dashed “not signed” box where it would go, and a footer saying who printed it and when. Every page carries the marks, so one page torn off is still marked.</p>
+
+<div class="papers">
+  <div>
+    <div class="paper">
+      <div class="wm"><span style="color:rgba(0,0,0,.05)">DRAFT</span></div>
+      <div class="band">Draft — not a certified report<small>For the doctor's review before finalizing. Not to be given to the patient.</small></div>
+      <div class="pi"><div>Patient: <b>Mr. K. RAMESH</b></div><div>Bill: <b>D-CNT-002611</b></div><div>58 Y / M</div><div>Reported: —</div></div>
+      <div class="dep">DEPARTMENT OF RADIOLOGY</div><div class="pt">USG ABDOMEN &amp; PELVIS</div>
+      <p><b>Liver:</b> Normal in size (13.2 cm) with increased echotexture. No focal lesion. IHBR not dilated. Portal vein normal.</p>
+      <p><b>Gall bladder:</b> Well distended, no calculi. Wall thickness normal.</p>
+      <p><b>Pancreas:</b> Normal in size and echopattern.</p>
+      <p><b>Kidneys:</b> RK 10.1 cm, LK 10.4 cm. Normal corticomedullary differentiation.</p>
+      <p><b>IMPRESSION:</b></p><p>&nbsp;&nbsp;&nbsp;&nbsp;GRADE I FATTY LIVER.</p>
+      <div class="unsigned"><i>Not signed — draft</i><br>Consultant Radiologist</div>
+      <div class="foot">Draft printed 07 Oct 2026, 4:12 PM by Dr. Rao · not finalized · page 1 of 1</div>
+    </div>
+    <div class="cap"><b>T1 · Band + faint watermark</b> <span class="pill">recommended</span><br>Band says it in words; the watermark is so light the text stays fully readable — which is the whole point for these doctors.</div>
+  </div>
+
+  <div>
+    <div class="paper">
+      <div class="wm"><span style="color:rgba(0,0,0,.18)">DRAFT</span></div>
+      <div class="pi" style="margin-top:0"><div>Patient: <b>Mr. K. RAMESH</b></div><div>Bill: <b>D-CNT-002611</b></div><div>58 Y / M</div><div>Reported: —</div></div>
+      <div class="dep">DEPARTMENT OF RADIOLOGY</div><div class="pt">USG ABDOMEN &amp; PELVIS</div>
+      <p><b>Liver:</b> Normal in size (13.2 cm) with increased echotexture. No focal lesion. IHBR not dilated. Portal vein normal.</p>
+      <p><b>Gall bladder:</b> Well distended, no calculi. Wall thickness normal.</p>
+      <p><b>Pancreas:</b> Normal in size and echopattern.</p>
+      <p><b>Kidneys:</b> RK 10.1 cm, LK 10.4 cm. Normal corticomedullary differentiation.</p>
+      <p><b>IMPRESSION:</b></p><p>&nbsp;&nbsp;&nbsp;&nbsp;GRADE I FATTY LIVER.</p>
+      <div class="unsigned"><i>Not signed — draft</i><br>Consultant Radiologist</div>
+      <div class="foot">Draft printed 07 Oct 2026, 4:12 PM by Dr. Rao · page 1 of 1</div>
+    </div>
+    <div class="cap"><b>T2 · Heavy watermark only</b> <span class="pill no">no</span><br>Impossible to mistake for a real report — but the grey word sits on the findings and makes them harder to read. Wrong trade for weak eyes.</div>
+  </div>
+
+  <div>
+    <div class="paper">
+      <div class="band">Draft — not a certified report</div>
+      <div class="pi"><div>Patient: <b>Mr. K. RAMESH</b></div><div>Bill: <b>D-CNT-002611</b></div><div>58 Y / M</div><div>Reported: —</div></div>
+      <div class="dep">DEPARTMENT OF RADIOLOGY</div><div class="pt">USG ABDOMEN &amp; PELVIS</div>
+      <p><b>Liver:</b> Normal in size (13.2 cm) with increased echotexture. No focal lesion. IHBR not dilated. Portal vein normal.</p>
+      <p><b>Gall bladder:</b> Well distended, no calculi. Wall thickness normal.</p>
+      <p><b>Pancreas:</b> Normal in size and echopattern.</p>
+      <p><b>Kidneys:</b> RK 10.1 cm, LK 10.4 cm. Normal corticomedullary differentiation.</p>
+      <p><b>IMPRESSION:</b></p><p>&nbsp;&nbsp;&nbsp;&nbsp;GRADE I FATTY LIVER.</p>
+      <div class="unsigned"><i>Not signed — draft</i><br>Consultant Radiologist</div>
+      <div class="foot">Draft printed 07 Oct 2026, 4:12 PM by Dr. Rao · page 1 of 1</div>
+    </div>
+    <div class="cap"><b>T3 · Band only</b> <span class="pill no">weaker</span><br>Cleanest page, but cut the top strip off and the middle looks like a real report. The faint watermark in T1 closes that for free.</div>
+  </div>
+</div>
+
+<!-- ─────────────── WORDS ─────────────── -->
+<h2>3 · The words on the stamp</h2>
+<table class="words">
+<tr><th>Band headline</th><th>Reads as</th><th></th></tr>
+<tr><td><code>DRAFT — NOT A CERTIFIED REPORT</code></td><td>Plain, staff and patients both understand it; “certified” answers exactly the worry (is this valid?)</td><td><span class="pill">recommended</span></td></tr>
+<tr><td><code>REVIEW COPY — NOT FOR PATIENT</code></td><td>Says who it's for, but doesn't say it's invalid if it leaks</td><td><span class="pill no">ok</span></td></tr>
+<tr><td><code>UNSIGNED DRAFT — NOT VALID FOR DIAGNOSIS</code></td><td>Strongest legally; long, and “diagnosis” sounds alarming if a patient sees it</td><td><span class="pill no">ok</span></td></tr>
+<tr><td><code>PROOF COPY</code> / <code>DUMMY REPORT</code></td><td>Printing-press / testing words — doctors and patients don't use them</td><td><span class="pill no">no</span></td></tr>
+</table>
+
+<!-- ─────────────── DECISIONS ─────────────── -->
+<h2>4 · Defaults I'll use unless you say otherwise</h2>
+<div class="q"><b>Paper: letterhead layout, same as your normal Print</b>The draft prints in the pre-printed-letterhead layout (no logo drawn), exactly like the final printout, so page breaks on the draft are the page breaks the patient gets. If plain paper is in the tray it still reads fine; if letterhead is in the tray, the band + watermark still mark it.</div>
+<div class="q"><b>Signature: never on a draft</b>Name and designation stay so the doctor can check them; the signature image and stamp are replaced by the dashed “Not signed — draft” box.</div>
+<div class="q"><b>Who can print: anyone who can type the report</b>Not limited to owner / lab in-charge — the doctors who need it usually can't finalize.</div>
+<div class="q"><b>Empty report: button disabled</b>Nothing typed yet → nothing to print.</div>
+</div>

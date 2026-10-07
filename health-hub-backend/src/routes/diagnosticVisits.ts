@@ -5495,10 +5495,12 @@ router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
 // Default response is the merged PDF (rendered base + appended external uploads), so
 // the staff preview matches byte-for-byte what the patient receives. Pass ?format=html
 // for the legacy HTML-only view (which does NOT show appended uploads).
+// ?draft=1 is "Print draft": the letterhead-paper layout, stamped DRAFT, unsigned.
 router.get("/:id/preview-report", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const format = req.query.format === "html" ? "html" : "pdf";
+    const isDraftPrint = req.query.draft === "1";
 
     // Verify the visit belongs to this branch
     const visit = await prisma.visit.findFirst({
@@ -5548,11 +5550,15 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
 
     // Default: merged PDF — same writer as the public download path so staff
     // preview matches what the patient downloads (rendered values + appended uploads).
+    const draftBy = isDraftPrint
+      ? (await prisma.user.findUnique({ where: { id: req.user!.id }, select: { name: true } }))?.name || "staff"
+      : undefined;
     const pdfBuffer = await generateMergedReportPdf(snapshot, {
-      mode: "digital",
+      mode: draftBy ? "physical" : "digital",
       baseUrl,
       qrDataUrl: "", // QR encodes the public token which doesn't exist for drafts
       cache: false,  // never cache draft previews — they change as staff edits
+      draftBy,
     });
 
     res.setHeader("Content-Type", "application/pdf");

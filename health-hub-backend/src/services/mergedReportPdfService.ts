@@ -86,6 +86,8 @@ export interface GenerateMergedPdfOptions {
   mode: 'physical' | 'digital';
   baseUrl: string;
   qrDataUrl: string;
+  /** "Print draft": stamp the unfinalized report as a draft (see RenderOptions.draftBy). Never cache it. */
+  draftBy?: string;
   /**
    * When true, look up Redis for a cached PDF and write the generated buffer
    * back on miss. Only the public download path passes `cache: true`; staff
@@ -111,7 +113,7 @@ export async function generateMergedReportPdf(
   snapshot: ReportSnapshot,
   options: GenerateMergedPdfOptions
 ): Promise<Buffer> {
-  const { mode, baseUrl, qrDataUrl, cache = false } = options;
+  const { mode, baseUrl, qrDataUrl, cache = false, draftBy } = options;
 
   // Physical prints vary by the live lab-incharge show-signature-on-print flag,
   // so it's part of the cache key — flipping the toggle is a key change, not a
@@ -138,7 +140,9 @@ export async function generateMergedReportPdf(
 
   if (!skipBaseRender) {
     const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
-    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
+    const html = renderReportHtml(snapshot, {
+      profile, baseUrl, qrDataUrl, draftBy, printedAt: draftBy ? new Date() : undefined,
+    });
     const basePdf = await generatePdfFromHtml(html, {
       mode,
       // Digital footer is drawn by Puppeteer per page; inject the per-branch
