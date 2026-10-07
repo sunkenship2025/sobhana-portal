@@ -211,14 +211,10 @@ clinic doctor     ClinicVisit."clinicDoctorId" → ClinicDoctor.name
 patient           Visit."patientId"  (ReportVersion has no patientId — go via DiagnosticReport→Visit)
 bill value        NET: Bill."totalAmountInPaise" - "discountAmountInPaise" - "couponDiscountInPaise"
                   - "reversedChargeInPaise". Never the raw totalAmountInPaise on its own.
-due / outstanding THE ARITHMETIC IS THE DEBT, never the paymentStatus flag:
-                    (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise"
-                     - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0
-                  paymentStatus is denormalised and DISAGREES with the balance on live rows —
-                  48 bills carry paymentStatus <> 'PAID' while only 10 actually owe anything, so
-                  filtering on the flag overstates the debtor count nearly fivefold and gets the
-                  money wrong in the other direction (₹4,752 against a true ₹5,552). One source
-                  of truth for money. "How many PATIENTS owe" is COUNT(DISTINCT v."patientId"),
+due / outstanding THE MONEY PAGE'S DEFINITION, both conditions together:
+                    b."paymentStatus" <> 'PAID' AND (b."totalAmountInPaise" - b."discountAmountInPaise"
+                     - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0
+                  and the amount owed is that balance. One source of truth for money. "How many PATIENTS owe" is COUNT(DISTINCT v."patientId"),
                   not a count of bills — a patient may hold several.
 report grain      ReportVersion.id is ONE VERSION; a report can have several. Count versions,
                   not "reportId", unless the question asks about reports as documents.

@@ -3,7 +3,38 @@
  * DeepSeek V4 Flash with thinking DISABLED: measured on this workload, thinking cost 6
  * questions and ~45s per call for nothing. JSON object output, one retry on parse failure.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { parseLoose, LlmUnavailable } from '../smartReport/llm';
+
+/** The owner's request, as an abort signal every model call in the turn can see. Closing the
+ *  panel used to leave the investigation running to the end — up to 33 calls on an answer nobody
+ *  would read. Ambient rather than threaded through a dozen signatures. */
+export const turnSignal = new AsyncLocalStorage<AbortSignal>();
+
+/** The last thing the model account told us. A 402 is known the moment it happens; the panel
+ *  should not have to wait for someone to ask a question to find out. */
+let lastFailure: { at: number; why: string } | null = null;
+let lastOk = 0;
+let balance: { at: number; usd: number | null } | null = null;
+
+/** Is the model reachable, and how much is left. The balance call is free on DeepSeek; on any other
+ *  base it is skipped and only the last call's outcome counts. Cached ten minutes. */
+export async function modelStatus(): Promise<{ ok: boolean; usd: number | null; why?: string }> {
+  if (!API_KEY) return { ok: false, usd: null, why: 'no model key is configured' };
+  if (/deepseek\.com/.test(BASE_URL) && (!balance || Date.now() - balance.at > 600_000)) {
+    try {
+      const r = await fetch(`${BASE_URL}/user/balance`, { headers: { authorization: `Bearer ${API_KEY}` }, signal: AbortSignal.timeout(5000) });
+      const j: any = r.ok ? await r.json() : null;
+      const usd = j?.balance_infos?.find((b: any) => b.currency === 'USD')?.total_balance;
+      balance = { at: Date.now(), usd: usd != null ? Number(usd) : null };
+      if (j?.is_available === false) lastFailure = { at: Date.now(), why: 'the model account is out of credit' };
+      else if (j?.is_available) lastOk = Date.now();   // topped up: clear a past 402 without waiting for a question
+    } catch { balance = { at: Date.now(), usd: balance?.usd ?? null }; }
+  }
+  const failing = !!lastFailure && lastFailure.at > lastOk;
+  if (failing) console.warn('[pulse] model unavailable:', lastFailure!.why);
+  return { ok: !failing, usd: balance?.usd ?? null, ...(failing ? { why: lastFailure!.why } : {}) };
+}
 
 const BASE_URL = (process.env.SMART_REPORT_LLM_BASE_URL || process.env.GO_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const API_KEY = process.env.SMART_REPORT_LLM_API_KEY || process.env.OPENCODE_API_KEY || process.env.GO_API_KEY || process.env.OPENCODE_GO_API_KEY || '';
@@ -36,8 +67,12 @@ function firstObject(raw: string): any {
 
 export async function llmJson<T = any>(system: string, user: string, opts: LlmOpts = {}): Promise<T> {
   if (!API_KEY) throw new LlmUnavailable('LLM API key not set');
+  const outer = turnSignal.getStore();
+  if (outer?.aborted) throw new LlmUnavailable('cancelled by the owner');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
+  const stop = () => ctrl.abort();
+  outer?.addEventListener('abort', stop, { once: true });
   try {
     const res = await fetch(`${BASE_URL}/chat/completions`, {
       method: 'POST', signal: ctrl.signal,
@@ -55,11 +90,16 @@ export async function llmJson<T = any>(system: string, user: string, opts: LlmOp
         ],
       }),
     });
-    if (!res.ok) throw new LlmUnavailable(`LLM responded ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) {
+      const why = `LLM responded ${res.status}: ${(await res.text()).slice(0, 200)}`;
+      if (res.status === 401 || res.status === 402) { lastFailure = { at: Date.now(), why: res.status === 402 ? 'the model account is out of credit' : 'the model key was rejected' }; balance = null; }
+      throw new LlmUnavailable(why);
+    }
+    lastOk = Date.now();
     const body: any = await res.json();
     const raw: string = body?.choices?.[0]?.message?.content ?? '';
     const parsed = parseLoose(raw) ?? firstObject(raw);
     if (!parsed || typeof parsed !== 'object') throw new LlmUnavailable('model returned no JSON object');
     return parsed as T;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); outer?.removeEventListener('abort', stop); }
 }

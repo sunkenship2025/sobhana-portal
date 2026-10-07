@@ -12,6 +12,17 @@ export interface Metric {
  *  Shared so the metric, the repair prompt and the benchmark cannot drift apart. */
 export const COMMISSION_ON_ORDER = `SUM(CASE WHEN o."referralCommissionType" = 'PERCENTAGE' THEN ROUND(o."priceInPaise" * COALESCE(o."referralCommissionPercentage",0) / 100.0) ELSE COALESCE(o."referralCommissionAmountInPaise",0) END)`;
 
+/**
+ * What a patient still owes, as one expression — the Money page's: a bill not marked PAID whose
+ * balance is above zero. The balance alone overstated nothing but disagreed with the owner's own
+ * page by one bill (D-BLN-000979, marked PAID with ₹800 of arithmetic still open); the flag alone
+ * counted 48 bills where 10 owed anything. Both conditions, everywhere, so Pulse and the Money
+ * page can never show two dues totals.
+ */
+export const DUE = (b = 'b') =>
+  `(${b}."totalAmountInPaise" - ${b}."discountAmountInPaise" - ${b}."couponDiscountInPaise" - ${b}."reversedChargeInPaise" - ${b}."paidAmountInPaise")`;
+export const OWES = (b = 'b') => `${b}."paymentStatus" <> 'PAID' AND ${DUE(b)} > 0`;
+
 export const METRICS: Record<string, Metric> = {
   revenue: { k: 'revenue net income earned turnover sales money made collected cash received collection realised',
     sql: `SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END)`,
@@ -22,8 +33,8 @@ export const METRICS: Record<string, Metric> = {
     tables: ['Bill', 'Visit'], t: 'b."billedAt"', u: 'paise',
     d: 'Amount BILLED after discount, coupon and voided charges. NOT revenue — revenue is cash collected.' },
   outstanding: { k: 'outstanding due unpaid owed receivable pending payment',
-    sql: 'SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise")',
-    tables: ['Bill'], t: 'b."billedAt"', u: 'paise', d: 'Net billed minus paid, on open bills.' },
+    sql: `SUM(CASE WHEN ${OWES()} THEN ${DUE()} ELSE 0 END)`,
+    tables: ['Bill'], t: 'b."billedAt"', u: 'paise', d: 'What patients still owe: the balance on bills not marked PAID, where it is above zero — the Money page figure.' },
   visits: { k: 'visits patients seen footfall volume registrations came', sql: 'COUNT(DISTINCT v.id)',
     tables: ['Visit'], t: 'v."createdAt"', u: 'count', d: 'Registrations. One per visit, NOT per person.' },
   unique_patients: { k: 'unique distinct patients individuals people how many patients', sql: 'COUNT(DISTINCT v."patientId")',
@@ -144,16 +155,6 @@ export const isTestBranch = (v: any) => {
   return TEST_BRANCHES.includes(t) || TEST_BRANCH_NAMES.includes(t) || /\(kidcare\)/i.test(t);
 };
 
-/**
- * What a patient still owes, as one expression. Written down once because writing it per tool
- * meant fixing it three times: the worklist filtered on paymentStatus, then generated SQL did,
- * then receivables was still doing it after both. The flag disagrees with the arithmetic on live
- * rows — 48 bills carry a non-PAID status while 10 actually owe anything — so every place that
- * trusted the flag reported nearly five times too many debtors and the wrong money.
- */
-export const DUE = (b = 'b') =>
-  `(${b}."totalAmountInPaise" - ${b}."discountAmountInPaise" - ${b}."couponDiscountInPaise" - ${b}."reversedChargeInPaise" - ${b}."paidAmountInPaise")`;
-export const OWES = (b = 'b') => `${DUE(b)} > 0`;
 
 export const DIMS: Record<string, string> = {
   branch: 'br.code',

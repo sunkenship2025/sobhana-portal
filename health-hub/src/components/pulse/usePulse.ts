@@ -16,8 +16,9 @@ export interface Opportunity {
   confidence: 'low' | 'medium' | 'high'; weight: number;
 }
 export interface Segments { verdict?: string; points?: { label?: string; text: string }[]; caveat?: string; action?: string }
-export interface Turn { id: number; q: string; answer?: Answer; error?: string; pending?: boolean; collapsed?: boolean; steps?: Step[]; }
-export interface Today { date: string; sofar?: boolean; collectionToday: number; vsUsual: number | null; cases: number; due: number; lateReports: number; chips: Chip[]; }
+export interface Turn { id: number; q: string; answer?: Answer; error?: string; stopped?: boolean; pending?: boolean; collapsed?: boolean; steps?: Step[]; rating?: 'up' | 'down'; }
+export interface Today { date: string; sofar?: boolean; collectionToday: number; vsUsual: number | null; cases: number; due: number; lateReports: number; chips: Chip[];
+  model?: { ok: boolean; usd: number | null; why?: string }; }
 
 const SIZE_KEY = 'pulse.size';
 let todayCache: { at: number; data: Today } | null = null;
@@ -40,15 +41,15 @@ export function fetchToday(): Promise<Today> {
  * Falls back to the plain JSON endpoint if streaming is unavailable, so a proxy that cannot do
  * text/event-stream degrades to the old behaviour rather than breaking the feature.
  */
-async function askStreaming(q: string, state: any, onLine: (s: Step) => void): Promise<Answer> {
+async function askStreaming(q: string, state: any, onLine: (s: Step) => void, signal: AbortSignal): Promise<Answer> {
   const { token } = useAuthStore.getState();
   const res = await fetch(`${API_BASE}/pulse/ask/stream`, {
-    method: 'POST',
+    method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'X-Branch-Id': bid(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ q, state }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  if (!res.body) return branchRequest<Answer>('/pulse/ask', bid(), { method: 'POST', body: JSON.stringify({ q, state }) });
+  if (!res.body) return branchRequest<Answer>('/pulse/ask', bid(), { method: 'POST', body: JSON.stringify({ q, state }), signal });
 
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -82,6 +83,7 @@ export function usePulse() {
   const branchName = useBranchStore((s) => s.getActiveBranch?.()?.name || null);
   const [todayFailed, setTodayFailed] = useState(false);
   const stateRef = useRef<PulseState>({});
+  const ctrlRef = useRef<AbortController | null>(null);
   const idRef = useRef(1);
   const thinking = turns.some((t) => t.pending);
 
@@ -95,12 +97,15 @@ export function usePulse() {
     if (text.startsWith('/')) { window.location.assign(text); return; }   // deep-link chips ("open Payouts")
     const id = idRef.current++;
     setTurns((ts) => [...ts.map((t) => ({ ...t, collapsed: true })), { id, q: text, pending: true }]);
+    const ctrl = new AbortController(); ctrlRef.current = ctrl;
     try {
       const answer = await askStreaming(text, stateRef.current, (step) =>
-        setTurns((ts) => ts.map((t) => t.id === id ? { ...t, steps: [...(t.steps || []), step] } : t)));
+        setTurns((ts) => ts.map((t) => t.id === id ? { ...t, steps: [...(t.steps || []), step] } : t)), ctrl.signal);
       if (answer.state) stateRef.current = answer.state;
       setTurns((ts) => ts.map((t) => t.id === id ? { ...t, answer, pending: false } : t));
     } catch (e: any) {
+      // Stop closes the connection, and the server stops spending on an answer nobody will read
+      if (ctrl.signal.aborted) { setTurns((ts) => ts.map((t) => t.id === id ? { ...t, stopped: true, pending: false } : t)); return; }
       // a raw "HTTP 502" is not an answer; say what happened in the owner's terms
       const m = String(e?.message || '');
       const friendly = /401|403/.test(m) ? 'Pulse is for the owner account.' : /400/.test(m) ? "Pulse didn't receive that question — try once more." : /5\d\d|unavailable|fetch/i.test(m) ? "Pulse couldn't reach the database just now. Try again in a moment." : m || 'Pulse is unavailable right now.';
@@ -108,7 +113,14 @@ export function usePulse() {
     }
   }, []);
 
+  const stop = useCallback(() => ctrlRef.current?.abort(), []);
+  /** one thumbs up or down per answer, with an optional note on a down — the next test cases */
+  const rate = useCallback((turn: Turn, rating: 'up' | 'down', note?: string) => {
+    setTurns((ts) => ts.map((t) => t.id === turn.id ? { ...t, rating } : t));
+    if (!turn.answer?.turn) return;
+    branchRequest('/pulse/feedback', bid(), { method: 'POST', body: JSON.stringify({ turn: turn.answer.turn, rating, q: turn.q, note }) }).catch(() => {});
+  }, []);
   const toggleCollapse = useCallback((id: number) => setTurns((ts) => ts.map((t) => t.id === id ? { ...t, collapsed: !t.collapsed } : t)), []);
-  const reset = useCallback(() => { setTurns([]); stateRef.current = {}; }, []);
-  return { open, setOpen, expanded, setExpanded, turns, today, todayFailed, thinking, ask, prefetch, toggleCollapse, reset, branchName, context: stateRef.current };
+  const reset = useCallback(() => { ctrlRef.current?.abort(); setTurns([]); stateRef.current = {}; }, []);
+  return { open, setOpen, expanded, setExpanded, turns, today, todayFailed, thinking, ask, stop, rate, prefetch, toggleCollapse, reset, branchName, context: stateRef.current };
 }

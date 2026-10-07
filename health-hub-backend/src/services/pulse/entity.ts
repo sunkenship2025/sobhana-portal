@@ -5,6 +5,7 @@
  */
 import { query, IST } from './db';
 import { periods, fmt, addDays } from './diagnostic';
+import { OWES } from './catalog';
 import type { Knowledge } from './knowledge';
 
 const ENTITY_ASK = /\babout\b|overview|profile|kaisa|how is|how's|\bstill\b|ab bhi|dena hai|kitna dena|\bowed\b|kaise/i;
@@ -50,7 +51,7 @@ export async function entityCard(k: Knowledge, q: string) {
     const code = e.sub;
     const rev = (p: any) => num(`SELECT COALESCE(SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END),0) v FROM "PaymentTransaction" pt JOIN "Bill" b ON b.id=pt."billId" JOIN "Branch" br ON br.id=b."branchId" WHERE br.code='${code}' AND ${win('pt."transactionDate"', p)}`);
     const vis = (p: any) => num(`SELECT count(*) v FROM "Visit" v JOIN "Branch" br ON br.id=v."branchId" WHERE br.code='${code}' AND ${win('v."createdAt"', p)}`);
-    const due = num(`SELECT COALESCE(SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise"),0) v FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE br.code='${code}' AND b."paymentStatus"<>'PAID'`);
+    const due = num(`SELECT COALESCE(SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise"),0) v FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE br.code='${code}' AND ${OWES()}`);
     const late = num(`SELECT count(*) v FROM "Visit" v JOIN "Branch" br ON br.id=v."branchId" JOIN "DiagnosticReport" dr ON dr."visitId"=v.id WHERE br.code='${code}' AND v."createdAt" < now() - interval '24 hours' AND v."createdAt" > now() - interval '14 days' AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')`);
     const [ra, rb, va, vb, d, l] = await Promise.all([rev(cur), rev(prev), vis(cur), vis(prev), due, late]);
     facts.push({ label: 'Collection this month', value: fmt(ra, 'paise'), deltaPct: pct(ra, rb) }, { label: 'Cases', value: String(va), deltaPct: pct(va, vb) }, { label: 'Due', value: fmt(d, 'paise') });

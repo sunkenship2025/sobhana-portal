@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { Step, Segments, Opportunity } from './usePulse';
 import { Artifact } from './PulseArtifacts';
 import { rupees } from './format';
@@ -163,11 +164,33 @@ export function Thinking({ steps }: { steps?: Step[] }) {
     </div>);
 }
 
+/** Was this right? A down vote may carry a note — those become the next test cases. */
+function Feedback({ t, onRate }: { t: Turn; onRate: (r: 'up' | 'down', note?: string) => void }) {
+  const [note, setNote] = useState('');
+  const [sent, setSent] = useState(false);
+  const btn = 'rounded-md p-1.5 transition-colors hover:bg-muted hover:text-foreground';
+  return (
+    <div className="flex items-center gap-0.5 text-muted-foreground">
+      <button type="button" title="Helpful" aria-pressed={t.rating === 'up'} onClick={() => onRate('up')}
+        className={`${btn} ${t.rating === 'up' ? 'text-foreground' : ''}`}>
+        <ThumbsUp size={13} fill={t.rating === 'up' ? 'currentColor' : 'none'} /></button>
+      <button type="button" title="Not right" aria-pressed={t.rating === 'down'} onClick={() => onRate('down')}
+        className={`${btn} ${t.rating === 'down' ? 'text-foreground' : ''}`}>
+        <ThumbsDown size={13} fill={t.rating === 'down' ? 'currentColor' : 'none'} /></button>
+      {t.rating === 'down' && !sent && (
+        <form className="ml-1 flex-1" onSubmit={(e) => { e.preventDefault(); if (note.trim()) { onRate('down', note.trim()); setSent(true); } }}>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What was wrong? (optional, Enter to send)"
+            className="h-7 w-full rounded-md border bg-background px-2 text-[11.5px] outline-none focus:ring-1 focus:ring-ring" />
+        </form>)}
+      {sent && <span className="ml-1 text-[11px]">Noted.</span>}
+    </div>);
+}
+
 /* Exported for /dev/artifacts, which renders a whole answer — verdict, incomplete banner,
    opportunities, chips, the evidence drawer — against real evidence and no backend. The artifact
    gallery found a 100x total and an "undefined to undefined" the moment anyone looked at it; the
    prose half of the card had never been looked at either. */
-export function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void }) {
+export function TurnView({ t, onAsk, onExpand, onRate }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void; onRate?: (r: 'up' | 'down', note?: string) => void }) {
   const a = t.answer;
   if (t.collapsed && a) return (
     <button type="button" onClick={onExpand}
@@ -180,6 +203,7 @@ export function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) =
       <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-[13.5px] leading-snug">{t.q}</div>
       {t.pending && <Thinking steps={t.steps} />}
       {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
+      {t.stopped && <p className="text-[12.5px] text-muted-foreground">Stopped.</p>}
       {a && <>
         {a.incomplete && <Incomplete i={a.incomplete} />}
         {a.segments?.verdict
@@ -189,6 +213,7 @@ export function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) =
         {(a.artifacts || []).map((x: any, i: number) => <Artifact key={i} a={x} evidence={a.evidence || []} />)}
         {a.kind === 'refuse' && !a.text && <p className="text-[13.5px]">I couldn't answer that.</p>}
         <Chips chips={a.chips} onAsk={onAsk} />
+        {onRate && a.turn && a.kind !== 'chat' && <Feedback t={t} onRate={onRate} />}
         {a.evidence?.length > 0 && (
           <details className="pulse-evidence text-[11px] text-muted-foreground">
             <summary className="cursor-pointer select-none py-0.5 hover:text-foreground">how this was worked out</summary>
@@ -240,6 +265,12 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
       </div>
 
       <div ref={scroller} className="pulse-scroll flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {empty && p.today?.model && (!p.today.model.ok || (p.today.model.usd != null && p.today.model.usd < 2)) && (
+          <p className={`text-[12px] leading-snug ${p.today.model.ok ? 'text-muted-foreground' : 'text-[#D91C2B]'}`}>
+            {p.today.model.ok
+              ? `Pulse credit is low: $${p.today.model.usd!.toFixed(2)} left, about ${Math.floor(p.today.model.usd! / 0.04)} questions.`
+              : `Pulse can't answer questions right now — ${p.today.model.why || 'the model is unreachable'}. The figures below still work.`}
+          </p>)}
         {empty && (p.today ? (
           <div className="space-y-3">
             <div className="rounded-xl border bg-card px-4 py-3">
@@ -277,16 +308,21 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
           </div>
         ))}
 
-        {p.turns.map((t) => <TurnView key={t.id} t={t} onAsk={submit} onExpand={() => p.toggleCollapse(t.id)} />)}
+        {p.turns.map((t) => <TurnView key={t.id} t={t} onAsk={submit} onExpand={() => p.toggleCollapse(t.id)} onRate={(r, note) => p.rate(t, r, note)} />)}
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="flex items-center gap-2 border-t px-4 py-3">
         <input ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Pulse…" disabled={p.thinking}
           className="h-11 flex-1 rounded-full border bg-background px-4 text-[14px] outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-ring disabled:opacity-60" />
-        <button type="submit" disabled={p.thinking || !text.trim()} aria-label="Ask"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-35">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></svg>
-        </button>
+        {p.thinking
+          ? <button type="button" onClick={p.stop} aria-label="Stop" title="Stop"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity">
+              <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor" /></svg>
+            </button>
+          : <button type="submit" disabled={!text.trim()} aria-label="Ask"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-35">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></svg>
+            </button>}
       </form>
     </div>);
 }

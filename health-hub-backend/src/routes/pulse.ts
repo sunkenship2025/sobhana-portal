@@ -5,12 +5,23 @@
  * GET  /health              -> knowledge freshness
  */
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { ask, todayPack } from '../services/pulse';
 import { ensureKnowledge, refreshKnowledge, touchNames } from '../services/pulse/knowledge';
 import { logAction } from '../services/auditService';
+import { modelStatus, turnSignal } from '../services/pulse/llm';
+
+/** The owner's request as an abort signal. `req` 'close' fires the moment the body has been read
+ *  (Node 16+), not when the client goes — measured at 2ms — so it is the RESPONSE closing before
+ *  it finished that means the panel was closed or Stop was pressed. */
+function cancelOnClose(res: any): AbortController {
+  const ctrl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ctrl.abort(); });
+  return ctrl;
+}
 
 const router = Router();
 
@@ -21,12 +32,14 @@ router.use(authMiddleware, branchContextMiddleware, requireRole('owner'));
 
 router.get('/today', async (_req, res) => {
   touchNames();   // the panel is opening: if a doctor/test/branch was added or the schema changed, refresh
-  try { res.json(await todayPack()); } catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
+  // the model's state rides along, so a dead account shows on the panel before anyone asks
+  try { const [pack, model] = await Promise.all([todayPack(), modelStatus()]); res.json({ ...pack, model }); }
+  catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
 });
 
 router.get('/health', async (_req, res) => {
-  try { const k = await ensureKnowledge(); const broken = Object.entries(k.registryHealth).filter(([, v]) => v.startsWith('BROKEN'));
-    res.status(broken.length ? 500 : 200).json({ ok: broken.length === 0, builtAt: k.builtAt, namesAt: k.namesAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length, registry: k.registryHealth }); }
+  try { const [k, model] = await Promise.all([ensureKnowledge(), modelStatus()]); const broken = Object.entries(k.registryHealth).filter(([, v]) => v.startsWith('BROKEN'));
+    res.status(broken.length || !model.ok ? 500 : 200).json({ ok: broken.length === 0 && model.ok, model, builtAt: k.builtAt, namesAt: k.namesAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length, registry: k.registryHealth }); }
   catch (e: any) { res.status(503).json({ ok: false, message: String(e?.message || e).slice(0, 200) }); }
 });
 
@@ -67,16 +80,18 @@ router.post('/ask', async (req: AuthRequest, res) => {
   const q = String(req.body?.q || '').trim();
   if (!q) { res.status(400).json({ error: 'q required' }); return; }
   const t0 = Date.now();
+  const ctrl = cancelOnClose(res);
+  const turn = randomUUID();
   try {
     // Authorization is decided HERE, where the asker is known, and passed down as policy. The
     // route is requireRole('owner'), so row-level detail about their own patients is theirs to
     // see; a future staff or shared surface sets this false and the validator withholds names.
-    const answer = await ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req) });
+    const answer = await turnSignal.run(ctrl.signal, () => ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req) }));
     // Every question is auditable: who asked what, which path answered, and the SQL if any.
     // AuditActionType has no PULSE value yet (adding one is a migration); REPORT_ACCESS with
     // entityType 'Pulse' keeps it filterable until then.
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
-      newValues: { q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
+      newValues: { turn, q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         // Replaying this log against the database is how the real defects were found — a figure
         // 100x too large, a "complete" list missing a debtor, a feature reported as non-existent.
         // Without the answer and the refusal reason none of that was visible after the fact.
@@ -85,7 +100,7 @@ router.post('/ask', async (req: AuthRequest, res) => {
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;   // the trace is for the log, not the wire
-    res.json(clean);
+    res.json({ ...clean, turn });
   } catch (e: any) {
     res.status(502).json({ kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
   }
@@ -110,22 +125,35 @@ router.post('/ask/stream', async (req: AuthRequest, res) => {
     try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
   };
   let alive = true;
-  req.on('close', () => { alive = false; });
+  const ctrl = cancelOnClose(res);
+  ctrl.signal.addEventListener('abort', () => { alive = false; });
+  const turn = randomUUID();
   const beat = setInterval(() => alive && res.write(': keep-alive\n\n'), 15_000);
   try {
-    const answer = await ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req),
-      onProgress: (text, kind) => { if (alive) send('progress', { text, kind: kind || 'step' }); } });
+    const answer = await turnSignal.run(ctrl.signal, () => ask(q, req.body?.state || {}, { rowLevel: maySeePeople(req),
+      onProgress: (text, kind) => { if (alive) send('progress', { text, kind: kind || 'step' }); } }));
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
-      newValues: { q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
+      newValues: { turn, q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
         why: (answer as any).why, refusal: (answer as any).refusal,
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls, streamed: true } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;
-    send('answer', clean);
+    send('answer', { ...clean, turn });
   } catch (e: any) {
     send('answer', { kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
   } finally { clearInterval(beat); res.end(); }
+});
+
+/** A thumbs up or down on one answer, tied to its audit row by the turn id. The down votes with a
+ *  note are the next benchmark cases; the up votes on catalog answers are verified examples. */
+router.post('/feedback', async (req: AuthRequest, res) => {
+  const turn = String(req.body?.turn || '').slice(0, 64);
+  const rating = req.body?.rating === 'up' ? 'up' : req.body?.rating === 'down' ? 'down' : null;
+  if (!turn || !rating) { res.status(400).json({ error: 'turn and rating required' }); return; }
+  await logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'PulseFeedback', entityId: turn,
+    newValues: { rating, q: String(req.body?.q || '').slice(0, 300), note: String(req.body?.note || '').slice(0, 500) || undefined } }).catch(() => {});
+  res.json({ ok: true });
 });
 
 export default router;

@@ -18,6 +18,7 @@ import { renderOptions, describeEvidence, rowsOf, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, identityOf, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
+import { turnSignal } from '../llm';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
    3 queries produced shallow answers to questions that deserved a real investigation; the loop
@@ -176,6 +177,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
     // the deadline is checked HERE, before the work, not only after a round has already overrun
     if (rounds > 1 && Date.now() - t0 > MAX_MS) break;
+    if (turnSignal.getStore()?.aborted) throw new Error('cancelled by the owner');
     // Fan-out is bounded by the time left, not by what the analyst asked for. A round of six
     // query steps is six model calls and six round trips; asking for all of them at second 40 is
     // how a 60s budget became 130s.

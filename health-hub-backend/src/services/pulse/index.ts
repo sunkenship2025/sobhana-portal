@@ -18,6 +18,7 @@ import { guessMetric } from './shapes';
 export { todayPack } from './today';
 import { analyse } from './v2/run';
 import { hasArtifactReference } from './v2/artifacts';
+import { turnSignal } from './llm';
 
 export interface PulseState { lastQ?: string | null; lastSql?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
 export type Answer = any;
@@ -119,6 +120,7 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { onProgre
        7 of 24, which reads as catastrophe and means nothing. The caller cannot tell them apart
        unless the refusal says which it was. */
     const why = String((e as any)?.message || '');
+    if (turnSignal.getStore()?.aborted) return { kind: 'refuse', reason: 'cancelled', text: 'Stopped.', state };
     const infra = /402|Insufficient Balance|401|invalid_api_key|API key not set|429|rate.?limit|ECONNREFUSED|ENOTFOUND|timed out|connection pool/i.test(why);
     return { kind: 'refuse', reason: infra ? 'unavailable' : refersToArtifact ? 'reference_failed' : 'failed',
       ...(infra ? { unavailable: why.slice(0, 160) } : {}),

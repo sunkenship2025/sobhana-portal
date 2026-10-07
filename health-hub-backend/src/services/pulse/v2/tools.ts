@@ -512,11 +512,11 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
   }
 
   const duesQ = /\b(due|dues|outstanding|owes?|owing|unpaid|receivab)/i.test(q);
-  const badDue = () => duesQ && /"Bill"/.test(sql) && (/"paymentStatus"/.test(sql) || !/paidAmountInPaise/.test(sql));
+  const badDue = () => duesQ && /"Bill"/.test(sql) && !(/"paymentStatus"/.test(sql) && /paidAmountInPaise/.test(sql));
   if (badDue()) {
     try {
       spent++; const f = await llmJson<{ sql?: string }>(
-        `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the arithmetic, never the status flag. Filter on (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0 and remove any "paymentStatus" condition. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
+        `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the Money page's: filter on ${OWES()} — both conditions, nothing else. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'DUE_DEFINITION'; } }
@@ -685,7 +685,7 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
     // The computed balance IS the debt. paymentStatus is a denormalised flag that disagrees with
     // it on real rows — trusting both dropped a patient who genuinely owed money, under a
     // "complete list" headline. One source of truth for money.
-    const w = [`${DUE()} > ${minP}`];
+    const w = [OWES(), `${DUE()} > ${minP}`];
     if (br) w.push(`br.code = '${br}'`);
     if (olderDays) w.push(`b."billedAt" < now() - interval '${olderDays} days'`);
     const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
