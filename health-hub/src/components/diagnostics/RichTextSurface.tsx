@@ -19,7 +19,7 @@ import {
   normalizeRichTextForStorage,
   plainTextToRichText,
   sanitizeRichTextHtml,
-  stripInlineFontSize,
+  stripInlineFontSize, collapseSpaceRuns,
 } from '@/lib/richText';
 
 export type ToolbarState = {
@@ -386,7 +386,7 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
       // of baking in a fixed size copied from the source (editor or Word),
       // which would make the findings body non-uniform.
       const pasteHtml = html
-        ? stripInlineFontSize(sanitizeRichTextHtml(html))
+        ? collapseSpaceRuns(stripInlineFontSize(sanitizeRichTextHtml(html)))
         : buildPasteHtml(text);
 
       if (!pasteHtml) {

@@ -324,6 +324,31 @@ export function normalizeRichTextForStorage(html: string | null | undefined): st
 }
 
 /**
+ * Word pads a line with non-breaking spaces to push the next sentence down.
+ * That only works at Word's page width: at the report's width the run is a gap
+ * that shoves the sentence right. Such a run, AFTER text on the same line,
+ * becomes one space; a run at the START of a line is deliberate indenting and
+ * is kept. Same rule as the backend renderer (utils/collapseSpaceRuns.ts).
+ */
+const SPACE_RUN = /(?:&nbsp;|\u00a0)(?:[ \t\r\n]*(?:&nbsp;|\u00a0)){2,}[ \t\r\n]*/g;
+const NEW_LINE_TAG = /^<\/?(?:p|div|br|li|ul|ol|h[1-6]|tr|td|th|table|blockquote)\b/i;
+
+export function collapseSpaceRuns(html: string): string {
+  let lineStart = true;
+  return html.replace(/<[^>]*>|[^<]+/g, (tok) => {
+    if (tok[0] === '<') {
+      if (NEW_LINE_TAG.test(tok)) lineStart = true;
+      return tok;
+    }
+    if (!lineStart) return tok.replace(SPACE_RUN, ' ');
+    const lead = tok.match(/^(?:&nbsp;|\u00a0|[ \t\r\n])*/)![0];
+    const rest = tok.slice(lead.length);
+    if (rest.replace(/&nbsp;|\u00a0/g, '').trim()) lineStart = false;
+    return lead + rest.replace(SPACE_RUN, ' ');
+  });
+}
+
+/**
  * Remove every explicit `font-size` from the markup so the text inherits the
  * surrounding base size. Used on paste: content copied from the editor or from
  * Word bakes in a fixed size that fights the report's base and makes the body

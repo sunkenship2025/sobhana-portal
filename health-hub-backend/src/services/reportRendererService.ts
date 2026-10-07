@@ -20,6 +20,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 import sanitizeHtml from 'sanitize-html';
+import { collapseSpaceRuns } from '../utils/collapseSpaceRuns';
 
 // ============================================================================
 // INLINE ASSETS — loaded once at startup, embedded in every report HTML
@@ -175,7 +176,7 @@ function sanitizeRichTextHtml(html: string | null | undefined): string {
     disallowedTagsMode: 'discard',
   });
 
-  return result.trim();
+  return collapseSpaceRuns(result).trim();
 }
 
 function renderNarrativeContent(text: string | null | undefined): string {
