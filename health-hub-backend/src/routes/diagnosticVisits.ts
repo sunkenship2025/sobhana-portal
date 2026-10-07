@@ -5550,15 +5550,12 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
 
     // Default: merged PDF — same writer as the public download path so staff
     // preview matches what the patient downloads (rendered values + appended uploads).
-    const draftBy = isDraftPrint
-      ? (await prisma.user.findUnique({ where: { id: req.user!.id }, select: { name: true } }))?.name || "staff"
-      : undefined;
     const pdfBuffer = await generateMergedReportPdf(snapshot, {
-      mode: draftBy ? "physical" : "digital",
+      mode: isDraftPrint ? "physical" : "digital",
       baseUrl,
       qrDataUrl: "", // QR encodes the public token which doesn't exist for drafts
       cache: false,  // never cache draft previews — they change as staff edits
-      draftBy,
+      draft: isDraftPrint,
     });
 
     res.setHeader("Content-Type", "application/pdf");

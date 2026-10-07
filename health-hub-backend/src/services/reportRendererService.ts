@@ -570,8 +570,8 @@ export interface RenderOptions {
   printedAt?: Date;
   // "Print draft" of an UNFINALIZED report, for the doctor to proofread on
   // paper: a band at the top of each report, a faint DRAFT across every printed
-  // page, and no signature images. The value is who printed it.
-  draftBy?: string;
+  // page, and no signature images.
+  draft?: boolean;
 }
 
 const DRAFT_CSS = `
@@ -1297,7 +1297,7 @@ ${pagesHtml}
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { profile, baseUrl = '', qrDataUrl = '', printedAt, draftBy } = options;
+  const { profile, baseUrl = '', qrDataUrl = '', printedAt, draft } = options;
   const resolved = resolveProfile(profile);
   const printedOnDisplay = printedAt ? formatDateTime(printedAt.toISOString()) : '';
 
@@ -1326,9 +1326,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint, printedOnDisplay))
     .join('');
 
-  if (draftBy) {
+  if (draft) {
     // In the body, under the letterhead space, so pre-printed paper can't cover it.
-    const band = `<div class="draft-band">Draft — not a certified report<small>For the doctor's review before finalizing. Not to be given to the patient. Printed by ${escapeHtml(draftBy)}.</small></div>`;
+    const band = `<div class="draft-band">Draft — not a certified report<small>For the doctor's review before finalizing. Not to be given to the patient.</small></div>`;
     return renderDocumentHtml(
       snapshot,
       { ...resolved, extraStyles: resolved.extraStyles + DRAFT_CSS },
