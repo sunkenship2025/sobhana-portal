@@ -18,7 +18,7 @@
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { comparisonWindow, getCollectedByHour, getCollectedSplits, getMoneyFacts, getReferrerFacts, totalsOf, type DayFact, type ReferrerFact } from './moneyFactsService';
 
 const CACHE_TTL_SEC = 60;
@@ -312,6 +312,10 @@ export async function getOwnerMoney(
     branchId || domain
       ? { bill: { ...(branchId ? { branchId } : {}), ...(domain ? { visit: { domain } } : {}) } }
       : {};
+  // The same branch / register scope for raw SQL over "Bill" b JOIN "Visit" v.
+  const billSqlScope = Prisma.sql`${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty} ${
+    domain ? Prisma.sql`AND v.domain = ${domain}::"VisitDomain"` : Prisma.empty
+  }`;
 
   // Net collected by department and doctor — adds back up to the headline.
   const splitsP = getCollectedSplits({ start: prior.start, end: win.end, branchId, domain }, win.start, prior.end);
@@ -326,7 +330,8 @@ export async function getOwnerMoney(
     referrerFacts,
     openBills,
     refundTxns,
-    paymentsInWindow,
+    paymentGroups,
+    unpaidRows,
     branches,
   ] = await Promise.all([
     branchId
@@ -335,8 +340,15 @@ export async function getOwnerMoney(
           select: { id: true, name: true },
         })
       : Promise.resolve(null),
+    // Only the bills with a discount (for the discount log) — the window's
+    // other totals are summed in SQL below, not pulled row by row.
     prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
+      where: {
+        billedAt: { gte: win.start, lt: win.end },
+        OR: [{ discountAmountInPaise: { gt: 0 } }, { couponDiscountInPaise: { gt: 0 } }],
+        ...billBranchWhere,
+        ...domainBillWhere,
+      },
       select: {
         id: true,
         billNumber: true,
@@ -392,22 +404,20 @@ export async function getOwnerMoney(
         },
       },
     }),
-    prisma.paymentTransaction.findMany({
-      where: {
-        transactionDate: { gte: win.start, lt: win.end },
-        ...paymentBillScope,
-      },
-      select: {
-        amountInPaise: true,
-        paymentType: true,
-        transactionType: true,
-        collectedByUserId: true,
-        bill: { select: { branchId: true } },
-        collectedByUser: {
-          select: { id: true, name: true, activeBranch: { select: { name: true } } },
-        },
-      },
-    }),
+    // Cash vs online per branch and per collector, summed in SQL.
+    prisma.$queryRaw<{ branchId: string; userId: string; type: string; kind: string; amount: bigint; n: number }[]>`
+      SELECT b."branchId", t."collectedByUserId" AS "userId", t."paymentType"::text AS type,
+        t."transactionType"::text AS kind, sum(t."amountInPaise")::bigint AS amount, count(*)::int AS n
+      FROM "PaymentTransaction" t
+      JOIN "Bill" b ON b.id = t."billId"
+      JOIN "Visit" v ON v.id = b."visitId"
+      WHERE t."transactionDate" >= ${win.start} AND t."transactionDate" < ${win.end} ${billSqlScope}
+      GROUP BY 1, 2, 3, 4`,
+    prisma.$queryRaw<{ unpaid: bigint | null }[]>`
+      SELECT sum(greatest(0, b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise"
+        - b."reversedChargeInPaise" - b."paidAmountInPaise"))::bigint AS unpaid
+      FROM "Bill" b JOIN "Visit" v ON v.id = b."visitId"
+      WHERE b."billedAt" >= ${win.start} AND b."billedAt" < ${win.end} ${billSqlScope}`,
     prisma.branch.findMany({
       where: { isActive: true },
       select: { id: true, name: true, code: true },
@@ -469,21 +479,13 @@ export async function getOwnerMoney(
   );
   const outstandingAgedBillCount = agedOpenBills.length;
 
-  const discountBillCount = billsInWindow.filter((b) => b.discountAmountInPaise + b.couponDiscountInPaise > 0).length;
+  const discountBillCount = billsInWindow.length; // only discounted bills are pulled
 
   // Collection rate for the selected period: of what was net-billable
   // (gross - discount) for bills billed in this window, how much has been
   // collected. Unpaid-from-this-period = the still-owed remainder on those bills.
   const netBillableInWindow = grossInWindow - discountInWindow;
-  const unpaidFromThisPeriod = billsInWindow.reduce(
-    (s, b) =>
-      s +
-      Math.max(
-        0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
-      ),
-    0,
-  );
+  const unpaidFromThisPeriod = Number(unpaidRows[0]?.unpaid ?? 0);
   const collectionRatePct =
     netBillableInWindow > 0
       ? Math.round(((netBillableInWindow - unpaidFromThisPeriod) / netBillableInWindow) * 100)
@@ -602,15 +604,13 @@ export async function getOwnerMoney(
 
   // ---- cash by branch ----
   const branchCash = new Map<string, { cash: number; online: number }>();
-  for (const p of paymentsInWindow) {
-    const bid = p.bill.branchId;
-    if (!bid) continue;
-    const cur = branchCash.get(bid) ?? { cash: 0, online: 0 };
+  for (const p of paymentGroups) {
+    const cur = branchCash.get(p.branchId) ?? { cash: 0, online: 0 };
     // Net of refunds: REFUND rows carry a positive amount but move money out.
-    const signed = p.transactionType === 'REFUND' ? -p.amountInPaise : p.amountInPaise;
-    if (p.paymentType === 'CASH') cur.cash += signed;
-    else if (p.paymentType === 'ONLINE') cur.online += signed;
-    branchCash.set(bid, cur);
+    const signed = p.kind === 'REFUND' ? -Number(p.amount) : Number(p.amount);
+    if (p.type === 'CASH') cur.cash += signed;
+    else if (p.type === 'ONLINE') cur.online += signed;
+    branchCash.set(p.branchId, cur);
   }
   const cashByBranch: CashByBranchRow[] = (branchId
     ? branches.filter((b) => b.id === branchId)
@@ -638,20 +638,28 @@ export async function getOwnerMoney(
     string,
     { name: string; branchName: string; cash: number; online: number; count: number }
   >();
-  for (const p of paymentsInWindow) {
-    const u = p.collectedByUserId;
-    if (!u) continue;
+  const collectorIds = [...new Set(paymentGroups.map((p) => p.userId))];
+  const collectors = collectorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: collectorIds } },
+        select: { id: true, name: true, activeBranch: { select: { name: true } } },
+      })
+    : [];
+  const collectorById = new Map(collectors.map((c) => [c.id, c]));
+  for (const p of paymentGroups) {
+    const u = p.userId;
+    const who = collectorById.get(u);
     const cur = userMap.get(u) ?? {
-      name: p.collectedByUser?.name ?? `(unknown ${u.slice(0, 6)})`,
-      branchName: p.collectedByUser?.activeBranch?.name ?? '—',
+      name: who?.name ?? `(unknown ${u.slice(0, 6)})`,
+      branchName: who?.activeBranch?.name ?? '—',
       cash: 0,
       online: 0,
       count: 0,
     };
-    const signed = p.transactionType === 'REFUND' ? -p.amountInPaise : p.amountInPaise;
-    if (p.paymentType === 'CASH') cur.cash += signed;
-    else if (p.paymentType === 'ONLINE') cur.online += signed;
-    cur.count += 1;
+    const signed = p.kind === 'REFUND' ? -Number(p.amount) : Number(p.amount);
+    if (p.type === 'CASH') cur.cash += signed;
+    else if (p.type === 'ONLINE') cur.online += signed;
+    cur.count += p.n;
     userMap.set(u, cur);
   }
   const cashByUser: CashByUserRow[] = Array.from(userMap.entries())
@@ -718,7 +726,7 @@ export async function getOwnerMoney(
         isCoupon: !manual,
       };
     })
-    .sort((a, b) => b.discountInPaise - a.discountInPaise);
+    .sort((a, b) => b.discountInPaise - a.discountInPaise || a.billNumber.localeCompare(b.billNumber));
   const discountLogTotalCount = discountLog.length;
 
   // ---- refunds (money returned) ----

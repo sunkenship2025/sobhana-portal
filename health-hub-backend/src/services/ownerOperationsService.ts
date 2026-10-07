@@ -167,7 +167,6 @@ export async function getOwnerOperations(
 
   const vBranch = branchId ? Prisma.sql`AND v."branchId" = ${branchId}` : Prisma.empty;
   const aBranch = branchId ? Prisma.sql`AND a."branchId" = ${branchId}` : Prisma.empty;
-  const oBranch = branchId ? Prisma.sql`AND o."branchId" = ${branchId}` : Prisma.empty;
   const rBranch = branchId ? Prisma.sql`AND r."branchId" = ${branchId}` : Prisma.empty;
   // A visit needs a report while it has a live reportable / outside-lab test
   // that was not closed as films only.
@@ -200,12 +199,13 @@ export async function getOwnerOperations(
       where: { createdAt: { gte: todayStart }, status: { not: 'CANCELLED' }, ...(branchId ? { branchId } : {}) },
       _count: true,
     }),
-    // Reports out today: visits whose FIRST release happened today (registered
-    // in the last 60 days — anything older is a backlog cleanup, not today's work).
+    // Reports out today: today's releases (indexed) that were the visit's FIRST.
     prisma.$queryRaw<{ branchId: string; n: number }[]>`
-      SELECT r."branchId", count(*)::int AS n FROM "DiagnosticReport" r
-      WHERE r."createdAt" >= ${new Date(todayStart.getTime() - 60 * DAY_MS)} ${rBranch}
-        AND (SELECT min(rv."finalizedAt") FROM "ReportVersion" rv WHERE rv."reportId" = r.id AND rv.status = 'FINALIZED') >= ${todayStart}
+      SELECT r."branchId", count(DISTINCT r.id)::int AS n
+      FROM "ReportVersion" rv JOIN "DiagnosticReport" r ON r.id = rv."reportId"
+      WHERE rv.status = 'FINALIZED' AND rv."finalizedAt" >= ${todayStart} ${rBranch}
+        AND NOT EXISTS (SELECT 1 FROM "ReportVersion" e WHERE e."reportId" = rv."reportId"
+                          AND e.status = 'FINALIZED' AND e."finalizedAt" < ${todayStart})
       GROUP BY 1`,
     // The lab's heartbeat: last report released and last result saved, per branch.
     prisma.$queryRaw<{ branchId: string; at: Date; by: string | null }[]>`
@@ -261,8 +261,8 @@ export async function getOwnerOperations(
       JOIN "LabTest" lt ON lt.id = tr."testId"
       LEFT JOIN "TestDefinition" td ON td.id = tr."testDefinitionId"
       LEFT JOIN "User" u ON u.id = tr."enteredByUserId"
-      WHERE tr.flag IN ('CRITICAL_HIGH', 'CRITICAL_LOW') AND o."cancelledAt" IS NULL
-        AND o."createdAt" >= ${recent} ${oBranch}
+      WHERE v."createdAt" >= ${recent} ${vBranch}
+        AND tr.flag IN ('CRITICAL_HIGH', 'CRITICAL_LOW') AND o."cancelledAt" IS NULL
       ORDER BY o.id, tr."testId", tr."createdAt" DESC`,
 
     // Messages that failed in the last 48h — reports, bills, prescriptions.
@@ -310,27 +310,47 @@ export async function getOwnerOperations(
       _count: true,
     }),
 
-    // The period's cohort, one row per visit.
+    // The period's cohort, one row per visit. Every lookup is bounded by the
+    // window — a release, a message or a link opened can only happen after
+    // registration — so the work grows with the period, not with history.
     prisma.$queryRaw<
       { branchId: string; reg: Date; entry: Date | null; rel: Date | null; open: boolean; sent: boolean; delivered: boolean; opened: boolean; printed: boolean }[]
     >`
+      WITH v AS (
+        SELECT v.id, v."branchId", v."createdAt", v.status, v."reportPrintedAt" FROM "Visit" v
+        WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' ${vBranch}
+          AND v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end}
+          AND ${needsReport}
+      ), rv AS (
+        SELECT r."visitId", rv.id, rv."finalizedAt" FROM v
+        JOIN "DiagnosticReport" r ON r."visitId" = v.id
+        JOIN "ReportVersion" rv ON rv."reportId" = r.id AND rv.status = 'FINALIZED' AND rv."finalizedAt" >= ${win.start}
+      ), rel AS (
+        SELECT "visitId", min("finalizedAt") AS at FROM rv GROUP BY 1
+      ), msg AS (
+        SELECT m."contextId" AS "visitId", bool_or(m.status IN ('DELIVERED', 'READ')) AS delivered
+        FROM "MessageLog" m
+        WHERE m."contextType" = 'REPORT' AND m."createdAt" >= ${win.start} AND m."contextId" IN (SELECT id FROM v)
+        GROUP BY 1
+      ), opened AS (
+        SELECT DISTINCT rv."visitId" FROM rv
+        JOIN "ReportAccessLog" l ON l."reportVersionId" = rv.id AND l."createdAt" >= ${win.start}
+        WHERE l."accessedVia" IN ('TOKEN', 'PATIENT_PORTAL')
+      )
       SELECT v."branchId", v."createdAt" AS reg,
-        (SELECT min(tr."createdAt") FROM "TestOrder" o JOIN "TestResult" tr ON tr."testOrderId" = o.id WHERE o."visitId" = v.id) AS entry,
-        (SELECT min(rv."finalizedAt") FROM "DiagnosticReport" r
-           JOIN "ReportVersion" rv ON rv."reportId" = r.id AND rv.status = 'FINALIZED'
-          WHERE r."visitId" = v.id) AS rel,
+        -- per visit through the visitId / testOrderId indexes
+        (SELECT min(tr."createdAt") FROM "TestOrder" o JOIN "TestResult" tr ON tr."testOrderId" = o.id
+          WHERE o."visitId" = v.id) AS entry,
+        rel.at AS rel,
         v.status IN ('DRAFT', 'WAITING') AS open,
-        EXISTS (SELECT 1 FROM "MessageLog" m WHERE m."contextType" = 'REPORT' AND m."contextId" = v.id) AS sent,
-        EXISTS (SELECT 1 FROM "MessageLog" m WHERE m."contextType" = 'REPORT' AND m."contextId" = v.id
-                  AND m.status IN ('DELIVERED', 'READ')) AS delivered,
-        EXISTS (SELECT 1 FROM "DiagnosticReport" r JOIN "ReportVersion" rv ON rv."reportId" = r.id
-                  JOIN "ReportAccessLog" l ON l."reportVersionId" = rv.id
-                 WHERE r."visitId" = v.id AND l."accessedVia" IN ('TOKEN', 'PATIENT_PORTAL')) AS opened,
+        msg."visitId" IS NOT NULL AS sent,
+        coalesce(msg.delivered, false) AS delivered,
+        opened."visitId" IS NOT NULL AS opened,
         v."reportPrintedAt" IS NOT NULL AS printed
-      FROM "Visit" v
-      WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' ${vBranch}
-        AND v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end}
-        AND ${needsReport}`,
+      FROM v
+      LEFT JOIN rel ON rel."visitId" = v.id
+      LEFT JOIN msg ON msg."visitId" = v.id
+      LEFT JOIN opened ON opened."visitId" = v.id`,
 
     // Per department: a visit's part is out when every live test of that
     // department in it is out. Reportable tests are out with the first released
@@ -354,9 +374,13 @@ export async function getOwnerOperations(
                 AND rv."finalizedAt" >= (SELECT min(u."uploadedAt") FROM "ExternalReportUpload" u
                                           WHERE u."testOrderId" = o.id AND u."deletedAt" IS NULL))
           END AS rel
-        FROM "TestOrder" o JOIN "Visit" v ON v.id = o."visitId"
-        WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED' AND o."cancelledAt" IS NULL
-          AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
+        FROM "Visit" v
+        CROSS JOIN LATERAL (
+          SELECT * FROM "TestOrder" o WHERE o."visitId" = v.id AND o."cancelledAt" IS NULL
+            AND o."workflowMode" IN ('REPORTABLE', 'EXTERNAL_UPLOAD')
+          OFFSET 0
+        ) o
+        WHERE v.domain = 'DIAGNOSTICS' AND v.status <> 'CANCELLED'
           AND v."createdAt" >= ${win.start} AND v."createdAt" < ${win.end} ${vBranch}
       ), vd AS (
         SELECT "visitId", name, reg, bool_and(films) AS films,
@@ -389,11 +413,20 @@ export async function getOwnerOperations(
       WHERE a."actionType" = 'CREATE' AND a."entityType" = 'VISIT' AND a."userId" IS NOT NULL
         AND a."createdAt" >= ${win.start} AND a."createdAt" < ${win.end} ${aBranch}
       GROUP BY 1, 2`,
+    // TestResult has no date index, so start from visits (which do) and walk
+    // down. ponytail: a result entered more than 30 days after registration is
+    // missed; index TestResult."createdAt" if backlog entry ever matters here.
     prisma.$queryRaw<{ userId: string; branchId: string; n: number }[]>`
-      SELECT tr."enteredByUserId" AS "userId", o."branchId", count(DISTINCT tr."testOrderId")::int AS n
-      FROM "TestResult" tr JOIN "TestOrder" o ON o.id = tr."testOrderId"
-      WHERE tr."enteredByUserId" IS NOT NULL
-        AND tr."createdAt" >= ${win.start} AND tr."createdAt" < ${win.end} ${oBranch}
+      SELECT x."userId", v."branchId", count(DISTINCT x."testOrderId")::int AS n
+      FROM "Visit" v
+      CROSS JOIN LATERAL (
+        SELECT tr."enteredByUserId" AS "userId", tr."testOrderId"
+        FROM "TestOrder" o JOIN "TestResult" tr ON tr."testOrderId" = o.id
+        WHERE o."visitId" = v.id AND tr."enteredByUserId" IS NOT NULL
+          AND tr."createdAt" >= ${win.start} AND tr."createdAt" < ${win.end}
+        OFFSET 0
+      ) x
+      WHERE v."createdAt" >= ${new Date(win.start.getTime() - 30 * DAY_MS)} AND v."createdAt" < ${win.end} ${vBranch}
       GROUP BY 1, 2`,
     prisma.$queryRaw<{ userId: string; branchId: string; n: number }[]>`
       SELECT a."userId", a."branchId", count(*)::int AS n FROM "AuditLog" a

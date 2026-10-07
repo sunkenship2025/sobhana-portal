@@ -851,7 +851,8 @@ export default function OwnerOperationsPage() {
     staleTime: 30 * 1000,
   });
 
-  // A server still on an older shape (deploy skew) has no branches: wait for it.
+  // Data in a shape this screen doesn't know (the page or the server was just
+  // updated): say so and offer a reload, never spin forever.
   const data = query.data?.branches ? query.data : undefined;
   const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
 
@@ -869,7 +870,21 @@ export default function OwnerOperationsPage() {
           }
         />
 
-        {(query.isLoading || (query.data && !data)) && <FullPageSkeleton />}
+        {query.isLoading && <FullPageSkeleton />}
+        {query.data && !data && (
+          <SectionCard>
+            <div className="flex flex-wrap items-center justify-between gap-3" style={{ fontSize: 13 }}>
+              <span>This page was updated. Reload to see the new version.</span>
+              <button
+                onClick={() => window.location.reload()}
+                className="rounded-md border px-3 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.info }}
+              >
+                Reload
+              </button>
+            </div>
+          </SectionCard>
+        )}
         {query.isError && <ErrorCard onRetry={() => query.refetch()} />}
 
         {data && (

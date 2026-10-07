@@ -56,7 +56,7 @@ import {
   type SourceFact,
 } from './moneyFactsService';
 import { logger } from '../lib/logger';
-import type { Prisma, VisitDomain } from '@prisma/client';
+import { Prisma, type VisitDomain } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (
@@ -469,17 +469,13 @@ export async function getOwnerDashboardV2(
         ...(branchId ? { branchId } : {}),
       },
     }),
-    prisma.bill.findMany({
-      where: {
-        billedAt: { lt: sevenDaysAgo },
-        paymentStatus: { not: 'PAID' },
-        ...billBranchWhere,
-      },
-      select: {
-        totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true,
-        couponDiscountInPaise: true, reversedChargeInPaise: true,
-      },
-    }),
+    // Still owed on bills over a week old, summed in SQL.
+    prisma.$queryRaw<{ owed: bigint | null }[]>`
+      SELECT sum(greatest(0, b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise"
+        - b."reversedChargeInPaise" - b."paidAmountInPaise"))::bigint AS owed
+      FROM "Bill" b
+      WHERE b."billedAt" < ${sevenDaysAgo} AND b."paymentStatus" <> 'PAID'
+        ${branchId ? Prisma.sql`AND b."branchId" = ${branchId}` : Prisma.empty}`,
     prisma.bill.count({
       where: {
         billedAt: { gte: yesterdayStart },
@@ -614,26 +610,28 @@ export async function getOwnerDashboardV2(
       },
       _count: true,
     }),
-    prisma.visit.findMany({
-      where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
-        ...branchScopeWhere,
-      },
-      select: { patient: { select: { whatsappOptIn: true } } },
-      take: 1000,
-    }),
+    // Today's opt-in share as two counts, not a list of visits.
+    Promise.all([
+      prisma.visit.count({ where: { createdAt: { gte: todayStart, lt: tomorrowStart }, ...branchScopeWhere } }),
+      prisma.visit.count({
+        where: { createdAt: { gte: todayStart, lt: tomorrowStart }, ...branchScopeWhere, patient: { whatsappOptIn: true } },
+      }),
+    ]),
 
-    prisma.reportVersion.findMany({
-      where: {
-        status: 'FINALIZED',
-        finalizedAt: { gte: win.start, lt: win.end },
-      },
-      select: {
-        finalizedAt: true,
-        report: { select: { branchId: true, visit: { select: { createdAt: true } } } },
-      },
-      take: 2000,
-    }),
+    // Median registration → release per branch, in SQL (was 2,000 rows pulled
+    // and silently cut off on long windows). Same pick as percentile():
+    // the value at index floor(n/2) of the sorted list.
+    prisma.$queryRaw<{ branchId: string; p50: number; n: bigint }[]>`
+      SELECT "branchId", d AS p50, n FROM (
+        SELECT r."branchId", extract(epoch FROM rv."finalizedAt" - v."createdAt") / 60 AS d,
+          row_number() OVER (PARTITION BY r."branchId" ORDER BY rv."finalizedAt" - v."createdAt") - 1 AS i,
+          count(*) OVER (PARTITION BY r."branchId") AS n
+        FROM "ReportVersion" rv
+        JOIN "DiagnosticReport" r ON r.id = rv."reportId"
+        JOIN "Visit" v ON v.id = r."visitId"
+        WHERE rv.status = 'FINALIZED' AND rv."finalizedAt" >= ${win.start} AND rv."finalizedAt" < ${win.end}
+          AND rv."finalizedAt" >= v."createdAt"
+      ) x WHERE i = floor(n / 2)`,
 
     prisma.visit.count({
       where: { domain: 'DIAGNOSTICS', status: { not: 'CANCELLED' }, createdAt: { gte: todayStart, lt: tomorrowStart }, ...branchScopeWhere },
@@ -657,15 +655,7 @@ export async function getOwnerDashboardV2(
     });
   }
 
-  const unpaidAgedAmount = unpaidAgedAgg.reduce(
-    (sum, b) =>
-      sum +
-      Math.max(
-        0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.couponDiscountInPaise -
-          b.reversedChargeInPaise - b.paidAmountInPaise,
-      ),
-    0,
+  const unpaidAgedAmount = Number(unpaidAgedAgg[0]?.owed ?? 0
   );
   if (unpaidAgedAmount > 0) {
     actionQueue.push({
@@ -835,9 +825,9 @@ export async function getOwnerDashboardV2(
     else if (row.status === 'READ') comms.read = c;
     else if (row.status === 'FAILED') comms.failed = c;
   }
-  if (optInWindowVisits.length > 0) {
-    const optIns = optInWindowVisits.filter((v) => v.patient.whatsappOptIn).length;
-    comms.optInPercent = Math.round((optIns / optInWindowVisits.length) * 100);
+  const [visitsTodayN, optInsTodayN] = optInWindowVisits;
+  if (visitsTodayN > 0) {
+    comms.optInPercent = Math.round((optInsTodayN / visitsTodayN) * 100);
   }
 
   const opsPulse: OpsPulse = {
@@ -989,25 +979,17 @@ export async function getOwnerDashboardV2(
   for (const f of priorFacts) priorByBranch.set(f.branchId, [...(priorByBranch.get(f.branchId) ?? []), f]);
 
   // tat per branch
-  const branchTatBuckets = new Map<string, number[]>();
-  for (const r of branchTatSamples) {
-    if (!r.report?.visit?.createdAt || !r.finalizedAt) continue;
-    const bid = r.report.branchId;
-    const dur = (r.finalizedAt.getTime() - r.report.visit.createdAt.getTime()) / 60_000;
-    if (dur < 0) continue;
-    const arr = branchTatBuckets.get(bid) ?? [];
-    arr.push(dur);
-    branchTatBuckets.set(bid, arr);
-  }
+  const branchTat = new Map(branchTatSamples.map((r) => [r.branchId, { p50: Number(r.p50), n: Number(r.n) }]));
 
-  // last visit per branch (for dormancy)
+  // Last visit per branch (for dormancy): the newest visit per branch via the
+  // createdAt index, newest first — stops at the first hit for a busy branch
+  // instead of grouping every visit ever.
   const lastVisitByBranch = new Map<string, Date>();
-  const allRecentVisits = await prisma.visit.groupBy({
-    by: ['branchId'],
-    _max: { createdAt: true },
-  });
-  for (const row of allRecentVisits) {
-    if (row._max.createdAt) lastVisitByBranch.set(row.branchId, row._max.createdAt);
+  const lastVisits = await prisma.$queryRaw<{ id: string; last: Date | null }[]>`
+    SELECT b.id, (SELECT v."createdAt" FROM "Visit" v WHERE v."branchId" = b.id ORDER BY v."createdAt" DESC LIMIT 1) AS last
+    FROM "Branch" b`;
+  for (const row of lastVisits) {
+    if (row.last) lastVisitByBranch.set(row.id, row.last);
   }
 
   const visibleBranches = branchId
@@ -1019,7 +1001,6 @@ export async function getOwnerDashboardV2(
       const c = totalsOf(curByBranch.get(b.id) ?? []);
       const p = totalsOf(priorByBranch.get(b.id) ?? []);
       const daily = byDay(curByBranch.get(b.id) ?? []);
-      const tatList = (branchTatBuckets.get(b.id) ?? []).sort((x, y) => x - y);
       const lastVisit = lastVisitByBranch.get(b.id);
       const daysDormant = lastVisit
         ? Math.max(0, Math.floor((now.getTime() - lastVisit.getTime()) / DAY_MS))
@@ -1033,8 +1014,8 @@ export async function getOwnerDashboardV2(
         avgTicketInPaise: c.visits > 0 ? Math.round(c.net / c.visits) : null,
         // Collected per visit — the same basis as every other money figure.
         avgBillInPaise: c.visits > 0 ? Math.round(c.netCollected / c.visits) : null,
-        tatP50Minutes: percentile(tatList, 50),
-        tatSampleCount: tatList.length,
+        tatP50Minutes: branchTat.get(b.id)?.p50 ?? null,
+        tatSampleCount: branchTat.get(b.id)?.n ?? 0,
         // Δ follows the headline: net collected against the prior window.
         deltaPercent: pct(c.netCollected, p.netCollected),
         daysDormant: daysDormant >= DORMANT_DAYS ? daysDormant : 0,
