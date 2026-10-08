@@ -185,27 +185,31 @@ function topologicalSortDerivedTargets(
   const result: DerivedFormulaTarget[] = [];
   const visited = new Set<string>();
   const visiting = new Set<string>();
-  const codeToTarget = new Map<string, DerivedFormulaTarget>();
+  // Keyed per ORDER, not per code: a derived test billed twice (CBC inside a package plus an
+  // extra CBC) has two targets with one code, and both must be computed. Keying on the code
+  // alone skipped the second, which then blocked finalising as "still pending".
+  const key = (t: DerivedFormulaTarget) => `${t.code}|${t.testOrderId ?? ''}|${t.testId}`;
+  const codeToTargets = new Map<string, DerivedFormulaTarget[]>();
 
   for (const target of targets) {
-    codeToTarget.set(target.code, target);
+    codeToTargets.set(target.code, [...(codeToTargets.get(target.code) ?? []), target]);
   }
 
   function visit(target: DerivedFormulaTarget): void {
-    if (visited.has(target.code)) return;
-    if (visiting.has(target.code)) return;
+    const k = key(target);
+    if (visited.has(k)) return;
+    if (visiting.has(k)) return;
 
-    visiting.add(target.code);
+    visiting.add(k);
 
     for (const depCode of target.dependsOnCodes) {
-      const dependency = codeToTarget.get(depCode);
-      if (dependency) {
+      for (const dependency of codeToTargets.get(depCode) ?? []) {
         visit(dependency);
       }
     }
 
-    visiting.delete(target.code);
-    visited.add(target.code);
+    visiting.delete(k);
+    visited.add(k);
     result.push(target);
   }
 
@@ -251,6 +255,11 @@ function safeEvaluateFormula(
     if (typeof result !== 'number' || !isFinite(result)) {
       return null;
     }
+
+    // Every derived quantity (differential remainder, globulin, indirect bilirubin, LDL,
+    // UIBC, ratios) is non-negative: below 0 means the inputs disagree (a differential
+    // adding up to 101, DBIL above TBIL), so leave it blank, never print a negative.
+    if (result < 0) return null;
 
     // Round to 2 decimal places
     return Math.round(result * 100) / 100;

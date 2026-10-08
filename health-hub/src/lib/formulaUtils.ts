@@ -55,6 +55,11 @@ export function safeEvaluateFormula(
       return null; // Handles division by zero (Infinity) and NaN
     }
 
+    // Every derived quantity (differential remainder, globulin, indirect bilirubin, LDL,
+    // UIBC, ratios) is non-negative: below 0 means the inputs disagree (a differential
+    // adding up to 101, DBIL above TBIL), so leave it blank, never print a negative.
+    if (result < 0) return null;
+
     // Round to 2 decimal places
     return Math.round(result * 100) / 100;
   } catch {
@@ -76,31 +81,31 @@ export function topologicalSortDerivedTests(
   const visited = new Set<string>();
   const visiting = new Set<string>(); // For cycle detection
 
-  // Build a map of code -> derived test for quick lookup
-  const codeToTest = new Map<string, DerivedTestInfo>();
+  // Keyed by testId (the per-order result key), not the code: a derived test billed twice
+  // (a package's CBC plus an extra CBC) has two rows with one code, and both need a value.
+  const codeToTests = new Map<string, DerivedTestInfo[]>();
   for (const test of derivedTests) {
-    codeToTest.set(test.code, test);
+    codeToTests.set(test.code, [...(codeToTests.get(test.code) ?? []), test]);
   }
 
   function visit(test: DerivedTestInfo): void {
-    if (visited.has(test.code)) return;
-    if (visiting.has(test.code)) {
+    if (visited.has(test.testId)) return;
+    if (visiting.has(test.testId)) {
       // Circular dependency detected - break cycle
       return;
     }
 
-    visiting.add(test.code);
+    visiting.add(test.testId);
 
     // Visit dependencies first (if they are also derived tests)
     for (const depCode of test.dependsOnCodes) {
-      const depTest = codeToTest.get(depCode);
-      if (depTest) {
+      for (const depTest of codeToTests.get(depCode) ?? []) {
         visit(depTest);
       }
     }
 
-    visiting.delete(test.code);
-    visited.add(test.code);
+    visiting.delete(test.testId);
+    visited.add(test.testId);
     result.push(test);
   }
 
