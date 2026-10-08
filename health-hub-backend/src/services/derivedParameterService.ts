@@ -39,6 +39,25 @@ export interface DerivedFormulaTarget {
 
 export interface EvaluatedDerivedFormula extends DerivedFormulaTarget {
   value: number | null;
+  /** Printed in place of a value that must not be calculated (Friedewald above TG 400). */
+  note?: string | null;
+}
+
+// Friedewald (VLDL = TG/5, LDL = TCH - VLDL - HDL) is not valid above 400 mg/dL of
+// triglycerides. Formulas have no conditionals, so the rule keys on a formula going
+// through VLDL or TG/5 with any triglyceride code above 400, for every catalog. The
+// row prints a note instead of a number (owner decision, 8 Oct 2026) and counts as
+// entered; the tech can switch it to Manual and type a direct LDL. Same rule and
+// wording in health-hub/src/lib/formulaUtils.ts.
+const TG_CODES = ['STGL', 'TGL', 'TRIG', 'TG'];
+export const FRIEDEWALD_NOTE = 'Not calculated: triglycerides above 400 mg/dL.';
+export const FRIEDEWALD_LDL_NOTE = `${FRIEDEWALD_NOTE} A direct LDL test is advised.`;
+
+export function friedewaldBlocked(formula: string, values: Map<string, number>): boolean {
+  return (
+    /\bVLDL\b|\b(STGL|TGL|TRIG|TG)\s*\/\s*5\b/.test(formula) &&
+    TG_CODES.some((code) => (values.get(code) ?? 0) > 400)
+  );
 }
 
 export function normalizeDependencyCodes(raw: unknown): string[] {
@@ -162,7 +181,8 @@ export function evaluateDerivedTargets(
   const results: EvaluatedDerivedFormula[] = [];
 
   for (const target of orderedTargets) {
-    const value = safeEvaluateFormula(target.formula, workingValues);
+    const blocked = friedewaldBlocked(target.formula, workingValues);
+    const value = blocked ? null : safeEvaluateFormula(target.formula, workingValues);
 
     if (value !== null) {
       workingValues.set(target.code, value);
@@ -173,6 +193,7 @@ export function evaluateDerivedTargets(
     results.push({
       ...target,
       value,
+      note: blocked ? (/VLDL/i.test(target.code) ? FRIEDEWALD_NOTE : FRIEDEWALD_LDL_NOTE) : null,
     });
   }
 
@@ -231,6 +252,7 @@ function safeEvaluateFormula(
   formula: string,
   values: Map<string, number>
 ): number | null {
+  if (friedewaldBlocked(formula, values)) return null;
   try {
     let expression = formula;
 

@@ -13,6 +13,32 @@ export interface DerivedTestInfo {
   dependsOnCodes: string[];
 }
 
+// Friedewald (VLDL = TG/5, LDL = TCH - VLDL - HDL) is not valid above 400 mg/dL of
+// triglycerides. Formulas have no conditionals, so the rule keys on a formula going
+// through VLDL or TG/5 with any triglyceride code above 400. The row shows a note
+// instead of a number (owner decision, 8 Oct 2026) and counts as entered; the tech
+// can switch it to Manual and type a direct LDL. Same rule and wording in the
+// backend's derivedParameterService.ts.
+const TG_CODES = ['STGL', 'TGL', 'TRIG', 'TG'];
+export const FRIEDEWALD_NOTE = 'Not calculated: triglycerides above 400 mg/dL.';
+export const FRIEDEWALD_LDL_NOTE = `${FRIEDEWALD_NOTE} A direct LDL test is advised.`;
+
+export function friedewaldBlocked(formula: string, valuesByCode: Map<string, number>): boolean {
+  return (
+    /\bVLDL\b|\b(STGL|TGL|TRIG|TG)\s*\/\s*5\b/.test(formula) &&
+    TG_CODES.some((code) => (valuesByCode.get(code) ?? 0) > 400)
+  );
+}
+
+/** The note a blocked row shows (VLDL short; LDL also advises a direct test), else null. */
+export function friedewaldNote(formula: string, code: string, valuesByCode: Map<string, number>): string | null {
+  if (!friedewaldBlocked(formula, valuesByCode)) return null;
+  return /VLDL/i.test(code) ? FRIEDEWALD_NOTE : FRIEDEWALD_LDL_NOTE;
+}
+
+export const isFriedewaldNote = (value: string | undefined | null) =>
+  !!value && value.startsWith(FRIEDEWALD_NOTE);
+
 /**
  * Safely evaluate a formula by replacing test codes with values.
  * Returns null on error, division by zero, or missing values.
@@ -25,6 +51,7 @@ export function safeEvaluateFormula(
   formula: string,
   valuesByCode: Map<string, number>
 ): number | null {
+  if (friedewaldBlocked(formula, valuesByCode)) return null;
   try {
     let expression = formula;
 

@@ -36,6 +36,8 @@ import {
   topologicalSortDerivedTests,
   buildReverseDependencyMap,
   DerivedTestInfo,
+  friedewaldNote,
+  isFriedewaldNote,
 } from '@/lib/formulaUtils';
 import {
   hasMeaningfulRichText,
@@ -629,9 +631,15 @@ const DiagnosticsResultEntry = () => {
           valuesByCode
         );
 
+        const note = friedewaldNote(derivedTest.formulaExpression, derivedTest.code, valuesByCode);
         if (calculatedValue !== null) {
           updated[derivedTest.testId] = formatDerivedValue(calculatedValue);
           valuesByCode.set(derivedTest.code, calculatedValue);
+          prefilledResultKeysRef.current.delete(derivedTest.testId);
+        } else if (note) {
+          // Not calculable (Friedewald above TG 400): the note stands in for the value.
+          updated[derivedTest.testId] = note;
+          valuesByCode.delete(derivedTest.code);
           prefilledResultKeysRef.current.delete(derivedTest.testId);
         } else {
           delete updated[derivedTest.testId];
@@ -1796,6 +1804,10 @@ const DiagnosticsResultEntry = () => {
   };
 
   const handleDerivedModeToggle = (resultKey: ResultKey, makeManual: boolean) => {
+    // Typing over a "Not calculated" note (e.g. a direct LDL) starts from an empty box.
+    if (makeManual && isFriedewaldNote(results[resultKey])) {
+      setResults((prev) => ({ ...prev, [resultKey]: '' }));
+    }
     setDerivedManualOverrides((prev) => {
       if (makeManual) {
         return {
@@ -1991,6 +2003,8 @@ const DiagnosticsResultEntry = () => {
       : null;
     const isManualDerived = isDerived && !!derivedManualOverrides[resultKey];
     const isAutoDerived = isDerived && !isManualDerived;
+    // A calculated row that must not be calculated shows its note, full width.
+    const showsNote = isAutoDerived && isFriedewaldNote(valueStr);
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
     const displayRefText = referenceRange.text || (hasNumericRange
@@ -2023,6 +2037,7 @@ const DiagnosticsResultEntry = () => {
     //                        these tests rarely have a meaningful reference.
     const hasReferenceContent = !!referenceRange.text || hasNumericRange;
     const valueCellSpan: 1 | 2 | 3 = (() => {
+      if (showsNote) return 3;
       if (isAutoDerived) return 1; // derived numeric tests stay tight
       if (inputConfig.inputType === 'NUMERIC') return 1;
       if (usePresetCombobox) return 3;
@@ -2077,7 +2092,12 @@ const DiagnosticsResultEntry = () => {
             Value
           </span>
           <div className="flex items-center gap-2">
-            {usePresetCombobox ? (
+            {showsNote ? (
+              <div className="flex-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {valueStr}
+                <span className="block text-xs text-amber-700/80">Prints on the report. Press Edit to type a direct value.</span>
+              </div>
+            ) : usePresetCombobox ? (
               <TestValueCombobox
                 value={valueStr}
                 onChange={(next) => handleValueChange(resultKey, next)}

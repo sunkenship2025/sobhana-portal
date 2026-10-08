@@ -5154,7 +5154,9 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
               continue;
             }
 
-            if (dr.value === null) {
+            // No value and nothing to say: drop the row. A note (Friedewald above
+            // TG 400) is saved as the row's text, so the report still counts as complete.
+            if (dr.value === null && !dr.note) {
               await prisma.testResult.deleteMany({
                 where: {
                   testOrderId: orderIdForDerived,
@@ -5166,12 +5168,12 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             }
 
             const derivedRange = derivedRanges.get(dr.testId);
-            const derivedFlag = derivedRange
+            const derivedFlag = derivedRange && dr.value !== null
               ? determineResultFlag(dr.value, derivedRange)
               : null;
             const derivedData = {
               value: dr.value,
-              textValue: null,
+              textValue: dr.value === null ? dr.note ?? null : null,
               flag: derivedFlag,
               notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
               testDefinitionId:

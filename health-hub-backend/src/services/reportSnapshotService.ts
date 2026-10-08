@@ -1071,7 +1071,7 @@ async function backfillDerivedResults(
   }
 
   const derivedResults = evaluateDerivedTargets(derivedTargets, resultsByCode)
-    .filter((result) => result.value !== null);
+    .filter((result) => result.value !== null || result.note);
 
   const syntheticResults = derivedResults.map((result) => {
     const context = targetContextByTestId.get(result.testId);
@@ -1086,7 +1086,7 @@ async function backfillDerivedResults(
       testId: result.testId,
       testDefinitionId: result.testDefinitionId ?? null,
       value: result.value,
-      textValue: null,
+      textValue: result.value === null ? result.note ?? null : null,
       flag: null,
       notes: `Auto-calculated: ${result.parameterName}`,
       test: context.test,

@@ -17,6 +17,7 @@ import {
   LabInchargeSnapshot,
   deriveConsultantTitle,
 } from './reportSnapshotService';
+import { FRIEDEWALD_NOTE } from './derivedParameterService';
 import fs from 'fs';
 import path from 'path';
 import sanitizeHtml from 'sanitize-html';
@@ -255,6 +256,16 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false, valueP
     valueDisplay = `${valuePrefix}${valueDisplay}`;
   }
   const indentClass = indent || test.indentLevel > 0 ? ' indent-1' : '';
+
+  // "Not calculated: triglycerides above 400 mg/dL…" is a sentence, not a value:
+  // it spans value, unit and range and wraps (the value column never wraps).
+  if (test.textValue?.startsWith(FRIEDEWALD_NOTE)) {
+    return `
+      <tr class="data-row${indentClass}">
+        <td class="col-test">${renderTestLabel(test)}</td>
+        <td class="col-value" colspan="3" style="white-space: normal; text-align: left;">${escapeHtml(test.textValue)}</td>
+      </tr>`;
+  }
 
   return `
       <tr class="data-row${indentClass}">
