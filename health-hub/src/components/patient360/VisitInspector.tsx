@@ -26,7 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AlertTriangle, Ban, Eye, EyeOff, FileText, Link2Off, Loader2, MessageCircle, Printer, ReceiptText, Sparkles, Unlink, X, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertTriangle, Ban, Eye, EyeOff, FileText, IndianRupee, Link2Off, Loader2, MessageCircle, Printer, ReceiptText, Sparkles, Unlink, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
@@ -36,10 +37,12 @@ import { SmartReportActionsDialog } from "./SmartReportActionsDialog";
 import { NoReportStatus } from "./NoReportStatus";
 import { PatientLinkDialog } from "./PatientLinkDialog";
 import { RefundDialog } from "./RefundDialog";
+import { CollectDueDialog } from "@/components/diagnostics/CollectDueDialog";
 import { ReportActions, canViewReport } from "./ReportActions";
 import { PrescriptionSection } from "./PrescriptionSection";
 import { SwapTestDialog } from "./SwapTestDialog";
 import { useAuthStore } from "@/store/authStore";
+import { formatCurrency } from "@/lib/patientDisplay";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
 import type { VisitTimelineItem } from "@/types";
 
@@ -144,6 +147,15 @@ function InspectorBody({
   // available as a money action, and referral edits are unaffected.
   const isFinalized = visit.reportStatus === "FINALIZED" || Boolean(visit.finalizedAt);
   const canRefund = isDiagnostic && hasBill && hasActiveOrders && !isCancelledVisit;
+  // Collect a balance on ANY diagnostic visit that still owes — bill-only and
+  // finished ones too, which never show on Pending Results. Same roles as that
+  // screen. The server already reports ₹0 due on cancelled/refunded visits.
+  const due = visit.dueAmountInPaise ?? 0;
+  const canCollect =
+    isDiagnostic && hasBill && !isCancelledVisit && due > 0 &&
+    (user?.role === "owner" || user?.role === "staff" || user?.role === "lab_incharge");
+  const [collectOpen, setCollectOpen] = useState(false);
+  const queryClient = useQueryClient();
   // Patient online access (report link + bill QR + patient app) — one switch per
   // visit, owner + lab incharge only. A cancelled visit's links are already
   // revoked by the refund flow, so the control stays hidden there.
@@ -355,6 +367,17 @@ function InspectorBody({
                 : "Send on WhatsApp"}
             </Button>
           )}
+          {canCollect && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="justify-start text-amber-700 hover:bg-amber-50 hover:text-amber-800 sm:col-span-2"
+              onClick={() => setCollectOpen(true)}
+            >
+              <IndianRupee className="mr-2 h-4 w-4" aria-hidden="true" />
+              Collect {formatCurrency(due)} due
+            </Button>
+          )}
           {canRefund && (
             <Button
               variant="outline"
@@ -406,14 +429,32 @@ function InspectorBody({
           onClose={() => setSmartDialog(null)}
         />
         {!(isDiagnostic && (canViewReport(visit) || hasNoReportOrders)) && linkOffNote}
-        {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
-            print-bill is the supported path. */}
       </div>
 
       {!isDiagnostic && (
         <PrescriptionSection visit={visit} patientPhone={patientPhone} linkToggle={linkToggle} />
       )}
 
+      <CollectDueDialog
+        bill={
+          collectOpen
+            ? {
+                visitId: visit.visitId,
+                branchId: visit.branchId,
+                totalAmountInPaise: visit.totalAmountInPaise,
+                discountAmountInPaise: visit.discountAmountInPaise,
+                couponDiscountInPaise: visit.couponDiscountInPaise,
+                couponCode: visit.couponCode,
+                netAmountInPaise: visit.netAmountInPaise,
+                paidAmountInPaise: visit.paidAmountInPaise,
+                dueAmountInPaise: visit.dueAmountInPaise,
+                paymentType: visit.paymentType,
+              }
+            : null
+        }
+        onClose={() => setCollectOpen(false)}
+        onCollected={() => queryClient.invalidateQueries({ queryKey: ["patient360"] })}
+      />
       {canRefund && (
         <RefundDialog
           visit={visit}

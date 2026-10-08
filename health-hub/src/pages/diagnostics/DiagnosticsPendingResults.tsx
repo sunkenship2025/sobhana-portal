@@ -6,20 +6,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { DISCOUNT_REASONS, NOTE_PLACEHOLDER, composeDiscountReason, reasonNeedsNote, type DiscountReason } from "@/lib/discountReasons";
 import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { toast } from "sonner";
 import { CheckCheck, Clock, Search, Phone, Stethoscope } from "lucide-react";
 import { searchWorklist } from "@/lib/worklistSearch";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -37,22 +26,9 @@ import {
   dateRangeKey,
 } from "@/lib/dateFilter";
 import { WorklistPager } from "@/components/worklist/WorklistPager";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { CollectDueDialog, type CollectDueResult } from "@/components/diagnostics/CollectDueDialog";
 import { formatPatientName, compactAge, formatRefDoctor, formatCurrency } from '@/lib/patientDisplay';
 import { formatPaymentModes } from '@/lib/paymentDisplay';
-
-type PaymentType = "CASH" | "ONLINE";
-
-const toSupportedPaymentType = (value: unknown): PaymentType => {
-  if (value === "ONLINE") return "ONLINE";
-  return "CASH";
-};
 
 // Collapse a list of test orders into a readable summary for the visit row.
 // Bill-only orders are hidden (they don't ship in a report). Orders collapse
@@ -199,31 +175,6 @@ const DiagnosticsPendingResults = () => {
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dueVisit, setDueVisit] = useState<any | null>(null);
-  const [collectAmount, setCollectAmount] = useState("");
-  const [collectPaymentType, setCollectPaymentType] =
-    useState<PaymentType>("CASH");
-  const [collectingDue, setCollectingDue] = useState(false);
-  const [collectSuccessId, setCollectSuccessId] = useState<string | null>(null);
-  // Optional discount applied while collecting the due. Mirrors the new-visit
-  // discount control; the reason is mandatory when a discount is entered.
-  const [collectDiscountMode, setCollectDiscountMode] = useState<
-    "NONE" | "PERCENTAGE" | "FLAT_AMOUNT"
-  >("NONE");
-  const [collectDiscountValue, setCollectDiscountValue] = useState("");
-  const [collectReasonPick, setCollectReasonPick] = useState("");
-  const [collectReasonNote, setCollectReasonNote] = useState("");
-  const collectDiscountReason = composeDiscountReason(collectReasonPick, collectReasonNote);
-  const setCollectDiscountReason = (v: string) => {
-    setCollectReasonPick(v);
-    setCollectReasonNote("");
-  };
-
-  const resetCollectDiscount = () => {
-    setCollectDiscountMode("NONE");
-    setCollectDiscountValue("");
-    setCollectDiscountReason("");
-  };
-
   const formatMoneyFromPaise = (amountInPaise?: number | null) =>
     `₹${((amountInPaise ?? 0) / 100).toLocaleString("en-IN", {
       minimumFractionDigits: 2,
@@ -382,166 +333,31 @@ const DiagnosticsPendingResults = () => {
     navigate(`/diagnostics/results/${visit.id}`);
   };
 
-  // The additional discount (in paise) entered in the dialog, and the resulting
-  // preview of Discount / Net / Balance so the operator sees the effect live.
-  const collectPreview = useMemo(() => {
-    if (!dueVisit) return null;
-    const totalPaise = Math.round((dueVisit.totalAmount ?? 0) * 100);
-    const existingDiscountPaise = dueVisit.discountAmountInPaise ?? 0;
-    const netPaise = dueVisit.netAmountInPaise ?? 0;
-    const paidPaise = dueVisit.paidAmountInPaise ?? 0;
-    const value = Number(collectDiscountValue);
-    const active =
-      collectDiscountMode !== "NONE" && Number.isFinite(value) && value > 0;
-    const incrementPaise = !active
-      ? 0
-      : collectDiscountMode === "PERCENTAGE"
-        ? Math.round((totalPaise * Math.min(100, value)) / 100)
-        : Math.round(value * 100);
-    const discountPaise = Math.min(totalPaise, existingDiscountPaise + incrementPaise);
-    const netPreview = Math.max(0, netPaise - incrementPaise);
-    const duePreview = Math.max(0, netPreview - paidPaise);
-    return {
-      active,
-      discountPaise,
-      netPreview,
-      duePreview,
-      // The discount is bigger than the remaining balance — the patient has
-      // already paid more than the new net, so a refund is needed first.
-      tooLarge: incrementPaise > 0 && netPreview < paidPaise,
-    };
-  }, [dueVisit, collectDiscountMode, collectDiscountValue]);
+  const openCollectDue = (visit: any) => setDueVisit(visit);
 
-  // Keep "Collect Now" defaulted to the balance after the entered discount, so
-  // the common case (collect the reduced balance) needs no manual retyping.
-  const syncCollectAmountToDiscount = (
-    mode: typeof collectDiscountMode,
-    rawValue: string,
-  ) => {
-    if (!dueVisit) return;
-    const totalPaise = Math.round((dueVisit.totalAmount ?? 0) * 100);
-    const netPaise = dueVisit.netAmountInPaise ?? 0;
-    const paidPaise = dueVisit.paidAmountInPaise ?? 0;
-    const value = Number(rawValue);
-    const incrementPaise =
-      mode !== "NONE" && Number.isFinite(value) && value > 0
-        ? mode === "PERCENTAGE"
-          ? Math.round((totalPaise * Math.min(100, value)) / 100)
-          : Math.round(value * 100)
-        : 0;
-    const duePreview = Math.max(0, Math.max(0, netPaise - incrementPaise) - paidPaise);
-    setCollectAmount(duePreview > 0 ? String(duePreview / 100) : "0");
-  };
-
-  const openCollectDue = (visit: any) => {
-    const firstPaymentType =
-      typeof visit.paymentType === "string"
-        ? visit.paymentType.split(",")[0]?.trim()
-        : undefined;
-
-    setDueVisit(visit);
-    resetCollectDiscount();
-    setCollectAmount(
-      visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : "",
+  // The list row takes the bill's new money fields straight from the server.
+  const applyCollected = (data: CollectDueResult) =>
+    setPendingVisits((prev) =>
+      prev.map((visit) =>
+        visit.id === dueVisit?.id
+          ? {
+              ...visit,
+              paymentType: data.paymentType,
+              paymentBreakdown: data.paymentBreakdown,
+              paymentStatus: data.paymentStatus,
+              discountType: data.discountType,
+              discountPercentage: data.discountPercentage,
+              discountAmountInPaise: data.discountAmountInPaise,
+              discountReason: data.discountReason,
+              couponDiscountInPaise: data.couponDiscountInPaise,
+              couponCode: data.couponCode,
+              paidAmountInPaise: data.paidAmountInPaise,
+              netAmountInPaise: data.netAmountInPaise,
+              dueAmountInPaise: data.dueAmountInPaise,
+            }
+          : visit,
+      ),
     );
-    setCollectPaymentType(toSupportedPaymentType(firstPaymentType));
-  };
-
-  const handleCollectDue = async () => {
-    if (!dueVisit) return;
-
-    const discountActive = collectDiscountMode !== "NONE";
-    const discountVal = Number(collectDiscountValue);
-    if (discountActive) {
-      if (!Number.isFinite(discountVal) || discountVal <= 0) {
-        toast.error("Enter a valid discount");
-        return;
-      }
-      if (!collectDiscountReason.trim()) {
-        toast.error("A reason is required to apply a discount");
-        return;
-      }
-      if (reasonNeedsNote(collectReasonPick) && !collectReasonNote.trim()) {
-        toast.error("Say why in the note — \"Other\" needs a few words");
-        return;
-      }
-      if (collectPreview?.tooLarge) {
-        toast.error(
-          "Discount is larger than the remaining balance — refund the overpaid amount first",
-        );
-        return;
-      }
-    }
-
-    const amount = Number(collectAmount);
-    // A discount that clears the whole balance can be applied with no collection.
-    const isWaiver = discountActive && (collectPreview?.duePreview ?? 1) === 0;
-    if (!isWaiver && (!Number.isFinite(amount) || amount <= 0)) {
-      toast.error("Enter a valid collection amount");
-      return;
-    }
-
-    setCollectingDue(true);
-    try {
-      const response = await fetch(
-        `${API_BASE}/visits/diagnostic/${dueVisit.id}/collect-due`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            "X-Branch-Id": activeBranchId,
-          },
-          body: JSON.stringify({
-            amount: isWaiver ? 0 : amount,
-            paymentType: collectPaymentType,
-            ...(discountActive
-              ? {
-                  discountType: collectDiscountMode,
-                  discountValue: discountVal,
-                  discountReason: collectDiscountReason.trim(),
-                }
-              : {}),
-          }),
-        },
-      );
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to collect due");
-      }
-
-      setPendingVisits((prev) =>
-        prev.map((visit) =>
-          visit.id === dueVisit.id
-            ? {
-                ...visit,
-                paymentType: data.paymentType,
-                paymentBreakdown: data.paymentBreakdown,
-                paymentStatus: data.paymentStatus,
-                discountType: data.discountType,
-                discountPercentage: data.discountPercentage,
-                discountAmountInPaise: data.discountAmountInPaise,
-                discountReason: data.discountReason,
-                couponDiscountInPaise: (data as any).couponDiscountInPaise,
-                couponCode: (data as any).couponCode,
-                paidAmountInPaise: data.paidAmountInPaise,
-                netAmountInPaise: data.netAmountInPaise,
-                dueAmountInPaise: data.dueAmountInPaise,
-              }
-            : visit,
-        ),
-      );
-      toast.success(
-        discountActive ? "Discount applied & payment collected" : "Due payment collected",
-      );
-      setCollectSuccessId(dueVisit.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to collect due");
-    } finally {
-      setCollectingDue(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -813,230 +629,26 @@ const DiagnosticsPendingResults = () => {
           </CardContent>
         </Card>
 
-        <Dialog
-          open={Boolean(dueVisit)}
-          onOpenChange={(open) => {
-            if (!open) {
-              setDueVisit(null);
-              setCollectSuccessId(null);
-              setCollectAmount("");
-              resetCollectDiscount();
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {collectSuccessId ? "Payment Collected" : "Collect Due"}
-              </DialogTitle>
-            </DialogHeader>
-            {dueVisit && !collectSuccessId && (
-              <div className="space-y-4">
-                <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total</span>
-                    <span>
-                      {formatMoneyFromPaise(
-                        Math.round((dueVisit.totalAmount ?? 0) * 100),
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount</span>
-                    <span>
-                      -
-                      {formatMoneyFromPaise(
-                        collectPreview?.discountPaise ??
-                          dueVisit.discountAmountInPaise,
-                      )}
-                    </span>
-                  </div>
-                  {(dueVisit.couponDiscountInPaise ?? 0) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Coupon{dueVisit.couponCode ? ` (${dueVisit.couponCode})` : ""}
-                      </span>
-                      <span>-{formatMoneyFromPaise(dueVisit.couponDiscountInPaise)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-medium">
-                    <span>Net payable</span>
-                    <span>
-                      {formatMoneyFromPaise(
-                        collectPreview?.netPreview ?? dueVisit.netAmountInPaise,
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Already paid</span>
-                    <span>
-                      {formatMoneyFromPaise(dueVisit.paidAmountInPaise)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-amber-700">
-                    <span>Balance due</span>
-                    <span>
-                      {formatMoneyFromPaise(
-                        collectPreview?.duePreview ?? dueVisit.dueAmountInPaise,
-                      )}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Discount</Label>
-                  <div className="grid gap-2 sm:grid-cols-[130px_minmax(0,1fr)]">
-                    <Select
-                      value={collectDiscountMode}
-                      onValueChange={(value) => {
-                        const mode = value as typeof collectDiscountMode;
-                        setCollectDiscountMode(mode);
-                        setCollectDiscountValue("");
-                        setCollectDiscountReason("");
-                        syncCollectAmountToDiscount(mode, "");
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">No discount</SelectItem>
-                        <SelectItem value="PERCENTAGE">Percent %</SelectItem>
-                        <SelectItem value="FLAT_AMOUNT">Amount ₹</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      value={collectDiscountValue}
-                      onChange={(e) => {
-                        setCollectDiscountValue(e.target.value);
-                        syncCollectAmountToDiscount(
-                          collectDiscountMode,
-                          e.target.value,
-                        );
-                      }}
-                      placeholder={
-                        collectDiscountMode === "PERCENTAGE"
-                          ? "Enter discount %"
-                          : "Enter discount amount"
-                      }
-                      disabled={collectDiscountMode === "NONE"}
-                    />
-                  </div>
-                  {collectDiscountMode !== "NONE" && (
-                    <div className="grid gap-2 sm:grid-cols-[200px_minmax(0,1fr)]">
-                      <Select value={collectReasonPick} onValueChange={setCollectReasonPick}>
-                        <SelectTrigger aria-label="Discount reason">
-                          <SelectValue placeholder="Pick a reason (required)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DISCOUNT_REASONS.map((r) => (
-                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        aria-label="Discount note"
-                        placeholder={collectReasonPick ? NOTE_PLACEHOLDER[collectReasonPick as DiscountReason] : "Note (optional)"}
-                        value={collectReasonNote}
-                        onChange={(e) => setCollectReasonNote(e.target.value)}
-                      />
-                    </div>
-                  )}
-                  {collectPreview?.tooLarge && (
-                    <p className="text-xs text-destructive">
-                      Discount is larger than the remaining balance. Refund the
-                      overpaid amount first.
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Collect Now (₹)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={(collectPreview?.duePreview ?? dueVisit.dueAmountInPaise ?? 0) / 100}
-                    step="1"
-                    value={collectAmount}
-                    onChange={(e) => setCollectAmount(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Payment Type</Label>
-                  <Select
-                    value={collectPaymentType}
-                    onValueChange={(value) =>
-                      setCollectPaymentType(value as PaymentType)
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CASH">Cash</SelectItem>
-                      <SelectItem value="ONLINE">Online</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-            {dueVisit && collectSuccessId && (
-              <div className="space-y-4 py-4 text-center">
-                <div className="text-muted-foreground mb-4">
-                  Payment recorded successfully. You can now print the updated
-                  bill.
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() =>
-                    window.open(
-                      `/bill/print/DIAGNOSTICS/${collectSuccessId}`,
-                      "_blank",
-                    )
-                  }
-                >
-                  Print Updated Bill
-                </Button>
-              </div>
-            )}
-            <DialogFooter>
-              {!collectSuccessId ? (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setDueVisit(null);
-                      resetCollectDiscount();
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleCollectDue}
-                    disabled={collectingDue || !collectAmount}
-                  >
-                    {collectingDue ? "Collecting..." : "Collect Payment"}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDueVisit(null);
-                    setCollectSuccessId(null);
-                    setCollectAmount("");
-                    resetCollectDiscount();
-                  }}
-                >
-                  Close
-                </Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <CollectDueDialog
+          bill={
+            dueVisit
+              ? {
+                  visitId: dueVisit.id,
+                  branchId: activeBranchId ?? "",
+                  totalAmountInPaise: Math.round((dueVisit.totalAmount ?? 0) * 100),
+                  discountAmountInPaise: dueVisit.discountAmountInPaise,
+                  couponDiscountInPaise: dueVisit.couponDiscountInPaise,
+                  couponCode: dueVisit.couponCode,
+                  netAmountInPaise: dueVisit.netAmountInPaise,
+                  paidAmountInPaise: dueVisit.paidAmountInPaise,
+                  dueAmountInPaise: dueVisit.dueAmountInPaise,
+                  paymentType: dueVisit.paymentType,
+                }
+              : null
+          }
+          onClose={() => setDueVisit(null)}
+          onCollected={applyCollected}
+        />
       </div>
     </AppLayout>
   );
