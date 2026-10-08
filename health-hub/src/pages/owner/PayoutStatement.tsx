@@ -128,16 +128,22 @@ export default function PayoutStatement() {
   const rangeMode = Boolean(rangeMatch);
   const rangePayeeType = rangeMatch?.[1];
   const rangePayeeId = rangeMatch?.[2];
-  // Range resolution: explicit URL ?from/?to  →  the period last picked on the
-  // Pay-Run (persisted)  →  current month. This makes the statement reflect the
-  // range chosen up top even when a cached/bare URL dropped the query params.
+  // Range resolution, ONE source for both dates and the label: the URL's
+  // ?from&to  →  the period last picked on the Pay-Run (persisted)  →  the
+  // current month. Mixing sources once put one period's label on another
+  // period's numbers, so a label is only ever taken from where the dates came.
   const stored = storedPeriod();
-  const rangeFrom = searchParams.get("from") || stored.from || currentMonthRange().from;
-  const rangeTo = searchParams.get("to") || stored.to || currentMonthRange().to;
-  // Same precedence for the label so the statement/print/Excel headers read
-  // identically to the range up top — no UTC→IST "1 Sept" drift, no mismatch.
-  const periodLabel =
-    searchParams.get("plabel") || stored.plabel || `${fmtYmd(rangeFrom)} – ${fmtYmd(rangeTo)}`;
+  const urlFrom = searchParams.get("from");
+  const urlTo = searchParams.get("to");
+  const source =
+    urlFrom && urlTo
+      ? { from: urlFrom, to: urlTo, plabel: searchParams.get("plabel") || undefined }
+      : stored.from && stored.to
+        ? stored
+        : { ...currentMonthRange(), plabel: undefined };
+  const rangeFrom = source.from!;
+  const rangeTo = source.to!;
+  const periodLabel = source.plabel || `${fmtYmd(rangeFrom)} – ${fmtYmd(rangeTo)}`;
   // Sales can view/manage payouts but must never send WhatsApp. Range statements
   // are also not tokenised for WhatsApp, so the button is hidden in that mode.
   const canSendWhatsApp = user?.role !== "sales" && !rangeMode;

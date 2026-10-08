@@ -726,8 +726,8 @@ export default function PayoutsList() {
                           selected={selected}
                           selectMode={selectMode}
                           onToggle={toggleRow}
-                          onStatement={(id) => navigate(`/owner/payouts/${id}`)}
-                          onPrint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
+                          onStatement={openStatement}
+                          onPrint={openPrintStatement}
                         />
                       )}
                     </SectionCard>

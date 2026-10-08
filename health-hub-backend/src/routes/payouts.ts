@@ -56,21 +56,16 @@ function parseSyntheticPayeeId(
   return m ? { payeeType: m[1] as PayoutDoctorType, payeeId: m[2] } : null;
 }
 
-// Range for a synthetic-id request: prefer explicit query dates (startDate/
-// endDate or from/to), else fall back to the current calendar month — which is
-// what the worklist defaults to, so a cached old frontend lands on the right
-// period in the common case.
-function resolveSyntheticRange(query: Record<string, unknown>): { start: Date; end: Date } {
-  const start =
-    parseDate(query.startDate) ?? parseDate(query.from);
+// Range for a doctor/partner range statement: the query's dates (startDate/
+// endDate or from/to), or null. No guessing: a fallback to "this month" once
+// served a statement for the wrong period under the chosen period's label, with
+// nothing on the page to say so. Callers answer null with NO_DATES.
+function resolveSyntheticRange(query: Record<string, unknown>): { start: Date; end: Date } | null {
+  const start = parseDate(query.startDate) ?? parseDate(query.from);
   const end = parseDate(query.endDate) ?? parseDate(query.to);
-  if (start && end) return { start, end };
-  const now = new Date();
-  return {
-    start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)),
-    end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)),
-  };
+  return start && end ? { start, end } : null;
 }
+const NO_DATES = { error: 'VALIDATION_ERROR', message: 'Pick the dates for this statement' };
 
 // ============================================================================
 // GET /api/payouts — list (server-side: q, page, sort, totals)
@@ -595,9 +590,9 @@ router.get('/statement', requireRole('owner', 'staff', 'lab_incharge', 'sales'),
       });
     }
 
-    // Missing / unparseable dates (e.g. a stale frontend sending "null") fall
-    // back to the current month rather than 400-ing.
-    const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+    const range = resolveSyntheticRange(req.query as Record<string, unknown>);
+    if (!range) return res.status(400).json(NO_DATES);
+    const { start, end } = range;
     const statement = await payoutService.getPayoutStatementForDoctorRange(
       payeeType,
       payeeId,
@@ -632,9 +627,9 @@ router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sale
       });
     }
 
-    // Missing / unparseable dates (e.g. a stale frontend sending "null") fall
-    // back to the current month rather than 400-ing.
-    const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+    const range = resolveSyntheticRange(req.query as Record<string, unknown>);
+    if (!range) return res.status(400).json(NO_DATES);
+    const { start, end } = range;
     const payout = await payoutService.getPayoutDetailForDoctorRange(
       payeeType,
       payeeId,
@@ -705,7 +700,9 @@ router.get('/:id', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async
     // Cached-old-frontend compatibility: a per-doctor id → derive over a range.
     const synthetic = parseSyntheticPayeeId(id);
     if (synthetic) {
-      const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+      const range = resolveSyntheticRange(req.query as Record<string, unknown>);
+      if (!range) return res.status(400).json(NO_DATES);
+      const { start, end } = range;
       const detail = await payoutService.getPayoutDetailForDoctorRange(
         synthetic.payeeType,
         synthetic.payeeId,
@@ -745,7 +742,9 @@ router.get('/:id/statement', requireRole('owner', 'staff', 'lab_incharge', 'sale
     // instead of 404-ing on a missing single-day ledger row.
     const synthetic = parseSyntheticPayeeId(req.params.id);
     if (synthetic) {
-      const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+      const range = resolveSyntheticRange(req.query as Record<string, unknown>);
+      if (!range) return res.status(400).json(NO_DATES);
+      const { start, end } = range;
       const statement = await payoutService.getPayoutStatementForDoctorRange(
         synthetic.payeeType,
         synthetic.payeeId,
@@ -815,14 +814,10 @@ router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales')
 
     // Cached-old-frontend compatibility: a per-doctor id → derive over a range.
     const synthetic = parseSyntheticPayeeId(id);
+    const range = synthetic ? resolveSyntheticRange(req.query as Record<string, unknown>) : null;
+    if (synthetic && !range) return res.status(400).json(NO_DATES);
     const payout = synthetic
-      ? await payoutService.getPayoutDetailForDoctorRange(
-          synthetic.payeeType,
-          synthetic.payeeId,
-          branchId,
-          resolveSyntheticRange(req.query as Record<string, unknown>).start,
-          resolveSyntheticRange(req.query as Record<string, unknown>).end
-        )
+      ? await payoutService.getPayoutDetailForDoctorRange(synthetic.payeeType, synthetic.payeeId, branchId, range!.start, range!.end)
       : await payoutService.getPayoutDetail(id);
     if (!payout) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
