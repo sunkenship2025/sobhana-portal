@@ -9,7 +9,7 @@ Index of every backend route file, what it covers, and the most important endpoi
 ## Conventions
 
 - **Base URL:** `https://<your-backend-host>` (e.g. `http://localhost:10000` in dev). All `/api/*` endpoints listed below are relative to this base.
-- **Auth:** every `/api/*` endpoint requires `Authorization: Bearer <jwt>` and `X-Branch-Id: <branchId>` headers, except `/api/auth/login`. Public routes (`/reports/:token`, `/webhooks/whatsapp`) are deliberately mounted before auth middleware.
+- **Auth:** every `/api/*` endpoint requires `Authorization: Bearer <jwt>` and `X-Branch-Id: <branchId>` headers, except `/api/auth/login`. Public routes (`/reports/:token`, `/c/:token`, `/webhooks/whatsapp`) are deliberately mounted before auth middleware.
 - **Errors:** consistent JSON shape — `{ "error": "<MACHINE_CODE>", "message": "<human readable>", "requestId": "<uuid>" }`. Status codes follow REST conventions: 400 validation, 401 unauthenticated, 403 forbidden, 404 not found, 409 conflict (optimistic-lock failures), 500 internal.
 - **Optimistic locks:** version-creating endpoints (`POST /clinical-definitions/:rootId/new-version`) accept `If-Match: <updatedAt>`. A mismatch returns 409.
 - **Request IDs:** every response includes `X-Request-Id`. Echo this when reporting bugs — it ties the FE request to the BE Pino log line and Sentry event.
@@ -23,6 +23,7 @@ Index of every backend route file, what it covers, and the most important endpoi
 |---|---|---|---|
 | `/health` | GET | Liveness + dependency probes (Postgres / Redis / R2 / Puppeteer). Returns 503 only when Postgres is unhealthy. | `index.ts` |
 | `/reports/:token` | GET | Streams the merged report PDF for a finalized visit. Token is the SHA-256-hashed bearer issued at finalize time. Logs every access to `ReportAccessLog`. | `reportDownload.ts` |
+| `/c/:token` | GET | Public, token-gated landing a participant reaches from the WhatsApp coupon message. Renders a branded, campaign-themed page. | `couponGateway.ts` |
 | `/webhooks/whatsapp` | GET / POST | Meta Cloud API webhook. GET for token verification (`hub.verify_token`), POST for delivery callbacks. | `webhooks.ts` |
 | `/` | GET | Returns `{status: "ok", service, timestamp}` — Render's port-detection probe. | `index.ts` |
 
