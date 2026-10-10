@@ -162,8 +162,9 @@ In order:
 | `mergedReportPdfService` | Appends external PDF uploads to base report via pdf-lib |
 | `mergedReportPdfCache` | 7-day Redis cache of rendered merged PDFs |
 | `reportAccessService` | Token generation/validation for public report URLs |
+| `statementAccessService` | Token generation/validation for public payout statement URLs |
 | `notificationService` + `whatsappCloudService` | Fire-and-forget WhatsApp delivery |
-| `payoutService` | Doctor commission derivation per finalized visit |
+| `payoutService` | Doctor and external lab commission derivation per finalized visit |
 | `auditService` | Append to `AuditLog` (insert-only) |
 | `signingDoctorService` | Signature image storage + signing rule resolution |
 | `ownerDashboardService` | Aggregated metrics for owner dashboard |
@@ -284,6 +285,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `DiagnosticReport` → `ReportVersion` | Versioned report container. `status: DRAFT \| FINALIZED`. `finalizedAt` set on finalize. |
 | `ReportAccessToken` | SHA-256 hashed bearer token → `ReportVersion`. Used in patient-facing URLs. |
 | `BillAccessToken` | Secure public access tokens for bill PDF links sent via WhatsApp |
+| `StatementAccessToken` | Secure public access tokens for payout statement links sent via WhatsApp |
 | `ReportAccessLog` | Append-only — every view/download/print event |
 
 ### Clinical catalog (new architecture)
@@ -320,7 +322,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | Model | Purpose |
 |---|---|
 | `AuditLog` | Append-only — login, finalize, payout, edit. Insert-only by convention (no UPDATE/DELETE in code). |
-| `MessageLog` | WhatsApp / SMS delivery log |
+| `MessageLog` | WhatsApp / SMS delivery log (supports patient or non-patient targets) |
 | `DoctorPayoutLedger` | Payout snapshots per period |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
 
