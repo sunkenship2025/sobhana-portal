@@ -9,6 +9,16 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **UI/UX Refinements:** Added `LoadingState` and `EmptyState` across diagnostic list pages and owner management list empties. Payout status pills and `StatusBadge` now use an amber hue for pending states. Icon-only buttons now have `aria-label`s for better accessibility.
+
+### Changed
+- **React Query Migration Progress:** Refactored `ManageDiagnosticCenters` and `ManageDepartments` to use the shared React Query layer. `queryClient` is now centralized as a singleton (`src/lib/queryClient.ts`), and `branchStore.setActiveBranch` now flushes the query cache on active branch change, fixing cross-branch stale data.
+- **Print Formatting Enhancements:** Report print outputs now feature larger test rows (11pt), smaller methods text, locked signature/QR blocks to the physical bottom page, reserved letterhead footer margins (2.2cm), and wider dynamic Result columns for better readability.
+- **Unified Visit Entry Views:** Brought Clinic and Diagnostics New Visit pages to a consistent look, standardizing fields, keyboard hints, and layouts.
+- **Money Labels Unification:** Replaced varied terminology across bills and visits with a standardized vocabulary: Total, Discount, Net payable, Paid, Balance due.
+
+
+### Added
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
