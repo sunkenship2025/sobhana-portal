@@ -9,6 +9,10 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts Redesign:** Completely overhauled the payouts feature with new UX, per-product centre-defined categories, and 'outsource to lab' functionalities via a new `ExternalLab` service. Includes a real print document for statements, worklist redesign, and WhatsApp statement delivery.
+- **Order Refunds:** Added infrastructure for order refund handling, splitting money-returned from charge-reversed, and endpoints + Patient360 UI for cancel/refund actions.
+- **Patient 360 Enhancements:** Implemented backend summary + paginated timeline split endpoints, exact due calculation, and ability to send bills on WhatsApp. Added crisp zoom controls for report previews and inline bill previews.
+- **New Roles:** Added `lab_incharge` and `sales` roles with per-role access control.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +26,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Print Enhancements:** Updated print formatting with larger rows (11pt), centered logo, and tighter margins. Locked signature/QR block to the bottom of the physical page and reserved a 2.2cm footer space.
+- **Pending Results / Overview Updates:** Dropped the date filter to default to 'All Time' for pending results, fixed overdue logic, and dropped 'Finalize' terminology for non-finalizers. Added proper empty states.
+- **Roles & Security:** Removed unused `doctor` role and portal, removed boot-time DB mutation, and secured signature path traversal. Preserved signatory information for report immutability.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
