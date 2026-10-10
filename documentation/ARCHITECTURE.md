@@ -514,3 +514,6 @@ These exist; they're tracked here so newcomers don't think they're invisible.
 9. **God pages on the frontend** — `DiagnosticsNewVisit.tsx` 2,234 LOC, `ManagePanelDefinitions.tsx` 1,769, etc. Decomposition is a tracked refactor.
 10. **No background-job runner** — WhatsApp, payouts, snapshot generation all run in-request. A proper queue (BullMQ etc.) is on the roadmap.
 11. **Routes call Prisma directly** — should go through a `repositories/` layer. Repeated `include` patterns are duplicated across files.
+
+### PDF Render Cache
+- **`mergedReportPdfCache`:** 7-day Redis cache of rendered merged PDFs. Uses a schema version prefix (e.g., `v11`) to manually handle cache invalidation when styling/layout changes occur.
