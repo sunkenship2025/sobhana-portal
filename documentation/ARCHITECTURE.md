@@ -29,14 +29,15 @@ A **multi-branch, role-based** healthcare portal for diagnostics and clinic visi
 | Role | Capabilities |
 |---|---|
 | `staff` | Register patients, create bills/visits, enter results, finalize reports |
-| `doctor` | Review finalized reports, doctor dashboard |
-| `owner` | Everything `staff` + `doctor` can do, plus payouts, audit logs, test catalog, signing-doctor management |
+| `lab_incharge` | Review finalized reports, sign reports |
+| `sales` | Manage outside labs and referral doctors |
+| `owner` | Everything `staff`, `lab_incharge` and `sales` can do, plus payouts, audit logs, test catalog |
 | `admin` | Reserved — used for cross-branch admin tooling |
 
 **Domains**
 
 - **Diagnostics** — lab work: register → order tests → enter results → finalize → deliver via WhatsApp
-- **Clinic** — outpatient/inpatient consultations, doctor dashboards, prescription printing
+- **Clinic** — outpatient/inpatient consultations, prescription printing
 - **Owner** — catalog, payouts, audit, signing-doctor configuration
 - **Public** — token-protected report download (no login)
 
@@ -197,11 +198,10 @@ React Router 6 with `<ProtectedRoute>`:
 
 | Path prefix | Roles |
 |---|---|
-| `/diagnostics/*` | `staff`, `owner` |
+| `/diagnostics/*` | `staff`, `owner`, `lab_incharge` |
 | `/clinic/*` | `staff`, `owner` |
-| `/doctor` | `doctor`, `owner` |
-| `/owner/*` | `owner` |
-| `/bill-print/:visitId`, `/report/:visitId` | `staff`, `owner`, `doctor` |
+| `/owner/*` | `owner`, `sales` |
+| `/bill-print/:visitId`, `/report/:visitId` | `staff`, `owner`, `lab_incharge` |
 | `/reports/*` | public — served by backend, not React Router |
 
 Code-splitting today: `AdminConfigCenter` lazy-loads its 5–7 admin tab pages, and `DiagnosticsReportPreview` lazy-loads `PdfPreview` (react-pdf is ~140 KB gzipped). Other routes are eagerly imported — see [Known architectural debts](#9-known-architectural-debts).
@@ -440,8 +440,9 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 
 ### Public report & bill tokens
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
-- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`, `BillAccessToken.token`, `StatementAccessToken.token`). Bearer is not recoverable.
 - Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
+- `revokedAt` is set when underlying item (bill, payout) is voided, blocking the public link.
 - Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
 
 ### Transport

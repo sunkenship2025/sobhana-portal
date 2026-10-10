@@ -9,6 +9,12 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts Redesign:** Added comprehensive statement and external lab payouts capabilities. `ExternalLab` and `ExternalLabProductRule` enable tracking outsourced lab commissions. Also introduced token-gated WhatsApp delivery for statements (`StatementAccessToken`).
+- **Order Refunds:** Added schema and money math foundation for tracking money-returned vs. charge-reversed. Includes cancellation/refund endpoints and Patient 360 UI integration.
+- **Roles & Permissions:** Added `lab_incharge` and `sales` roles with per-role access control; removed unused `doctor` role and portal.
+- **Patient 360 Redesign:** Architectural split to solve N+1 queries. Added summary endpoint and paginated timeline endpoints with smart search. Inline bill previews with clean PDF viewer.
+- **Report Editor & Rendering:** Made report editor 1:1 with printed output (true WYSIWYG) and converted font-size overrides to honest sizes. Enlarged text globally on reports and implemented dynamic result column width for robust text wrapping.
+- **Cloud Sync:** Added Cloud Sync feature for narrative/text reports with per-user overrides and organizational defaults.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +28,8 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Security & Token Gateways:** Hardened public gateways for reports, bills, and statements. Added `revokedAt` feature to access tokens that invalidate them on cancellations.
+- **Result Entry Validation:** Converted 15 X-ray products to `BILL_ONLY` format, allowing closure with "no report needed" for film-only workflows.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
