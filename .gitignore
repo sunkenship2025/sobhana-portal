@@ -72,3 +72,4 @@ graphify-out/
 go-proxy.js
 extras/*.sql
 *.dump
+health-hub-backend/test-results/
