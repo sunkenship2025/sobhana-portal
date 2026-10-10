@@ -9,6 +9,12 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Events & Coupons Module:** Added a configuration-driven module for event-participation products. This includes an `EVENT` diagnostic workflow mode, `CouponCampaign` configuration, `Coupon` generation, and token-gated branded pages (`/c/:token`) delivered via WhatsApp templates.
+- **Order Refunds:** Added schema (`OrderRefund` model) and logic to support per-order partial and full refunds. Changes update net due math correctly and integrate with `PaymentTransaction` REFUND logic.
+- **External Lab Payouts:** Support added for calculating payouts to outsourced vendor labs (`ExternalLab`) utilizing per-product rate overrides (`ExternalLabProductRule`). This utilizes the `DoctorPayoutLedger` with a `LAB` doctor type.
+- **Statement Access Tokens:** Added the `StatementAccessToken` schema model to manage token-gated public access to payout statements for referral doctors and external labs.
+- **Role-Based Access Control Expansion:** Added `Lab Incharge` and `Sales` system user roles, introducing explicit access control logic across operational routes and UI elements.
+- **Narrative Report Cloud Sync Toggle:** Added a cloud sync toggle for narrative/text editors in results entry, allowing users (and lab incharges organization-wide) to switch sync behavior.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +28,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Payouts UX and Formatting:** Complete sweep of Payouts UX resulting in redesigned Pay-Run worklists, statement pages, status pill updates, category-banded statement prints, and direct WhatsApp delivery of tokenized statement links.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
