@@ -314,6 +314,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `ClinicDoctor` | In-house consulting doctor |
 | `SigningDoctor` + `SigningRule` | Doctor whose signature appears on reports + assignment rules per department |
 | `DiagnosticReferralCenter` + `DiagnosticCenter_Visit` | External diagnostic centers (referred-to / referred-from) |
+| `ExternalLab` + `ExternalLabProductRule` | Outside lab vendors for outsourced tests, tracking vendor costs (`rateType`, `ratePercent`, `rateAmountInPaise`) |
 
 ### Operational
 
@@ -440,7 +441,7 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 
 ### Public report & bill tokens
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
-- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`, `BillAccessToken.token`, `StatementAccessToken.token`). Bearer is not recoverable.
 - Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
 - Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
 
